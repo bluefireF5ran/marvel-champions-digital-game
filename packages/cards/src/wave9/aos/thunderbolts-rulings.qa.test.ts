@@ -127,6 +127,8 @@ const COUP = "50162";
 const RULE_THE_SKIES = "50140";
 const BATROC_MINION = "50161";
 const BATROC_LEAPER = "50163";
+const PALE_SPIDER = "50151"; // the treachery "Pale Little Spider"
+const BLACK_WIDOW_ALLY = "01075"; // Core ally, subtitle "Natasha Romanoff"
 const MEDICAL = "50181a";
 const AIM_ENERGY = "50184a";
 const ELITES = ["50139", "50143", "50148", "50152", "50156", "50161", "51039", "52035"];
@@ -597,20 +599,31 @@ describe("Rule the Skies (50140): 'Each Aerial character gets +1 ATK' (RRG 1.8 '
   });
 });
 
-describe("A name two cards share: Batroc the Leaper (50163) in the Batroc scenario (card text 50163; RRG 1.8 'Referential Ability' p. 36)", () => {
-  // The villain of scenario two is also named "Batroc". "Find Batroc and reveal him. (If he is already in play, he
-  // engages you.) Batroc activates against you. If no enemy activated this way, this card gains surge." The "him" found
-  // and revealed is the minion of the set, and the next sentence names the same Batroc. The RRG md copy prints only
-  // item 1 of the priority list under 'Referential Ability' ("the card on which the referential ability is printed"; the
-  // later items are cut from the copy), so the tie-break itself is not citable here: see the open point in
-  // docs/phase7-wave9-qa.md. The Thunderbolt sets are modular sets, which MC50 p. 11 lets a player add to scenario two.
-  // FINDING (docs/phase7-wave9-qa.md, Thunderbolts 4): `named` takes the first card in play with the title, the villain.
-  function leaperInBatroc() {
-    const config = wave9Scenario("batroc", {
+describe("A title two cards share (RRG 1.8 'Referential Ability' p. 36, 'Unique Icon' pp. 45-46)", () => {
+  // Card 50163: "Find Batroc and reveal him. (If he is already in play, he engages you.) Batroc activates against you.
+  // If no enemy activated this way, this card gains surge." The Thunderbolt sets are modular sets, which MC50 p. 11
+  // lets a player add to scenario two, whose villain is also the unique "Batroc".
+  //
+  // Was a finding (docs/phase7-wave9-qa.md, Thunderbolts 4), misread and fixed in part. The pin expected the found
+  // minion to attack and read the next revealed card as a surge. Neither holds:
+  // - RRG "Unique Icon": "A non-villain card in an out-of-play state that matches a card in play cannot enter play ...
+  //   If it was being revealed, any effects of it being revealed are ignored and the player revealing it is dealt a
+  //   facedown encounter card." The villain Batroc matches the minion Batroc (same title, no subtitle), so the minion
+  //   found is discarded and never engages. The extra card revealed afterward is that dealt card, not a surge.
+  // - RRG "Referential Ability": a title shared by several cards means the card(s) highest on its list: (1) the card
+  //   the ability is printed on, (2) cards of the same identity (identity, identity-specific cards, obligation, nemesis
+  //   set, side deck), (3) player cards for a player card's ability, encounter cards for an encounter card's. The
+  //   villain is the only "Batroc" in play, an encounter card: he activates, so the card does not gain surge.
+  // What was wrong, and is fixed: `named` took the first card in play with the title whatever its side, so an ally or
+  // hero of the title in play was named in place of the minion (the last test below).
+  // OPEN (owner): whether "Batroc activates against you" should mean only the Batroc just found, so that with the
+  // minion blocked nobody activates and the card surges. Built as the RRG reads; reported with this piece.
+  function sharedWithVillain(scenarioId: string, setId: string, treachery: string, minion: string) {
+    const config = wave9Scenario(scenarioId, {
       players: [SPIDER_MAN],
       seed: 1,
       difficulty: "standard",
-      modularSetIds: ["the_leaper"],
+      modularSetIds: [setId],
     });
     const created = createGame(config, DEPS);
     if (!created.ok) throw new Error(created.error.message);
@@ -618,34 +631,63 @@ describe("A name two cards share: Batroc the Leaper (50163) in the Batroc scenar
     s = heroForm(s);
     for (const id of cardsInPlay(s).filter((i) => inst(s, i).engagedWith)) s = setAsideNow(s, id);
     const villain = villainOf(s);
-    // Step two: the villain's boost card; step three: Batroc the Leaper; then the activation's boost card; a surge's card.
-    s = stackEncounterDeck(s, BLANKS[0]!, BATROC_LEAPER, BLANKS[1]!, BLANKS[2]!);
+    // Step two: the villain's boost card; step three: the treachery; then the activation's boost card and the card the
+    // unique rule deals.
+    s = stackEncounterDeck(s, BLANKS[0]!, treachery, BLANKS[1]!, BLANKS[2]!);
     const r = villainPhase(s);
     const revealed = r.events.map((e, i) =>
       e.type === "encounterCardRevealed" ? [i, codeOf(r.state, e.instanceId)] : null,
     );
-    const from = revealed.findIndex((x) => x?.[1] === BATROC_LEAPER);
-    const next = revealed.findIndex(
-      (x, i) => i > from && x !== null && x[1] !== BATROC_MINION && x[1] !== BATROC_LEAPER,
-    );
+    const from = revealed.findIndex((x) => x?.[1] === treachery);
+    const next = revealed.findIndex((x, i) => i > from && x !== null && x[1] !== minion && x[1] !== treachery);
     const window = r.events.slice(
       revealed[from]![0] as number,
       next === -1 ? undefined : (revealed[next]![0] as number),
     );
     const attacks = types(window, "attackResolved");
     return {
-      minionAttacks: attacks.filter((e) => codeOf(r.state, e.enemyInstanceId) === BATROC_MINION).length,
+      minionBlockedBy: types(window, "uniqueEntryBlocked")
+        .filter((e) => codeOf(r.state, e.instanceId) === minion)
+        .map((e) => e.matchedInstanceId === villain),
+      minionInPlay: inPlay(r.state, minion) !== undefined,
+      minionAttacks: attacks.filter((e) => codeOf(r.state, e.enemyInstanceId) === minion).length,
       villainAttacks: attacks.filter((e) => e.enemyInstanceId === villain).length,
-      surged: next !== -1,
+      surged: [...types(r.events, "surgeTriggered"), ...types(r.events, "surgeGranted")].some(
+        (e) => codeOf(r.state, e.instanceId) === treachery,
+      ),
     };
   }
+  const VILLAIN_IS_THE_ONLY_ONE = {
+    minionBlockedBy: [true],
+    minionInPlay: false,
+    minionAttacks: 0,
+    villainAttacks: 1,
+    surged: false,
+  };
 
-  it.fails("the minion Batroc activates against the revealer, the villain does not, and the card does not surge", () => {
-    expect(leaperInBatroc()).toEqual({ minionAttacks: 1, villainAttacks: 0, surged: false });
+  it("Batroc the Leaper in the Batroc scenario: the minion found cannot enter play, the villain Batroc activates, no surge", () => {
+    expect(sharedWithVillain("batroc", "the_leaper", BATROC_LEAPER, BATROC_MINION)).toEqual(VILLAIN_IS_THE_ONLY_ONE);
   });
 
-  it("today: the villain Batroc attacks instead of the minion he found, and the card still gains surge", () => {
-    expect(leaperInBatroc()).toEqual({ minionAttacks: 0, villainAttacks: 1, surged: true });
+  it("Pale Little Spider (50151) in the Black Widow scenario: the same, with the villain Black Widow", () => {
+    expect(sharedWithVillain("black-widow", "pale_little_spider", PALE_SPIDER, BLACK_WIDOW)).toEqual(
+      VILLAIN_IS_THE_ONLY_ONE,
+    );
+  });
+
+  // The Core ally Black Widow (01075, subtitle "Natasha Romanoff") does not match the minion for the unique rule (the
+  // titles are the same but one has a subtitle the other's title, subtitle and alter-ego title do not match), so both
+  // are in play. The treachery is an encounter card: its "Black Widow" is the minion.
+  it("with a Black Widow ally in play, the treachery's 'Black Widow' is the minion: she attacks once and the card does not surge", () => {
+    const { setupGame, villainPhase: phase } = setKit("pale_little_spider", PALE_LITTLE_SPIDER);
+    const ally = inPlayArea(heroForm(setupGame()), BLACK_WIDOW_ALLY);
+    const r = phase(ally.state, [BLANKS[0]!, PALE_SPIDER, BLANKS[1]!, BLANKS[2]!], planned());
+    const minion = inPlay(r.state, BLACK_WIDOW)!;
+    expect(inst(r.state, minion).engagedWith).toBe(P1);
+    expect(cardsInPlay(r.state)).toContain(ally.id);
+    expect(types(r.events, "attackResolved").filter((e) => e.enemyInstanceId === minion)).toHaveLength(1);
+    expect(types(r.events, "surgeTriggered")).toHaveLength(0);
+    expect(types(r.events, "surgeGranted")).toHaveLength(0);
   });
 });
 
@@ -708,8 +750,9 @@ describe("S.H.I.E.L.D. Executive Board", () => {
   // Card 50181a: "Spend [energy][energy] -> remove 1 secret counter from here. Then, heal 1 damage ..." RRG 1.8 "'Then'"
   // p. 44: the text before "then" must be fully resolved before the rest is. With no secret counter there is nothing to
   // remove, so nothing is healed (the action may also be refused outright: either is consistent with the text).
-  // FINDING (docs/phase7-wave9-qa.md, Thunderbolts 3): `removeCounters` skips a card holding none without marking the
-  // instruction unresolved, so the "Then" half runs: the action heals 1 with no secret counter to remove.
+  // Was a finding (docs/phase7-wave9-qa.md, Thunderbolts 3), fixed: `removeCounters` skipped a card holding none
+  // without marking the instruction unresolved, so the "Then" half ran and healed 1. A removal of fewer counters than
+  // asked now leaves the text before "then" unresolved (`countersNotRemoved`).
   const healedWithNoSecret = (): number => {
     const base = heroForm(setupGame());
     const hero = identityOf(base);
@@ -723,12 +766,8 @@ describe("S.H.I.E.L.D. Executive Board", () => {
     }
   };
 
-  it.fails("Chief Medical Officer's Hero Action with no secret counter left heals nothing ('Then', RRG p. 44)", () => {
+  it("Chief Medical Officer's Hero Action with no secret counter left heals nothing ('Then', RRG p. 44)", () => {
     expect(healedWithNoSecret()).toBe(0);
-  });
-
-  it("today: the same action with no secret counter still heals 1 (the cost is paid, nothing is removed)", () => {
-    expect(healedWithNoSecret()).toBe(1);
   });
 
   it("the Hero Action cannot be used from the alter-ego form (card text: 'Hero Action')", () => {

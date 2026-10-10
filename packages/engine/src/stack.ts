@@ -518,6 +518,15 @@ export type StackFrame =
        * instructions is prevented too (owner decision, docs/phase7-wave9.md §4.1 Q4 = A).
        */
       readonly attackDamagePrevented?: FrameId;
+      /**
+       * On the root frame of an "(attack)"-labeled ability: the attack it makes with its controller's identity was
+       * moved in the window of one of its `attack` events (`frameId`) off the enemy `from` onto `to` (`EffectSpec
+       * retargetAttack` with `attack: "player"`; `retargetAbilityAttack`, `resolve/attack-ability.ts`). The ability
+       * is one attack (RRG 1.8 "Attack (Player Ability Type)", p. 10), so `to` is its only target from then on: its
+       * other `attack` events and the damage its instructions aim at other enemies are not dealt (owner decision,
+       * docs/phase7-wave9.md §4.1 Q4 = A, provisional).
+       */
+      readonly attackRetargeted?: { readonly frameId: FrameId; readonly from: InstanceId; readonly to: InstanceId };
     })
   /** RRG "Attack (Enemy Activation)" steps 1–5; step 6 is the event frame's response window. */
   | (FrameBase & {

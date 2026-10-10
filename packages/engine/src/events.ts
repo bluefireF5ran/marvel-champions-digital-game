@@ -68,7 +68,12 @@ export type PreThenFailure =
    * A `replaceLeaveDestination` found no pending leaving it can send elsewhere (none, one already replaced, one with
    * a destination of its own), or no card to send it under (docs/phase7-wave9.md §3.20).
    */
-  | "leaveNotReplaced";
+  | "leaveNotReplaced"
+  /**
+   * A `removeCounters` asked for a number of counters and a card it named held fewer (none included), so fewer were
+   * removed than the text says. "Remove all counters" asks for no number and never marks.
+   */
+  | "countersNotRemoved";
 
 export type GameEvent =
   | {
@@ -853,13 +858,18 @@ export type GameEvent =
    * `reason: "attackCancelled"`: the enemy could be attacked, but the ability's attack was cancelled, so the
    * instruction's damage to it is not dealt (owner decision, 2026-10-08, docs/phase7-wave8.md §4.1 row 65; RRG 1.8
    * "Cancel", p. 11). Absent for an enemy that cannot be attacked.
+   *
+   * `reason: "attackRetargeted"`: the enemy could be attacked, but the ability's attack was moved onto one character
+   * in its "when … attacks" window ("resolve this attack against [this minion] instead"), which is its only target
+   * from then on (owner decision, docs/phase7-wave9.md §4.1 Q4 = A, provisional; `playerAttackRetargeted` names the
+   * move). The enemy is not attacked and is dealt none of the attack's damage.
    */
   | {
       readonly type: "attackTargetSkipped";
       readonly attackerInstanceId: InstanceId;
       readonly targetInstanceId: InstanceId;
       readonly sourceInstanceId: InstanceId | null;
-      readonly reason?: "attackCancelled";
+      readonly reason?: "attackCancelled" | "attackRetargeted";
     }
   /**
    * A player's attack ended before dealing damage because its attacker left play first (docs/phase7-wave4.md §4 Q20,

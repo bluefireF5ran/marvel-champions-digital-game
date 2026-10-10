@@ -1644,7 +1644,7 @@ export const matchesQuery = (state: GameState, id: InstanceId, query: TargetQuer
  *
  * Lives here rather than in `rules.ts` (which is where every consumer of it lives) only so that `canAttack`, an
  * older and much more widely called resident of this module, can read rules through the same one scan as everything
- * else instead of its own hand-rolled copy that saw constant abilities but not lasting ones (docs/phase7-wave2.md
+ * else instead of its own hand-rolled copy that saw constant abilities but not lasting ones (§3.4). Not modeled:
  * §25.2). `rules.ts` imports it straight back out.
  */
 export interface ActiveRule<K extends RuleSpec["kind"]> {
@@ -2234,8 +2234,7 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
     case "each":
       return selectTargets(state, ref.query, context);
     case "named": {
-      // The current face only: a flipped Criminal Enterprise is no longer "Criminal Enterprise" (§3.4).
-      const found = cardsInPlay(state).find((id) => currentName(state, id) === ref.name);
+      const found = referredToByName(state, ref.name, context.selfInstanceId)[0];
       return found ? [found] : [];
     }
     case "slot":
@@ -3241,6 +3240,59 @@ export function textBoxCannotBeBlanked(state: GameState, id: InstanceId, deps: E
 }
 
 /**
+ * The identities a card is associated with, as `hero:<identity card id>` keys: the identity card itself, every card
+ * whose set icon names it, its obligation and its nemesis set (the sources are in `permanentSetKeys`'s note, which
+ * reads the same keys as its hero set). Read off card data, so the card can be anywhere.
+ */
+function heroSetKeys(state: GameState, card: AnyCard): readonly string[] {
+  const keys: string[] = [];
+  if (card.type === "hero_identity") keys.push(`hero:${card.id}`);
+  const aspect = "aspect" in card ? String(card.aspect) : "";
+  if (aspect.startsWith("hero:")) keys.push(aspect);
+  for (const player of state.players) {
+    const identity = state.cardPool[player.identity.cardId];
+    if (identity?.type !== "hero_identity") continue;
+    if (card.type === "obligation" && identity.obligationCardId === card.id) keys.push(`hero:${identity.id}`);
+    if ("encounterSetIds" in card && card.encounterSetIds.includes(identity.nemesisEncounterSetId))
+      keys.push(`hero:${identity.id}`);
+  }
+  return keys;
+}
+
+/**
+ * The cards in play an ability on `sourceId` refers to by the title `name`, in play order. RRG 1.8 "Referential
+ * Ability" (p. 36): "If an ability refers to a title shared by multiple cards in the game, that ability refers only to
+ * the card(s) that match the criteria highest in this list: 1. The card on which the referential ability is printed.
+ * 2. Cards associated with the same identity, including: the identity card, identity-specific cards, the identity's
+ * obligation cards, the identity's nemesis set, cards belonging to a side deck used by the identity. 3. Player cards
+ * (if the ability is on a player card) or encounter cards (if the ability is on an encounter card)."
+ *
+ * So an encounter card's "Black Widow activates against you" means the Black Widow minion and not a Black Widow ally
+ * or hero in play. Cards of the title that meet none of the three (an encounter card naming a title only a player
+ * card in play has) are all referred to: the list ranks cards that share a title and excludes none when nothing
+ * ranks. With no source card, every card of the title is returned.
+ *
+ * The current face only: a flipped Criminal Enterprise is no longer "Criminal Enterprise" (§3.4). Not modeled: "cards
+ * belonging to a side deck used by the identity", which card data does not link to an identity unless their set icon
+ * names it.
+ */
+export function referredToByName(state: GameState, name: string, sourceId: InstanceId | null): readonly InstanceId[] {
+  const titled = cardsInPlay(state).filter((id) => currentName(state, id) === name);
+  const source = sourceId === null ? undefined : cardOf(state, sourceId);
+  if (titled.length <= 1 || sourceId === null || !source) return titled;
+  if (titled.includes(sourceId)) return [sourceId];
+  const ownIdentities = new Set(heroSetKeys(state, source));
+  const sameIdentity = titled.filter((id) => {
+    const card = cardOf(state, id);
+    return card !== undefined && heroSetKeys(state, card).some((key) => ownIdentities.has(key));
+  });
+  if (sameIdentity.length > 0) return sameIdentity;
+  const playerSide = isPlayerCard(state, sourceId);
+  const sameSide = titled.filter((id) => isPlayerCard(state, id) === playerSide);
+  return sameSide.length > 0 ? sameSide : titled;
+}
+
+/**
  * The sets a card belongs to for the Permanent keyword's exception, RRG 1.8 "Permanent" (p. 32): "except by card
  * abilities in the same set (hero set, scenario set, or modular set)". Read off card data, so the card can be anywhere:
  *
@@ -3263,17 +3315,7 @@ export function textBoxCannotBeBlanked(state: GameState, id: InstanceId, deps: E
  * the three, so only its own card counts as its set (`permanentProtectsFrom`).
  */
 function permanentSetKeys(state: GameState, card: AnyCard): readonly string[] {
-  const keys: string[] = [];
-  if (card.type === "hero_identity") keys.push(`hero:${card.id}`);
-  const aspect = "aspect" in card ? String(card.aspect) : "";
-  if (aspect.startsWith("hero:")) keys.push(aspect);
-  for (const player of state.players) {
-    const identity = state.cardPool[player.identity.cardId];
-    if (identity?.type !== "hero_identity") continue;
-    if (card.type === "obligation" && identity.obligationCardId === card.id) keys.push(`hero:${identity.id}`);
-    if ("encounterSetIds" in card && card.encounterSetIds.includes(identity.nemesisEncounterSetId))
-      keys.push(`hero:${identity.id}`);
-  }
+  const keys: string[] = [...heroSetKeys(state, card)];
   if ("encounterSetIds" in card) for (const setId of card.encounterSetIds) keys.push(`set:${setId}`);
   if ("specificTo" in card && card.specificTo) keys.push(`set:${card.specificTo.encounterSetId}`);
   return keys;

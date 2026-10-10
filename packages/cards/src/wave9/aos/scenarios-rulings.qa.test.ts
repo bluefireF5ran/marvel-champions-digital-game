@@ -283,24 +283,16 @@ describe("Spray Fire (50039) on Black Widow: one attack with several targets (ow
     expect(discardCodes(r.state)).toContain(BLANK);
   });
 
-  // FINDING (docs/phase7-wave9-qa.md, Black Widow 1): `retargetPlayerAttack` moves only the share aimed at her. Owner Q4 = A
-  // says "this attack" is the whole attack, so the Grunt should be its only target, for 3 once. Expected: the Grunt 3,
-  // she 0, the other minion 0.
-  it.fails("A.I.M. Grunt on top (Q4 = A): the whole attack resolves against the Grunt for 3 once; she and the other minion take nothing", () => {
+  // Was a finding (docs/phase7-wave9-qa.md, Black Widow 1), fixed: `retargetPlayerAttack` moved only the share aimed at
+  // her, so the other minion still took 3 and the Grunt, a target twice over, took 6. Owner Q4 = A (provisional): "this
+  // attack" is the whole attack, so the Grunt is its only target, for 3 once. Under answer B the old numbers return.
+  it("A.I.M. Grunt on top (Q4 = A): the whole attack resolves against the Grunt for 3 once; she and the other minion take nothing", () => {
     const { t, merc, r } = sprayed(GRUNT);
     const grunt = inPlayCard(r.state, GRUNT)!;
     expect(grunt).toBeDefined();
     expect(damageOf(r.state, grunt)).toBe(3);
     expect(damageOf(r.state, t.villain)).toBe(0);
     expect(damageOf(r.state, merc)).toBe(0);
-  });
-
-  it("today, A.I.M. Grunt on top: only her share moves to the Grunt; the other minion still takes 3, and the Grunt, a target twice over, takes 6 and is defeated (5 hit points)", () => {
-    const { t, merc, r } = sprayed(GRUNT);
-    expect(inPlayCard(r.state, GRUNT)).toBeUndefined();
-    expect(discardCodes(r.state)).toContain(GRUNT);
-    expect(damageOf(r.state, t.villain)).toBe(0);
-    expect(damageOf(r.state, merc)).toBe(3);
   });
 
   it("Night Vision Goggles attached and a card with no Preparation on top: all the damage to every target is prevented, then the Goggles are discarded", () => {

@@ -245,17 +245,29 @@
  * - **The `attack` instruction of a begun attack** takes the begun event over as its attack on `from` and deals its
  *   damage to `to` (`begunAttackTarget`). If it no longer names `from`, it takes it over as its attack on the first
  *   enemy it names, as it does with no retarget, and that enemy is dealt the damage: the move was off `from`.
- * - **Several enemies** ("each enemy"): only the attack on `from` moves, which is what a plain `attack` instruction
- *   does (one event per enemy, each retargeted on its own). The other enemies are attacked and damaged as written.
- *   Unlike the plain path they have no window of their own in which to be moved (file header above: "No later window
- *   opens for that enemy").
+ * - **The whole attack is moved** (owner decision, docs/phase7-wave9.md §4.1 Q4 = A, 2026-10-09, provisional: "this
+ *   attack" in a Preparation is the whole attack, "all of it resolves against the one minion"; RRG 1.8 p. 10: "An
+ *   ability labeled as an attack is considered a single attack"). Once the window of one of the ability's `attack`
+ *   events moved it, `to` is the attack's only target (`retargetAbilityAttack`, kept on the ability's root frame as
+ *   `attackRetargeted`): the damage aimed at `from` goes to `to` as above, and every other enemy the ability names
+ *   afterward is not attacked and is dealt nothing (`skipRetargetedAway`, logged as `attackTargetSkipped` with
+ *   `reason: "attackRetargeted"`), `to` included when an instruction names it on its own account ("the villain and
+ *   each minion engaged with you", with `to` a minion now engaged: it takes the villain's share once). That covers a
+ *   later damage instruction and the other events of an `attack` instruction that names several enemies (one event per
+ *   enemy; `skippedWithRetargetedAttack`). Before the decision only the attack on `from` moved and the other enemies
+ *   were attacked as written; to return to that (answer B), `retargetAbilityAttack` is the one place to change.
+ *   Interpretations: **damage already dealt stays dealt** (an enemy of "each enemy" whose own event resolved before the
+ *   one that was moved), as for a prevented attack; **a later `attack` instruction that names `from` again** makes its
+ *   event against `from` as written, with its own window (no shipped card; not built); **an attack with no
+ *   `attackOf`** (an ally's, an unlabeled ability's) is one event per enemy with nothing joining them, so only the
+ *   event moved is.
  * - **An attack that began with no target** (`null`: its enemy is chosen later) has no target to move, so the
  *   retarget does nothing and logs nothing (`retargetAttack` requires a target), and the attack resolves as written.
  * - **`to` has left play** by the time an instruction would deal it damage: that instance is not dealt
  *   (`attackTargetSkipped` naming `to`), and `from` is not dealt it either.
  * - **Not built: a division of damage** (`divide`, `effects-frame.ts`). Its shares are assigned by the player after
- *   the window, among the enemies only, so a share given to `from` still goes to `from`. No shipped card pairs the
- *   two; reported to the owner.
+ *   the window, among the enemies only, so a share given to `from` still goes to `from`, and the shares of the other
+ *   enemies are dealt as assigned. No shipped card pairs the two; reported to the owner.
  *
  * **"That attack deals N additional damage" increases every instance** (owner ruling Q53, 2026-10-08; RRG 1.8 p. 10:
  * "When an attack ability has its damage increased by another ability, each instance of damage in that attack ability
@@ -460,6 +472,114 @@ export function recordAttackDamagePrevented(ctx: Ctx, damage: Damage): void {
       delta[vars.amount] = (delta[vars.amount] ?? 0) + damage.amount;
   }
   addFrameVars(ctx, attack.frameId, delta);
+}
+
+/**
+ * A player attack's target was moved in its window (`EffectSpec retargetAttack` with `attack: "player"`). When it is an
+ * "(attack)" ability's attack by its controller's identity (`attackOf`), the ability's root frame remembers the move:
+ * the character moved onto is the whole attack's only target (file header, "The whole attack is moved"; owner decision
+ * §4.1 Q4 = A, provisional). A second move keeps the enemy and the event of the first.
+ *
+ * This is the one place the decision is applied: without this record only the attack on `from` moves (answer B).
+ */
+export function retargetAbilityAttack(
+  ctx: Ctx,
+  attack: Frame<"event">,
+  moved: { readonly from: InstanceId; readonly to: InstanceId },
+): void {
+  if (attack.event.kind !== "attack" || attack.attackOf === undefined) return;
+  updateFrame(ctx, attack.attackOf, (root) =>
+    root.kind === "effects"
+      ? {
+          ...root,
+          attackRetargeted: {
+            frameId: root.attackRetargeted?.frameId ?? attack.frameId,
+            from: root.attackRetargeted?.from ?? moved.from,
+            to: moved.to,
+          },
+        }
+      : root,
+  );
+}
+
+/** The move of the whole attack recorded on the "(attack)" ability root `rootId` (`retargetAbilityAttack`), if any. */
+function abilityAttackRetargeted(state: GameState, rootId: FrameId | undefined): Frame<"effects">["attackRetargeted"] {
+  const root = rootId === undefined ? undefined : findFrame(state, rootId);
+  return root?.kind === "effects" ? root.attackRetargeted : undefined;
+}
+
+const logRetargetedAway = (
+  ctx: Ctx,
+  attackerInstanceId: InstanceId,
+  sourceInstanceId: InstanceId | null,
+  enemies: readonly InstanceId[],
+): void => {
+  for (const targetInstanceId of enemies) {
+    emit(ctx, {
+      type: "attackTargetSkipped",
+      attackerInstanceId,
+      targetInstanceId,
+      sourceInstanceId,
+      reason: "attackRetargeted",
+    });
+  }
+};
+
+/**
+ * The enemies an `attack` or damage instruction of the "(attack)" ability `rootId` still attacks once the ability's
+ * attack was moved onto one character (`retargetAbilityAttack`): only the enemy it was moved off, whose share goes to
+ * that character (`withMovedAttackTarget`, `begunAttackTarget`). Every other enemy named is not attacked and is dealt
+ * nothing, logged as `attackTargetSkipped` with `reason: "attackRetargeted"` (the character moved onto, when it is an
+ * enemy named on its own account, is dropped without a line: it is the one attacked). Cards that are not enemies are
+ * left as named (damage to them is not the attack's). With no move recorded, `targets` unchanged.
+ */
+export function skipRetargetedAway(
+  ctx: Ctx,
+  rootId: FrameId | undefined,
+  attackerInstanceId: InstanceId,
+  sourceInstanceId: InstanceId | null,
+  targets: readonly InstanceId[],
+): readonly InstanceId[] {
+  const moved = abilityAttackRetargeted(ctx.state, rootId);
+  if (!moved) return targets;
+  const away = (id: InstanceId): boolean => id !== moved.from && categoriesOf(ctx.state, id).includes("enemy");
+  // The character moved onto is the attack's target: named on its own account it is dealt nothing more, unlogged.
+  logRetargetedAway(
+    ctx,
+    attackerInstanceId,
+    sourceInstanceId,
+    targets.filter((id) => away(id) && id !== moved.to),
+  );
+  return targets.filter((id) => !away(id));
+}
+
+/** `skipRetargetedAway` for a damage instruction of the ability `attack` is the attack of. */
+export function skipRetargetedAwayFrom(
+  ctx: Ctx,
+  attack: AbilityAttack,
+  sourceInstanceId: InstanceId | null,
+  targets: readonly InstanceId[],
+): readonly InstanceId[] {
+  const frame = findFrame(ctx.state, attack.frameId);
+  if (frame?.kind !== "effects") return targets;
+  const rootId = abilityRootFrameId(ctx.state, frame);
+  return skipRetargetedAway(ctx, rootId, attack.attackerId, sourceInstanceId, targets);
+}
+
+/**
+ * Whether this `attack` event, about to open its window, is one the ability's attack no longer makes: another `attack`
+ * event of the same "(attack)" ability was moved onto one character, and this one is against some other enemy ("attack
+ * each enemy": one event per enemy). Logged as `attackTargetSkipped`. Not the moved event itself, nor one against the
+ * enemy the attack was moved off (a later `attack` instruction naming it again is left as written; file header).
+ */
+export function skippedWithRetargetedAttack(ctx: Ctx, frame: Frame<"event">): boolean {
+  if (frame.event.kind !== "attack" || frame.attackOf === undefined || frame.attackWaiting) return false;
+  const moved = abilityAttackRetargeted(ctx.state, frame.attackOf);
+  const target = frame.event.targetInstanceId;
+  if (!moved || moved.frameId === frame.frameId || target === null || target === moved.from) return false;
+  if (target !== moved.to)
+    logRetargetedAway(ctx, frame.event.attackerInstanceId, frame.event.sourceInstanceId ?? null, [target]);
+  return true;
 }
 
 /** Whether this attack event's ability has had an attack cancelled, so this one is cancelled with it. */

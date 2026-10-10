@@ -196,7 +196,10 @@ import {
   noteAttackedByAbility,
   preventAbilityAttackDamage,
   resumeBegunAttack,
+  retargetAbilityAttack,
   skipForCancelledAttack,
+  skipRetargetedAway,
+  skipRetargetedAwayFrom,
   skipUnattackable,
   withMovedAttackTarget,
 } from "./attack-ability.js";
@@ -488,7 +491,15 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // An attack whose window moved it off an enemy onto another character ("change the target of this attack to a
       // friendly character") deals the damage this instruction aims at that enemy to that character, which is the
       // one attacked (`attackRetarget`; `attack-ability.ts`, "A target changed in the attack's window").
-      const aimed = ability ? skipUnattackable(ctx, ability, frame.selfInstanceId, named) : named;
+      // An attack moved as a whole onto one character no longer attacks the other enemies named (`skipRetargetedAway`).
+      const aimed = ability
+        ? skipUnattackable(
+            ctx,
+            ability,
+            frame.selfInstanceId,
+            skipRetargetedAwayFrom(ctx, ability, frame.selfInstanceId, named),
+          )
+        : named;
       const events = withMovedAttackTarget(ctx, attack, frame.selfInstanceId, aimed)
         .map((to) => ({ ...to, base: effect.perTarget ? amountFor(to.named) : shared }))
         .filter(({ base }) => !effect.perTarget || base > 0)
@@ -600,9 +611,15 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // RRG "Attack (Player Ability Type)": attacks can target any enemy unless guard prevents it.
       // An attack the ability began with, moved in its window onto another enemy, is an attack on that enemy
       // (`attackedInstead`, docs/phase7-wave9.md §3.4): guard is read for it, not for the enemy it was moved off.
-      const attackable = targets(effect.target).filter((id) =>
-        canAttack(ctx.state, attacker, begunAttackAgainst(ctx.state, attackOf, attacker, id), ctx.deps),
-      );
+      // Once the ability's attack was moved as a whole onto one character, it attacks no other enemy
+      // (`skipRetargetedAway`; docs/phase7-wave9.md §4.1 Q4 = A).
+      const attackable = skipRetargetedAway(
+        ctx,
+        attackOf,
+        attacker,
+        frame.selfInstanceId,
+        targets(effect.target),
+      ).filter((id) => canAttack(ctx.state, attacker, begunAttackAgainst(ctx.state, attackOf, attacker, id), ctx.deps));
       // Once an attack of that ability was cancelled, the ability's one attack makes no more (owner decision,
       // 2026-10-08, row 65).
       const cancelled = attackOf !== undefined && attackEffectCancelled(ctx.state, ctx.deps, frame);
@@ -1068,6 +1085,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           event: { ...attack.event, targetInstanceId: character },
           ...(attack.attackOf !== undefined ? { attackRetarget: moved } : {}),
         });
+        // One "(attack)" ability is one attack: the character moved onto is its only target (§4.1 Q4 = A of wave 9).
+        retargetAbilityAttack(ctx, attack, moved);
         emit(ctx, {
           type: "playerAttackRetargeted",
           attackerInstanceId: attack.event.attackerInstanceId,
@@ -1548,6 +1567,10 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             [`${effect.bind}.amount.${id}`]: removed,
           });
       };
+      // RRG 1.8 "'Then'" (p. 44): "remove N counters" from a card holding fewer than N (none included) removes what is
+      // there and leaves the text before a "then" not fully resolved. "Remove all counters" names no number to fall
+      // short of.
+      const asked = effect.amount === undefined ? undefined : value(effect.amount);
       for (const id of targets(effect.target)) {
         const instance = getInstance(ctx.state, id);
         if (!instance) continue;
@@ -1568,11 +1591,12 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           : effect.counterType
             ? [effect.counterType]
             : Object.keys(instance.counters);
+        let going = 0;
         for (const counterType of counterTypes) {
           const held = instance.counters[counterType] ?? 0;
           const taken = any?.find(([type]) => type === counterType)?.[1];
-          const removing =
-            taken !== undefined ? taken : effect.amount !== undefined ? Math.min(value(effect.amount), held) : held;
+          const removing = taken !== undefined ? taken : asked !== undefined ? Math.min(asked, held) : held;
+          going += Math.max(0, removing);
           if (removing <= 0) continue;
           const event: TriggerEvent = {
             kind: "countersRemoved",
@@ -1584,6 +1608,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           if (heard(ctx.state, ctx.deps, event)) events.push(event);
           else record(id, removeCounters(ctx, id, counterType, removing));
         }
+        if (asked !== undefined && going < asked) markPreThenUnresolved(ctx, frame.frameId, "countersNotRemoved", id);
       }
       // A heard removal reports as its event resolves (`countersRemoved`'s apply step, `resolve/event.ts`).
       if (events.length > 0) pushEvents(ctx, events, reportTo(effect.bind));

@@ -133,6 +133,7 @@ import {
   attackPreventingDamage,
   cancelAbilityAttack,
   cancelledWithAbilityAttack,
+  skippedWithRetargetedAttack,
   pushAttackedByAbility,
   recordAttackDamagePrevented,
   waitBeneathAbility,
@@ -191,6 +192,14 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       // decision, 2026-10-08, row 65; `attack-ability.ts`).
       if (cancelledWithAbilityAttack(ctx.state, frame)) {
         setFrame(ctx, { ...frame, stage: "apply", cancelled: true });
+        return;
+      }
+      // The same single attack, moved as a whole onto one character in the window of another of its events: this
+      // event's enemy is no longer attacked (docs/phase7-wave9.md §4.1 Q4 = A; `attack-ability.ts`). Not a cancel:
+      // the attack goes on against the character it was moved onto.
+      if (skippedWithRetargetedAttack(ctx, frame)) {
+        reportResults(ctx, frame, false);
+        popFrame(ctx);
         return;
       }
       // Cards leaving play from one step share one interrupt window (docs/phase7-wave5.md §4.1 Q32–Q33), and so do
