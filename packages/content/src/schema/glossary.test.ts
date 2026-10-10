@@ -355,6 +355,101 @@ describe("wave 8 mechanics (guided mode section 3.14)", () => {
   });
 });
 
+describe("wave 9 mechanics (guided mode section 3.14)", () => {
+  const WAVE_9_IDS = [
+    "shieldSupports",
+    "allPurposeCounters",
+    "suitForm",
+    "stealthSuit",
+    "teamUpPairs",
+    "tuckedCards",
+    "encounterTopFaceup",
+    "discardedIcons",
+    "falconDeckTricks",
+    "linkedTakeover",
+    "shuriInventor",
+    "encasedInIce",
+    "maxPerPlayer",
+    "afterYouAttack",
+    "controlledMinions",
+    "surgeDealt",
+    "attackOnAlly",
+    "preparationAbility",
+    "nonScalingVillain",
+    "embassyCaptives",
+    "alertLevel",
+    "holdingCell",
+    "thunderboltBackup",
+    "citizenV",
+    "executiveBoard",
+    "evidenceCards",
+    "accusation",
+    "wrongAccusation",
+    "grantedPreparation",
+    "reluctantFoe",
+    "persistentDamage",
+    "additionalAllyCost",
+  ] as const;
+
+  it("every wave 9 concept id has a sourced concept entry in cycle9, and Vulnerable moved there", () => {
+    for (const id of WAVE_9_IDS) {
+      const entry = glossaryEntry(id);
+      expect(entry?.kind, id).toBe("concept");
+      expect(entry?.introducedIn, id).toBe("cycle9");
+      expect(entry?.sources.length, id).toBeGreaterThan(0);
+    }
+    expect(glossaryEntry("vulnerable")?.introducedIn).toBe("cycle9");
+    expect(glossaryEntry("vulnerable")?.sources).toContainEqual(
+      expect.objectContaining({ kind: "rulebook", label: expect.stringMatching(/rulebook p\. 3/) }),
+    );
+    expect(GLOSSARY_ENTRIES.filter((e) => e.introducedIn === "cycle9")).toHaveLength(WAVE_9_IDS.length + 1);
+  });
+
+  it("only the wordings Core cards already use also apply to Core", () => {
+    expect(WAVE_9_IDS.filter((id) => glossaryEntry(id)?.appliesToCore).sort()).toEqual([
+      "afterYouAttack",
+      "surgeDealt",
+    ]);
+  });
+
+  it("a rule an owner answer settles cites that answer", () => {
+    for (const id of [
+      "suitForm",
+      "tuckedCards",
+      "discardedIcons",
+      "maxPerPlayer",
+      "surgeDealt",
+      "attackOnAlly",
+      "executiveBoard",
+      "holdingCell",
+      "reluctantFoe",
+    ] as const) {
+      expect(
+        glossaryEntry(id)?.sources.some((s) => s.kind === "owner-ruling"),
+        id,
+      ).toBe(true);
+    }
+  });
+
+  it("a wrong accusation tells the table the rulebook and the cards differ, neutrally", () => {
+    const entry = glossaryEntry("wrongAccusation")!;
+    expect(entry.definition).toMatch(/does not lose the game. But the secret counters/);
+    expect(entry.conflict).toBeUndefined();
+  });
+
+  it("Max 1 per player limits control, and surge deals a card that waits facedown", () => {
+    expect(glossaryEntry("maxPerPlayer")?.definition).toMatch(/what you may control, not only what you may play/);
+    expect(glossaryEntry("surgeDealt")?.definition).toMatch(/waits facedown/);
+  });
+
+  it("uses American spelling and no dashes in what a player reads", () => {
+    for (const id of WAVE_9_IDS) {
+      const entry = glossaryEntry(id)!;
+      expect(`${entry.displayName} ${entry.definition}`, id).not.toMatch(/colour|behaviour|[–—]/i);
+    }
+  });
+});
+
 describe("glossaryEntry", () => {
   it("looks up a keyword by id", () => {
     expect(glossaryEntry("guard")?.displayName).toBe("Guard");
@@ -464,6 +559,7 @@ describe("introducedIn (the How to play hub's 'New in this box' pages)", () => {
     for (const entry of marked) expect(["core", "later"], entry.id).not.toContain(entry.introducedIn);
     expect(marked.map((e) => e.id).sort()).toEqual([
       "actionsOtherTurns",
+      "afterYouAttack",
       "attackAbilityOne",
       "attackTargets",
       "basicPowerStat",
@@ -474,6 +570,7 @@ describe("introducedIn (the How to play hub's 'New in this box' pages)", () => {
       "labeledAbility",
       "mainSchemeBSide",
       "setup",
+      "surgeDealt",
       "unusualCosts",
     ]);
     expect(glossaryEntry("counters")?.introducedIn).toBe("cycle6");

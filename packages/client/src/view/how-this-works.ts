@@ -5,7 +5,7 @@
  * safe to show for any card a player can see.
  *
  * Keyed by the printed id without its face letter ("34002" covers both Phoenix Force sides). Wave 6 (Mutant Genesis and
- * MojoMania) is the first wave to fill it; wave 7 (NeXt Evolution) and wave 8 (Age of Apocalypse) add their own rows after them.
+ * MojoMania) is the first wave to fill it; wave 7 (NeXt Evolution), wave 8 (Age of Apocalypse) and wave 9 (Agents of S.H.I.E.L.D. and its four hero packs) add their own rows after them.
  */
 import type { AnyCard } from "@mc/content";
 
@@ -314,6 +314,168 @@ note(
 note(
   ["45166", "45167", "45168", "45169", "45170"],
   "A mission: players cannot thwart it. Allies at the mission make attempts, and it cannot be defeated while any minion is there.",
+);
+
+// Agents of S.H.I.E.L.D. and the cycle 9 hero packs (wave 9). The owner's answers of Oct 9 and Oct 10, 2026 fix the
+// readings below (docs/phase7-wave9.md section 4.1); the glossary entries carry the cites.
+note(
+  ["50001"],
+  "Include exactly 3 off-aspect S.H.I.E.L.D. supports at their full copy limit, or none. Reassignment moves 1 all-purpose counter between S.H.I.E.L.D. supports once per round.",
+);
+note(
+  ["50034"],
+  "Break Cover turns your suit to Assault whenever you attack. The threat you banked in Stealth can be spent on that same attack.",
+);
+note(
+  ["50035"],
+  "Stealth: when an enemy would attack Nick himself it schemes instead, and 1 of that threat goes here while this holds 5 or less. Assault spends up to 3 threat for damage.",
+);
+note(
+  ["50024"],
+  "Maria Hill and Nick Fury must both be in play, as heroes or allies. The 3 tokens can be counters or threat, in any mix, on supports or suit forms.",
+);
+note(
+  ["50028"],
+  "Max 1 per player. It protects any card you control from an encounter card's discard, including cards in your hand or deck.",
+);
+note(
+  ["50051"],
+  "A surge deals its card facedown, so this can answer it before it is revealed. Look at every dealt card and the deck top, then swap any.",
+);
+note(
+  ["50064"],
+  "When you attack her, she first removes 1 threat from the main scheme. Only then do you discard the top encounter card and resolve its Preparation before the attack.",
+);
+note(
+  ["50070"],
+  "Cards without a printed Preparation get this one. It resolves when Black Widow discards that card, and then this attachment is discarded.",
+);
+note(
+  ["50074"],
+  "Cards without a printed Preparation get one that damages the attacking character. It resolves when Black Widow discards that card.",
+);
+note(
+  ["50086"],
+  "At 0 hit points he resets to 8 (12 on the expert side) and 6 threat leaves the main scheme. He is never defeated, so defeat effects do not see him.",
+);
+note(
+  ["50103"],
+  "At 0 hit points he loses 2 lock counters from a Holding Cell and resets to 10 (14 expert). With no Holding Cell in play, you win.",
+);
+note(
+  ["50165", "50166"],
+  "At 0 hit points he resets, and 3 secret counters are removed from among the Board Member environments. The first player splits them.",
+);
+note(
+  ["50090"],
+  "It gets 1 threat when a character is defeated, unless consequential damage did it. At 4 per player it flips to High, and on High that much threat loses the game.",
+);
+note(
+  ["50105", "50106", "50107", "50108"],
+  "The top cell is in play. Removing its last lock counter frees its ally. A freed ally that leaves play goes to the deck bottom, not the discard pile.",
+);
+note(
+  ["50129"],
+  "He cannot be defeated until enough Thunderbolt minions are in the victory display. At 0 hit points he stays in play and keeps activating.",
+);
+note(
+  ["50130"],
+  "Attacking a Thunderbolt minion engages it with you, even one held by Thunderbolt Backup. Each round's end holds the most damaged Thunderbolt.",
+);
+note(
+  ["50131"],
+  "The last set-aside Thunderbolt is revealed, so its When Revealed resolves, then it is held. A held minion is engaged with nobody and does not activate.",
+);
+note(["50132"], "Only your identity attacking and damaging Citizen V offers the discard. An ally's attack does not.");
+note(
+  ["50134"],
+  "Your identity's attack counts, not an ally's. An enemy attacking you counts even when an ally defends.",
+);
+note(
+  ["50137"],
+  "With no Thunderbolt minion in the victory display, the card still surges and is still removed from the game.",
+);
+note(
+  ["50171"],
+  "The hero is an Elite minion with SCH equal to its THW, and keeps its traits. If this card leaves play, the hero is removed from the game.",
+);
+note(
+  ["50173"],
+  "Attacking, thwarting or defending with an ally costs 1 more resource of any type. Your hero pays nothing extra.",
+);
+note(
+  ["50181", "50182", "50183"],
+  "At 4 secret counters (3 in expert mode) it flips to an attachment on the villain, keeping its secrets, and stays one all campaign. All three flipped loses.",
+);
+note(
+  ["50184"],
+  "Places 1 secret counter on each Board Member card, flipped ones too. You may spend X resources of the type on the card to prevent X of them.",
+);
+note(
+  range(50185, 50193),
+  "Setup only. A different card means one with a title not in your deck, hand, discard pile or play area. Ignore this text during a scenario.",
+);
+note(
+  ["50167"],
+  "Stage 1B lets you advance to the accusation. Each wrong guess puts a secret counter on every Board Member, and a wrong accused gets more.",
+);
+note(
+  ["50081"],
+  "An ally that would leave play is tucked here instead, with threat equal to its cost. Defeating this scheme puts them all back in play.",
+);
+note(["50032"], "Only facedown Controlled minions engaged with a player have base 1 SCH, 1 ATK and 1 hit point.");
+note(
+  ["51001"],
+  "Inventor must take an eligible upgrade from your deck if one is there, plays it for 2 less, and shuffles. If none is there, the search fails.",
+);
+note(
+  ["51017"],
+  "Removed threat goes onto a non-Elite minion. When its threat reaches its remaining hit points, Redemption attaches and you take control of it.",
+);
+note(
+  ["52001"],
+  "Silk holds at most 4 tucked encounter cards, on either side. Silk Sense tucks a card you defeated or resolved, taken from the encounter discard pile.",
+);
+note(
+  ["52031"],
+  "A player card that discards it from under your identity deals 2 damage: an effect, a cost, or Silk's 4-card cap.",
+);
+note(
+  ["53001"],
+  "The top encounter card is faceup only in your player phase, in hero form. Eagle-Eyed discards the top card after you play an Aerial card.",
+);
+note(
+  ["53002", "53010"],
+  "Not offered while the faceup top card has no icons. Stars and boost icons both count, and a facedown top card can still be discarded.",
+);
+note(
+  ["53003", "53004"],
+  "The extra discard is not offered when the faceup top card has no icons. Stars and boost icons both count.",
+);
+note(
+  ["53005"],
+  "Offered after an attacking enemy is given a boost card, not a scheme's. Swap it with the top card if you like, then draw for the icons on the boost card.",
+);
+note(
+  ["53012"],
+  "Counts the icons on the card Eagle-Eyed discarded, even if Serpent Solutions dealt it away. Not offered with 0 icons.",
+);
+note(
+  ["53018"],
+  "She keeps her bonuses only while the card that paid for her stays tucked: mental +2 THW, physical +2 ATK, energy +2 hit points, wild all three.",
+);
+note(["53021"], "Max 1 per player. Any player may spend the tucked resource card as if it were in their hand.");
+note(
+  ["54014"],
+  "One attack with a 3 damage hit for each weapon you exhaust, up to three. It is one attack, so After you attack answers once.",
+);
+note(
+  ["54017", "54023"],
+  "Max 1 per player limits what you control. Winter, Widow, Soldier, Spy cannot put a second Aggressive Stance into play while you control one.",
+);
+note(
+  ["54035"],
+  "The attached character can attack only this card. At 3 damage here, the extra moves to the character and this is discarded. That is not a defeat.",
 );
 
 /** The printed id without its face letter: "34002a" and "34002b" are one card. */

@@ -33,6 +33,7 @@
 import type { HeroIdentityCard } from "@mc/content";
 import {
   cardOf,
+  cardsInPlay,
   getInstance,
   getPlayer,
   heroFacesOf,
@@ -908,6 +909,241 @@ const WAVE_8_ON_TABLE_TIPS: readonly SituationTrigger[] = [
   ),
 ];
 
+// ---------------------------------------------------------------------------
+// Wave 9: Agents of S.H.I.E.L.D. and the cycle 9 hero packs (guided mode section 3.14)
+// ---------------------------------------------------------------------------
+
+/** Every instance in play (the environments and held minions `tableInstances` does not reach) plus the wave 8 reach. */
+function inPlayInstances(game: LessonObservation["game"]): readonly CardInstance[] {
+  const out = new Map<InstanceId, CardInstance>(tableInstancesWithVillains(game).map((i) => [i.instanceId, i]));
+  for (const id of cardsInPlay(game)) {
+    const instance = getInstance(game, id);
+    if (instance) out.set(id, instance);
+  }
+  return [...out.values()];
+}
+
+/** `onTableTip` that also reaches environments, held minions and villains: wave 9's Holding Cells and Board Members. */
+function inPlayTip(tip: Tip, printedIds: readonly string[]): SituationTrigger {
+  const ids = new Set(printedIds);
+  return ({ game }) => (inPlayInstances(game).some((i) => ids.has(baseCardId(i.cardId))) ? tip : null);
+}
+
+/** Silk is the perspective player's identity and has tucked cards. */
+function tuckedUnderIdentityTip({ game, perspectiveId }: LessonObservation): Tip | null {
+  const player = perspectiveId ? getPlayer(game, perspectiveId) : undefined;
+  if (!player || !identityIs(game, perspectiveId, "52001")) return null;
+  if ((getInstance(game, player.identity.instanceId)?.tucked.length ?? 0) === 0) return null;
+  return {
+    id: "situation:tuckedCards",
+    title: "Tucked cards",
+    body:
+      "A [[tuckedCards|tucked card]] sits faceup under Silk. It is not in play. She keeps at most 4, and the " +
+      "rest are discarded.",
+  };
+}
+
+/** Maria Hill is the perspective player's identity: her supports and counters are the whole kit. */
+function shieldSupportsTip({ game, perspectiveId }: LessonObservation): Tip | null {
+  if (!identityIs(game, perspectiveId, "50001")) return null;
+  return {
+    id: "situation:shieldSupports",
+    title: "Maria Hill's supports",
+    body:
+      "Your allies count as S.H.I.E.L.D. too. Reassignment moves an [[allPurposeCounters|all-purpose counter]] " +
+      "between S.H.I.E.L.D. supports once per round. See [[shieldSupports|her deck rule]].",
+  };
+}
+
+function encounterTopShownTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "encounterTopShown")) return null;
+  return {
+    id: "situation:encounterTopFaceup",
+    title: "The top encounter card is faceup",
+    body:
+      "Falcon plays with the [[encounterTopFaceup|top encounter card faceup]] in his player phase. Nothing " +
+      "triggers from seeing it. It goes facedown when the villain phase begins.",
+  };
+}
+
+function vulnerableDiscardedTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "vulnerableDiscarded")) return null;
+  return {
+    id: "situation:vulnerableDiscarded",
+    title: "Vulnerable",
+    body:
+      "A [[vulnerable|vulnerable]] character is discarded when a stunned or confused card would land on it. It " +
+      "is not defeated, so nothing that waits for a defeat happens.",
+  };
+}
+
+function minionHeldTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "minionHeld")) return null;
+  return {
+    id: "situation:minionHeld",
+    title: "A held minion",
+    body:
+      "A minion held by [[thunderboltBackup|Thunderbolt Backup]] is in play but engaged with nobody, so it does " +
+      "not activate. Attack it and it engages you.",
+  };
+}
+
+function surgeDealtTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "surgeTriggered")) return null;
+  return {
+    id: "situation:surgeDealt",
+    title: "Surge",
+    body:
+      "[[surgeDealt|Surge]] deals a facedown encounter card. It waits facedown until it is revealed, and cards " +
+      "that answer being dealt a card can act on it first.",
+  };
+}
+
+function evidenceGainedTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "hiddenPileCardsGained")) return null;
+  return {
+    id: "situation:evidenceCards",
+    title: "You gained evidence",
+    body:
+      "[[evidenceCards|Evidence]] is faceup now. Cross out every combination that uses its icon. What is left " +
+      "could still be the mole.",
+  };
+}
+
+function accusationTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "accusationMade")) return null;
+  return {
+    id: "situation:accusation",
+    title: "The accusation",
+    body:
+      "You named a combination, so the A.I.M. envelope is opened and compared. [[wrongAccusation|A wrong " +
+      "guess]] adds secret counters, but a right one does not.",
+  };
+}
+
+const WAVE_9_ON_TABLE_TIPS: readonly SituationTrigger[] = [
+  onTableTip(
+    {
+      id: "situation:suitForm",
+      title: "Nick's suit form",
+      body:
+        "Your [[suitForm|suit form]] is a permanent upgrade, and threat collects on it. Break Cover turns it to " +
+        "Assault when you attack. [[stealthSuit|Stealth]] turns an enemy's attack on you into a scheme.",
+    },
+    ["50035"],
+  ),
+  onTableWithVillainsTip(
+    {
+      id: "situation:preparationAbility",
+      title: "Preparation",
+      body:
+        "Attacking Black Widow removes a threat first. If it did, you discard the top encounter card and " +
+        "resolve its [[preparationAbility|Preparation]] before your attack.",
+    },
+    ["50064"],
+  ),
+  onTableWithVillainsTip(
+    {
+      id: "situation:nonScalingVillain",
+      title: "This villain resets",
+      body:
+        "At 0 hit points a Forced Interrupt [[nonScalingVillain|resets them]] and helps you, instead of defeating " +
+        "them. Other cards do not see a defeat.",
+    },
+    ["50086", "50103", "50165", "50166"],
+  ),
+  inPlayTip(
+    {
+      id: "situation:alertLevel",
+      title: "Alert Level",
+      body:
+        "[[alertLevel|Alert Level]] gets threat when a character is defeated. At 4 per player it flips to High, " +
+        "where more threat loses the game.",
+    },
+    ["50090"],
+  ),
+  onTableTip(
+    {
+      id: "situation:embassyCaptives",
+      title: "The embassy",
+      body:
+        "You do not beat Batroc with damage. Remove all threat from each stage to advance, and gain a " +
+        "[[embassyCaptives|Rescued Captive]] at stage 2.",
+    },
+    ["50087", "50088", "50089"],
+  ),
+  inPlayTip(
+    {
+      id: "situation:holdingCell",
+      title: "A Holding Cell",
+      body:
+        "Spend resources to remove its lock counters. At the last one the [[holdingCell|cell opens]] and an ally " +
+        "joins you. M.O.D.O.K. also removes lock counters when he would be defeated.",
+    },
+    ["50105", "50106", "50107", "50108"],
+  ),
+  onTableWithVillainsTip(
+    {
+      id: "situation:citizenV",
+      title: "Citizen V",
+      body:
+        "[[citizenV|Citizen V]] cannot be defeated until enough Thunderbolt minions are in the victory display. " +
+        "Being engaged with a Thunderbolt makes him heal instead of activating.",
+    },
+    ["50129"],
+  ),
+  inPlayTip(
+    {
+      id: "situation:executiveBoard",
+      title: "The Executive Board",
+      body:
+        "Secret counters build on the [[executiveBoard|Board Members]]. At 4 (3 in expert mode) one flips to " +
+        "help the villain. If all three flip, you lose.",
+    },
+    ["50181", "50182", "50183"],
+  ),
+  onTableTip(
+    {
+      id: "situation:reluctantFoe",
+      title: "A hero against you",
+      body:
+        "[[reluctantFoe|Reluctant Foe]] makes a hero from the collection an Elite minion. Defeat it and the " +
+        "hero leaves the game.",
+    },
+    ["50171"],
+  ),
+  inPlayTip(
+    {
+      id: "situation:additionalAllyCost",
+      title: "Allies cost extra",
+      body:
+        "[[additionalAllyCost|Divided Loyalties]] makes each ally attack, thwart or defense cost 1 resource. " +
+        "Your hero does not pay.",
+    },
+    ["50173"],
+  ),
+  inPlayTip(
+    {
+      id: "situation:controlledMinions",
+      title: "Controlled minions",
+      body:
+        "[[controlledMinions|Controlled minions]] come from the top of your deck, facedown. They are tiny, " +
+        "and defeating one puts 1 threat on the main scheme.",
+    },
+    ["50032"],
+  ),
+  onTableTip(
+    {
+      id: "situation:encasedInIce",
+      title: "Encased in Ice",
+      body:
+        "The attached character can attack only [[encasedInIce|Encased in Ice]]. Any player can hit it. At 3 " +
+        "damage it moves the extra to the character and goes away.",
+    },
+    ["54035"],
+  ),
+];
+
 /** Every situation trigger takes `deps` even when it doesn't read one, so `tipsFor` can map over them uniformly. */
 type SituationTrigger = (observation: LessonObservation, deps: EngineDeps) => Tip | null;
 
@@ -951,6 +1187,15 @@ const SITUATION_TIPS: readonly SituationTrigger[] = [
   missionAreaTip,
   missionAttemptTip,
   fourHorsemenTip,
+  shieldSupportsTip,
+  ...WAVE_9_ON_TABLE_TIPS,
+  tuckedUnderIdentityTip,
+  encounterTopShownTip,
+  vulnerableDiscardedTip,
+  minionHeldTip,
+  surgeDealtTip,
+  evidenceGainedTip,
+  accusationTip,
 ];
 
 // ---------------------------------------------------------------------------
