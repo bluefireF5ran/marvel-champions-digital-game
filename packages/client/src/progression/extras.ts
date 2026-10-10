@@ -434,6 +434,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "campaigns/trors/finale.mp3": "The Skull Shattered",
   "campaigns/trors/interlude.mp3": "Following Hydra's Trail",
   "campaigns/gmw/finale.mp3": "Saviors of the Galaxy",
+  "campaigns/gmw/interlude.mp3": "Adrift Among the Stars",
   "campaigns/mts/finale.mp3": "The Gauntlet Falls Silent",
   "campaigns/sm/finale.mp3": "Friendly Neighborhood Heroes",
   "campaigns/sm/interlude.mp3": "Between Patrols",
