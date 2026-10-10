@@ -352,6 +352,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/red-skull/villain-loses.mp3": "Cut Off One Head",
   "scenarios/red-skull/villain-wins.mp3": "The Cube Is His",
   "scenarios/taskmaster/battle.mp3": "Photographic Reflexes",
+  "scenarios/taskmaster/villain-loses.mp3": "Class Dismissed",
   "scenarios/taskmaster/villain-wins.mp3": "Lesson Learned",
   "scenarios/brotherhood-of-badoon/battle.mp3": "The Brotherhood Descends",
   "scenarios/infiltrate-the-museum/battle.mp3": "Rows of Silent Glass",
