@@ -658,3 +658,109 @@ Proportions; the three Chief Officers' flip (owner Q1 = A) and Aids. No new test
   reduces damage taken, which Dogfight's "takes" follows), January 26, 2026 - Ruling 3 (dealt against taken, Runaway Nuclear Reaction and
   overkill) and January 17, 2026 - Ruling 3 (keywords act before triggered abilities, relevant to Truncheon's piercing and a tough card, covered
   by the Extreme Risk module test).
+
+## Agents of S.H.I.E.L.D.: Baron Zemo (aos)
+
+Scope: the Baron Zemo scenario 50165a to 50177 (`aos/baron-zemo.ts`: the villain 50165a/b and 50166a/b, the main scheme stages 50167a/b to 50169a/b, the
+encounter cards 50170 to 50177 except Reluctant Foe 50171 and Battle of Wits 50175, which are not scripted yet), the nine evidence cards 50185 to 50193
+as hidden cards (`packages/content/src/data/aos/evidence.ts`, the engine's hidden piles) and how the scenario uses the Executive Board
+(`aos/executive-board.ts`, audited on its own above). Data: `packages/content/src/data/aos/`. Every script was read against the printed text in the data,
+RRG 1.8, the rulings file, the box rulebook (MC50 pp. 5, 18 to 19, 22) and the owner answers of `docs/phase7-wave9.md` section 4.1 (Q1, Q11, Q28, Q30 and
+the others the module header names; none reopened). Regression tests: `packages/cards/src/wave9/aos/baron-zemo-rulings.qa.test.ts` (47 tests; both findings below are fixed, so none is an `it.fails`). `baron-zemo.test.ts`, `baron-zemo-encounter.test.ts`
+and the scenario game cover the frame, every script and one play-through; this file holds only interactions they do not assert: hidden information, who
+decides with two to four players, wrong-guess edges, Zemo's reset against overkill and a tough card, status cards and steady across the flip, the
+interrupt on card-made activations, Vulnerable and Hinder on the encounter cards, Undermine Support's per-support cost, Divided Loyalties on a stunned
+or confused ally, and options with no target.
+
+### Findings
+
+| Card id                                                                 | Expected (source)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Actual                                                                                                                                                                                                                                                                                                                                                                                                                    | Fix                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zemo 1: 50177 The Ends Justify the Means (options with no valid target) | RRG "Choose (Option)" p. 12: "When an encounter card requires a player to choose an option, they cannot choose an option that requires one or more targets if there are no valid targets for that option." RRG "Target" p. 42 lists "a minion", "an ally" and "a card" as targets. So with no minion in play the first option ("Baron Zemo defeats the minion with the fewest remaining hit points. Baron Zemo schemes.") is not offered, and with no ally or support you control the second ("Discard an ally or support you control") is not. | Both options are always offered. With no minion in play, choosing the first only makes Zemo scheme. With no ally or support, choosing the second costs nothing and does nothing: the minion is not defeated and Zemo does not scheme, so the player skips the whole card for free (an exploit, not only a display issue). **Fixed** in the script (a `when:` on each option); the test now asserts the expected behavior. | Script, one line each: `{ when: exists(query("minion")) }` on the first `option(...)` and `{ when: exists(query(["ally", "support"], { controller: "you" })) }` on the second (the DSL `option` takes `when:`). Pinned by two `it.fails` and two companions.          |
+| Zemo 2: 50170 Baron Zemo's Sword, Hero Action with no counter to remove | "Spend ... -> remove 1 secret counter from a Board Member environment and discard this card." RRG "Target" p. 42: an ability that requires a target "can only be initiated if it has at least one valid target", and a target is valid "if any part of that ability can affect that target": an environment with no secret counter cannot have one removed. With all three environments at 0 the action cannot be initiated and nothing is spent (RRG "Cost" p. 13 pays a cost only for an ability that is initiated).                          | The action is used: three energy resources are spent, no counter is removed (none to remove) and the Sword is discarded anyway. A player can spend a hand to get rid of the Sword's Forced Response without paying its price (a counter). **Fixed** in the script (a `when:` on each option); the test now asserts the expected behavior.                                                                                 | Probably script, one line: a `when:` on each `swordPayment` option (an environment holds a secret counter). If the engine still offers a Hero Action whose only choice list is empty, that is a small engine check instead. Pinned by one `it.fails` and a companion. |
+
+Each finding is pinned: `it.fails` for the expected behavior and a passing test for today's. When one is fixed, flip its `it.fails` to `it` and delete
+its companion. Zemo 1 is the stronger of the two (the RRG sentence is explicit and the second direction is an exploit).
+
+### Checked, no findings
+
+- **Hidden information (MC50 p. 5 "without looking at them", p. 19; `docs/phase7-wave9.md` 3.29).** From the opening log through the Response and the
+  accusation prompt: the log (`hiddenPilesDealt`) names sizes only; `sealHiddenPiles` plus the card pool names no card of either pile; the prompt
+  crosses out the gained cards and nothing else; the only events that carry evidence ids before the accusation name the gained cards; the A.I.M. pile
+  turns faceup after `accusationMade` and before `moleIdentified`, in that order; `preview()` of the answer to the accuse prompt stops at
+  "hiddenInformation" with no outcome and no A.I.M. card in it. A gain never draws an A.I.M. card (seeds 1 to 3), so the mole's own row is never crossed
+  out. With all six S.H.I.E.L.D. cards gained only the mole's row is left, nobody is asked and the accusation is correct (elimination, MC50 p. 18).
+- **Who decides (RRG "First Player" p. 19; MC50 p. 19).** The Response, the advance and the accusation are asked of the first player only, and with the
+  token on the second player they are asked of the second player. The Response comes after the last turn ends (and after the end-of-phase discard, draw
+  and ready steps), not after the first, and before any villain activation. A gain and the advance in one use cross the gained cards out in that
+  accusation.
+- **Per-player values (card 50167a, 50169a/b).** At four players: 8 starting threat, 4 x 2 threat from a correct accusation, 72 hit points on the Unmasked
+  face. Zemo's Unmasked interrupt is asked of each player he activates against, in order (two players).
+- **Wrong guesses against the flip threshold (MC50 p. 19; 50168b steps 2 and 3).** From the opening 2 counters on each environment, two wrong guesses
+  put every member at 4 and the players lose in a standard game; one wrong guess does the same in expert (3). A correct expert accusation loses
+  nothing and the Unmasked face is the steady 50166b. A wrong accused member that had already joined Zemo takes the per-guess counters and the 3 more on
+  its attachment, the mole (an environment) flips at 3B keeping its counters, and the threat is 1[per_hero] per counter on every attachment. A joined
+  Surveillance Aid answers each placing during The Accusation with 2 threat on the main scheme; that threat on a stage with no threat meter neither
+  completes it nor carries to Fighting Zemo (stage 3's own count ends the game in that staging, 13 against 12).
+- **Zemo's reset (50165a / 50166a; MC50 p. 22 FAQ).** The damage past his hit points is not kept (Haymaker for 3 at 1 left leaves 12 whole); a tough
+  status card prevents the damage so there is no reset and no counter is removed (RRG "Tough" p. 44); overkill from a defeated minion is damage to the
+  villain and resets him, after the minion's own defeat interrupt (RRG "Overkill" p. 31; the M.O.D.O.K. FAQ's order); the reset removes counters from
+  environments only (a joined member keeps its counters); he is not "defeated" for other cards (FAQ). The Unmasked face has no reset: lethal damage
+  wins (MC50 p. 19).
+- **Status cards on both faces (RRG "Stun" p. 41, "Confuse" p. 13, "Steady" p. 41, "Flip" p. 20; MC50 p. 22 Nick Fury FAQ).** A stun on the masked face
+  survives the flip (same card type), cancels his first Unmasked attack, and no "activates against you" interrupt is offered (he did not activate).
+  Expert: one stunned card on the steady face is not a stun (he attacks, the interrupt is offered, the card stays); two are, and both go at once. A
+  confused Zemo in alter-ego form discards the card instead of scheming and offers no interrupt (the unconfused control offers it); in hero form a
+  confused Zemo still attacks and keeps the card.
+- **The interrupt on card-made activations (RRG "Activation" p. 6; owner Q67 of wave 5).** Might Makes Right (hero) after the accusation: Zemo's
+  interrupt is offered for the villain phase's activation and again for the card's attack. (Zemo's own interrupt also answers a revealed Advance,
+  which makes him scheme.)
+- **Where Zemo's counters go.** One counter on the mole's Surveillance Aid is one placing (2 threat); the expert 2 counters are also one placing (2
+  threat, not 4). "The Board Member environment with the fewest" ignores an attachment that holds fewer (S.H.I.E.L.D. Agent after the mole joined).
+- **Encounter-card keywords.** A stunned Agent is discarded without being defeated (Vulnerable, RRG p. 48), so its defeat interrupt places nothing.
+  Divided Loyalties and Undermine Support enter with 3 + 1[per_hero] threat from Hinder (5 at two players; RRG "Hinder X" p. 22).
+- **Undermine Support (RRG "Ready" p. 36).** The cost is per support: one resource readies one of two supports, paying for both readies both, and an
+  exhausted ally readies for free.
+- **Divided Loyalties on a stunned or confused ally (RRG "Stun" p. 41, "Confuse" p. 13).** A stunned ally's attack and a confused ally's thwart still
+  cost the extra resource (the RRG says costs of the attempt are still paid): the status card goes, the ally exhausts, nothing is damaged or thwarted.
+  Unpaid, the stunned attack is refused and the stun stays.
+- **3A's find (RRG "Find" p. 19).** The Sword is found from the encounter discard pile, and a Sword already on Zemo stays attached once and is not
+  discarded.
+- **1B with one card left.** The 2 counters are placed and the one card is gained (the engine gains "as many as are left", `docs/phase7-wave9.md` 3.29;
+  Q30 decides only the empty pile).
+
+### Read against the card text, not covered by a new test
+
+Script reads correct against the printed text, and the module tests and scenario game assert them: the setup deal (one card of each kind in the A.I.M.
+pile, the other six in the S.H.I.E.L.D. pile), 2 counters on each environment, standard on 50165 and expert on 50166, the reset to 12 and 16 with the
+first player splitting the 3 removals (Q28), the Unmasked interrupt's two options and the counter amounts, the stage 3 flip and hit point reset (18 per
+hero), the Sword's find, S.H.I.E.L.D. Agent's two triggers and tie, Undermine Support and Divided Loyalties' constants and When Defeated, Might Makes
+Right in both forms, The Ends Justify the Means' two options with their tie and split, and the Sword's Forced Response and cost choice (the known notes
+excepted).
+
+### Source conflicts (flagged, not picked)
+
+- **"An incorrect accusation does not result in a loss" (MC50 p. 5 and the Strategy Note on p. 19) against the arithmetic.** The cards give each
+  environment 2 counters at setup, a wrong guess adds 1 counter to every member, a member joins at 4 (3 in expert), and three joined members lose the
+  game (50181b to 50183b). From the opening state two wrong guesses lose a standard game and one wrong guess loses an expert game. The rulebook's
+  sentence reads as a generalization (counters removed first), so the engine follows the cards; worth an official clarification.
+- **Forced Response or Forced Interrupt for the reset (MC50 p. 18 against the printed cards and MC50 p. 4).** Already decided in
+  `docs/phase7-wave9.md` section 1: the printed card wins. No change here.
+- **Secret counters on the flip.** RRG "Flip" p. 20 against MC50 pp. 6, 11 and 19 and owner Q1 = A; already decided (the Thunderbolts section).
+
+### Thin coverage and open points
+
+- **Reluctant Foe 50171 and Battle of Wits 50175** are not scripted and not tested. The Battle of Wits "prevent X" hook is the engine agent's.
+- **Several simultaneous damage sources on Zemo** (Spray Fire with a guard minion, Q16, plus an overkill spill, Q31's replaced defeat): only the
+  overkill spill was staged. Whether the reset runs once when two sources would each defeat him in one resolution is not tested.
+- **Hidden information was checked on the engine's own surfaces** (events, sealed state, hidden-pile views, the prompt, `preview`). The client's view
+  models and a multiplayer wire copy are not exercised here; the netcode agent's sealed-state work is the place.
+- **Four players:** only the per-player values of a correct accusation were staged. A wrong accusation at three or four players (which member the first
+  player lets join, the Forced Responses of several Aids in one placing) is not.
+- **The accuse choice with one row left** asks nobody (engine, `resolve/accusation.ts`). The result is forced, so no rule is broken; a client should show
+  it instead of skipping silently.
+- **1B with one card left** follows the engine spec, not a ruling: the printed "gain 2 cards" and Q30's "may not be placed for nothing" leave "placed
+  for one card" unanswered. It is pinned as built; the owner may want it recorded in section 4.1.
+- **Heroes in alter-ego form during the Unmasked stage** were staged only for a confused Zemo. Stunned Zemo against an alter-ego player is a scheme,
+  which a stun does not cancel; not tested.
+- **Expert campaign and campaign-only branches** (1 card gained, no setup counters, the heal bullet) are the campaign pass's and are not scripted.

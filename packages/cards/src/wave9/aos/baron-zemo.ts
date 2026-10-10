@@ -141,6 +141,8 @@ const removePerHero = () =>
 const swordPayment = (type: "physical" | "energy") =>
   option(
     `Spend three [${type}] resources`,
+    // "Remove 1 secret counter from a Board Member environment" needs one that holds a counter (RRG 1.8 "Target", p. 42).
+    { when: exists(query("environment", { trait: BOARD_MEMBER, hasCounter: "secret" })) },
     spendResources({ [type]: 3 }, "paid"),
     chooseTarget("board", query("environment", { trait: BOARD_MEMBER, hasCounter: "secret" })),
     removeCountersFrom(chosen("board"), "secret", 1),
@@ -298,6 +300,7 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
     chooseOne(
       option(
         "Baron Zemo defeats the minion with the fewest remaining hit points and schemes",
+        { when: exists(query("minion")) },
         bindTargets("fewest", superlative("lowest", each(query("minion")), remainingHpOf(chosen("candidate")))),
         chooseTarget("minion", { inSlot: "fewest" }, { chooser: firstPlayer }),
         defeat(chosen("minion")),
@@ -305,6 +308,7 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
       ),
       option(
         "Discard an ally or support you control to remove secret counters equal to its printed cost",
+        { when: exists(query(["ally", "support"], { controller: "you" })) },
         chooseTarget("card", query(["ally", "support"], { controller: "you" })),
         discard(chosen("card")),
         removeCountersAmong("secret", printedCostOf(chosen("card")), BOARD_MEMBER_ENVIRONMENTS, {
