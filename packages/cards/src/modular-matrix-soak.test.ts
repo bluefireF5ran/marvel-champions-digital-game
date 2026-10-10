@@ -179,7 +179,8 @@ describe(`modular set soak (${FULL ? "full matrix" : "rotating sample; QA_MODULA
       const takers = PLAYABLE_SCENARIOS.filter((scenario) =>
         MODULAR_SETS.some((set) => pairingFor(set.id, scenario).kind === "build"),
       );
-      expect(takers.map((scenario) => scenario.id)).toHaveLength(43);
+      // 48 with wave 9's five Agents of S.H.I.E.L.D. scenarios in the playable pool.
+      expect(takers.map((scenario) => scenario.id)).toHaveLength(48);
       for (const scenario of takers)
         expect(games.filter((g) => g.scenario === scenario.id).length, `${scenario.id} games`).toBeGreaterThanOrEqual(
           2,

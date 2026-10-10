@@ -248,23 +248,16 @@ describe("Queen Ramonda 51008: 'an alter-ego with the Wakanda trait'", () => {
 // ---------------------------------------------------------------------------------------------------------------------
 
 describe("The Raft 51018: 'tuck it under here from the encounter discard pile' is a cost", () => {
-  it("today's behavior, pinned: the response is offered for a Victory minion that is in the victory display, and tucks nothing", () => {
-    const raft = putInPlay(hero(), RAFT);
-    const dying = patchInstance(engaged(raft.state, JOYSTICK, "joy"), "joy" as InstanceId, { damage: 16 });
-    const r = scripted(dying, [basicAttack(dying, "joy" as InstanceId)], { accept: ["51018.the-raft-response"] });
-    expect(r.state.victoryDisplay).toContain("joy");
-    expect(r.taken()).toBe(1);
-    expect(threat(r.state)).toBe(5);
-  });
-  it.fails("a minion with Victory (Joystick 51039) that leaves play goes to the victory display, so the tuck cannot be paid and the response is not offered", () => {
-    // FINDING (low, documented in the script): no tuck cost exists in the engine, so the response is offered whenever a
-    // minion leaves play and then does nothing; RRG 'Cost' (cost arrow) says an ability whose cost cannot be paid cannot be initiated.
+  it("a minion with Victory (Joystick 51039) that leaves play goes to the victory display, so the tuck cannot be paid and the response is not offered", () => {
+    // RRG 'Cost' (p. 13): an ability whose cost cannot be paid cannot be initiated. The script's trigger hears only a
+    // minion that left play for the encounter discard pile.
     const raft = putInPlay(hero(), RAFT);
     const joystick = engaged(raft.state, JOYSTICK, "joy");
     const dying = patchInstance(joystick, "joy" as InstanceId, { damage: 16 });
     const r = scripted(dying, [basicAttack(dying, "joy" as InstanceId)], { accept: ["51018.the-raft-response"] });
     expect(r.state.victoryDisplay).toContain("joy");
     expect(r.taken()).toBe(0);
+    expect(threat(r.state)).toBe(5);
   });
 });
 

@@ -698,6 +698,68 @@ export function declareDefenderByEffect(ctx: Ctx, defenderId: InstanceId, exhaus
   if (!alreadyBasic && (basic || !already)) announceBasicDefense(ctx, defenderId, defenderPlayer);
 }
 
+/**
+ * The additional cost to defend with the character an effect is about to declare the defender (`RuleSpec
+ * additionalPowerCost`, docs/phase7-wave9.md §4.1 Q48 = B), settled on the effect's own frame before the declaration:
+ * - `"notOwed"`: no rule asks, the character already defends this attack, or the declaration would not happen (no
+ *   enemy attack, or the attack is closed to its controller). The effect resolves as written.
+ * - `"asked"`: the controller has been asked for the payment (`ChoicePrompt spendResources`); the frame waits.
+ * - `"unpaid"`: the controller cannot or did not pay. The character is not declared the defender and the instruction
+ *   does nothing to it (RRG 1.8 "Cost", p. 13: unpaid, "the effect associated with the costs does not occur").
+ * - a payment: paid; the caller declares the defender and then announces what was spent.
+ */
+export function settleDeclaredDefenderCost(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  defenderId: InstanceId,
+): "notOwed" | "asked" | "unpaid" | SpentPayment {
+  const payer = controllerOf(ctx.state, defenderId);
+  const ruled = additionalPowerCostFor(ctx.state, ctx.deps, defenderId, "defend");
+  if (!ruled || payer === null || defenseBarFor(ctx.state, payer) !== null) return "notOwed";
+  const attack = currentEnemyAttackFrame(ctx.state);
+  if (!attack) return "notOwed";
+  const procedure = ctx.state.stack.find(
+    (f): f is Frame<"enemyAttack"> => f.kind === "enemyAttack" && f.eventFrameId === attack.frameId,
+  );
+  const defending = procedure ? procedure.defenderInstanceId : ((attack.slots[DEFENDER_SLOT] ?? [])[0] ?? null);
+  if (defending === defenderId) return "notOwed";
+  const notPaid = (): "unpaid" => {
+    emit(ctx, {
+      type: "additionalPowerCostNotPaid",
+      playerId: payer,
+      characterInstanceId: defenderId,
+      power: "defend",
+    });
+    return "unpaid";
+  };
+  if (frame.answer === null) {
+    emit(ctx, { type: "additionalPowerCostAsked", playerId: payer, characterInstanceId: defenderId, power: "defend" });
+    const options = paymentOptions(ctx, payer, null);
+    if (options.length === 0 || !canPaySpend(ctx.state, ctx.deps, payer, ruled.resources)) return notPaid();
+    requestChoice(ctx, {
+      playerId: payer,
+      prompt: { kind: "spendResources", requirement: ruled.resources },
+      options,
+      minSelections: 0,
+      maxSelections: options.length,
+      frameId: frame.frameId,
+    });
+    return "asked";
+  }
+  const payment = paymentsFromOptionIds(frame.answer);
+  const pool = priceOf(ctx, payer, payment, null, null);
+  if (isPriceFault(pool) || !satisfies(pool, ruled.resources)) return notPaid();
+  const spent = payPayment(ctx, payer, payment);
+  emit(ctx, {
+    type: "additionalPowerCostPaid",
+    playerId: payer,
+    characterInstanceId: defenderId,
+    power: "defend",
+    sourceInstanceIds: ruled.sourceInstanceIds,
+  });
+  return spent;
+}
+
 export function pushEnemyAttackFrame(
   ctx: Ctx,
   event: Extract<TriggerEvent, { kind: "enemyAttack" }>,

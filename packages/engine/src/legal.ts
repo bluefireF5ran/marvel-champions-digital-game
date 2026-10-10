@@ -78,7 +78,13 @@ import {
 import { attachmentHostCandidates } from "./resolve/index.js";
 import { addPools, combineRequirements, poolTotal, requirementTotal, type ResolvedRequirement } from "./resources.js";
 import { basicPowerCostNeeds } from "./basic-power-uses.js";
-import { attachmentReachOf, formChangeCostsFor, playDestinationsOf, type FormChangeCost } from "./rules.js";
+import {
+  abilityCostFor,
+  attachmentReachOf,
+  formChangeCostsFor,
+  playDestinationsOf,
+  type FormChangeCost,
+} from "./rules.js";
 import { formChangeCostSources } from "./form-change-cost.js";
 import {
   activeAbilityRefs,
@@ -1087,7 +1093,7 @@ function evaluateAbility(
   instanceId: InstanceId,
   abilityId: AbilityId,
 ): Evaluated {
-  const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
+  const cost = costAsDetermined(state, deps, instanceId, playerId, abilityCostFor(state, deps, instanceId, abilityId));
   const picks = discardPicks(state, deps, playerId, instanceId, cost);
   const reserved = new Set(picks);
   const spend = spendOrder(state, deps, playerId, reserved, null);
@@ -1531,7 +1537,13 @@ function payableFor(
   }
   if (action.kind === "useAbility") {
     const { instanceId, abilityId } = action;
-    const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
+    const cost = costAsDetermined(
+      state,
+      deps,
+      instanceId,
+      playerId,
+      abilityCostFor(state, deps, instanceId, abilityId),
+    );
     const picks = options.costChoices?.discard ?? discardPicks(state, deps, playerId, instanceId, cost);
     const sets = costChoiceSets(state, deps, playerId, instanceId, cost, picks);
     const chosen = sets.find((set) => set.target !== null && set.target === options.target) ?? sets[0];

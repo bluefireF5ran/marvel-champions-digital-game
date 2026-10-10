@@ -5115,10 +5115,10 @@ export type CollectionSearchFilter = Pick<CollectionFilter, "categories" | "aspe
    * MC50 p. 22: "an identity card from a Marvel Champions hero you are not using in your current game whose title
    * does not match the title of a character in play"): the card is an identity card, and its hero-side title
    * (`foeHeroFace`; §4.1 Q40 = A, Q42 = A: the alter-ego title is not compared) is the title no character in play is
-   * showing. A hero a player is using is never found: the game holds its one copy (the copy accounting above), and
-   * the hero-side titles of every seat's identity count as in play whichever side is up, so a second identity card
-   * that shares a hero title with a seat's alter-ego is not found either (§3.30's open question, the engine's
-   * default). A version of a progressing identity other than the first, and a separated identity, are not found.
+   * showing. A hero a player is using is never found: the game holds its one copy (the copy accounting above). Only a
+   * faceup title is in play (§4.1 Q44 = B): the hero title of a seat whose identity is in alter-ego form blocks
+   * nothing, so another identity card with that hero title is found until the seat flips to hero form. A version of
+   * a progressing identity other than the first, and a separated identity, are not found.
    */
   readonly heroTitleNotInPlay?: true;
 };

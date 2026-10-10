@@ -969,17 +969,36 @@ export type TriggerEventBody =
    * Pushed only when an ability could react (`dealEncounterCardOrAnnounce`, `heard`); otherwise the card is dealt at
    * once, with the log, state and replay of a game that has no such ability.
    *
+   * **A named card** (`named`; "deal that minion to the first player", "deal that card to yourself as a facedown
+   * encounter card": `EffectSpec dealAsEncounterCard`) is a deal like any other and is heard the same way
+   * (docs/phase7-wave9.md §3.45: "a card's 'deal … as a facedown encounter card'"). The card is known and is the
+   * event's target (`eventTarget`); it has not moved yet. The apply step deals it from wherever it then is
+   * (`dealAsEncounterCards`: a card in play leaves play by it). Cancelled or replaced, it stays exactly where it was
+   * (the encounter discard pile, under a card, in play), nothing is dealt, and the text before a "then" of the
+   * dealing effect is unresolved (`preThenUnresolved { cause: "cardNotDealt" }`), as for a card that could not be
+   * dealt. `source` is `"ability"` and `sourceInstanceId` the card whose ability deals it.
+   *
    * **Not** announced: a card dealt as a cost (`AbilityCost.dealEncounterCards`; every cost is paid at once, RRG 1.8
-   * "Cost", p. 13, as `cardBeingDiscarded` and `statusBeingGiven` have it), a named card dealt to a player ("deal
-   * that card to yourself as a facedown encounter card", `dealAsEncounterCards`: it is not taken from the deck), and
-   * "reveal an additional encounter card" for a card that could not be given or enter play (no deal; `source: null`
-   * of `dealEncounterCardTo`).
+   * "Cost", p. 13, as `cardBeingDiscarded` and `statusBeingGiven` have it), the engine's own handling of an encounter
+   * card found in a player deck (`dealUnhandledEncounterCard`, a fallback no card text makes), and "reveal an
+   * additional encounter card" for a card that could not be given or enter play (no deal; `source: null` of
+   * `dealEncounterCardTo`).
    */
   | {
       readonly kind: "encounterCardBeingDealt";
       readonly playerId: PlayerId;
       readonly source: EncounterDealSource;
       readonly sourceInstanceId: InstanceId | null;
+      /** The deal of a named card rather than of the encounter deck's top card. */
+      readonly named?: {
+        readonly instanceId: InstanceId;
+        /** The dealing effect's frame, whose pre-"then" text is unresolved when the card is not dealt. */
+        readonly frameId: FrameId;
+        /** The dealing ability's card, for the Permanent keyword's same-set exception (`dealAsEncounterCards`). */
+        readonly sourceCardId?: CardId;
+        /** The decks a find searched for the card, shuffled once the deal is settled (RRG 1.8 "Search", p. 39). */
+        readonly searched?: readonly ZoneId[];
+      };
     }
   /**
    * A card in a player's hand or deck is about to be discarded by the effect of a card's ability: "Interrupt: When an
@@ -1983,9 +2002,10 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
       return of([], [event.instanceId], [event.playerId]);
     case "encounterCardDealt":
       return of([], [event.instanceId], [event.playerId]);
-    // The card is still on the deck and is not named; the dealing card is the source, the player dealt to "you".
+    // The card is still on the deck and is not named; the dealing card is the source, the player dealt to "you". A
+    // named card (`named`) is the target.
     case "encounterCardBeingDealt":
-      return of([event.sourceInstanceId], [], [event.playerId]);
+      return of([event.sourceInstanceId], event.named ? [event.named.instanceId] : [], [event.playerId]);
     // The card being tucked is the target ("it"), the tucking card the source, the host's player "you".
     case "cardBeingTucked":
       return of([event.sourceInstanceId], [event.instanceId], [event.playerId]);

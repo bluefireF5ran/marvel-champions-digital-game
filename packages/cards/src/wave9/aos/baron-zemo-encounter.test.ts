@@ -8,7 +8,9 @@ import {
   minionsEngagedWith,
   traitsOf,
   activeAbilityRefs,
+  type AbilityDefinition,
   type EngineDeps,
+  type GameEvent,
   type GameState,
   type InstanceId,
 } from "@mc/engine";
@@ -478,6 +480,132 @@ describe("Divided Loyalties (50173): an ally's attack, thwart and defense cost 1
     const { state, cat } = loyal(false);
     expect(attackBy(state, cat).ok).toBe(true);
   });
+
+  // Owner answer 48 = B: the cost also reaches an ally's own "(attack)" / "(thwart)" ability and an ally a card effect
+  // declares the defender. Black Cat carries test-local text for it (no ally of these decks prints such an ability):
+  // "Action (attack): Exhaust Black Cat → deal 2 damage to the villain.", "Action (thwart): Remove 1 threat from each
+  // side scheme." and "Forced Interrupt: When an enemy attacks you, exhaust Black Cat and declare her the defender."
+  describe("an ally's own labeled ability, and an ally an effect declares the defender (Q48 = B)", () => {
+    const two = { kind: "const", value: 2 } as const;
+    const one = { kind: "const", value: 1 } as const;
+    const CLAW = "01002.claw";
+    const PRY = "01002.pry";
+    const COVER = "01002.cover";
+    const LOCAL: Record<string, AbilityDefinition> = {
+      [CLAW]: {
+        trigger: { kind: "action" },
+        label: ["attack"],
+        cost: { exhaustSelf: true },
+        effects: [{ kind: "dealDamage", target: { kind: "villain" }, amount: two }],
+      },
+      [PRY]: {
+        trigger: { kind: "action" },
+        label: ["thwart"],
+        effects: [
+          { kind: "removeThreat", target: { kind: "each", query: { categories: ["sideScheme"] } }, amount: one },
+        ],
+      },
+      [COVER]: {
+        trigger: {
+          kind: "interrupt",
+          forced: true,
+          on: { on: "enemyAttack", playerIs: "controller", usesAttackedPlayer: true },
+        },
+        effects: [{ kind: "declareDefender", character: { kind: "self" }, exhaust: true }],
+      },
+    };
+    const CLAWED: EngineDeps = { abilities: mergeRegistries(DEPS.abilities, LOCAL as never) };
+    /** `loyal`, with `refs` added to Black Cat's abilities. */
+    function clawed(refs: readonly string[], withScheme = true) {
+      const table = loyal(withScheme);
+      const card = table.state.cardPool["01002" as never]!;
+      const abilities = [...("abilities" in card ? card.abilities : []), ...refs.map((id) => ({ id: abilityId(id) }))];
+      return {
+        ...table,
+        state: {
+          ...table.state,
+          cardPool: { ...table.state.cardPool, "01002": { ...card, abilities } as never },
+        } as GameState,
+      };
+    }
+    const useBy = (s: GameState, cat: InstanceId, ref: string, payment: readonly { fromHand: InstanceId }[] = []) =>
+      applyCommand(
+        s,
+        { type: "useAbility", playerId: P1, cardInstanceId: cat, abilityId: abilityId(ref), payment },
+        CLAWED,
+      );
+    const paidFor = (events: readonly GameEvent[], power: string, cat: InstanceId): boolean =>
+      events.some((e) => e.type === "additionalPowerCostPaid" && e.power === power && e.characterInstanceId === cat);
+
+    it('her "(attack)" action pays 1 resource with its exhaust; unpaid it is refused and she stays ready', () => {
+      const { state, cat } = clawed([CLAW]);
+      const unpaid = useBy(state, cat, CLAW);
+      expect(unpaid.ok).toBe(false);
+      if (!unpaid.ok) expect(unpaid.error.code).toBe("insufficient_resources");
+      expect(inst(state, cat).exhausted).toBe(false);
+
+      const [card] = handOf(state);
+      const paid = useBy(state, cat, CLAW, [{ fromHand: card! }]);
+      expect(paid.ok).toBe(true);
+      if (!paid.ok) return;
+      const end = settle(paid.state, firstLegal, (s) => s.pendingChoice === null, CLAWED);
+      expect(handOf(end)).toHaveLength(handOf(state).length - 1);
+      expect(inst(end, cat).exhausted).toBe(true);
+      expect(inst(end, villainOf(state)).damage).toBe(inst(state, villainOf(state)).damage + 2);
+      expect(paidFor(paid.events, "attack", cat)).toBe(true);
+    });
+
+    it('her "(thwart)" action, with no cost of its own, costs the resource', () => {
+      const { state, cat, scheme } = clawed([PRY]);
+      expect(useBy(state, cat, PRY).ok).toBe(false);
+      const [card] = handOf(state);
+      const paid = useBy(state, cat, PRY, [{ fromHand: card! }]);
+      expect(paid.ok).toBe(true);
+      if (!paid.ok) return;
+      const end = settle(paid.state, firstLegal, (s) => s.pendingChoice === null, CLAWED);
+      expect(handOf(end)).toHaveLength(handOf(state).length - 1);
+      expect(inst(end, scheme).threat).toBe(2);
+      expect(paidFor(paid.events, "thwart", cat)).toBe(true);
+    });
+
+    it("without the side scheme both abilities cost nothing more", () => {
+      const { state, cat } = clawed([CLAW, PRY], false);
+      const hand = handOf(state);
+      const claw = useBy(state, cat, CLAW);
+      expect(claw.ok).toBe(true);
+      if (claw.ok) expect(handOf(claw.state)).toEqual(hand);
+      expect(useBy(state, cat, PRY).ok).toBe(true);
+    });
+
+    it("declared the defender by an effect: her controller pays 1 resource, or she does not defend", () => {
+      const { state, cat } = clawed([COVER]);
+      const phase = (pay: number) =>
+        driveEventsPicking(CLAWED, onlyDeck(state, BLANK, ONE_ICON), scripted({ pay }), endTurn(P1));
+      const byEffect = (events: readonly GameEvent[]): boolean =>
+        events.some((e) => e.type === "defenderDeclared" && e.defenderInstanceId === cat && e.byEffect === true);
+
+      const paid = phase(1);
+      expect(paidFor(paid.events, "defend", cat)).toBe(true);
+      expect(byEffect(paid.events)).toBe(true);
+      expect(paid.events.some((e) => e.type === "characterDefeated" && e.instanceId === cat)).toBe(true);
+
+      const unpaid = phase(0);
+      expect(unpaid.events.some((e) => e.type === "additionalPowerCostNotPaid" && e.characterInstanceId === cat)).toBe(
+        true,
+      );
+      expect(unpaid.events.some((e) => e.type === "additionalPowerCostPaid")).toBe(false);
+      expect(unpaid.events.some((e) => e.type === "defenderDeclared" && e.defenderInstanceId === cat)).toBe(false);
+      expect(unpaid.events.some((e) => e.type === "characterDefeated" && e.instanceId === cat)).toBe(false);
+
+      // Without the side scheme the effect declares her for nothing.
+      const free = clawed([COVER], false);
+      const run = driveEventsPicking(CLAWED, onlyDeck(free.state, BLANK, ONE_ICON), scripted(), endTurn(P1));
+      expect(run.events.some((e) => e.type === "additionalPowerCostAsked")).toBe(false);
+      expect(
+        run.events.some((e) => e.type === "defenderDeclared" && e.defenderInstanceId === free.cat && e.byEffect),
+      ).toBe(true);
+    });
+  });
 });
 
 describe("The Ends Justify the Means (50177)", () => {
@@ -687,6 +815,8 @@ describe("Reluctant Foe (50171): a hero from the collection in play as a minion"
   const HULK_ALLY = "01050";
   const SPIDER = "01001a";
   const IRON = "01029a";
+  /** Spider-Man (Miles Morales): the hero title of the core Spider-Man, a different alter-ego title. */
+  const MILES = "27030a";
   const BACKFLIP = "01003";
 
   /** Backflip stands in for an event that discards cards from play (the box has none): `01003.free` and `01003.banish`. */
@@ -738,8 +868,8 @@ describe("Reluctant Foe (50171): a hero from the collection in play as a minion"
     };
   };
 
-  it("the reveal offers hero identity cards, not one titled like a character in play (Q42, Q44)", () => {
-    // Both seats are in alter-ego form (Tony Stark, Peter Parker): their hero titles still count (Q44 = A).
+  it("the reveal offers hero identity cards, not one titled like a character in play (Q42, Q44 = B)", () => {
+    // Both seats are in alter-ego form (Tony Stark, Peter Parker): only a faceup title is in play (Q44 = B).
     let start = open([IRON_MAN, SPIDER_MAN], false);
     // An ally titled Hulk is in play.
     start = playFromHand(DEPS, relabel(start, HULK_ALLY).state, HULK_ALLY, 2).state;
@@ -750,11 +880,33 @@ describe("Reluctant Foe (50171): a hero from the collection in play as a minion"
     expect(offered).toHaveLength(1);
     const ids = offered[0]!.ids;
     expect(ids).toContain(CAPTAIN_MARVEL);
+    expect(ids).not.toContain(HULK);
+    // The other Spider-Man (Miles Morales): "Spider-Man" is not faceup while Peter Parker is, so it is offered.
+    expect(ids).toContain(MILES);
+    // The identity cards the players are using are not in the collection (MC50 p. 22: "a hero you are not using in
+    // your current game"), whichever side is up.
     expect(ids).not.toContain(IRON);
     expect(ids).not.toContain(SPIDER);
-    expect(ids).not.toContain(HULK);
     // Found nothing: it is discarded.
     expect(locateCard(run.state, find(run.state, FOE)!)?.kind).toBe("encounterDiscard");
+  });
+
+  it("a seat in hero form blocks its hero title: the other Spider-Man is not offered (Q44 = B)", () => {
+    const offered: { player: string; ids: string[] }[] = [];
+    reveal(open([IRON_MAN, SPIDER_MAN]), null, offered, [BLANK, BLANK, FOE, SPARE]);
+    expect(offered).toHaveLength(1);
+    const ids = offered[0]!.ids;
+    expect(ids).toContain(CAPTAIN_MARVEL);
+    expect(ids).not.toContain(MILES);
+    expect(ids).not.toContain(IRON);
+    expect(ids).not.toContain(SPIDER);
+  });
+
+  it("the other Spider-Man found while Peter Parker is faceup enters play: the two do not match as unique cards", () => {
+    const run = reveal(open([SPIDER_MAN], false), MILES);
+    const hero = find(run.state, MILES)!;
+    expect(minionsEngagedWith(run.state, P1)).toEqual([hero]);
+    expect(inst(run.state, find(run.state, FOE)!).attachedTo).toBe(hero);
   });
 
   it("the chosen hero enters play engaged with the revealer as an Elite minion with its printed stats", () => {

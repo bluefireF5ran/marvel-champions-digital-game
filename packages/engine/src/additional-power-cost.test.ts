@@ -23,7 +23,7 @@ import type { GameEvent } from "./events.js";
 import type { InstanceId } from "./ids.js";
 import { legalActions, paymentFor, tryPayment } from "./legal.js";
 import { mustInstance, mustPlayer } from "./query.js";
-import { additionalPowerCostFor } from "./rules.js";
+import { abilityCostFor, additionalPowerCostFor } from "./rules.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
 import { stubAlly, stubMinion, stubSideScheme, stubSupport, stubTreachery, stubVillain } from "./testing/fixtures.js";
@@ -79,8 +79,114 @@ const THUG = stubMinion({ id: "thug", atk: 1, sch: 0, hp: 9, boostIcons: 0 });
 const BLANK = stubTreachery({ id: "blank", boostIcons: 0 });
 const BOSS = stubVillain({ id: "boss", stages: [{ hp: flat(50), atk: 2, sch: 0 }] });
 
-const deps: EngineDeps = depsOf(TAX, ATTACK_TAX, ORDER);
-const CARDS = [TAX_SCHEME, ATTACK_TAX_SCHEME, GUARD, RADIO, THUG, BLANK];
+// --- §4.1 Q48 = B: an ally's own "(attack)" / "(thwart)" ability, and an ally an effect declares the defender ------
+const three = { kind: "const", value: 3 } as const;
+const one = { kind: "const", value: 1 } as const;
+const allies = { kind: "each", query: { categories: ["ally"] } } as const;
+/** "Action (attack): Exhaust this ally → deal 3 damage to the villain." */
+const STRIKE = stubAbility(
+  "striker.attack",
+  def({
+    trigger: { kind: "action" },
+    label: ["attack"],
+    cost: { exhaustSelf: true },
+    effects: [{ kind: "dealDamage", target: { kind: "villain" }, amount: three }],
+  }),
+);
+/** "Action (thwart): Remove 1 threat from each side scheme." No cost of its own. */
+const SNEAK = stubAbility(
+  "striker.thwart",
+  def({
+    trigger: { kind: "action" },
+    label: ["thwart"],
+    effects: [{ kind: "removeThreat", target: { kind: "each", query: { categories: ["sideScheme"] } }, amount: one }],
+  }),
+);
+/** "Action: Deal 1 damage to the villain." No label. */
+const POKE = stubAbility(
+  "striker.plain",
+  def({
+    trigger: { kind: "action" },
+    effects: [{ kind: "dealDamage", target: { kind: "villain" }, amount: one }],
+  }),
+);
+/** "Response (attack): After you thwart, deal 3 damage to the villain." No cost of its own. */
+const FOLLOW_UP = stubAbility(
+  "follower.response",
+  def({
+    trigger: { kind: "response", forced: false, on: { on: "thwart", playerIs: "controller" } },
+    label: ["attack"],
+    effects: [{ kind: "dealDamage", target: { kind: "villain" }, amount: three }],
+  }),
+);
+/** "Forced Response (attack): After you thwart, deal 3 damage to the villain." */
+const ZEAL = stubAbility(
+  "zealot.forced",
+  def({
+    trigger: { kind: "response", forced: true, on: { on: "thwart", playerIs: "controller" } },
+    label: ["attack"],
+    effects: [{ kind: "dealDamage", target: { kind: "villain" }, amount: three }],
+  }),
+);
+/** "Interrupt: When an enemy attacks you, exhaust an ally you control and declare it the defender." */
+const COVER = stubAbility(
+  "cover.interrupt",
+  def({
+    trigger: {
+      kind: "interrupt",
+      forced: true,
+      on: { on: "enemyAttack", playerIs: "controller", usesAttackedPlayer: true },
+    },
+    effects: [{ kind: "declareDefender", character: allies, exhaust: true }],
+  }),
+);
+/** The same once the attack's procedure runs: "When a boost card is turned faceup, exhaust an ally and declare it …". */
+const LATE_COVER = stubAbility(
+  "late-cover.interrupt",
+  def({
+    trigger: { kind: "interrupt", forced: true, on: { on: "boostCardTurnedFaceup", activation: "attack" } },
+    effects: [{ kind: "declareDefender", character: allies, exhaust: true }],
+  }),
+);
+const STRIKER = stubAlly({
+  id: "striker-ally",
+  cost: 0,
+  atk: 1,
+  thw: 1,
+  hp: 9,
+  resources: 1,
+  abilities: [STRIKE.ref, SNEAK.ref, POKE.ref],
+});
+const FOLLOWER = stubAlly({
+  id: "follower-ally",
+  cost: 0,
+  atk: 1,
+  thw: 1,
+  hp: 9,
+  resources: 1,
+  abilities: [FOLLOW_UP.ref],
+});
+const ZEALOT = stubAlly({ id: "zealot-ally", cost: 0, atk: 1, thw: 1, hp: 9, resources: 1, abilities: [ZEAL.ref] });
+/** The same "(attack)" action on a card that is not an ally. */
+const TURRET = stubSupport({ id: "turret", cost: 0, resources: 1, abilities: [STRIKE.ref] });
+const COVER_CALL = stubSupport({ id: "cover-call", cost: 0, resources: 1, abilities: [COVER.ref] });
+const LATE_CALL = stubSupport({ id: "late-call", cost: 0, resources: 1, abilities: [LATE_COVER.ref] });
+
+const deps: EngineDeps = depsOf(TAX, ATTACK_TAX, ORDER, STRIKE, SNEAK, POKE, FOLLOW_UP, ZEAL, COVER, LATE_COVER);
+const CARDS = [
+  TAX_SCHEME,
+  ATTACK_TAX_SCHEME,
+  GUARD,
+  RADIO,
+  THUG,
+  BLANK,
+  STRIKER,
+  FOLLOWER,
+  ZEALOT,
+  TURRET,
+  COVER_CALL,
+  LATE_CALL,
+];
 
 /** P1's hand cut to its first `size` cards (surgery); the rest go to the discard pile. */
 function handOfSize(state: GameState, size: number): GameState {
@@ -109,7 +215,7 @@ function table(hand: number, scheme: { readonly id: string } | null = TAX_SCHEME
     deps,
     villain: BOSS,
     encounter: [TAX_SCHEME.id, ATTACK_TAX_SCHEME.id, THUG.id, ...copiesOf(BLANK.id, 30)],
-    deck: [GUARD.id, RADIO.id],
+    deck: [GUARD.id, RADIO.id, STRIKER.id, FOLLOWER.id, ZEALOT.id, TURRET.id, COVER_CALL.id, LATE_CALL.id],
   });
   state = {
     ...state,
@@ -418,5 +524,298 @@ describe("§3.31 `additionalPowerCost`: an additional cost to defend with an all
     const declared = apply(start, t.ally);
     expect(types(declared.events)).toContain("defenderDeclared");
     expect(exhausted(declared.session.state, t.ally)).toBe(true);
+  });
+});
+
+describe('§4.1 Q48 = B `additionalPowerCost`: an ally\'s own "(attack)" or "(thwart)" ability', () => {
+  /** `table`, with `card` in play too. */
+  function withCard(hand: number, card: { readonly id: string }, scheme: { readonly id: string } | null = TAX_SCHEME) {
+    const t = table(hand + 10, scheme);
+    const placed = playerCardIntoPlay(t.state, card.id as never);
+    return { ...t, state: handOfSize(placed.state, hand), card: placed.id };
+  }
+  const abilityFor = (state: GameState, id: InstanceId, abilityId: string) => {
+    const actions = legalActions(state, P1, deps);
+    if (actions.kind !== "turn") throw new Error(`not P1's turn: ${actions.kind}`);
+    const matches = (ref: { kind: string; instanceId?: InstanceId; abilityId?: string }) =>
+      ref.kind === "useAbility" && ref.instanceId === id && ref.abilityId === abilityId;
+    return {
+      legal: actions.legal.find((entry) => matches(entry.action as never)),
+      illegal: actions.illegal.find((entry) => matches(entry.action as never)),
+    };
+  };
+  const use = (id: InstanceId, abilityId: string, payment: readonly InstanceId[] = []): Command => ({
+    type: "useAbility",
+    playerId: P1,
+    cardInstanceId: id,
+    abilityId: abilityId as never,
+    payment: payment.map((fromHand) => ({ fromHand })),
+  });
+
+  it("reads the rule's resources onto the ability's cost: labeled abilities of the ally only", () => {
+    const t = withCard(1, STRIKER);
+    expect(abilityCostFor(t.state, deps, t.card, STRIKE.ref.id)).toMatchObject({
+      exhaustSelf: true,
+      additionalPower: { power: "attack", sourceInstanceIds: [t.scheme] },
+    });
+    expect(abilityCostFor(t.state, deps, t.card, SNEAK.ref.id)?.additionalPower?.power).toBe("thwart");
+    // No label: the written cost (none), by identity.
+    expect(abilityCostFor(t.state, deps, t.card, POKE.ref.id)).toBeUndefined();
+    const free = withCard(1, STRIKER, null);
+    expect(abilityCostFor(free.state, deps, free.card, STRIKE.ref.id)).toBe(STRIKE.definition.cost);
+    // A rule over attacks alone leaves the "(thwart)" ability as written.
+    const attacks = withCard(1, STRIKER, ATTACK_TAX_SCHEME);
+    expect(abilityCostFor(attacks.state, deps, attacks.card, SNEAK.ref.id)).toBeUndefined();
+    expect(abilityCostFor(attacks.state, deps, attacks.card, STRIKE.ref.id)?.additionalPower).toBeDefined();
+  });
+
+  it('the "(attack)" action pays 1 resource with its exhaust, and the attack resolves', () => {
+    const t = withCard(1, STRIKER);
+    const [card] = mustPlayer(t.state, P1).hand;
+    const { legal } = abilityFor(t.state, t.card, STRIKE.ref.id);
+    expect(legal?.needsPayment).toBe(true);
+    expect(legal?.example).toMatchObject({ type: "useAbility", payment: [{ fromHand: card }] });
+    const out = play(t.state, legal!.example);
+    expect(handSize(out.state)).toBe(0);
+    expect(exhausted(out.state, t.card)).toBe(true);
+    expect(mustInstance(out.state, t.villain).damage).toBe(3);
+    expect(out.events).toContainEqual({
+      type: "additionalPowerCostPaid",
+      playerId: P1,
+      characterInstanceId: t.card,
+      power: "attack",
+      sourceInstanceIds: [t.scheme],
+    });
+  });
+
+  it("unpaid, the action is refused and the ally stays ready; with nothing to spend it is not offered", () => {
+    const t = withCard(1, STRIKER);
+    const result = applyCommand(t.state, use(t.card, STRIKE.ref.id), deps);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("insufficient_resources");
+    expect(exhausted(t.state, t.card)).toBe(false);
+
+    const broke = withCard(0, STRIKER);
+    expect(abilityFor(broke.state, broke.card, STRIKE.ref.id).legal).toBeUndefined();
+    expect(abilityFor(broke.state, broke.card, SNEAK.ref.id).legal).toBeUndefined();
+    // Its unlabeled action is still free.
+    const poke = abilityFor(broke.state, broke.card, POKE.ref.id).legal;
+    expect(poke?.needsPayment).toBe(false);
+    const out = play(broke.state, poke!.example);
+    expect(mustInstance(out.state, broke.villain).damage).toBe(1);
+    expect(types(out.events)).not.toContain("additionalPowerCostPaid");
+  });
+
+  it('a "(thwart)" action with no cost of its own costs the resource', () => {
+    const t = withCard(2, STRIKER);
+    const { legal } = abilityFor(t.state, t.card, SNEAK.ref.id);
+    expect(legal?.needsPayment).toBe(true);
+    const out = play(t.state, legal!.example);
+    expect(handSize(out.state)).toBe(1);
+    expect(mustInstance(out.state, t.scheme).threat).toBe(4);
+    expect(out.events.some((e) => e.type === "additionalPowerCostPaid" && e.power === "thwart")).toBe(true);
+    const refused = applyCommand(t.state, use(t.card, SNEAK.ref.id), deps);
+    expect(refused.ok).toBe(false);
+  });
+
+  it('the same "(attack)" action on a support, and the ally\'s without the rule, cost nothing more', () => {
+    const turret = withCard(0, TURRET);
+    const shot = abilityFor(turret.state, turret.card, STRIKE.ref.id).legal;
+    expect(shot?.needsPayment).toBe(false);
+    expect(mustInstance(play(turret.state, shot!.example).state, turret.villain).damage).toBe(3);
+
+    const free = withCard(0, STRIKER, null);
+    const strike = abilityFor(free.state, free.card, STRIKE.ref.id).legal;
+    expect(strike?.needsPayment).toBe(false);
+    expect(mustInstance(play(free.state, strike!.example).state, free.villain).damage).toBe(3);
+  });
+
+  /** The hero's basic thwart of the taxing scheme, then every prompt answered by `pick` until the turn is quiet. */
+  function afterThwart(t: Table, pick: (state: GameState) => readonly string[]) {
+    let { session, events } = play(t.state, {
+      type: "basicThwart",
+      playerId: P1,
+      thwarterInstanceId: t.hero,
+      schemeInstanceId: t.scheme || t.state.mainScheme.instanceId,
+    });
+    const prompts: string[] = [];
+    for (let guard = 0; session.state.pendingChoice; guard++) {
+      if (guard > 20) throw new Error("the thwart did not settle");
+      prompts.push(session.state.pendingChoice.prompt.kind);
+      const result = sessionApply(session, answer(session.state, ...pick(session.state)), deps);
+      if (!result.ok) throw new Error(result.error.message);
+      session = result.session;
+      events = [...events, ...result.events];
+    }
+    return { state: session.state, events, prompts };
+  }
+  const paying =
+    (pay: boolean) =>
+    (state: GameState): readonly string[] => {
+      const choice = state.pendingChoice!;
+      if (choice.prompt.kind === "payForAbility") return pay ? [choice.options[0]!.optionId] : [];
+      return defaultPick(state).length > 0 ? defaultPick(state) : [choice.options[0]!.optionId];
+    };
+
+  it('a triggered "(attack)" Response asks its controller for the resource as it is initiated', () => {
+    const t = withCard(1, FOLLOWER);
+    const out = afterThwart(t, paying(true));
+    expect(out.prompts).toContain("payForAbility");
+    expect(handSize(out.state)).toBe(0);
+    expect(mustInstance(out.state, t.villain).damage).toBe(3);
+    expect(out.events.some((e) => e.type === "additionalPowerCostPaid" && e.characterInstanceId === t.card)).toBe(true);
+  });
+
+  it("declining the payment declines the Response; with nothing to spend it is not offered", () => {
+    const t = withCard(1, FOLLOWER);
+    const declined = afterThwart(t, paying(false));
+    expect(declined.prompts).toContain("payForAbility");
+    expect(handSize(declined.state)).toBe(1);
+    expect(mustInstance(declined.state, t.villain).damage).toBe(0);
+    expect(types(declined.events)).not.toContain("additionalPowerCostPaid");
+
+    const broke = afterThwart(withCard(0, FOLLOWER), paying(true));
+    expect(broke.prompts).toEqual([]);
+    expect(mustInstance(broke.state, t.villain).damage).toBe(0);
+
+    // Without the rule the Response is free: no payment is asked.
+    const bare = withCard(0, FOLLOWER, null);
+    const main = bare.state.mainScheme.instanceId;
+    const threatened = {
+      ...bare.state,
+      instances: { ...bare.state.instances, [main]: { ...mustInstance(bare.state, main), threat: 3 } },
+    };
+    const free = afterThwart({ ...bare, state: threatened }, paying(true));
+    expect(free.prompts).not.toContain("payForAbility");
+    expect(mustInstance(free.state, t.villain).damage).toBe(3);
+  });
+
+  it('a Forced "(attack)" ability is not a player\'s to pay for: it resolves as written', () => {
+    const t = withCard(0, ZEALOT);
+    expect(abilityCostFor(t.state, deps, t.card, ZEAL.ref.id)).toBeUndefined();
+    const out = afterThwart(t, paying(true));
+    expect(mustInstance(out.state, t.villain).damage).toBe(3);
+    expect(types(out.events)).not.toContain("additionalPowerCostPaid");
+  });
+});
+
+describe("§4.1 Q48 = B `additionalPowerCost`: an ally a card effect declares the defender", () => {
+  function apply(session: GameSession, ...selected: readonly string[]) {
+    const result = sessionApply(session, answer(session.state, ...selected), deps);
+    if (!result.ok) throw new Error(result.error.message);
+    const replayed = replay(result.session.log, deps);
+    if (!replayed.ok) throw new Error(replayed.error.message);
+    expect(replayed.state).toEqual(result.session.state);
+    return result;
+  }
+  /** `card` in play too; ends the turn and plays to the first prompt of `kind`. */
+  function toPrompt(card: { readonly id: string }, scheme: { readonly id: string } | null, kind: string) {
+    const t = table(1, scheme);
+    const placed = playerCardIntoPlay(t.state, card.id as never);
+    const ended = play(placed.state, { type: "endTurn", playerId: P1 });
+    let session = ended.session;
+    const events: GameEvent[] = [...ended.events];
+    for (let guard = 0; session.state.pendingChoice?.prompt.kind !== kind; guard++) {
+      if (guard > 50 || !session.state.pendingChoice) throw new Error(`no ${kind} prompt`);
+      const result = sessionApply(session, answer(session.state, ...defaultPick(session.state)), deps);
+      if (!result.ok) throw new Error(result.error.message);
+      session = result.session;
+      events.push(...result.events);
+    }
+    return { t, session, events };
+  }
+  /**
+   * The Declare Defender step is declined with `hand` cards in hand (surgery while its prompt is open), so the boost
+   * card is turned faceup and the effect declares the ally.
+   */
+  function declaredLate(hand: number, scheme: { readonly id: string } | null = TAX_SCHEME) {
+    const { t, session } = toPrompt(LATE_CALL, scheme, "declareDefender");
+    const result = apply(startSession(handOfSize(session.state, hand)), "decline");
+    return { t, session: result.session, events: result.events };
+  }
+  /** Plays the villain phase out with the default answers. */
+  function settled(from: GameSession): GameState {
+    let session = from;
+    for (let guard = 0; session.state.pendingChoice && session.state.step.phase !== "player"; guard++) {
+      if (guard > 50) throw new Error("the villain phase did not settle");
+      session = apply(session, ...defaultPick(session.state)).session;
+    }
+    return session.state;
+  }
+
+  it("asks the ally's controller; paid, the ally is exhausted, declared the defender and takes the attack", () => {
+    const { t, session: asked, events } = declaredLate(1);
+    expect(asked.state.pendingChoice?.prompt).toMatchObject({ kind: "spendResources" });
+    expect(asked.state.pendingChoice?.playerId).toBe(P1);
+    expect(types(events)).toContain("additionalPowerCostAsked");
+    expect(types(events)).not.toContain("defenderDeclared");
+    // Not exhausted, and not the defender, until the cost is paid.
+    expect(exhausted(asked.state, t.ally)).toBe(false);
+
+    const paid = apply(asked, asked.state.pendingChoice!.options[0]!.optionId);
+    const order = types(paid.events);
+    expect(order).toContain("additionalPowerCostPaid");
+    expect(order.indexOf("additionalPowerCostPaid")).toBeLessThan(order.indexOf("defenderDeclared"));
+    expect(paid.events).toContainEqual(
+      expect.objectContaining({ type: "defenderDeclared", defenderInstanceId: t.ally, byEffect: true }),
+    );
+    expect(handSize(paid.session.state)).toBe(0);
+    expect(exhausted(paid.session.state, t.ally)).toBe(true);
+    const end = settled(paid.session);
+    expect(mustInstance(end, t.ally).damage).toBe(2);
+    expect(mustInstance(end, t.hero).damage).toBe(0);
+  });
+
+  it("not paid: the ally is not declared and not exhausted, and the attack goes on without it", () => {
+    const { t, session: asked } = declaredLate(1);
+    const declined = apply(asked);
+    expect(types(declined.events)).toContain("additionalPowerCostNotPaid");
+    expect(types(declined.events)).not.toContain("defenderDeclared");
+    expect(types(declined.events)).not.toContain("additionalPowerCostPaid");
+    expect(exhausted(declined.session.state, t.ally)).toBe(false);
+    expect(handSize(declined.session.state)).toBe(1);
+    const end = settled(declined.session);
+    expect(mustInstance(end, t.ally).damage).toBe(0);
+    expect(mustInstance(end, t.hero).damage).toBe(2);
+  });
+
+  it("with nothing to spend nothing is asked and the ally does not defend", () => {
+    const { t, session, events } = declaredLate(0);
+    expect(session.state.pendingChoice?.prompt.kind).not.toBe("spendResources");
+    expect(types(events)).toContain("additionalPowerCostNotPaid");
+    expect(types(events)).not.toContain("defenderDeclared");
+    expect(exhausted(session.state, t.ally)).toBe(false);
+    expect(mustInstance(settled(session), t.hero).damage).toBe(2);
+  });
+
+  it("without the rule the effect declares the ally for nothing", () => {
+    const { t, session, events } = declaredLate(0, ATTACK_TAX_SCHEME);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "defenderDeclared", defenderInstanceId: t.ally, byEffect: true }),
+    );
+    expect(types(events)).not.toContain("additionalPowerCostAsked");
+    expect(exhausted(session.state, t.ally)).toBe(true);
+    expect(mustInstance(settled(session), t.ally).damage).toBe(2);
+  });
+
+  it('declared as the attack is initiated ("when an enemy attacks you"): asked there too, before the step', () => {
+    const { t, session: asked, events } = toPrompt(COVER_CALL, TAX_SCHEME, "spendResources");
+    expect(types(events)).toContain("additionalPowerCostAsked");
+    expect(types(events)).not.toContain("defenderDeclared");
+    expect(exhausted(asked.state, t.ally)).toBe(false);
+    const before = handSize(asked.state);
+    const paid = apply(asked, asked.state.pendingChoice!.options[0]!.optionId);
+    expect(handSize(paid.session.state)).toBe(before - 1);
+    expect(exhausted(paid.session.state, t.ally)).toBe(true);
+    expect(types(paid.events)).toContain("additionalPowerCostPaid");
+    let session = paid.session;
+    for (let guard = 0; session.state.pendingChoice && session.state.step.phase !== "player"; guard++) {
+      if (guard > 50) throw new Error("the villain phase did not settle");
+      // The ally is the defender: the Declare Defender step asks for nobody.
+      expect(session.state.pendingChoice.prompt.kind).not.toBe("declareDefender");
+      session = apply(session, ...defaultPick(session.state)).session;
+    }
+    expect(mustInstance(session.state, t.ally).damage).toBe(2);
+    expect(mustInstance(session.state, t.hero).damage).toBe(0);
   });
 });

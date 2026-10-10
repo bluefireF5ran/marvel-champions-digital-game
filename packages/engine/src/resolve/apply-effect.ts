@@ -29,6 +29,7 @@ import {
   drawCards,
   drawUpTo,
   drawEncounterCard,
+  encounterDealAwaitingInterrupt,
   exhaustCard,
   healDamage,
   removeAccelerationToken,
@@ -139,6 +140,7 @@ import { flipToOtherFace } from "./other-face.js";
 import {
   buildScenarioDeck,
   dealAsEncounterCards,
+  isDealableCard,
   passEncounterCards,
   eachEncounterCard,
   moveCardsTo,
@@ -1984,7 +1986,38 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const find = effect.cards.kind === "find" ? findToDeal(ctx, effect.cards, context) : null;
       if (find && find.found.length === 0) markPreThenUnresolved(ctx, frame.frameId, "findFoundNothing");
       const naming = find ? find.found : targets(effect.cards);
-      const dealt = dealAsEncounterCards(ctx, naming, playerId, leaveSourceOf(ctx, frame));
+      // "When a player would be dealt an encounter card" hears a named card's deal too (docs/phase7-wave9.md §3.45).
+      // When an ability could react to any of them, every card is dealt by its own event, in `cards` order, so the
+      // order the player is dealt them in does not depend on which windows opened.
+      const sourceCardId = leaveSourceOf(ctx, frame);
+      const awaited = naming
+        .filter((id) => isDealableCard(ctx.state, id))
+        .map((instanceId): TriggerEvent & { kind: "encounterCardBeingDealt" } => ({
+          kind: "encounterCardBeingDealt",
+          playerId,
+          source: "ability",
+          sourceInstanceId: frame.selfInstanceId,
+          named: { instanceId, frameId: frame.frameId, ...(sourceCardId !== undefined ? { sourceCardId } : {}) },
+        }));
+      const hears = awaited.some(
+        (event) =>
+          encounterDealAwaitingInterrupt(ctx, playerId, "ability", event.sourceInstanceId, event.named) !== null,
+      );
+      if (hears) {
+        for (const id of naming) {
+          if (!isDealableCard(ctx.state, id)) markPreThenUnresolved(ctx, frame.frameId, "cardNotDealt", id);
+        }
+        // A deck searched for the card is shuffled once its deal is settled, made or not.
+        const last = awaited.length - 1;
+        pushEvents(
+          ctx,
+          awaited.map((event, index) =>
+            find && index === last ? { ...event, named: { ...event.named!, searched: find.searched } } : event,
+          ),
+        );
+        return;
+      }
+      const dealt = dealAsEncounterCards(ctx, naming, playerId, sourceCardId);
       // A named card that was not dealt (it cannot leave play, or is not a card that can be dealt) leaves the text
       // before a "then" unresolved (RRG 1.8 "'Then'", p. 44).
       for (const id of naming) if (!dealt.includes(id)) markPreThenUnresolved(ctx, frame.frameId, "cardNotDealt", id);

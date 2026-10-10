@@ -2132,7 +2132,8 @@ export const fromAnyAspect: readonly string[] = ["aggression", "justice", "leade
 /**
  * "Search your collection for a hero whose title does not match a character in play" (Reluctant Foe, `aos` 50171;
  * docs/phase7-wave9.md §3.30; MC50 p. 22) → `searchCollection(heroNoCharacterIsTitledAs, "hero")`: an identity card
- * no player is using whose hero-side title no character in play is showing (§4.1 Q40 = A, Q42 = A). The scenario's
+ * no player is using whose hero-side title no character in play is showing (§4.1 Q40 = A, Q42 = A; Q44 = B: a seat
+ * in alter-ego form shows its alter-ego title, so its hero title is not in play until it flips). The scenario's
  * card pool must hold the identity cards to choose from (§4.1 Q47 = A: the collection is the game's card pool).
  */
 export const heroNoCharacterIsTitledAs: CollectionSearchFilter = { heroTitleNotInPlay: true };

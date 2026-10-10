@@ -1,7 +1,9 @@
 /**
  * `TriggerEvent encounterCardBeingDealt` (docs/phase7-wave9.md §3.45): "Interrupt: When a player would be dealt an
  * encounter card, remove 1 recon counter from here instead." One event per card, before it leaves the encounter deck,
- * pushed only when an ability could react; the deal is the event's apply step.
+ * pushed only when an ability could react; the deal is the event's apply step. A named card's deal (`EffectSpec
+ * dealAsEncounterCard`) is heard the same way, with the card as the event's `named` card: replaced, it stays where it
+ * was.
  *
  * Sources: RRG 1.8 "Deal, Deal an Encounter Card" (p. 15); "Villain Phase" (p. 47) step three: "Deal one encounter
  * card to each player. Deal one additional card for each hazard icon on a card in play. These additional cards are
@@ -97,11 +99,15 @@ const PAY = event("pay", [{ kind: "draw", player: you, amount: n(1) }], { dealEn
 const TAKE_GRUNT = event("take-grunt", [
   { kind: "dealAsEncounterCard", cards: { kind: "each", query: { name: "grunt" } }, player: you },
 ]);
+// "Find the Grunt and deal it to yourself as a facedown encounter card."
+const FIND_GRUNT = event("find-grunt", [
+  { kind: "dealAsEncounterCard", cards: { kind: "find", query: { name: "grunt" } }, player: you },
+]);
 // "Draw 1 card."
 const DRAW = event("draw", [{ kind: "draw", player: you, amount: n(1) }]);
 // "Reveal the top card of the encounter deck."
 const REVEAL_TOP = event("reveal-top", [{ kind: "revealEncounterCard", player: you }]);
-const EVENTS = [DEAL, DEAL_3, PAY, TAKE_GRUNT, DRAW, REVEAL_TOP];
+const EVENTS = [DEAL, DEAL_3, PAY, TAKE_GRUNT, FIND_GRUNT, DRAW, REVEAL_TOP];
 const SUPPORTS = [SCREEN, SURGE_SCREEN, WATCHER, WITNESS];
 
 const HEARD: EngineDeps = depsOf(
@@ -171,6 +177,22 @@ const windows = (events: readonly GameEvent[]) =>
 const dealtTo = (events: readonly GameEvent[]): readonly (readonly [PlayerId, InstanceId])[] =>
   events.flatMap((e) =>
     e.type === "cardMoved" && e.to.kind === "dealtEncounter" ? [[e.to.playerId, e.instanceId] as const] : [],
+  );
+/** The encounter deck's one Grunt moved to the encounter discard pile (test surgery). */
+const gruntDiscarded = (state: GameState): { readonly state: GameState; readonly id: InstanceId } => {
+  const [deckId, piles] = Object.entries(state.encounterDecks)[0]!;
+  const id = piles.deck.find((card) => mustInstance(state, card).cardId === GRUNT.id)!;
+  const moved = { deck: piles.deck.filter((card) => card !== id), discard: [id, ...piles.discard] };
+  const instances = { ...state.instances, [id]: { ...mustInstance(state, id), faceup: true } };
+  return { id, state: { ...state, instances, encounterDecks: { ...state.encounterDecks, [deckId]: moved } } };
+};
+const discardOf = (state: GameState): readonly InstanceId[] => Object.values(state.encounterDecks)[0]!.discard;
+/** The named card of each "would be dealt" event logged in `phase`. */
+const namedComing = (events: readonly GameEvent[], phase: Phase): readonly (InstanceId | undefined)[] =>
+  events.flatMap((e) =>
+    e.type === "triggerEvent" && e.phase === phase && e.event.kind === "encounterCardBeingDealt"
+      ? [e.event.named?.instanceId]
+      : [],
   );
 const revealed = (events: readonly GameEvent[]) =>
   events.flatMap((e) => (e.type === "encounterCardRevealed" ? [e.cardId as string] : []));
@@ -461,18 +483,94 @@ describe("encounterCardBeingDealt: when a player would be dealt an encounter car
     expectReplays(out.session, HEARD);
   });
 
-  it("not announced: a deal paid as a cost, and a named card dealt to a player", () => {
+  it("not announced: a deal paid as a cost", () => {
     const screened = withCard(start(HEARD), SCREEN, 1);
     const paid = playFree(screened.state, HEARD, PAY.card.id);
     expect(anyComing(paid.events)).toBe(false);
     expect(mustPlayer(paid.state, P1).dealtEncounter).toHaveLength(1);
     expect(counter(paid.state, screened.id, "recon")).toBe(1);
+  });
 
+  it("a named card in the encounter discard pile: replaced, it stays there and 0 cards are dealt", () => {
+    const screened = withCard(start(HEARD), SCREEN, 1);
+    const grunt = gruntDiscarded(screened.state);
+    const top = deckOf(grunt.state)[0]!;
+    const out = playFree(grunt.state, HEARD, FIND_GRUNT.card.id);
+    expect(windows(out.events)).toBe(1);
+    expect(coming(out.events, "cancelled")).toEqual([[P1, "ability"]]);
+    // The named card is the event's card; the top of the deck is not touched.
+    expect(namedComing(out.events, "cancelled")).toEqual([grunt.id]);
+    expect(mustPlayer(out.state, P1).dealtEncounter).toEqual([]);
+    expect(discardOf(out.state)).toContain(grunt.id);
+    expect(deckOf(out.state)[0]).toBe(top);
+    expect(counter(out.state, screened.id, "recon")).toBe(0);
+    // The text before a "then" of the dealing effect is unresolved, as for a card that could not be dealt.
+    expect(out.events).toContainEqual({ type: "preThenUnresolved", cause: "cardNotDealt", instanceId: grunt.id });
+    expectReplays(out.session, HEARD);
+  });
+
+  it("a named card, heard and not replaced: 1 window, then it is dealt facedown and the deal's response follows", () => {
+    const watcher = withCard(start(HEARD), WATCHER);
+    const witness = withCard(watcher.state, WITNESS);
+    const grunt = gruntDiscarded(witness.state);
+    const out = playFree(grunt.state, HEARD, FIND_GRUNT.card.id);
+    expect(windows(out.events)).toBe(1);
+    expect(namedComing(out.events, "resolved")).toEqual([grunt.id]);
+    expect(counter(out.state, watcher.id, "seen")).toBe(1);
+    expect(mustPlayer(out.state, P1).dealtEncounter).toEqual([grunt.id]);
+    expect(mustInstance(out.state, grunt.id).faceup).toBe(false);
+    expect(discardOf(out.state)).not.toContain(grunt.id);
+    expect(counter(out.state, witness.id, "dealt")).toBe(1);
+    expect(out.events.some((e) => e.type === "preThenUnresolved")).toBe(false);
+    expectReplays(out.session, HEARD);
+  });
+
+  it("a named card in play: replaced, it stays in play as it was", () => {
+    const screened = withCard(start(HEARD), SCREEN, 1);
     const grunt = minionEngagedWith(screened.state, GRUNT.id);
-    const taken = playFree(grunt.state, HEARD, TAKE_GRUNT.card.id);
-    expect(anyComing(taken.events)).toBe(false);
-    expect(mustPlayer(taken.state, P1).dealtEncounter).toEqual([grunt.id]);
-    expect(counter(taken.state, screened.id, "recon")).toBe(1);
+    const hurt = {
+      ...grunt.state,
+      instances: { ...grunt.state.instances, [grunt.id]: { ...mustInstance(grunt.state, grunt.id), damage: 1 } },
+    } as GameState;
+    const out = playFree(hurt, HEARD, TAKE_GRUNT.card.id);
+    expect(namedComing(out.events, "cancelled")).toEqual([grunt.id]);
+    expect(mustPlayer(out.state, P1).dealtEncounter).toEqual([]);
+    expect(mustPlayer(out.state, P1).playArea).toContain(grunt.id);
+    expect(mustInstance(out.state, grunt.id)).toMatchObject({ engagedWith: P1, damage: 1 });
+    expect(counter(out.state, screened.id, "recon")).toBe(0);
+    expectReplays(out.session, HEARD);
+
+    // With no counter left the same deal opens no window, and the Grunt leaves play by being dealt.
+    const again = playFree(out.state, HEARD, TAKE_GRUNT.card.id);
+    expect(anyComing(again.events)).toBe(false);
+    expect(mustPlayer(again.state, P1).dealtEncounter).toEqual([grunt.id]);
+    expect(mustInstance(again.state, grunt.id).damage).toBe(0);
+  });
+
+  it("a named card found in the encounter deck: the deck is shuffled once its deal is settled, made or replaced", () => {
+    const shuffles = (events: readonly GameEvent[]) => events.filter((e) => e.type === "deckShuffled").length;
+    const screened = withCard(start(HEARD), SCREEN, 1);
+    const grunt = deckOf(screened.state).find((id) => mustInstance(screened.state, id).cardId === GRUNT.id)!;
+    const replaced = playFree(screened.state, HEARD, FIND_GRUNT.card.id);
+    expect(namedComing(replaced.events, "cancelled")).toEqual([grunt]);
+    expect(deckOf(replaced.state)).toContain(grunt);
+    expect(mustPlayer(replaced.state, P1).dealtEncounter).toEqual([]);
+    const made = playFree(start(UNHEARD), UNHEARD, FIND_GRUNT.card.id);
+    expect(mustPlayer(made.state, P1).dealtEncounter).toHaveLength(1);
+    expect(shuffles(replaced.events)).toBe(shuffles(made.events));
+    expect(shuffles(made.events)).toBeGreaterThan(0);
+    expectReplays(replaced.session, HEARD);
+  });
+
+  it("a named card with no listener able to answer: no event, the log of a game without one", () => {
+    const empty = withCard(start(HEARD), SCREEN, 0);
+    const grunt = gruntDiscarded(empty.state);
+    const heard = playFree(grunt.state, HEARD, FIND_GRUNT.card.id);
+    const unheard = playFree(grunt.state, UNHEARD, FIND_GRUNT.card.id);
+    expect(anyComing(heard.events)).toBe(false);
+    expect(heard.events).toEqual(unheard.events);
+    expect(heard.state).toEqual(unheard.state);
+    expect(mustPlayer(heard.state, P1).dealtEncounter).toEqual([grunt.id]);
   });
 
   it("a listener that cannot answer (0 counters, or out of play): no event, the log of a game without it", () => {

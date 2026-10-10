@@ -41,6 +41,7 @@ import { engineError, EngineInvariantError, type EngineError, type EngineErrorCo
 import { finishTurn } from "./flow.js";
 import { statBonus } from "./modifiers.js";
 import {
+  abilityCostFor,
   additionalPowerCostFor,
   canDivideBasicPower,
   attachLimitFault,
@@ -2495,7 +2496,8 @@ export function costResourceRequirement(
   event: TriggerEvent | null = null,
 ): { readonly requirement: ResolvedRequirement; readonly computed?: number } {
   // A size the payer chooses (`ResourcesChoice`) is no fixed requirement: `resourceVars` reads it off the payment.
-  const fixed = combineRequirements(fixedResourcesOf(cost), 0);
+  // A rule's additional cost over the ability's character is paid with it (`AbilityCost.additionalPower`).
+  const fixed = combineRequirements(fixedResourcesOf(cost), cost?.additionalPower?.resources ?? 0);
   if (cost?.resourcesEqualTo === undefined) return { requirement: fixed };
   const carried = carriedByEvent(event);
   const context: EffectContext = {
@@ -3326,6 +3328,15 @@ export function payCost(
   const top = ctx.state.stack[0];
   const paidFor = (top?.kind === "ability" || top?.kind === "playCard") && top.instanceId === sourceId ? top : null;
   const identityId = mustPlayer(ctx.state, playerId).identity.instanceId;
+  if (cost.additionalPower) {
+    emit(ctx, {
+      type: "additionalPowerCostPaid",
+      playerId,
+      characterInstanceId: sourceId,
+      power: cost.additionalPower.power,
+      sourceInstanceIds: cost.additionalPower.sourceInstanceIds,
+    });
+  }
   if (cost.exhaustSelf) exhaustCard(ctx, sourceId);
   // "Flip this card →": announced above the frame being paid for, as any flip is (docs/phase7-wave7.md §3.64).
   if (cost.flipSelf) {
@@ -5125,12 +5136,14 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
     const limit = definition.limit;
     return engineError("limit_reached", `limit ${limit?.count} per ${limit?.period}`, command);
   }
+  // With what a rule adds for an "(attack)" or "(thwart)" ability of this character (`abilityCostFor`).
+  const written = abilityCostFor(ctx.state, ctx.deps, command.cardInstanceId, command.abilityId);
   const plan = planCost(
     ctx.state,
     ctx.deps,
     command.cardInstanceId,
     command.playerId,
-    definition.cost,
+    written,
     command.costChoices ?? {},
     handCardsIn(command.payment),
     command.costSelection,
@@ -5149,7 +5162,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
       command,
     );
   }
-  const vars = resourceVars(pool, plan.cost ?? definition.cost, plan.requirement, command.costSelection?.resources);
+  const vars = resourceVars(pool, plan.cost ?? written, plan.requirement, command.costSelection?.resources);
   if (isFault(vars)) return engineError(vars.code, vars.message, command);
 
   // Read before paying: paying may exhaust or discard the source.
@@ -5164,7 +5177,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
         payingFor,
         pool,
         plan.requirement,
-        plan.cost ?? definition.cost,
+        plan.cost ?? written,
         vars,
       ),
     ),
@@ -5177,7 +5190,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
     pool,
     { ...plan.vars, ...vars, ...sources },
     plan.requirement,
-    plan.cost ?? definition.cost,
+    plan.cost ?? written,
     command.wildAs,
   );
   if (isFault(settled)) return engineError(settled.code, settled.message, command);
@@ -5193,7 +5206,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
     settled.types?.undeclared,
   );
   logAbilityWildTypes(ctx, command.playerId, command.cardInstanceId, command.abilityId, settled.types);
-  payCost(ctx, command.cardInstanceId, command.playerId, definition.cost, plan);
+  payCost(ctx, command.cardInstanceId, command.playerId, written, plan);
   const unpayable = thwartCostUnpayableAfterPaying(ctx, definition, command);
   if (unpayable) return unpayable;
   announceResourcesSpent(ctx, command.playerId, spent, command.cardInstanceId, "ability");

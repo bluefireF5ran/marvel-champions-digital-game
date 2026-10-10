@@ -837,9 +837,17 @@ export function encounterDealAwaitingInterrupt(
   playerId: PlayerId,
   source: EncounterDealSource,
   sourceInstanceId: InstanceId | null,
+  /** The deal of a named card (`EffectSpec dealAsEncounterCard`) rather than of the deck's top card. */
+  named?: EncounterCardBeingDealt["named"],
 ): EncounterCardBeingDealt | null {
   if (!listensForEncounterBeingDealt(ctx.deps)) return null;
-  const event: EncounterCardBeingDealt = { kind: "encounterCardBeingDealt", playerId, source, sourceInstanceId };
+  const event: EncounterCardBeingDealt = {
+    kind: "encounterCardBeingDealt",
+    playerId,
+    source,
+    sourceInstanceId,
+    ...(named ? { named } : {}),
+  };
   return heard(ctx.state, ctx.deps, event) ? event : null;
 }
 

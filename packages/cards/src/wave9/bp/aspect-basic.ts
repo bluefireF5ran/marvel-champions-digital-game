@@ -113,10 +113,14 @@ const REDEEMED = trait("REDEEMED");
  * is at least its remaining hit points, the scheme goes to the victory display and 1 set-aside Redemption attaches to
  * the minion. Redemption's own "take control ... Redeemed ally" text is 51036's constant.
  *
- * **51018.the-raft-response**: after a minion leaves play it is tucked under here only if it is in the encounter
- * discard pile when the response resolves (a minion with Victory X is not). Only then are threat removed (the tucked
- * minion's printed SCH) and, at 4 or more tucked minions, 1 random one dealt facedown to a player the controller picks.
- * The tuck is printed before the arrow (a cost), but no tuck cost exists in the engine, so it is the first effect and the rest is guarded on the minion being tucked; the only difference is that the response is offered when the minion is not in the discard pile and then does nothing.
+ * **51018.the-raft-response**: the tuck is printed before the arrow (a cost), and a cost that cannot be paid stops
+ * the ability being initiated (RRG 1.8 "Cost", p. 13). The engine has no tuck cost, so the trigger hears only a minion
+ * that left play for the encounter discard pile (`eventIs: { to: "encounterDiscard" }`): one that went to the victory
+ * display (Victory X), was removed from the game or was dealt to a player is not offered. The tuck is then the first
+ * effect, and the rest stays guarded on the minion being tucked, for a minion an earlier response moved out of the
+ * discard pile. Only then are threat removed (the tucked minion's printed SCH) and, at 4 or more tucked minions, 1
+ * random one dealt facedown to a player the controller picks; that deal is heard by "when a player would be dealt an
+ * encounter card" (docs/phase7-wave9.md section 3.45), and replaced, the minion stays tucked.
  *
  * **51019.invisibility-gear-interrupt**: the mirror of Ready for a Fight (52019); "would attack you" is replaced by
  * that enemy's scheme. **51020.sonic-rifle-action**: a reprint of Venom's 20015, aliased.
@@ -222,7 +226,7 @@ export const BP_ASPECT_BASIC: AbilityRegistry = defineAbilities({
   ),
 
   "51018.the-raft-response": response(
-    after.leavesPlay(query("minion")),
+    { ...after.leavesPlay(query("minion")), eventIs: { to: "encounterDiscard" } },
     bindTargets("left", eventTarget),
     tuckCards(encounterCards(["discard"], { inSlot: "left" }), self),
     ifThen(valueAtLeast(tuckedCount(self, { inSlot: "left" }), 1), [

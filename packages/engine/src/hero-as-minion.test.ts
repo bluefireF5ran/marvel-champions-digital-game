@@ -10,7 +10,7 @@
  * becomes a minion with the villainous keyword, SCH equal to its THW value, and hit points equal to its starting hit
  * point value. Its DEF value has no effect. When you defeat that minion, both the identity card and Reluctant Foe are
  * removed from the game."); RRG 1.8 "Double-Sided Card" (p. 17), "Villainous" (p. 47), "Enters Play" and "Engage"
- * (p. 18), "Unique Icon" (pp. 45–46); owner decisions §4.1 Q39–Q43 (all A) and Q47.
+ * (p. 18), "Unique Icon" (pp. 45–46); owner decisions §4.1 Q39–Q43 (all A), Q44 (B), Q46 (A) and Q47.
  */
 
 import { trait, type AnyCard, type HeroIdentityCard } from "@mc/content";
@@ -78,8 +78,13 @@ const WANDERER = identity("wanderer", "Wanderer", {
 /** Its hero title is an ally's title. */
 const TWIN = identity("twin", "Twin");
 const TWIN_ALLY: AnyCard = { ...stubAlly({ id: "twin-ally", cost: 0, atk: 1, thw: 1, hp: 3 }), name: "Twin" };
-/** Its hero title is the hero title of the identity a player is using. */
+/** Its hero title is the hero title of the identity a player is using; its alter-ego title is its own. */
 const NAMESAKE = identity("namesake", HERO.hero.faceName);
+/** Its alter-ego title is the alter-ego title of the identity a player is using: the two match as unique cards. */
+const DOUBLE = (() => {
+  const card = identity("double", "Double");
+  return { ...card, alterEgo: { ...card.alterEgo, faceName: HERO.alterEgo.faceName } } satisfies HeroIdentityCard;
+})();
 /** Its alter-ego title is an ally's title, which is not compared (§4.1 Q42 = A). */
 const MASKED = (() => {
   const card = identity("masked", "Masked");
@@ -221,12 +226,50 @@ const moved = (events: readonly GameEvent[], id: InstanceId): readonly string[] 
 
 describe("§3.30 the collection search for a hero no character in play is titled as", () => {
   it("finds an identity card by its hero-side title, never the hero a player is using", () => {
-    const state = table([WANDERER, TWIN, NAMESAKE, MASKED]);
+    // The seat is in hero form: its hero title is faceup, so the identity card that shares it is not found.
+    const state = withForm(table([WANDERER, TWIN, NAMESAKE, MASKED]), "hero");
     const filter = { heroTitleNotInPlay: true } as const;
     expect(collectionCandidates(state, filter).map((c) => c.id)).toEqual([MASKED.id, TWIN.id, WANDERER.id]);
+    expect(collectionCandidates(state, filter).map((c) => c.id)).not.toContain(HERO.id);
     // An ally titled as the hero side: that hero is not found. One titled as the alter-ego side changes nothing.
     const withAllies = playerCardIntoPlay(playerCardIntoPlay(state, TWIN_ALLY.id).state, BYSTANDER.id).state;
     expect(collectionCandidates(withAllies, filter).map((c) => c.id)).toEqual([MASKED.id, WANDERER.id]);
+  });
+
+  it("only a faceup title is in play: a seat in alter-ego form does not block its hero title (Q44 = B)", () => {
+    const filter = { heroTitleNotInPlay: true } as const;
+    const alterEgo = withForm(table([WANDERER, NAMESAKE]), "alterEgo");
+    expect(titleShowing(alterEgo, mustPlayer(alterEgo, P1).identity.instanceId)).toBe(HERO.alterEgo.faceName);
+    expect(collectionCandidates(alterEgo, filter).map((c) => c.id)).toEqual([WANDERER.id, NAMESAKE.id]);
+    expect(collectionCandidates(withForm(alterEgo, "hero"), filter).map((c) => c.id)).toEqual([WANDERER.id]);
+    // The card the seat is using is never found, whichever side is up: the game holds its one copy.
+    expect(collectionCandidates(alterEgo, filter).map((c) => c.id)).not.toContain(HERO.id);
+  });
+
+  it("a hero found while the seat was in alter-ego form enters play, and stays when the seat flips", () => {
+    const { state, offered } = reveal(withForm(table([NAMESAKE]), "alterEgo"), NAMESAKE.id);
+    expect(offered).toEqual([[NAMESAKE.id]]);
+    const hero = instanceOf(state, NAMESAKE)!;
+    expect(isMinion(state, hero)).toBe(true);
+    expect(minionsEngagedWith(state, P1)).toEqual([hero]);
+    // Different alter-ego titles: the two identity cards do not match as unique cards (RRG 1.8 pp. 45-46).
+    const flipped = withForm(state, "hero");
+    expect(titleShowing(flipped, hero)).toBe(titleShowing(flipped, mustPlayer(flipped, P1).identity.instanceId));
+    expect(isMinion(flipped, hero)).toBe(true);
+  });
+
+  it("a hero that matches a unique card in play is offered, cannot enter play, and the attachment is discarded (Q46 = A)", () => {
+    // Its hero title is no character's, so the search finds it; its alter-ego title is the seat's identity card's.
+    for (const form of ["alterEgo", "hero"] as const) {
+      const { state, offered, events } = reveal(withForm(table([DOUBLE]), form), DOUBLE.id);
+      expect(offered).toEqual([[DOUBLE.id]]);
+      const hero = instanceOf(state, DOUBLE)!;
+      expect(events.some((e) => e.type === "uniqueEntryBlocked" && e.instanceId === hero)).toBe(true);
+      expect(isMinion(state, hero)).toBe(false);
+      expect(mustPlayer(state, P1).playArea).not.toContain(hero);
+      expect(minionsEngagedWith(state, P1)).toEqual([]);
+      expect(locateCard(state, instanceOf(state, FOE)!)?.kind).toBe("encounterDiscard");
+    }
   });
 
   it("offers those heroes to the revealing player, and a hero in the game is not found again", () => {

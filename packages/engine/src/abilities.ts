@@ -1515,10 +1515,19 @@ export type RuleSpec =
    *   declaring one asks its controller for the payment (`ChoicePrompt spendResources`), and a controller who does not
    *   pay has not declared it: the character stays ready and the step is asked again without it.
    *
-   * The payer is the player the power is made by: the character's controller. Not reached: an attack or thwart a
-   * character makes by a triggered ability of its own, and a defender a card ability declares (docs/phase7-wave9.md
-   * §3.31 covers the basic powers; whether the printed "attack, thwart, or defend with an ally" reaches those is an
-   * open rules question).
+   * - **An "(attack)" or "(thwart)" ability of the character's own** (docs/phase7-wave9.md §4.1 Q48 = B; RRG 1.8
+   *   "Labeled Ability", p. 26): a labeled ability on a matching character in play, printed or gained, has the
+   *   resources added to its cost (`rules.ts abilityCostFor`, `AbilityCost.additionalPower`). They are paid as the
+   *   ability is initiated, with its own cost; a player who cannot pay cannot initiate it, and declining the payment
+   *   of a triggered one declines the ability. A forced ability is not asked: it has no cost to add to and its
+   *   resolution is not a player's choice.
+   * - **A defender a card effect declares** (`EffectSpec declareDefender`; Q48 = B): the character's controller is
+   *   asked for the payment as the effect resolves, and unpaid the character is not declared the defender and is not
+   *   exhausted by that instruction. A character already defending the attack is not charged again.
+   *
+   * The payer is the player the power is made by: the character's controller. Not reached: an attack or thwart
+   * another card's ability makes with the character (an event that deals damage "as" an ally would), which no
+   * current effect models as the ally's own.
    */
   | {
       readonly kind: "additionalPowerCost";
@@ -2255,6 +2264,16 @@ export interface AbilityCost {
    * `{ choose }` is a number of resources of any type the payer chooses (`ResourcesChoice`).
    */
   readonly resources?: number | ResourceRequirement | ResourcesChoice;
+  /**
+   * Never authored: set by the engine on the cost of an "(attack)" or "(thwart)" ability of a character a rule taxes
+   * (`RuleSpec additionalPowerCost`, `rules.ts abilityCostFor`). The resources are added to whatever else the cost
+   * asks for (`costResourceRequirement`) and paid with it, and paying the cost logs `additionalPowerCostPaid`.
+   */
+  readonly additionalPower?: {
+    readonly resources: ResourceRequirement;
+    readonly power: "attack" | "thwart";
+    readonly sourceInstanceIds: readonly InstanceId[];
+  };
   /**
    * "Spend X resources of any type, where X is the number of villains under Routed →": a number of resources of any
    * type the board gives, not the payer. Read when the cost is determined (RRG 1.8 "Initiating Abilities", p. 24, step

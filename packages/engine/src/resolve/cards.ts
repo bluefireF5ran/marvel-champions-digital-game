@@ -60,7 +60,7 @@ import {
   resolveValue,
 } from "../select.js";
 import type { CardDestination, CardSelector, ScenarioDeckSource, TargetQuery } from "../spec.js";
-import type { ZoneId } from "../state.js";
+import type { GameState, ZoneId } from "../state.js";
 import type { HostStep, LeaveRequest, TriggerEvent } from "../trigger-events.js";
 import { describeFrame } from "../stack.js";
 import { announce, eventFrame, type Frame, pushEvent, pushEvents, pushEventsSharingResponses } from "./frames.js";
@@ -78,6 +78,8 @@ import { tuckLeavingCard } from "./tuck.js";
 import { pushWindow } from "./window.js";
 import { heard } from "./triggers.js";
 import { cannotLeavePlay, staysInHand } from "../rules.js";
+import { shuffleSearchedDecks } from "./find.js";
+import { markPreThenUnresolved } from "./then.js";
 
 /**
  * `count` cards of `pool` at random, without replacement, in the order drawn; every card of a smaller pool, none of an
@@ -805,6 +807,38 @@ export function dealAsEncounterCards(
     dealt.push(id);
   }
   return dealt;
+}
+
+/** Whether `id` is a card a player can be dealt (`DEALABLE_TYPES`). */
+export const isDealableCard = (state: GameState, id: InstanceId): boolean => {
+  const type = cardOf(state, id)?.type;
+  return type !== undefined && DEALABLE_TYPES.has(type);
+};
+
+type NamedDealBeingMade = Extract<TriggerEvent, { kind: "encounterCardBeingDealt" }> & {
+  readonly named: NonNullable<Extract<TriggerEvent, { kind: "encounterCardBeingDealt" }>["named"]>;
+};
+
+/**
+ * The apply step of a named card's "would be dealt" event (`TriggerEvent encounterCardBeingDealt.named`,
+ * docs/phase7-wave9.md §3.45): the card is dealt now, from wherever it is, as `dealAsEncounterCard` deals it with no
+ * window.
+ */
+export function applyNamedEncounterDeal(ctx: Ctx, event: NamedDealBeingMade): void {
+  const { instanceId, frameId, sourceCardId, searched } = event.named;
+  const dealt = dealAsEncounterCards(ctx, [instanceId], event.playerId, sourceCardId);
+  if (dealt.length === 0) markPreThenUnresolved(ctx, frameId, "cardNotDealt", instanceId);
+  if (searched) shuffleSearchedDecks(ctx, searched);
+}
+
+/**
+ * A named card's deal was cancelled or replaced (RRG 1.8 "Replacement Effect", p. 37): the card stays where it was,
+ * the dealing effect's text before a "then" is unresolved, and a deck searched for it is still shuffled.
+ */
+export function namedEncounterDealNotMade(ctx: Ctx, event: NamedDealBeingMade): void {
+  const { instanceId, frameId, searched } = event.named;
+  markPreThenUnresolved(ctx, frameId, "cardNotDealt", instanceId);
+  if (searched) shuffleSearchedDecks(ctx, searched);
 }
 
 /**

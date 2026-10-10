@@ -79,8 +79,10 @@ import {
 } from "../select.js";
 import {
   applyLeavingPlay,
+  applyNamedEncounterDeal,
   dealUnhandledEncounterCard,
   leavingWithHostFrames,
+  namedEncounterDealNotMade,
   openLeavingInterrupts,
   runCarriedHostStep,
 } from "./cards.js";
@@ -311,6 +313,10 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         emit(ctx, { type: "triggerEvent", event: frame.event, phase: "cancelled" });
         // A replaced discard from a hand or a deck did not discard its card (docs/phase7-wave9.md §4.1 Q20).
         if (frame.event.kind === "cardBeingDiscarded") wouldDiscardNotMade(ctx, frame.event);
+        // A replaced deal of a named card left it where it was (docs/phase7-wave9.md §3.45).
+        if (frame.event.kind === "encounterCardBeingDealt" && frame.event.named) {
+          namedEncounterDealNotMade(ctx, { ...frame.event, named: frame.event.named });
+        }
         reportResults(ctx, frame, false);
         expireEventLastingEffects(ctx, frame.frameId);
         // An attachment's leaving that carried its host's change: the change still happens (only this card's leaving
@@ -662,7 +668,8 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
       return;
     case "encounterCardBeingDealt":
       // Its interrupts resolved with the card still on the deck; it is dealt now (docs/phase7-wave9.md §3.45).
-      applyEncounterCardBeingDealt(ctx, event);
+      if (event.named) applyNamedEncounterDeal(ctx, { ...event, named: event.named });
+      else applyEncounterCardBeingDealt(ctx, event);
       return;
     case "enemyAttack":
     case "enemyScheme": {

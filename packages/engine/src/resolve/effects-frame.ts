@@ -141,6 +141,7 @@ import { executePayRemoveThreatCost } from "../remove-threat-cost.js";
 import { executeSettleReadyCardsCost } from "../ready-cards-cost.js";
 import { executeDefeatedTogether } from "./defeated-together.js";
 import { executeSearchCollection } from "./collection.js";
+import { settleDeclaredDefenderCost } from "./enemy-activation.js";
 import { executeAccuse } from "./accusation.js";
 import { executeReportFact } from "./report-fact.js";
 import { executeBasicPowerBy } from "./basic-power-by.js";
@@ -362,6 +363,24 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   )
     return;
 
+  // docs/phase7-wave9.md §4.1 Q48 = B: a rule's additional cost to defend with the character being declared.
+  if (effect.kind === "declareDefender") {
+    const inPlay = cardsInPlay(ctx.state);
+    const [defender] = resolveRef(ctx.state, effect.character, context).filter(
+      (id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"),
+    );
+    const settled = defender === undefined ? "notOwed" : settleDeclaredDefenderCost(ctx, frame, defender);
+    if (settled === "asked") return;
+    if (settled !== "notOwed") {
+      setFrame(ctx, { ...frame, answer: null, cursor: frame.cursor + 1 });
+      if (settled === "unpaid" || defender === undefined) return;
+      applyEffect(ctx, effect, context, frame);
+      // Announced on top, so "after you spend this card" resolves first, as the Declare Defender step's payment is.
+      const payer = controllerOf(ctx.state, defender);
+      if (payer) announceResourcesSpent(ctx, payer, settled, defender, "ability");
+      return;
+    }
+  }
   if (effect.kind === "putIntoPlay" && askPutIntoPlayHost(ctx, frame, effect, context)) return;
   // docs/phase7-wave9.md §3.6: which of a card's counters "1 all-purpose counter" is, where its types differ.
   if (

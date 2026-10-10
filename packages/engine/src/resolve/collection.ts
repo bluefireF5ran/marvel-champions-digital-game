@@ -7,7 +7,7 @@ import type { AnyCard, CardId } from "@mc/content";
 import { CARD_DATA_CATEGORIES, cardTraits } from "../campaign/ops.js";
 import { type Ctx, emit, nextInstanceId, requestChoice, setFrame, updatePlayer } from "../ctx.js";
 import { EngineInvariantError } from "../errors.js";
-import { foeHeroFace, heroFacesOf, titleShowing } from "../query.js";
+import { foeHeroFace, titleShowing } from "../query.js";
 import { cardsInPlay, categoriesOf, type EffectContext, resolvePlayers } from "../select.js";
 import type { CollectionSearchFilter, EffectSpec } from "../spec.js";
 import { type CardInstance, type GameState, NO_STATUSES } from "../state.js";
@@ -70,8 +70,9 @@ export function collectionCandidates(state: GameState, filter: CollectionSearchF
 
 /**
  * The titles of the characters in play, for `CollectionSearchFilter.heroTitleNotInPlay`: the title each character is
- * showing (`titleShowing`; RRG 1.8 "Identity", p. 23: an identity by its faceup side), and for each seat's identity
- * every hero-side title its card prints, whichever side is up. A subtitle is not a title (RRG 1.8 "Subtitle", p. 41).
+ * showing (`titleShowing`; RRG 1.8 "Identity", p. 23: an identity by its faceup side). Only a faceup title is in play
+ * (docs/phase7-wave9.md §4.1 Q44 = B): a seat's identity in alter-ego form shows its alter-ego title, so its hero title
+ * blocks nothing until it flips. A subtitle is not a title (RRG 1.8 "Subtitle", p. 41).
  */
 function characterTitlesInPlay(state: GameState): ReadonlySet<string> {
   const titles = new Set<string>();
@@ -79,11 +80,6 @@ function characterTitlesInPlay(state: GameState): ReadonlySet<string> {
     if (!categoriesOf(state, id).includes("character")) continue;
     const title = titleShowing(state, id);
     if (title !== undefined) titles.add(title);
-  }
-  for (const player of state.players) {
-    if (player.eliminated) continue;
-    const identity = state.cardPool[player.identity.cardId];
-    if (identity?.type === "hero_identity") for (const face of heroFacesOf(identity)) titles.add(face.faceName);
   }
   return titles;
 }

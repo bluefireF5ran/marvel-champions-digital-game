@@ -424,12 +424,10 @@ describe("Serpent Solutions 53031 deals to the first player ('deal that minion t
     expect(inst(r.state, soldier).faceup).toBe(false);
   });
 
-  // FINDING 1: docs/phase7-wave9.md section 3.45 says Aerial Recon "hears every deal to any player ... a card's 'deal ... as a
-  // facedown encounter card' (Serpent Solutions, The Raft)" and lists "Serpent Solutions' deal of a discarded minion replaced:
-  // the minion stays in the encounter discard pile" as a test. The engine does not announce a named-card deal (the comment on
-  // `TriggerEvent encounterCardBeingDealt`, trigger-events.ts: "Not announced: ... a named card dealt to a player"), so the
-  // interrupt is never offered. Needs the engine (a would-be-dealt window in `dealAsEncounterCards`); the script is right.
-  it.fails("Aerial Recon 53009 hears that deal ('When a player would be dealt an encounter card'; spec 3.45): taken, the Soldier stays in the discard pile, nothing is dealt and the counter is spent", () => {
+  // docs/phase7-wave9.md section 3.45: Aerial Recon "hears every deal to any player ... a card's 'deal ... as a facedown
+  // encounter card' (Serpent Solutions, The Raft)". The named card's deal has its own would-be-dealt window
+  // (`TriggerEvent encounterCardBeingDealt.named`); replaced, the card stays where it was.
+  it("Aerial Recon 53009 hears that deal ('When a player would be dealt an encounter card'; spec 3.45): taken, the Soldier stays in the discard pile, nothing is dealt and the counter is spent", () => {
     const { state, soldier } = table(P1);
     const withRecon = stagedInPlay(state, RECON, { attach: true, counters: { recon: 1 } });
     const offered: string[] = [];
@@ -440,14 +438,24 @@ describe("Serpent Solutions 53031 deals to the first player ('deal that minion t
     expect(inst(r.state, withRecon.id).counters.recon ?? 0).toBe(0);
   });
 
-  it("today: Aerial Recon is not offered for that deal, the Soldier is dealt facedown to the first player and the recon counter stays", () => {
+  it("Aerial Recon offered and not taken: the Soldier is dealt facedown to the first player and the recon counter stays", () => {
     const { state, soldier } = table(P1);
     const withRecon = stagedInPlay(state, RECON, { attach: true, counters: { recon: 1 } });
+    const offered: string[] = [];
+    const r = playFlock(withRecon.state, { take: [EAGLE], offered });
+    expect(offered.some((id) => id.endsWith(RECON_INTERRUPT))).toBe(true);
+    expect(playerOf(r.state, P1).dealtEncounter).toEqual([soldier]);
+    expect(inst(r.state, soldier).faceup).toBe(false);
+    expect(inst(r.state, withRecon.id).counters.recon).toBe(1);
+  });
+
+  it("with no recon counter the interrupt is not offered and the Soldier is dealt", () => {
+    const { state, soldier } = table(P1);
+    const withRecon = stagedInPlay(state, RECON, { attach: true });
     const offered: string[] = [];
     const r = playFlock(withRecon.state, { take: [EAGLE, RECON_INTERRUPT], offered });
     expect(offered.some((id) => id.endsWith(RECON_INTERRUPT))).toBe(false);
     expect(playerOf(r.state, P1).dealtEncounter).toEqual([soldier]);
-    expect(inst(r.state, withRecon.id).counters.recon).toBe(1);
   });
 });
 
