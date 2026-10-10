@@ -432,6 +432,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/stryfe/villain-loses.mp3": "Break the Timeline",
   "scenarios/stryfe/villain-wins.mp3": "A Future Stolen",
   "campaigns/trors/finale.mp3": "The Skull Shattered",
+  "campaigns/trors/interlude.mp3": "Following Hydra's Trail",
   "campaigns/gmw/finale.mp3": "Saviors of the Galaxy",
   "campaigns/mts/finale.mp3": "The Gauntlet Falls Silent",
   "campaigns/sm/finale.mp3": "Friendly Neighborhood Heroes",
