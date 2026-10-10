@@ -336,6 +336,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/klaw/battle.mp3": "The Sound of Vibranium",
   "scenarios/klaw/villain-loses.mp3": "Silence, at Last",
   "scenarios/klaw/villain-wins.mp3": "Master of Sound",
+  "scenarios/risky-business/battle.mp3": "Hostile Takeover",
   "scenarios/ultron/battle.mp3": "Endless Drones",
   "scenarios/ultron/villain-loses.mp3": "Signal Lost",
   "scenarios/ultron/villain-wins.mp3": "Humanity Obsolete",
