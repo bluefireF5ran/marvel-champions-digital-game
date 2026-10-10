@@ -12,11 +12,17 @@
  * Wave 8's six heroes are listed too, from the fixtures their own wave keeps
  * (`../wave8/fixtures/decklists/<hero>.json`, fetched 2026-10-08; `../wave8/custom-decks-marvelcdb.test.ts` documents
  * them and plays each at a wave 8 scenario). Here each sits at a Core villain through `playableScenario`.
+ *
+ * The same fixtures are the community-deck catalog a client recommends from (`./community-decks.ts`). The last two
+ * blocks here keep the two in step: every catalog deck this file's table does not name (waves 5 to 7, whose own
+ * tests play them in their own wave's pool, and any later fixture) gets the same three proofs against the playable
+ * pool, and every catalog deck is one this file proved.
  */
 import { createGame, replay, validateDeck } from "@mc/engine";
-import { PLAYABLE_CARDS, parseMarvelCdbDeckJsonText, type CoreAspect } from "@mc/content";
+import { PLAYABLE_CARDS, parseMarvelCdbDeckJsonText, type CoreAspect, type DeckContents } from "@mc/content";
 import { describe, expect, test } from "vitest";
 import { playToOutcome } from "../testing/driver.js";
+import { communityDecks, type CommunityDeck } from "./community-decks.js";
 import { PLAYABLE_DEPS, playableScenario } from "./index.js";
 
 // `import.meta.glob` (Vite/vitest's own static-file loader) rather than `node:fs`: `@mc/cards`'s tsconfig carries no
@@ -100,6 +106,28 @@ const parse = (id: number) => {
   return result;
 };
 
+/** A seeded greedy game at a Core villain reaches an outcome, and its log replays to the same state. */
+function playsAndReplays(contents: DeckContents, scenario: (typeof SCENARIOS)[number]): void {
+  const config = playableScenario(scenario, {
+    seed: 2026,
+    players: [
+      {
+        identityCardId: contents.identityCardId,
+        deck: contents.cards.flatMap(({ cardId, quantity }) => Array.from({ length: quantity }, () => cardId)),
+        aspects: contents.aspects as readonly CoreAspect[],
+      },
+    ],
+  });
+  const created = createGame(config, PLAYABLE_DEPS);
+  if (!created.ok) throw new Error(`setup failed: ${created.error.message}`);
+  const result = playToOutcome(created.state, PLAYABLE_DEPS);
+  expect(result.outcome).not.toBeNull();
+  expect(result.rounds).toBeGreaterThanOrEqual(1);
+  const replayed = replay(result.session.log, PLAYABLE_DEPS);
+  expect(replayed.ok).toBe(true);
+  if (replayed.ok) expect(replayed.state).toEqual(result.session.state);
+}
+
 describe.each(
   DECKLISTS.map(
     ([hero, identity, id, aspects], index) =>
@@ -118,24 +146,41 @@ describe.each(
   });
 
   test(`plays a seeded greedy game against ${scenario} that replays deep-equal`, () => {
-    const { contents } = parse(id);
-    const config = playableScenario(scenario, {
-      seed: 2026,
-      players: [
-        {
-          identityCardId: contents.identityCardId,
-          deck: contents.cards.flatMap(({ cardId, quantity }) => Array.from({ length: quantity }, () => cardId)),
-          aspects: contents.aspects as readonly CoreAspect[],
-        },
-      ],
-    });
-    const created = createGame(config, PLAYABLE_DEPS);
-    if (!created.ok) throw new Error(`setup failed: ${created.error.message}`);
-    const result = playToOutcome(created.state, PLAYABLE_DEPS);
-    expect(result.outcome).not.toBeNull();
-    expect(result.rounds).toBeGreaterThanOrEqual(1);
-    const replayed = replay(result.session.log, PLAYABLE_DEPS);
-    expect(replayed.ok).toBe(true);
-    if (replayed.ok) expect(replayed.state).toEqual(result.session.state);
+    playsAndReplays(parse(id).contents, scenario);
   }, 120_000);
+});
+
+const TABLE_IDS = new Set(DECKLISTS.map((row) => row[2]));
+/** Catalog decks the table above does not name. */
+const REST_OF_CATALOG: readonly CommunityDeck[] = communityDecks().filter((deck) => !TABLE_IDS.has(deck.marvelcdbId));
+
+describe.each(
+  REST_OF_CATALOG.map(
+    (deck, index) => [deck.heroName, deck.marvelcdbId, deck, SCENARIOS[index % SCENARIOS.length]!] as const,
+  ),
+)("%s: community deck %i", (_hero, _id, deck, scenario) => {
+  test("is legal under validateDeck against the playable pool", () => {
+    expect(validateDeck(deck.contents, PLAYABLE_CARDS)).toEqual({ ok: true });
+  });
+
+  test(`plays a seeded greedy game against ${scenario} that replays deep-equal`, () => {
+    playsAndReplays(deck.contents, scenario);
+  }, 120_000);
+});
+
+describe("the community-deck catalog", () => {
+  test("lists every decklist in the table above, with the contents this file proved", () => {
+    const catalog = new Map(communityDecks().map((deck) => [deck.marvelcdbId, deck]));
+    for (const [hero, identity, id] of DECKLISTS) {
+      const entry = catalog.get(id);
+      expect(entry, `${hero}'s decklist ${id} is in the catalog`).toBeDefined();
+      expect(entry!.identityCardId).toBe(identity);
+      expect(entry!.contents).toEqual(parse(id).contents);
+    }
+  });
+
+  test("has no deck this file did not prove", () => {
+    const proved = new Set([...TABLE_IDS, ...REST_OF_CATALOG.map((deck) => deck.marvelcdbId)]);
+    expect(communityDecks().filter((deck) => !proved.has(deck.marvelcdbId))).toEqual([]);
+  });
 });

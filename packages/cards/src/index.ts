@@ -71,6 +71,14 @@ export type {
 } from "./playable/scenario-options.js";
 export { PLAYABLE_ABILITIES, PLAYABLE_DEPS, playableScenario, playableStarterDeckSetup } from "./playable/index.js";
 export type { PlayableScenarioOptions } from "./playable/index.js";
+// Community decks: the saved, tested public MarvelCDB decklists, as a catalog a client can recommend from.
+export {
+  COMMUNITY_DECK_AUTHORS,
+  communityDeckUrl,
+  communityDecks,
+  skippedCommunityDecks,
+} from "./playable/community-decks.js";
+export type { CommunityDeck, SkippedCommunityDeck } from "./playable/community-decks.js";
 export {
   AOA_CAMPAIGN_DEFINITION,
   AOA_DEFEATED,
