@@ -485,6 +485,12 @@ function describe(
           text: `${card(event.instanceId)} stays where it was: that kind of card can't go there.`,
           voice: "player",
         };
+      // RRG 1.8 "Max, Maximum" (p. 28): no one can take control of another copy of a "Max 1 per player" card.
+      if (event.reason === "maxPerPlayer")
+        return {
+          text: `${card(event.instanceId)} stays where it was: no one can control another copy (max per player).`,
+          voice: "player",
+        };
       return { text: `${card(event.instanceId)} has nothing to attach to and stays where it was.`, voice: "player" };
     case "statusGiven":
       return { text: `${card(event.instanceId)} is`, tags: [{ status: event.status, spent: false }], voice: "player" };
@@ -521,7 +527,7 @@ function describe(
       return {
         text: event.byEffect
           ? `${card(event.defenderInstanceId)} is declared the defender against ${card(event.attackInstanceId)}.`
-          : `${card(event.defenderInstanceId)} defends.`,
+          : `${card(event.defenderInstanceId)} defends${event.withoutExhausting ? " without exhausting" : ""}.`,
         voice: "player",
       };
     case "defenseDeclined":
@@ -594,6 +600,13 @@ function describe(
     // changed the threat ("reduce the amount of threat placed … by 1"); an attack always has a defense term, a scheme
     // has no equivalent that is always present.
     case "schemeResolved":
+      // Part of the total went on another card (`enemyScheme.divert`): its own `threatPlaced` line comes first.
+      if (event.diverted) {
+        return {
+          text: `${card(event.enemyInstanceId)} schemed: ${event.diverted.amount} threat goes on ${card(event.diverted.toInstanceId)}, ${event.threatPlaced} on ${card(event.schemeInstanceId)}.`,
+          voice: "villain",
+        };
+      }
       // Psychic Manipulation (`modifyAttack.removesThreat`, §3.35): the total comes off the scheme instead of going on.
       if (event.removesThreat) {
         const total = Math.max(0, event.baseSch + event.boostIcons + event.threatBonus);
@@ -647,7 +660,8 @@ function describe(
       return { text: `${who(event.playerId)} revealed ${card(event.instanceId)}.`, voice: "villain" };
     case "surgeTriggered":
       return {
-        text: `Surge — ${who(event.playerId)} ${verb(event.playerId, "reveal", "reveals")} another encounter card.`,
+        // Owner decision 22B: a surge deals a facedown encounter card that waits for the reveal step.
+        text: `Surge — ${who(event.playerId)} ${verb(event.playerId, "are", "is")} dealt another encounter card.`,
         voice: "villain",
       };
     // "The first [Technique] attachment revealed each round gains surge" (Nebula I-III) or "the first treachery the
@@ -971,6 +985,170 @@ function describe(
         ? { text: `${card(event.instanceId)} — Temporary: discarded at the end of the round.`, voice: "player" }
         : null;
 
+    // Wave 9 (docs/phase7-wave9.md). `card()` names a card only as far as this table may see it, so a facedown card
+    // in a line below reads "a facedown card".
+
+    // §3.31: an extra cost to attack, thwart or defend with a character.
+    case "additionalPowerCostPaid":
+      return {
+        text: `${who(event.playerId)} paid an extra cost to ${event.power} with ${card(event.characterInstanceId)}.`,
+        voice: "player",
+      };
+    case "additionalPowerCostAsked":
+      return {
+        text: `${card(event.characterInstanceId)} needs an extra cost to defend. ${who(event.playerId)} ${verb(event.playerId, "choose", "chooses")} whether to pay.`,
+        voice: "player",
+      };
+    case "additionalPowerCostNotPaid":
+      return {
+        text: `${card(event.characterInstanceId)} does not defend: the extra cost was not paid.`,
+        voice: "player",
+      };
+
+    // §3.29 (b): Baron Zemo's accusation. The guess and the mole are open to every player (the pile was turned faceup
+    // just before `moleIdentified`), so the board members may be named.
+    case "accusationMade":
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "accuse", "accuses")} ${cardIdName(state, event.accused.boardMember)}.`,
+        voice: "player",
+      };
+    case "moleIdentified": {
+      if (!event.mole) return { text: `The ${pileLabel(event.pile)} cards match no board member.`, voice: "scenario" };
+      const mole = `The mole is ${cardIdName(state, event.mole.boardMember)}.`;
+      if (!event.accused) return { text: mole, voice: "scenario" };
+      return {
+        text:
+          event.wrong.length === 0
+            ? `${mole} The accusation was correct.`
+            : `${mole} ${event.wrong.length} of 4 guesses ${event.wrong.length === 1 ? "was" : "were"} wrong.`,
+        voice: "scenario",
+      };
+    }
+
+    // §3.29 (a): hidden piles. `hiddenPilesDealt` carries sizes only, so only sizes are said; the other two carry card
+    // ids because the engine has already made those cards open to every player.
+    case "hiddenPilesDealt":
+      if (event.kept) return null;
+      return {
+        text: `Hidden piles dealt: ${event.piles.map((p) => `${pileLabel(p.pile)} ${p.size}`).join(", ")}.`,
+        voice: "scenario",
+      };
+    case "hiddenPileCardsGained":
+      return {
+        text:
+          event.cardIds.length === 0
+            ? `The ${pileLabel(event.pile)} pile is empty.`
+            : `The players gain ${event.cardIds.map((id) => cardIdName(state, id)).join(", ")} from the ${pileLabel(event.pile)} pile.`,
+        voice: "player",
+      };
+    case "hiddenPileRevealed":
+      return {
+        text:
+          event.cardIds.length === 0
+            ? `The ${pileLabel(event.pile)} pile is turned faceup: it is empty.`
+            : `The ${pileLabel(event.pile)} pile is turned faceup: ${event.cardIds.map((id) => cardIdName(state, id)).join(", ")}.`,
+        voice: "scenario",
+      };
+
+    // §3.26: a card that turned over to another card and kept its counters.
+    case "cardFlippedToOtherFace": {
+      const kept = Object.entries(event.keptCounters ?? {}).filter(([, n]) => n > 0);
+      const keeps = kept.map(([type, n]) => `${n} ${type} counter${n === 1 ? "" : "s"}`).join(", ");
+      return {
+        text: `${card(event.instanceId)} turns over${keeps ? ` and keeps ${keeps}` : ""}.`,
+        voice: "scenario",
+      };
+    }
+    // §3.6: counters moved between cards; an all-purpose counter takes the type of its new card.
+    case "countersMoved": {
+      const words = (type: string): string => type.replace(/_/g, " ");
+      const noun = (type: string, n: number): string => `${words(type)} counter${n === 1 ? "" : "s"}`;
+      const became =
+        event.toCounterType && event.toCounterType !== event.counterType
+          ? ` and become${event.amount === 1 ? "s" : ""} ${words(event.toCounterType)}`
+          : "";
+      return {
+        text: `${event.amount} ${noun(event.counterType, event.amount)} move${event.amount === 1 ? "s" : ""} from ${card(event.from)} to ${card(event.to)}${became}.`,
+        voice: "player",
+      };
+    }
+
+    // §3.19, §3.21: an ally held captive, a minion held by an environment.
+    case "controlReleased":
+      return {
+        text: `${card(event.instanceId)} is held captive by ${card(event.hostInstanceId)}.`,
+        voice: "villain",
+      };
+    case "minionHeld":
+      return { text: `${card(event.instanceId)} is held by ${card(event.hostInstanceId)}.`, voice: "villain" };
+    // §3.24
+    case "engagementRotated":
+      return {
+        text: `Engaged minions pass to the next player (${event.moves.length}).`,
+        voice: "villain",
+      };
+    // §3.17: the top card of a scenario deck comes into play.
+    case "scenarioDeckTopEnteredPlay":
+      return { text: `${card(event.instanceId)} enters play from ${event.name}.`, voice: "villain" };
+
+    // §3.42: the encounter deck's top card shown to everyone while a rule says so (`deckTopShown`'s sibling).
+    case "encounterTopShown":
+      return { text: `The encounter deck's top card is faceup: ${cardIdName(state, event.cardId)}.`, voice: "villain" };
+    case "encounterTopHidden":
+      return { text: `The encounter deck's top card is facedown again.`, voice: "villain" };
+    // §3.43: discards from the top of the encounter deck. The card went to the discard pile faceup; one shuffled into
+    // a reset deck is named by `card()` only if this table can see it.
+    case "cardDiscardedFromEncounterDeck":
+      return {
+        text: `${card(event.instanceId)} is discarded from the encounter deck.`,
+        voice: "villain",
+      };
+    case "encounterDiscardCostSettled": {
+      const n = event.discarded.length;
+      const by = event.playerId ? `${who(event.playerId)} ${verb(event.playerId, "discard", "discards")}` : "Discard";
+      return {
+        text: event.paid
+          ? `${by} ${n} card${n === 1 ? "" : "s"} from the encounter deck.`
+          : `${by} nothing: the encounter deck cost was not paid.`,
+        voice: "player",
+      };
+    }
+    // §3.46 (c): a tucked card spent as if from hand.
+    case "tuckedCardSpent":
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "spend", "spends")} ${card(event.instanceId)} from under ${card(event.hostInstanceId)}.`,
+        voice: "player",
+      };
+    // §3.41: a reveal replaced by other reveals (each logs its own `encounterCardRevealed`).
+    case "revealReplaced":
+      return {
+        text: `${card(event.instanceId)} is replaced: ${who(event.playerId)} ${verb(event.playerId, "reveal", "reveals")} ${event.withInstanceIds.length} other card${event.withInstanceIds.length === 1 ? "" : "s"} instead.`,
+        voice: "villain",
+      };
+    // §3.1: Vulnerable discards a character that became stunned or confused.
+    case "vulnerableDiscarded":
+      return {
+        text: `${card(event.instanceId)} is ${event.status} and Vulnerable: it is discarded.`,
+        voice: "player",
+      };
+    // §3.12: a look-at that put the cards back in an order of the player's choosing. Which card went where is not on
+    // the event, and not said here: the cards are facedown.
+    case "cardsRearranged":
+      return {
+        text:
+          event.moved === 0
+            ? `${who(event.playerId)} put the cards back in the same order.`
+            : `${who(event.playerId)} rearranged ${event.instanceIds.length} cards.`,
+        voice: "player",
+      };
+
+    // Skipped on purpose (wave 9), no line:
+    // - `scenarioDeckTopLeft`: the card's own move or flip says where it went, and the next top card's
+    //   `scenarioDeckTopEnteredPlay` follows.
+    // - `threatCostSettled`: the `threatRemoved` before it is the line.
+    // - `damageBeyondZeroLost`: a dial correction; the damage was already logged in full and the card shows its hit points.
+    // - `abilityGained.grantedByInstanceId`: rules bookkeeping on an event already skipped; Inspect shows the ability.
+
     // Bookkeeping the player never reads: the stack, timing windows, trigger
     // announcements, per-card zone moves, and choice plumbing. The Inspect
     // overlay and the replay log carry these instead.
@@ -1040,6 +1218,13 @@ const swapRefusedReason = (
       return "a card to swap was missing";
   }
 };
+
+/** A card's printed name from its id; only for cards an event has already made open to every player. */
+const cardIdName = (state: GameState, cardId: Parameters<typeof getCard>[1]): string =>
+  getCard(state, cardId)?.name ?? "a card";
+
+/** A hidden pile's table name: the pile ids are scenario-defined, so only the known envelopes are dressed up. */
+const pileLabel = (pile: string): string => (pile === "aim" ? "A.I.M." : pile === "shield" ? "S.H.I.E.L.D." : pile);
 
 /** An encounter set's display name, or its id when the pool doesn't know it. */
 const setLabel = (id: string): string => POOL_ENCOUNTER_SETS.find((set) => (set.id as string) === id)?.name ?? id;

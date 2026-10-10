@@ -1,0 +1,117 @@
+/** Wave 9 (Agents of S.H.I.E.L.D.) log lines: surge deals, max per player, extra power costs, hidden piles, the mole. */
+import { activeVillain, type GameEvent, type GameState, type InstanceId, type PlayerId } from "@mc/engine";
+import { beforeAll, describe, expect, test } from "vitest";
+import { POOL_DEPS } from "../content/pool.js";
+import { LocalEngineHost } from "../engine/local-host.js";
+import { SessionStore } from "../store/session-store.js";
+import { logLine } from "./log-lines.js";
+
+let state: GameState;
+let me: PlayerId;
+let a: InstanceId;
+let b: InstanceId;
+
+beforeAll(async () => {
+  const store = new SessionStore(new LocalEngineHost());
+  await store.start({
+    scenarioId: "rhino",
+    difficulty: "standard",
+    players: [{ starterDeckId: "core-spider-man-justice" }],
+    seed: 3,
+  });
+  state = store.state.game!;
+  me = store.state.perspectiveId!;
+  a = activeVillain(state).instanceId;
+  b = state.players[0]!.hand[0]!;
+});
+
+const text = (event: GameEvent): string | undefined => logLine(event, state, me, POOL_DEPS)?.text;
+const cardId = (id: InstanceId) => state.instances[id]!.cardId;
+
+describe("wave 9 log lines", () => {
+  test("a surge deals a card", () => {
+    expect(text({ type: "surgeTriggered", instanceId: a, playerId: me })).toBe(
+      "Surge — You are dealt another encounter card.",
+    );
+  });
+
+  test("max per player has its own line", () => {
+    expect(
+      text({ type: "putIntoPlayRefused", instanceId: b, playerId: me, reason: "maxPerPlayer" } as GameEvent),
+    ).toMatch(/stays where it was: no one can control another copy/);
+  });
+
+  test("extra power costs", () => {
+    const base = { playerId: me, characterInstanceId: b };
+    expect(text({ type: "additionalPowerCostPaid", ...base, power: "thwart", sourceInstanceIds: [a] })).toMatch(
+      /^You paid an extra cost to thwart with /,
+    );
+    expect(text({ type: "additionalPowerCostAsked", ...base, power: "defend" })).toMatch(
+      /needs an extra cost to defend/,
+    );
+    expect(text({ type: "additionalPowerCostNotPaid", ...base, power: "defend" })).toMatch(/does not defend/);
+  });
+
+  test("hidden piles name sizes while dealt, cards only once open", () => {
+    const dealt = text({
+      type: "hiddenPilesDealt",
+      from: "set",
+      piles: [
+        { pile: "aim", size: 3 },
+        { pile: "shield", size: 5 },
+      ],
+      kept: false,
+    });
+    expect(dealt).toBe("Hidden piles dealt: A.I.M. 3, S.H.I.E.L.D. 5.");
+    expect(text({ type: "hiddenPilesDealt", from: "set", piles: [], kept: true })).toBeUndefined();
+    expect(text({ type: "hiddenPileCardsGained", pile: "aim", cardIds: [], requested: 1, remaining: 0 })).toBe(
+      "The A.I.M. pile is empty.",
+    );
+    expect(text({ type: "hiddenPileRevealed", pile: "shield", cardIds: [cardId(a)] })).toMatch(
+      /^The S.H.I.E.L.D. pile is turned faceup: /,
+    );
+  });
+
+  test("the accusation and the mole", () => {
+    const row = { means: cardId(b), motive: cardId(b), opportunity: cardId(b), boardMember: cardId(a) };
+    expect(text({ type: "accusationMade", playerId: me, accused: row })).toMatch(/^You accuse /);
+    expect(text({ type: "moleIdentified", pile: "aim", accused: row, mole: row, wrong: [] })).toMatch(
+      /^The mole is .+\. The accusation was correct\.$/,
+    );
+    expect(text({ type: "moleIdentified", pile: "aim", accused: row, mole: row, wrong: ["means", "motive"] })).toMatch(
+      /2 of 4 guesses were wrong\.$/,
+    );
+    expect(text({ type: "moleIdentified", pile: "aim", accused: null, mole: null, wrong: [] })).toBe(
+      "The A.I.M. cards match no board member.",
+    );
+  });
+
+  test("a flip that kept counters says so; counters move and change type", () => {
+    expect(
+      text({
+        type: "cardFlippedToOtherFace",
+        instanceId: a,
+        from: cardId(a),
+        to: cardId(a),
+        typeChanged: true,
+        keptCounters: { threat: 2 },
+      }),
+    ).toMatch(/turns over and keeps 2 threat counters\.$/);
+    expect(
+      text({ type: "countersMoved", from: a, to: b, counterType: "all_purpose", amount: 1, toCounterType: "threat" }),
+    ).toMatch(/^1 all purpose counter moves from .+ and becomes threat\.$/);
+  });
+
+  test("the encounter deck's shown top card, a held minion, a rearrangement", () => {
+    expect(text({ type: "encounterTopShown", deckId: "d" as never, instanceId: a, cardId: cardId(a) })).toMatch(
+      /^The encounter deck's top card is faceup: /,
+    );
+    expect(text({ type: "encounterTopHidden", deckId: "d" as never })).toBe(
+      "The encounter deck's top card is facedown again.",
+    );
+    expect(text({ type: "minionHeld", instanceId: a, hostInstanceId: b, engagedBefore: null })).toMatch(/ is held by /);
+    expect(text({ type: "cardsRearranged", playerId: me, positions: [], instanceIds: [a, b], moved: 0 })).toBe(
+      "You put the cards back in the same order.",
+    );
+  });
+});
