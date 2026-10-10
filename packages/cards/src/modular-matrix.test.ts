@@ -137,6 +137,19 @@ describe("the lists, derived from content data", () => {
         "arcade",
         "crazy_gang",
         "hellfire",
+        "a.i.m._abduction",
+        "a.i.m._science",
+        "batrocs_brigade",
+        "gravitational_pull",
+        "hard_sound",
+        "pale_little_spider",
+        "power_of_the_atom",
+        "s.h.i.e.l.d.",
+        "scientist_supreme",
+        "supersonic",
+        "the_leaper",
+        "extreme_risk",
+        "growing_strong",
       ]
     `);
   });
@@ -145,6 +158,7 @@ describe("the lists, derived from content data", () => {
     expect(EXTRA_SETS.map((set) => set.id)).toMatchInlineSnapshot(`
       [
         "longshot",
+        "s.h.i.e.l.d._executive_board",
       ]
     `);
   });
@@ -160,6 +174,7 @@ describe("the lists, derived from content data", () => {
         "brought in by the scenarios that require it": [
           "hope_summers",
           "prelates",
+          "executive_board_evidence",
         ],
         "campaign-specific": [
           "expcamp",
@@ -246,6 +261,12 @@ describe("the lists, derived from content data", () => {
           "jubilee_nemesis",
           "nightcrawler_nemesis",
           "magneto_nemesis",
+          "maria_hill_nemesis",
+          "nick_fury_nemesis",
+          "black_panther_shuri_nemesis",
+          "silk_nemesis",
+          "falcon_nemesis",
+          "winter_soldier_nemesis",
         ],
         "scenario-specific": [
           "klaw",
@@ -300,6 +321,11 @@ describe("the lists, derived from content data", () => {
           "en_sabah_nur",
           "four_horsemen",
           "unus",
+          "baron_zemo",
+          "batroc",
+          "black_widow_villain",
+          "m.o.d.o.k.",
+          "thunderbolts",
         ],
         "standard set": [
           "standard",
@@ -359,6 +385,11 @@ describe("the lists, derived from content data", () => {
         "apocalypse",
         "dark-beast",
         "en-sabah-nur",
+        "black-widow",
+        "batroc",
+        "modok",
+        "thunderbolts",
+        "baron-zemo",
       ]
     `);
   });
@@ -511,21 +542,22 @@ describe("modular set x scenario: every pairing builds", () => {
     }
     expect({ sets: MODULAR_SETS.length, scenarios: PLAYABLE_SCENARIOS.length, ...kinds }).toMatchInlineSnapshot(`
       {
-        "build": 3755,
+        "build": 4716,
         "required": 28,
-        "restricted": 449,
-        "scenarios": 46,
-        "sets": 92,
+        "restricted": 611,
+        "scenarios": 51,
+        "sets": 105,
       }
     `);
     expect(restrictedBy).toMatchInlineSnapshot(`
       {
-        "breakout": 92,
+        "breakout": 105,
         "four-horsemen": 1,
-        "mojo": 86,
-        "sinister-six": 91,
-        "spiral": 86,
-        "the-hood": 92,
+        "mojo": 99,
+        "sinister-six": 104,
+        "spiral": 99,
+        "the-hood": 105,
+        "thunderbolts": 97,
         "tower-defense": 1,
       }
     `);

@@ -206,6 +206,22 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
       { scenarioId: "dark-beast", identityCardId: "49001a" }, // Magneto
     ],
   },
+  {
+    // The gate is Age of Apocalypse's. Baron Zemo, the finale, pays no hero: the four hero packs take the four villains
+    // before him in release order (Black Panther, Silk, Falcon, Winter Soldier). Owner to confirm this pairing.
+    cycleId: "cycle9",
+    name: "Agents of S.H.I.E.L.D.",
+    gate: { kind: "campaignWin", campaignId: "aoa", hint: "Complete the Age of Apocalypse campaign" },
+    // `campaignId: "aos"` is added with the box's campaign (wave definition of done, section 6): until then there is no
+    // campaign to list.
+    starterHeroIds: ["50001a", "50034a"], // Maria Hill, Nick Fury: MC50's own cast
+    heroRewards: [
+      { scenarioId: "black-widow", identityCardId: "51001a" }, // Black Panther (Shuri)
+      { scenarioId: "batroc", identityCardId: "52001a" }, // Silk
+      { scenarioId: "modok", identityCardId: "53001a" }, // Falcon
+      { scenarioId: "thunderbolts", identityCardId: "54001a" }, // Winter Soldier
+    ],
+  },
 ];
 
 /** What the player has done, read from storage by `progressOf`. */

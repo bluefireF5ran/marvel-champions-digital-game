@@ -60,10 +60,10 @@ const UNSCRIPTED_WAVE7_PACKS: ReadonlySet<string> = new Set();
 const UNSCRIPTED_WAVE8_PACKS: ReadonlySet<string> = new Set();
 
 /**
- * Wave 9 packs in the pool whose kits are not scripted yet (docs/phase7-wave9.md): all of them (`tt` has no hero).
- * Their precons are legal but cannot be seated.
+ * Wave 9 packs in the pool whose kits are not scripted yet (docs/phase7-wave9.md): none; the whole wave joined the
+ * playable pool (the two Trickster Takeover scenarios and its modular set stay gated in `playable/unscripted.ts`).
  */
-const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set(["aos", "bp", "silk", "falcon", "winter", "tt"]);
+const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set();
 
 /** Every pack whose precons are legal but cannot be seated yet. */
 const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
@@ -73,8 +73,11 @@ const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
   ...UNSCRIPTED_WAVE9_PACKS,
 ]);
 
-/** Wave 6 precon cards left unscripted on purpose (wave6/coverage.test.ts `KNOWN_SKIPPED`): none. */
-const KNOWN_UNSCRIPTED: ReadonlySet<string> = new Set();
+/**
+ * Precon cards left unscripted on purpose: Falcon's Aerial Recon 53009 (its action) and Strength in Diversity 53019
+ * (wave9/custom-decks.test.ts `KNOWN_GAPS`). Falcon is seatable with both.
+ */
+const KNOWN_UNSCRIPTED: ReadonlySet<string> = new Set(["53009", "53019"]);
 
 const byId = new Map(PLAYABLE_CARDS.map((card) => [card.id as string, card]));
 

@@ -1,5 +1,5 @@
 /**
- * The playable pool: every scripted wave at once (Core through cycle 8). `WAVE1_*` and `WAVE2_*` are sibling
+ * The playable pool: every scripted wave at once (Core through cycle 9, minus the wave 9 sets in `./unscripted.ts`). `WAVE1_*` and `WAVE2_*` are sibling
  * pools that each start from Core and know nothing of each other, which is right for a pack's own tests and wrong
  * for an app where a cycle 1 hero sits down against a wave 1 villain. This module is that union, built from the
  * waves' own exports so a pack is still added in exactly one place (its wave's `index.ts`).
@@ -28,6 +28,9 @@ import {
   WAVE8_ENCOUNTER_SETS,
   WAVE8_SCENARIOS,
   WAVE8_STARTER_DECKS,
+  WAVE9_ENCOUNTER_SETS,
+  WAVE9_SCENARIOS,
+  WAVE9_STARTER_DECKS,
   autoIncludedSetsOf,
   type AnyCard,
   type StarterDeck,
@@ -50,11 +53,15 @@ import { wave7Scenario } from "../wave7/setup.js";
 import { INFINITES_SET_ID, infinitesGenePoolThreat } from "../wave8/aoa/infinites.js";
 import { WAVE8_ABILITIES } from "../wave8/index.js";
 import { wave8Scenario, type Wave8ScenarioOptions } from "../wave8/setup.js";
+import { WAVE9_ABILITIES } from "../wave9/index.js";
+import { wave9Scenario } from "../wave9/setup.js";
 import { checkPlayableDifficultySets } from "./scenario-options.js";
+import { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./unscripted.js";
 import {
   PLAYABLE_ENCOUNTER_SETS,
   PLAYABLE_SCENARIO_RECORDS,
   checkModularPickCount,
+  chooseModularSets,
   extraModularCardIds,
 } from "../modular-pool.js";
 import { wave6Scenario, type Wave6ScenarioOptions } from "../wave6/setup.js";
@@ -84,6 +91,7 @@ export const PLAYABLE_ABILITIES: AbilityRegistry = unionRegistries(
   WAVE6_ABILITIES,
   WAVE7_ABILITIES,
   WAVE8_ABILITIES,
+  WAVE9_ABILITIES,
 );
 
 /** Engine dependencies for a game on the playable pool. */
@@ -111,6 +119,7 @@ const STARTER_DECKS: readonly StarterDeck[] = [
   ...WAVE6_STARTER_DECKS,
   ...WAVE7_STARTER_DECKS,
   ...WAVE8_STARTER_DECKS,
+  ...WAVE9_STARTER_DECKS,
 ];
 
 /** Any starter deck in the playable pool as a player seat (quantities expanded; the identity isn't part of the deck). */
@@ -163,14 +172,20 @@ function withAutoIncludedSets(built: GameSetupConfig): GameSetupConfig {
 }
 
 const EXTRA_MODULAR_SET_IDS: ReadonlySet<string> = new Set(
-  [...CORE_ENCOUNTER_SETS, ...WAVE6_ENCOUNTER_SETS, ...WAVE7_ENCOUNTER_SETS, ...WAVE8_ENCOUNTER_SETS]
-    .filter((set) => set.extraModular)
+  [
+    ...CORE_ENCOUNTER_SETS,
+    ...WAVE6_ENCOUNTER_SETS,
+    ...WAVE7_ENCOUNTER_SETS,
+    ...WAVE8_ENCOUNTER_SETS,
+    ...WAVE9_ENCOUNTER_SETS,
+  ]
+    .filter((set) => set.extraModular && !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id))
     .map((set) => set.id as string),
 );
 
 /**
  * An extra modular set (Longshot, MojoMania insert p. 2: "can be included in any scenario") shuffled in on top of any
- * scenario's own encounter deck. A cycle 6, 7 or 8 scenario's own builder already adds it (`wave6Scenario`, `wave7Scenario`, `wave8Scenario`); every earlier
+ * scenario's own encounter deck. A cycle 6, 7, 8 or 9 scenario's own builder already adds it (`wave6Scenario` to `wave9Scenario`); every earlier
  * wave's builder knows nothing of it, so it is added here. Never counted as one of the scenario's modular sets.
  */
 function withExtraModularSets(
@@ -183,7 +198,8 @@ function withExtraModularSets(
     extra.length === 0 ||
     WAVE6_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
     WAVE7_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
-    WAVE8_SCENARIOS.some((scenario) => scenario.id === scenarioId)
+    WAVE8_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
+    WAVE9_SCENARIOS.some((scenario) => scenario.id === scenarioId)
   )
     return built;
   if (new Set(extra).size !== extra.length) throw new Error(`${scenarioId}: an extra modular set is added twice`);
@@ -231,6 +247,8 @@ function playableScenarioUnstacked(scenarioId: string, options: PlayableScenario
       ...(setup.aspects ? { aspects: setup.aspects } : {}),
     };
   });
+  if (WAVE9_SCENARIOS.some((scenario) => scenario.id === scenarioId))
+    return wave9Playable(scenarioId, options, players);
   if (WAVE8_SCENARIOS.some((scenario) => scenario.id === scenarioId)) {
     const seated = { ...options, players };
     if (seated.difficulty === "extreme")
@@ -293,4 +311,60 @@ function playableScenarioUnstacked(scenarioId: string, options: PlayableScenario
   }
   // Wave 1's builder also seats a Core scenario, and rejects an id nobody knows.
   return { ...wave1Scenario(scenarioId, seated), cards: PLAYABLE_CARDS };
+}
+
+/**
+ * A wave 9 scenario. Nothing in `./unscripted.ts` is offered or accepted: a gated modular, set-aside or extra pick is
+ * refused, and a scenario with a pool of modular sets (Thunderbolts' ten) draws its set-aside sets from the pool minus
+ * the gated sets, with the same seeded draw the builder would make from the whole pool (`chooseModularSets` on the
+ * playable record), because `wave9Scenario` reads the unfiltered record from `@mc/content`.
+ */
+function wave9Playable(
+  scenarioId: string,
+  options: PlayableScenarioOptions,
+  players: readonly CorePlayer[],
+): GameSetupConfig {
+  const named = [
+    ...(options.modularSetIds ?? []),
+    ...(options.setAsideModularSetIds ?? []),
+    ...(options.extraModularSetIds ?? []),
+  ];
+  for (const id of named)
+    if (UNSCRIPTED_ENCOUNTER_SET_IDS.has(id)) throw new Error(`${scenarioId}: ${id} is not playable yet`);
+  if (options.horsemanSides) throw new Error(`${scenarioId}: horsemanSides belongs to the Four Horsemen scenario`);
+  if (options.easierStart) throw new Error(`${scenarioId}: easierStart belongs to the Apocalypse scenario`);
+  if (options.difficulty === "extreme")
+    throw new Error(`${scenarioId} is a cycle 9 scenario; "extreme" is Breakout's own multi-villain challenge`);
+  const record = PLAYABLE_SCENARIO_RECORDS.find((candidate) => candidate.id === scenarioId);
+  if (!record) throw new Error(`${scenarioId} is not playable yet`);
+  const {
+    horsemanSides: _horsemanSides,
+    easierStart: _easierStart,
+    genePoolThreatPerPlayer: _genePoolThreatPerPlayer,
+    villainVersions: _villainVersions,
+    difficulty,
+    ...rest
+  } = options;
+  // An extra set the scenario already requires (Baron Zemo's Executive Board) is in the deck once, not twice.
+  const required = new Set<string>(record.encounterSetIds as readonly string[]);
+  const extra = (rest.extraModularSetIds ?? []).filter((id) => !required.has(id));
+  let setAsideModularSetIds = rest.setAsideModularSetIds;
+  if (record.modularSetPool && setAsideModularSetIds === undefined) {
+    const chosen = chooseModularSets(record, PLAYABLE_ENCOUNTER_SETS, {
+      playerCount: players.length,
+      seed: options.seed,
+      ...(rest.modularSetIds ? { modularSetIds: rest.modularSetIds } : {}),
+    });
+    setAsideModularSetIds = chosen.setAsideModularSetIds;
+  }
+  return {
+    ...wave9Scenario(scenarioId, {
+      ...rest,
+      players,
+      ...(difficulty ? { difficulty } : {}),
+      ...(setAsideModularSetIds ? { setAsideModularSetIds } : {}),
+      extraModularSetIds: extra,
+    }),
+    cards: PLAYABLE_CARDS,
+  };
 }

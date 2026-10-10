@@ -185,7 +185,8 @@ describe("seatInsightsOf", () => {
   test("replacing a seat judges candidates against the other seats only", () => {
     const insights = run([deck("phoenix-justice"), deck("core-spider-man-justice")], 0);
     // Phoenix's own seat is being replaced, so her partners are no longer recommended for being her partners.
-    expect(insights.recommended.every((rec) => rec.teamUps.length === 0)).toBe(true);
+    // (Spider-Man still has his own partners, Silk among them, so only Phoenix's are ruled out.)
+    expect(insights.recommended.every((rec) => rec.teamUps.every((t) => t.partner !== "Phoenix"))).toBe(true);
     expect(insights.pairs).toEqual([]);
   });
 

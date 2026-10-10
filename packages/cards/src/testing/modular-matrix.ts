@@ -26,6 +26,7 @@ import {
   WAVE6_SCENARIOS,
   WAVE7_SCENARIOS,
   WAVE8_SCENARIOS,
+  WAVE9_SCENARIOS,
   setAsideModularSetCountFor,
   type AnyCard,
   type EncounterSet,
@@ -42,6 +43,7 @@ import {
 } from "@mc/engine";
 import { PLAYABLE_ENCOUNTER_SETS, SCENARIO_BOUND_SET_IDS } from "../modular-pool.js";
 import { PLAYABLE_DEPS, playableScenario } from "../playable/index.js";
+import { playableScenarioRecord, scenarioIsScripted } from "../playable/unscripted.js";
 import { applyOk, firstLegal, P1, settle, type Picker } from "./harness.js";
 import { withForm } from "./staging.js";
 import type { CorePlayer } from "../core/setup.js";
@@ -61,6 +63,7 @@ export const PLAYABLE_SCENARIOS: readonly Scenario[] = [
       ...WAVE6_SCENARIOS,
       ...WAVE7_SCENARIOS,
       ...WAVE8_SCENARIOS,
+      ...WAVE9_SCENARIOS.filter(scenarioIsScripted).map(playableScenarioRecord),
     ].map((scenario) => [scenario.id as string, scenario] as const),
   ).values(),
 ];

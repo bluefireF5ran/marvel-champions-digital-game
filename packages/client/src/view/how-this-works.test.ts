@@ -1,18 +1,16 @@
 import { describe, expect, test } from "vitest";
-import { WAVE9_CARDS } from "@mc/content";
 import { POOL_CARDS, CARDS_BY_ID } from "../content/pool.js";
 import { HOW_THIS_WORKS_IDS, baseCardId, howThisWorksFor } from "./how-this-works.js";
 import { cardInspectModel } from "./inspect-model.js";
 
 describe("how this works notes", () => {
   test("every note belongs to a card in the pool", () => {
-    // Wave 9 is written ahead of its place in the client pool; its cards are checked against the content package.
-    const poolBases = new Set([...POOL_CARDS, ...WAVE9_CARDS].map((card) => baseCardId(card.id as string)));
+    const poolBases = new Set(POOL_CARDS.map((card) => baseCardId(card.id as string)));
     for (const id of HOW_THIS_WORKS_IDS) expect(poolBases.has(id), `${id} is not a pool card`).toBe(true);
   });
 
   test("every note is one short paraphrase, without dashes or British spellings", () => {
-    for (const card of [...POOL_CARDS, ...WAVE9_CARDS]) {
+    for (const card of POOL_CARDS) {
       const text = howThisWorksFor(card);
       if (!text) continue;
       expect(text.length, `${card.id} note is too long`).toBeLessThanOrEqual(190);
@@ -65,7 +63,7 @@ describe("how this works notes", () => {
   });
 
   test("the wave 9 notes sit on the cards the mechanics are on, and say what the owner decided", () => {
-    const byId = new Map(WAVE9_CARDS.map((card) => [card.id as string, card]));
+    const byId = new Map(POOL_CARDS.map((card) => [card.id as string, card]));
     const named = (id: string) => byId.get(id)?.name;
     expect(named("50028")).toBe("Front Organization");
     expect(named("50051")).toBe("Intelligence");

@@ -1,5 +1,5 @@
 /**
- * The one card pool this app runs: Core, wave 1, cycle 1, cycle 2, cycle 3, cycle 4 and cycle 6 (Mutant Genesis)'s shipped-so-far packs
+ * The one card pool this app runs: Core, wave 1 and cycles 1 to 9's shipped-so-far packs
  * (PLAN.md Phase 7). Every scene, the deck screens and the engine worker read the app's pool from here
  * — never from `@mc/content`'s `CORE_*` exports or `@mc/cards`' `CORE_DEPS`
  * directly — so the client can only ever run one pool at a time and adding a
@@ -9,7 +9,13 @@
  * its own wave's builder (Core's, wave 1's, cycle 1's, cycle 2's, cycle 3's or cycle 4's) and widens the game's
  * card pool to every playable card, so any deck can sit at any scenario.
  */
-import { PLAYABLE_DEPS, playableScenario, type PlayableScenarioOptions } from "@mc/cards";
+import {
+  PLAYABLE_DEPS,
+  PLAYABLE_SCENARIO_RECORDS,
+  UNSCRIPTED_ENCOUNTER_SET_IDS,
+  playableScenario,
+  type PlayableScenarioOptions,
+} from "@mc/cards";
 import {
   BKW_CYCLE,
   BKW_PACK,
@@ -139,6 +145,21 @@ import {
   MOJO_SCENARIOS,
   WSP_CYCLE,
   WSP_PACK,
+  AOS_CYCLE,
+  AOS_PACK,
+  BP_CYCLE,
+  BP_PACK,
+  SILK_CYCLE,
+  SILK_PACK,
+  FALCON_CYCLE,
+  FALCON_PACK,
+  WINTER_CYCLE,
+  WINTER_PACK,
+  TT_CYCLE,
+  TT_PACK,
+  WAVE9_ENCOUNTER_SETS,
+  WAVE9_SCENARIOS,
+  WAVE9_STARTER_DECKS,
   poolVersionOf,
   type AnyCard,
   type Cycle,
@@ -168,6 +189,8 @@ export const POOL_ENCOUNTER_SETS: readonly EncounterSet[] = [
   ...WAVE6_ENCOUNTER_SETS,
   ...WAVE7_ENCOUNTER_SETS,
   ...WAVE8_ENCOUNTER_SETS,
+  // Cycle 9 minus the sets `@mc/cards` has not scripted yet (`playable/unscripted.ts`: Trickster Magic, Techno, Whiteout, and the two Trickster Takeover villains' sets).
+  ...WAVE9_ENCOUNTER_SETS.filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string)),
 ];
 
 /**
@@ -207,6 +230,8 @@ export const POOL_SCENARIOS: readonly Scenario[] = [
   ...WAVE7_SCENARIOS,
   // Age of Apocalypse's five (Unus, Four Horsemen, Apocalypse, Dark Beast, En Sabah Nur): the four hero packs define none.
   ...WAVE8_SCENARIOS,
+  // Agents of S.H.I.E.L.D.'s five (Black Widow, Batroc, M.O.D.O.K., Thunderbolts, Baron Zemo), as the playable pool has them: Thunderbolts' pool of ten without Techno and Whiteout. Trickster Takeover's two are not scripted yet and are not offered (`playable/unscripted.ts`).
+  ...PLAYABLE_SCENARIO_RECORDS.filter((scenario) => WAVE9_SCENARIOS.some((s) => s.id === scenario.id)),
 ];
 
 /** Every starter deck, Core's six precons first, then the six wave 1 hero packs', then cycle 1's six, then cycle 2's six (Groot, Rocket Raccoon, Star-Lord, Gamora, Drax, Venom), then cycle 3's six (Spectrum, Adam Warlock, Nebula, War Machine, Vision, Valkyrie). */
@@ -220,9 +245,17 @@ export const POOL_STARTER_DECKS: readonly StarterDeck[] = [
   ...WAVE6_STARTER_DECKS,
   ...WAVE7_STARTER_DECKS,
   ...WAVE8_STARTER_DECKS,
+  // Maria Hill, Nick Fury, Black Panther, Silk, Falcon, Winter Soldier.
+  ...WAVE9_STARTER_DECKS,
 ];
 
-/** This build's pool version — bumps whenever `POOL_CARDS` changes shape, which retires an older save/deck against it. */
+/**
+ * This build's pool version — bumps whenever `POOL_CARDS` changes shape, which retires an older save/deck against it.
+ * It is a hash of the card data (`poolVersionOf`), not a hand-kept number: wave 9 (cycle 9: `aos`, `bp`, `silk`, `falcon`,
+ * `winter`, `tt`) moved it once, when its cards joined `PLAYABLE_CARDS`. Trickster Takeover's scripts landing later on
+ * this unreleased branch changes no card data, so it needs no second bump; un-gating its sets (`playable/unscripted.ts`)
+ * never touches the pool either.
+ */
 export const POOL_VERSION: string = poolVersionOf(POOL_CARDS);
 
 /**
@@ -283,6 +316,12 @@ export const POOL_PACKS: readonly Pack[] = [
   JUBILEE_PACK,
   NCRAWLER_PACK,
   MAGNETO_PACK,
+  AOS_PACK,
+  BP_PACK,
+  SILK_PACK,
+  FALCON_PACK,
+  WINTER_PACK,
+  TT_PACK,
 ];
 
 /** A pack's own display name ("The Wrecking Crew") by its code ("twc"), falling back to the code itself if the pool ever names one this list doesn't have. */
@@ -346,6 +385,12 @@ const POOL_PACK_CYCLES: readonly (readonly [Pack, Cycle])[] = [
   [JUBILEE_PACK, JUBILEE_CYCLE],
   [NCRAWLER_PACK, NCRAWLER_CYCLE],
   [MAGNETO_PACK, MAGNETO_CYCLE],
+  [AOS_PACK, AOS_CYCLE],
+  [BP_PACK, BP_CYCLE],
+  [SILK_PACK, SILK_CYCLE],
+  [FALCON_PACK, FALCON_CYCLE],
+  [WINTER_PACK, WINTER_CYCLE],
+  [TT_PACK, TT_CYCLE],
 ];
 
 /**

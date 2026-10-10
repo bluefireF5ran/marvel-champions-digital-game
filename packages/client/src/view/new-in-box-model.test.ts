@@ -50,9 +50,6 @@ describe("boxPages", () => {
   it("names every cycle box the way the unlock path does, and every box's unlock key is on the path", () => {
     for (const box of BOXES) {
       const wave = UNLOCK_WAVES.find((w) => w.cycleId === box.unlockKey);
-      // Agents of S.H.I.E.L.D. has its Guided mode page before its unlock row exists; the wave's client wiring adds the
-      // row (and this exception goes), because a box missing from the path reads as open.
-      if (box.unlockKey === "cycle9" && wave === undefined) continue;
       expect(wave, `${box.id} unlock key ${box.unlockKey}`).toBeDefined();
       if (box.id.startsWith("cycle")) expect(box.name).toBe(wave!.name);
     }

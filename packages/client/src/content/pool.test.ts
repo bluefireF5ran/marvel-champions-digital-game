@@ -24,6 +24,8 @@ import {
   WAVE7_STARTER_DECKS,
   WAVE8_SCENARIOS,
   WAVE8_STARTER_DECKS,
+  WAVE9_SCENARIOS,
+  WAVE9_STARTER_DECKS,
   MUT_GEN_SCENARIOS,
   MOJO_SCENARIOS,
   poolVersionOf,
@@ -50,8 +52,11 @@ describe("POOL_CARDS", () => {
   });
 });
 
+/** Trickster Takeover's two scenarios are in the card data but not scripted yet (`@mc/cards` `playable/unscripted.ts`). */
+const NOT_PLAYABLE_WAVE9_SCENARIOS = ["enchantress", "god-of-lies"];
+
 describe("POOL_SCENARIOS", () => {
-  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five, in that order", () => {
+  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five (not Trickster Takeover's two), in that order", () => {
     expect(POOL_SCENARIOS.map((s) => s.id)).toEqual(
       [
         ...CORE_SCENARIOS,
@@ -64,6 +69,7 @@ describe("POOL_SCENARIOS", () => {
         ...MOJO_SCENARIOS,
         ...WAVE7_SCENARIOS,
         ...WAVE8_SCENARIOS,
+        ...WAVE9_SCENARIOS.filter((s) => !NOT_PLAYABLE_WAVE9_SCENARIOS.includes(s.id as string)),
       ].map((s) => s.id),
     );
     expect(POOL_SCENARIOS.length).toBe(
@@ -72,13 +78,14 @@ describe("POOL_SCENARIOS", () => {
         MUT_GEN_SCENARIOS.length +
         MOJO_SCENARIOS.length +
         WAVE7_SCENARIOS.length +
-        WAVE8_SCENARIOS.length,
+        WAVE8_SCENARIOS.length +
+        5,
     );
   });
 });
 
 describe("POOL_STARTER_DECKS", () => {
-  test("is Core's six precons, wave 1's six, cycle 1's six, cycle 2's six, cycle 3's six, cycle 4's six, then cycle 6's and cycle 7's", () => {
+  test("is Core's six precons, wave 1's six, cycle 1's six, cycle 2's six, cycle 3's six, cycle 4's six, then cycle 6's, cycle 7's, cycle 8's and cycle 9's", () => {
     expect(POOL_STARTER_DECKS.map((d) => d.id)).toEqual(
       [
         ...CORE_STARTER_DECKS,
@@ -90,6 +97,7 @@ describe("POOL_STARTER_DECKS", () => {
         ...WAVE6_STARTER_DECKS,
         ...WAVE7_STARTER_DECKS,
         ...WAVE8_STARTER_DECKS,
+        ...WAVE9_STARTER_DECKS,
       ].map((d) => d.id),
     );
     expect(POOL_STARTER_DECKS.length).toBe(
@@ -98,7 +106,8 @@ describe("POOL_STARTER_DECKS", () => {
         WAVE5_STARTER_DECKS.length +
         WAVE6_STARTER_DECKS.length +
         WAVE7_STARTER_DECKS.length +
-        WAVE8_STARTER_DECKS.length,
+        WAVE8_STARTER_DECKS.length +
+        WAVE9_STARTER_DECKS.length,
     );
   });
 });
@@ -124,9 +133,9 @@ describe("packNameOf", () => {
     expect(packNameOf("nope")).toBe("nope");
   });
 
-  test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 and cycle 7 pack, with no duplicate codes", () => {
-    expect(POOL_PACKS.length).toBe(50);
-    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(50);
+  test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 to cycle 9 pack, with no duplicate codes", () => {
+    expect(POOL_PACKS.length).toBe(56);
+    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(56);
   });
 });
 

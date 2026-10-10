@@ -166,7 +166,8 @@ describe("pickerEntriesOf", () => {
       list.findIndex((e, i) => i > 0 && e.kind === "heading"),
     );
     const names = group.map((e) => (e.kind === "option" ? options[e.optionIndex]!.deck.id : ""));
-    expect(names.slice(0, 2).sort()).toEqual(["precon:cyclops-leadership", "precon:storm-leadership"]);
+    // Phoenix's partner Cyclops and Spider-Man's partner Silk (cycle 9) lead.
+    expect(names.slice(0, 2).sort()).toEqual(["precon:cyclops-leadership", "precon:silk-protection"]);
     expect(names).not.toContain("precon:phoenix-justice");
     expect(names).not.toContain("precon:core-spider-man-justice");
   });

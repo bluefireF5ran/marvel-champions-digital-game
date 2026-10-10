@@ -57,6 +57,21 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "crazy_gang",
           "hellfire",
         ],
+        "Agents of S.H.I.E.L.D.": [
+          "a.i.m._abduction",
+          "a.i.m._science",
+          "batrocs_brigade",
+          "gravitational_pull",
+          "hard_sound",
+          "pale_little_spider",
+          "power_of_the_atom",
+          "s.h.i.e.l.d.",
+          "scientist_supreme",
+          "supersonic",
+          "the_leaper",
+          "extreme_risk",
+          "growing_strong",
+        ],
         "Core Set": [
           "legions_of_hydra",
           "masters_of_evil",
@@ -177,6 +192,21 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "arcade",
           "crazy_gang",
           "hellfire",
+        ],
+        "Agents of S.H.I.E.L.D.": [
+          "a.i.m._abduction",
+          "a.i.m._science",
+          "batrocs_brigade",
+          "gravitational_pull",
+          "hard_sound",
+          "pale_little_spider",
+          "power_of_the_atom",
+          "s.h.i.e.l.d.",
+          "scientist_supreme",
+          "supersonic",
+          "the_leaper",
+          "extreme_risk",
+          "growing_strong",
         ],
         "Core Set": [
           "bomb_scare",
@@ -354,7 +384,7 @@ describe("what counts as modular", () => {
     for (const g of groups) if (seen[seen.length - 1] !== g) seen.push(g);
     expect(new Set(seen).size, "each group is one run").toBe(seen.length);
     expect(seen.slice(0, 3)).toEqual([RECOMMENDED_GROUP_ID, "core", "wave1"]);
-    expect(seen[seen.length - 1]).toBe("cycle8");
+    expect(seen[seen.length - 1]).toBe("cycle9");
   });
 });
 
