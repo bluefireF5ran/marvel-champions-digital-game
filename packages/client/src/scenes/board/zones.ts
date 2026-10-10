@@ -738,7 +738,7 @@ export function drawEncounter(
       kind: "encounterDeck",
       name: "ENC DECK",
       count: model.encounterPiles.deck,
-      art: CARD_BACKS.encounter,
+      art: model.encounterDeckTopArt ?? CARD_BACKS.encounter,
       instanceId: model.encounterDeckTopInstanceId,
       siblings: [],
     },

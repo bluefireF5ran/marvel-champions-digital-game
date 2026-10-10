@@ -50,6 +50,7 @@ import {
   type PlayerState,
   type ViewerContext,
   mainSchemeValue,
+  shownEncounterTop,
   villainStageOf,
 } from "@mc/engine";
 import { artFor, type ArtSource, type CardBack, type CardFace } from "../art/art-source.js";
@@ -589,6 +590,11 @@ export interface BoardModel {
   readonly encounterDiscardTop: ArtSource | null;
   /** The encounter deck's own top card, for Inspect — facedown at the table (D08's own subtitle: "any card, anywhere, including facedown counts"), so the sheet shows a card back rather than its face. Null with an empty deck. */
   readonly encounterDeckTopInstanceId: InstanceId | null;
+  /**
+   * The encounter deck's top card face, only while the engine shows it (`shownEncounterTop`: Falcon's hero form, Black
+   * Widow's scenario); null while it is facedown, so the tile keeps the card back.
+   */
+  readonly encounterDeckTopArt: ArtSource | null;
   /** The encounter discard's own top card, for Inspect — faceup, since a discard pile is open information. Null with an empty pile. */
   readonly encounterDiscardTopInstanceId: InstanceId | null;
   /**
@@ -638,6 +644,12 @@ const ROMAN = ["I", "II", "III", "IV", "V"] as const;
  * used to read the last element, and the encounter discard showed the first
  * card ever discarded instead of the latest.
  */
+/** The shown encounter top's face, or null while the deck's top is facedown or the deck is empty. */
+function encounterDeckTopArt(state: GameState, deps: EngineDeps): ArtSource | null {
+  const top = shownEncounterTop(state, deps);
+  return top === null ? null : artFor(cardOf(state, top), { kind: "front" });
+}
+
 function topOfDiscard(state: GameState, pile: readonly InstanceId[]): ArtSource | null {
   const top = pile[0];
   return top ? artFor(cardOf(state, top), { kind: "front" }) : null;
@@ -782,6 +794,7 @@ export function boardModel(
     myDiscardTop: topOfDiscard(state, me.discard),
     encounterDiscardTop: topOfDiscard(state, activeEncounterDeck(state).discard),
     encounterDeckTopInstanceId: activeEncounterDeck(state).deck[0] ?? null,
+    encounterDeckTopArt: encounterDeckTopArt(state, deps),
     encounterDiscardTopInstanceId: activeEncounterDeck(state).discard[0] ?? null,
     separateDecks: separateDeckPiles(state, me),
     team: state.players

@@ -580,6 +580,13 @@ function describe(
           voice: "player",
         };
       }
+      // An attack ability that moved to a new target (A.I.M. Grunt's Preparation): the other targets aren't attacked.
+      if (event.reason === "attackRetargeted") {
+        return {
+          text: `${card(event.attackerInstanceId)}'s attack moved to another target, so ${card(event.targetInstanceId)} takes no damage.`,
+          voice: "player",
+        };
+      }
       return {
         text: `${card(event.attackerInstanceId)} can't attack ${card(event.targetInstanceId)}, so it takes no damage from that attack.`,
         voice: "player",

@@ -114,4 +114,16 @@ describe("wave 9 log lines", () => {
       "You put the cards back in the same order.",
     );
   });
+
+  test("a retargeted attack has its own line, not the guard wording", () => {
+    const line = text({
+      type: "attackTargetSkipped",
+      attackerInstanceId: b,
+      targetInstanceId: a,
+      sourceInstanceId: null,
+      reason: "attackRetargeted",
+    } as GameEvent);
+    expect(line).toMatch(/attack moved to another target, so .+ takes no damage\.$/);
+    expect(line).not.toContain("can't attack");
+  });
 });
