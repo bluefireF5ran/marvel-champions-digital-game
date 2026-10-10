@@ -208,7 +208,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   },
   {
     // The gate is Age of Apocalypse's. Baron Zemo, the finale, pays no hero: the four hero packs take the four villains
-    // before him in release order (Black Panther, Silk, Falcon, Winter Soldier). Owner to confirm this pairing.
+    // before him in release order (Black Panther, Silk, Falcon, Winter Soldier). Confirmed by the owner, 2026-10-10.
     cycleId: "cycle9",
     name: "Agents of S.H.I.E.L.D.",
     gate: { kind: "campaignWin", campaignId: "aoa", hint: "Complete the Age of Apocalypse campaign" },
