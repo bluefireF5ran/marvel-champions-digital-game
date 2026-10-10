@@ -110,6 +110,8 @@ export const SCENES = {
   teamUpSplash: "TeamUpSplashOverlay",
   /** What a Team-Up gives the table, opened from its badge (`scenes/team-up-info.ts`). */
   teamUpInfo: "TeamUpInfoOverlay",
+  /** Baron Zemo's evidence: the envelopes, the faceup cards and the combination grid (`scenes/evidence.ts`), over the Board. */
+  evidence: "EvidenceOverlay",
   /** Background soundtrack controller running across screen transitions. */
   music: "MusicScene",
 } as const;

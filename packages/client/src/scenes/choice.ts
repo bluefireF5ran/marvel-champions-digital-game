@@ -14,8 +14,16 @@
 
 import { triggerCaption, triggerOrdinal } from "../view/trigger-caption.js";
 import Phaser from "phaser";
-import { cardOf, type ChoiceRef, type GameState, type InstanceId, type PendingChoice, type PlayerId } from "@mc/engine";
-import { POOL_DEPS } from "../content/pool.js";
+import {
+  cardOf,
+  evidenceRowId,
+  type ChoiceRef,
+  type GameState,
+  type InstanceId,
+  type PendingChoice,
+  type PlayerId,
+} from "@mc/engine";
+import { CARDS_BY_ID, POOL_DEPS } from "../content/pool.js";
 import { accent, guideTag, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import { cssOf, textStyle } from "../ui/theme.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
@@ -107,6 +115,9 @@ import { bindHoldTarget } from "../ui/hold-target.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { OverlayMotion } from "../ui/transitions.js";
 import { McGuideTag } from "../ui/guide-tag.js";
+import { drawBoardMemberKey, drawEvidenceGrid } from "../ui/evidence-grid.js";
+import { evidenceGridWantedHeight } from "../view/evidence-layout.js";
+import { accuseSheetOf } from "../view/evidence-model.js";
 import { drawGuideStrip, GUIDE_STRIP_HEIGHT, type GuideStripContent, type GuideStripRects } from "../ui/guide-strip.js";
 
 /** The sheet's title: one line down to a readable 16px, then two lines at up to 17px, never a shrunken single line. */
@@ -366,6 +377,12 @@ export class ChoiceOverlay extends Phaser.Scene {
     // the rest of this method draws below.
     if (choice.prompt.kind === "declareDefender") {
       this.#drawDefendChoice(choice, state.game, width, height, guideRailWidth, stripHeight, guideStrip);
+      return;
+    }
+
+    // The accusation (Baron Zemo): a grid of combinations, not a list of options (`#drawAccuseChoice`).
+    if (choice.prompt.kind === "accuse") {
+      this.#drawAccuseChoice(choice, width, height, guideRailWidth, stripHeight, guideStrip);
       return;
     }
 
@@ -1142,6 +1159,188 @@ export class ChoiceOverlay extends Phaser.Scene {
     this.#motion.enter(this, { scrim: [scrim], panels: this.children.list.slice(panelsFrom) });
   }
 
+  /**
+   * The accuse prompt (`EffectSpec accuse`, MC50 p. 19 "The Accusation"): the whole grid of 27 combinations as three
+   * 3 by 3 blocks, the rows the faceup evidence has crossed out dimmed and marked, and one open row to pick. Every
+   * cell is an option of the engine's own list (`view/evidence-model.ts#accuseSheetOf`), answered with the same
+   * `resolveChoice([optionId])` the bare list sends, so nothing here works out which rows are legal. The grid and the
+   * crossed-out evidence come from the prompt itself; no hidden pile is read.
+   */
+  #drawAccuseChoice(
+    choice: PendingChoice,
+    width: number,
+    height: number,
+    guideRailWidth: number,
+    stripHeight: number,
+    guideStrip: GuideStripContent | null,
+  ): void {
+    const lookup = (id: string): ReturnType<typeof CARDS_BY_ID.get> => CARDS_BY_ID.get(id);
+    const view = accuseSheetOf(choice, this.#selected, lookup);
+    if (!view) return;
+    const inspectCard = (cardId: string): void => {
+      this.scene.launch(SCENES.inspect, { card: { cardId, face: { kind: "front" } } });
+      this.scene.bringToTop(SCENES.inspect);
+    };
+
+    const phone = isTabbed(formFactorFor(width, height));
+    const areaX = guideRailWidth;
+    const areaWidth = width - guideRailWidth;
+    const areaHeight = height - stripHeight;
+    const scrim = this.add.graphics();
+    // Opaque over the villain-phase walkthrough (an accusation is made at the end of the player phase, so it usually
+    // is): its response text bled through a translucent scrim, as it once did behind the defend sheet.
+    const overWalkthrough = this.scene.isActive(SCENES.villainPhase);
+    scrim.fillStyle(surface.ink.hex, overWalkthrough ? 1 : 0.7).fillRect(areaX, 0, areaWidth, areaHeight);
+    // Modal: a tap on no control of this sheet's own must not reach the board underneath.
+    this.add.zone(areaX, 0, areaWidth, areaHeight).setOrigin(0, 0).setInteractive();
+    const panelsFrom = this.children.list.length;
+
+    const margin = phone ? 8 : 24;
+    const sheetWidth = Math.min(areaWidth - margin * 2, 1040);
+    const pad = 12;
+    const innerWidth = sheetWidth - pad * 2;
+    const BAR = 40;
+    const HINT = 20;
+    const LEGEND = 28;
+    const CHIPS = 28;
+    const SUMMARY = 22;
+    const COMMIT = hit.primary;
+    const fixed = BAR + pad + HINT + 6 + LEGEND + 6 + CHIPS + 4 + SUMMARY + 8 + COMMIT + pad;
+    const wantedGrid = evidenceGridWantedHeight(innerWidth);
+    const gridHeight = Math.max(innerWidth < 600 ? 394 : 126, Math.min(wantedGrid, areaHeight - margin * 2 - fixed));
+    const sheetHeight = Math.min(areaHeight - margin * 2, fixed + gridHeight);
+    const sheet: Rect = {
+      x: areaX + (areaWidth - sheetWidth) / 2,
+      y: Math.max(margin / 2, (areaHeight - sheetHeight) / 2),
+      width: sheetWidth,
+      height: sheetHeight,
+    };
+    const g = this.add.graphics();
+    paintPanel(g, sheet, "card", "rest");
+    g.fillStyle(surface.ink.hex, 1).fillRect(sheet.x, sheet.y, sheet.width, BAR);
+    const title = this.add
+      .text(sheet.x + pad, sheet.y + BAR / 2, "MAKE THE ACCUSATION", textStyle(typeRole.barTitle, surface.paper.hex))
+      .setOrigin(0, 0.5)
+      .setLetterSpacing(2);
+    const count = this.add
+      .text(
+        sheet.x + sheet.width - pad,
+        sheet.y + BAR / 2,
+        `${view.openCount} of ${view.total} open`.toUpperCase(),
+        textStyle(typeRole.label, signal.caution.hex),
+      )
+      .setOrigin(1, 0.5);
+    fitBarTitle(title, Math.max(60, count.x - count.width - 16 - title.x));
+
+    let y = sheet.y + BAR + pad / 2;
+    const hint = this.add.text(
+      sheet.x + pad,
+      y + 2,
+      "Pick a combination that no faceup evidence has crossed out.",
+      textStyle(typeRole.body, surface.ink.hex, ink.secondary),
+    );
+    fitText(hint, innerWidth, 12);
+    y += HINT + 6;
+
+    // The grid: open cells are the engine's options; a tap picks one.
+    const optionOrder: string[] = [];
+    const drawn = drawEvidenceGrid(this, { x: sheet.x + pad, y, width: innerWidth, height: gridHeight }, view.grid, {
+      selected: view.selected ? evidenceRowId(view.selected) : null,
+      onCell: (rowId) => this.#toggle(rowId, 1),
+      onInspect: inspectCard,
+    });
+    y += gridHeight + 6;
+    for (const block of view.grid.blocks)
+      for (const line of block.cells)
+        for (const cell of line) {
+          const rect = cell ? drawn.cellRects.get(cell.rowId) : undefined;
+          if (!cell || !rect || !cell.open) continue;
+          this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: cell.rowId }), rect);
+          optionOrder.push(cell.rowId);
+        }
+
+    // Board Member key: the three codes, how many rows each still holds, tap to read the card.
+    const keyRects = drawBoardMemberKey(
+      this,
+      { x: sheet.x + pad, y, width: innerWidth, height: LEGEND },
+      view.grid.members,
+      inspectCard,
+    );
+    for (const [cardId, rect] of keyRects) {
+      const key = `inspect:${cardId}`;
+      this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: key }), rect);
+      optionOrder.push(key);
+    }
+    y += LEGEND + 6;
+
+    // The four cards of the picked row, each opening Inspect.
+    const chipGap = 6;
+    const chipWidth = (innerWidth - chipGap * 3) / 4;
+    for (let index = 0; index < 4; index++) {
+      const rect: Rect = { x: sheet.x + pad + index * (chipWidth + chipGap), y, width: chipWidth, height: CHIPS };
+      const card = view.selectedCards[index];
+      if (!card) continue;
+      g.fillStyle(surface.card.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
+      g.lineStyle(2, surface.ink.hex, 1).strokeRect(rect.x, rect.y, rect.width, rect.height);
+      const word = card.kind ?? "board member";
+      const text = this.add
+        .text(
+          rect.x + 6,
+          rect.y + rect.height / 2,
+          `${word}: ${card.name}`,
+          textStyle(typeRole.emphasis, surface.ink.hex),
+        )
+        .setOrigin(0, 0.5);
+      fitText(text, rect.width - 12, 11);
+      this.add
+        .zone(rect.x, rect.y, rect.width, rect.height)
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerup", () => inspectCard(card.cardId));
+      const key = `inspect:${card.cardId}`;
+      if (!this.#focusRects.has(choiceFocusKey({ kind: "option", optionId: key }))) {
+        this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: key }), rect);
+        optionOrder.push(key);
+      }
+    }
+    y += CHIPS + 4;
+    const summary = this.add.text(
+      sheet.x + pad,
+      y + 2,
+      view.selected ? "Accuse this combination" : view.summary,
+      textStyle(typeRole.emphasis, surface.ink.hex, ink.secondary),
+    );
+    fitText(summary, innerWidth, 12);
+    y += SUMMARY + 8;
+
+    const commit: Rect = { x: sheet.x + pad, y, width: innerWidth, height: COMMIT };
+    const accusedName = view.selected ? (CARDS_BY_ID.get(view.selected.boardMember)?.name ?? "") : "";
+    this.#buttons.push(
+      new McButton(this, {
+        kind: "primary",
+        label: view.selected ? `Accuse ${accusedName}` : "Accuse",
+        type: typeRole.barTitle,
+        rect: commit,
+        enabled: view.canConfirm,
+        reason: "pick one open combination",
+        onClick: () => void this.#confirm(),
+      }),
+    );
+    this.#focusRects.set(choiceFocusKey({ kind: "confirm" }), commit);
+    this.#route = [
+      ...optionOrder.map((optionId): ChoiceFocusTarget => ({ kind: "option", optionId })),
+      { kind: "confirm" },
+    ];
+    this.#drawFocusRing();
+
+    this.cameras.main.setBackgroundColor(cssOf(accent.heroRed.hex, 0));
+    const guideStripRects = guideStrip
+      ? drawGuideStrip(this, { x: 0, y: height - stripHeight, width, height: stripHeight }, guideStrip)
+      : null;
+    this.#route = [...this.#route, ...this.#registerGuideStripFocus(guideStripRects)];
+    this.#motion.enter(this, { scrim: [scrim], panels: this.children.list.slice(panelsFrom) });
+  }
+
   /** A card's scan at its current face, with a plain ink plate until (or unless) the image arrives. */
   #drawScan(game: GameState, instanceId: InstanceId, rect: Rect): void {
     const source = artFor(cardOf(game, instanceId), faceOf(game, instanceId));
@@ -1801,6 +2000,10 @@ export class ChoiceOverlay extends Phaser.Scene {
       else this.#pairTapCharacter(focus.optionId.slice(PAIR_CHARACTER.length) as InstanceId);
       return;
     }
+    if (focus.kind === "option" && focus.optionId.startsWith(INSPECT_STOP)) {
+      this.#inspectCardId(focus.optionId.slice(INSPECT_STOP.length));
+      return;
+    }
     if (focus.kind === "option") {
       this.#toggle(focus.optionId, choice.maxSelections);
       return;
@@ -1829,7 +2032,18 @@ export class ChoiceOverlay extends Phaser.Scene {
     if (this.#canCommit(choice)) void this.#confirm();
   }
 
+  /** A card definition in Inspect, over this sheet (the accuse grid's evidence and Board Member cards). */
+  #inspectCardId(cardId: string): void {
+    this.scene.launch(SCENES.inspect, { card: { cardId, face: { kind: "front" } } });
+    this.scene.bringToTop(SCENES.inspect);
+  }
+
   #inspectOption(choice: PendingChoice, optionId: string): void {
+    if (optionId.startsWith(INSPECT_STOP)) return this.#inspectCardId(optionId.slice(INSPECT_STOP.length));
+    // An accusation row: the card worth reading is the Board Member it names.
+    const row = choice.options.find((candidate) => candidate.optionId === optionId);
+    if (choice.prompt.kind === "accuse" && row?.ref.kind === "cardDefinition")
+      return this.#inspectCardId(row.ref.cardId);
     const option = choice.options.find((candidate) => candidate.optionId === optionId);
     const instanceId = option ? refInstanceId(option.ref) : null;
     if (!instanceId) return;
@@ -1952,6 +2166,9 @@ export class ChoiceOverlay extends Phaser.Scene {
     }
   }
 }
+
+/** The accuse sheet's read-only stops (a Board Member key or a chip of the picked row): Enter or I opens that card. */
+const INSPECT_STOP = "inspect:";
 
 /** Focus keys for the pair sheet's rows: a card and a character can share an instance id space, never a key. */
 const PAIR_CARD = "pair-card:";

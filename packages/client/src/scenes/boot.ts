@@ -244,6 +244,15 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
     return { key: SCENES.board, data: {} };
   }
 
+  // `&fixture=zemo[&bare=all|none]`: a Baron Zemo game at the first player turn with the Tactical Board Member bare, for the
+  // evidence view and the accusation (`store/dev-zemo-game.ts`).
+  if (screen === "board" && params.get("fixture") === "zemo") {
+    const { startDevZemoGame } = await import("../store/dev-zemo-game.js");
+    const bare = params.get("bare");
+    await startDevZemoGame(bare === "all" || bare === "none" ? bare : "tactical");
+    return { key: SCENES.board, data: {} };
+  }
+
   // `&fixture=grounded`: Jubilee on round 2 with Grounded in play, for Flip to hero's additional cost.
   if (screen === "board" && params.get("fixture") === "grounded") {
     const { startDevGroundedGame } = await import("../store/dev-mission-game.js");

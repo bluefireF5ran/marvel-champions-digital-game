@@ -77,6 +77,7 @@ import { addTapTarget } from "./board/tap-target.js";
 import { LogPanel } from "./board/log.js";
 import { setAsideFooterHeight, setAsideLines, splitSetAside } from "../view/encounter-pile-layout.js";
 import { TEAM_UP_ART, teamUpArtFor } from "../art/team-up-art.js";
+import { evidenceInputOf } from "../view/evidence-model.js";
 import type { TeamUpSplashData } from "./team-up-splash.js";
 import type { TeamUpInfoData } from "./team-up-info.js";
 import type { TeamUpBadge, TeamUpRings } from "./board/team-up-badge.js";
@@ -336,6 +337,7 @@ export class BoardScene extends Phaser.Scene {
         this.scene.isActive(SCENES.roundDebrief) ||
         this.scene.isActive(SCENES.teamUpSplash) ||
         this.scene.isActive(SCENES.teamUpInfo) ||
+        this.scene.isActive(SCENES.evidence) ||
         // "Hold on!" owns Escape (it dismisses with nothing sent); without this the board's own Escape opened Pause
         // on top of it.
         this.scene.isActive(SCENES.holdOn),
@@ -345,6 +347,10 @@ export class BoardScene extends Phaser.Scene {
     // T opens the Team-Up panel for the first active pair: the keyboard route to the badge's click.
     this.input.keyboard?.on("keydown-T", () => {
       if (!binding.blocked() && this.#teamUps.length > 0) this.#openTeamUpInfo(this.#teamUps[0]!);
+    });
+    // E opens Baron Zemo's Evidence view, the keyboard route to the chrome's EVIDENCE button.
+    this.input.keyboard?.on("keydown-E", () => {
+      if (!binding.blocked() && this.#hasEvidence()) this.#openEvidence();
     });
     // 1 to 3 answer "Which one?" (a played event with several usable Action abilities).
     ["ONE", "TWO", "THREE"].forEach((key, index) => {
@@ -774,6 +780,18 @@ export class BoardScene extends Phaser.Scene {
     return roles;
   }
 
+  /** Whether this game gathers evidence (Baron Zemo): its piles or faceup evidence are in the state. */
+  #hasEvidence(): boolean {
+    const game = appSession().store.state.game;
+    return game !== null && evidenceInputOf(game) !== null;
+  }
+
+  /** The Evidence view (`scenes/evidence.ts`), over the table. */
+  #openEvidence(): void {
+    if (this.scene.isActive(SCENES.evidence)) return;
+    this.scene.launch(SCENES.evidence, { from: SCENES.board });
+  }
+
   /** The Team-Up panel for `pair`, over the table. */
   #openTeamUpInfo(pair: TeamUpPair): void {
     const game = appSession().store.state.game;
@@ -982,6 +1000,7 @@ export class BoardScene extends Phaser.Scene {
     drawChrome(this, zones.chrome!, model, {
       notSaving: appSession().store.state.saveError !== null,
       onMenu: () => this.#openPause(),
+      ...(this.#hasEvidence() ? { onEvidence: () => this.#openEvidence() } : {}),
       buttons: this.#frame.buttons,
       motion: this.#motion,
     });

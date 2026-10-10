@@ -96,6 +96,9 @@ export const BADGE_FOCUS: Readonly<Record<string, BadgeFocus>> = {
   "gamora-nebula": { x: 0.42, y: 0.5, zoom: 1 },
   "groot-rocket-raccoon": { x: 0.48, y: 0.5, zoom: 1 },
   "quicksilver-scarlet-witch": { x: 0.47, y: 0.5, zoom: 1 },
+  // Splash only (no closeup supplied): the badge is cut from the upper middle of the full picture, where the faces are.
+  "black-panther-shuri-black-panther-t-challa": { source: "splash", x: 0.5, y: 0.3, zoom: 1 },
+  "cindy-moon-peter-parker": { source: "splash", x: 0.5, y: 0.3, zoom: 1 },
 };
 
 /** The full picture standing in for a missing closeup is portrait, so its square looks at the faces (upper middle). */
