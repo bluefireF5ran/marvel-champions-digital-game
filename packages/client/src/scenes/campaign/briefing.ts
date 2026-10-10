@@ -73,10 +73,14 @@ import { briefingSpeakerOf } from "../../view/campaign-briefing-speaker.js";
 import {
   answersOfAttempt,
   briefingViewOf,
+  CARD_OPTION_GRID,
+  cardOptionCell,
+  cardPickOptionsOf,
   DECK_NOTE_EXEMPT,
   deckProblemsOf,
   type BriefingView,
   type HandledRow,
+  type PickCard,
 } from "../../view/campaign-briefing-model.js";
 import type { BriefingPoolGroup, BriefingPoolRow, BriefingPoolView } from "../../view/campaign-pool-model.js";
 import { isMarketPendingChoice } from "../../view/campaign-market-model.js";
@@ -102,6 +106,7 @@ import { drawModularCall } from "./briefing-modular-call.js";
 import { drawEasierStart } from "./briefing-easier-start.js";
 import { drawMissionBriefing } from "./briefing-mission.js";
 import { drawSideSchemeCall, drawSideSchemeSettled, type SideSchemeDrawContext } from "./briefing-side-scheme.js";
+import { drawPickCardArt } from "./briefing-pick-cards.js";
 import {
   sideSchemeBriefingOf,
   type SchemeCardRef,
@@ -592,6 +597,37 @@ export class CampaignBriefingScene extends Phaser.Scene {
       );
     } else if (this.#composing) {
       label(this, leftRect.x, leftBottom + 20, "Composing this issue…", typeRole.label, surface.ink.hex, ink.secondary);
+    }
+    // A picker drawn at its natural height (rows of card pictures) can run past the action bar on a short window:
+    // the left column then scrolls on its own, like the right one, and keeps its offset across Inspect and redraws.
+    if (!region && !phone && this.#pending && this.#picturedCallFor(this.#pending, record)) {
+      const leftEnd = this.children.list.length;
+      if (this.#bottomOf(contentStart, leftEnd) > contentBottom) {
+        const leftHeights = [1_000_000];
+        const leftRegion = new McScrollRegion(this, {
+          rect: {
+            x: 0,
+            y: top.height,
+            width: leftRect.x + leftRect.width + columnGap / 2,
+            height: contentBottom - top.height,
+          },
+          heights: leftHeights,
+          scroll: this.#briefingScroll,
+          clipInteractive: true,
+        });
+        this.#briefingRegion = leftRegion;
+        this.#captureIntoRegion(
+          leftRegion,
+          leftHeights,
+          contentStart,
+          stops,
+          stopsBefore,
+          top.height,
+          contentBottom,
+          this.#briefingScroll,
+          leftEnd,
+        );
+      }
     }
 
     if (!phone) {
@@ -1234,6 +1270,9 @@ export class CampaignBriefingScene extends Phaser.Scene {
 
     // Room for the options: the panel's height less a paging strip and the Confirm/Decline row beneath them.
     const reserved = (pending.options.length > 24 ? 56 : 0) + 56 + (pending.count > 1 && pending.optional ? 56 : 0);
+    // Options that are all cards carry their picture: a taller cell, the scan on its left (it opens Inspect), the
+    // option's own button beside it. Anything else stays the plain button grid.
+    const optionCards = this.#cardOptionsFor(pending);
     const grid = callGridOf({
       count: pending.options.length,
       x: rect.x,
@@ -1241,12 +1280,21 @@ export class CampaignBriefingScene extends Phaser.Scene {
       width: rect.width,
       maxHeight: Math.max(44, rect.y + rect.height - y - reserved),
       page: this.#callPage,
+      ...(optionCards ? CARD_OPTION_GRID : {}),
     });
     const optionLabels = optionLabelsOf(pending.options, (id) => CARDS_BY_ID.get(id), packNameOf);
     pending.options.slice(grid.firstIndex, grid.firstIndex + grid.rects.length).forEach((optionId, shownIndex) => {
       const index = grid.firstIndex + shownIndex;
       const optionLabel = optionLabels.get(optionId) ?? cardName(optionId);
-      const optionRect = grid.rects[shownIndex]!;
+      const cell = grid.rects[shownIndex]!;
+      const optionCard = optionCards?.get(optionId);
+      const split = optionCard ? cardOptionCell(cell, optionCard.shape) : null;
+      const optionRect = split ? split.button : cell;
+      if (optionCard && split) {
+        drawPickCardArt(this, split.art, optionCard, `call-inspect:${index}`, stops, (card) =>
+          this.#inspectCard(card.cardId as string),
+        );
+      }
       const selected = this.#picking.includes(optionId);
       const toggle = (): void => {
         if (pending.count <= 1) {
@@ -1351,6 +1399,24 @@ export class CampaignBriefingScene extends Phaser.Scene {
     return view && view.instructionId === pending.instructionId && view.offered.length > 0 ? view : null;
   }
 
+  /** The call draws card pictures at their natural height (the side-scheme picker, a pick whose options are cards). */
+  #picturedCallFor(pending: CampaignPendingChoice, record: CampaignRecord): boolean {
+    if (this.#roleBuildFor(pending, record)) return false;
+    if (this.#sideSchemeCallFor(pending, record)) return true;
+    if (this.#modularCallFor(pending, record) || pending.random) return false;
+    return this.#cardOptionsFor(pending) !== null;
+  }
+
+  /** The card each option is, when the plain option list is all cards (`cardPickOptionsOf`); null otherwise. */
+  #cardOptionsFor(pending: CampaignPendingChoice): ReadonlyMap<string, PickCard> | null {
+    if (this.#rolesFor(pending)) return null;
+    return cardPickOptionsOf(pending.options, (id) => CARDS_BY_ID.get(id));
+  }
+
+  #inspectCard(cardId: string): void {
+    this.scene.launch(SCENES.inspect, { card: { cardId: cardId as CardId, face: { kind: "front" } } });
+  }
+
   #schemeContext(rect: Rect, phone: boolean, stops: Map<string, FocusStop>): SideSchemeDrawContext {
     return {
       scene: this,
@@ -1358,8 +1424,7 @@ export class CampaignBriefingScene extends Phaser.Scene {
       phone,
       buttons: this.#buttons,
       stops,
-      inspect: (card: SchemeCardRef) =>
-        this.scene.launch(SCENES.inspect, { card: { cardId: card.cardId, face: { kind: "front" } } }),
+      inspect: (card: SchemeCardRef) => this.#inspectCard(card.cardId as string),
     };
   }
 
