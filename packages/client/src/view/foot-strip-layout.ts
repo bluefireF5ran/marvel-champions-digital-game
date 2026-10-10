@@ -44,11 +44,9 @@ function linesFor(text: string, capacity: number): number {
       lines += 1;
       used = length;
     }
-    // A single word longer than a line breaks across lines.
-    if (used > capacity) {
-      lines += Math.ceil(used / capacity) - 1;
-      used = used % capacity || capacity;
-    }
+    // A word longer than a line stays whole on a line of its own (the scene steps the font down until it fits, and
+    // never breaks it: "HANDSPRIN / G").
+    if (used > capacity) used = capacity;
   }
   return lines;
 }

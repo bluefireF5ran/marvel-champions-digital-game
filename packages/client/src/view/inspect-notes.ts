@@ -78,6 +78,12 @@ export function placementNotes(state: GameState, id: InstanceId): readonly strin
     const name = currentName(state, host.instanceId) ?? cardOf(state, host.instanceId)?.name ?? "a card";
     notes.push(`Tucked under ${name}: not in play`);
   }
+  // A hero from the collection in play as a minion (Reluctant Foe): the card is a hero, the table plays it as an enemy.
+  const treated = getInstance(state, id)?.treatedAs;
+  if (treated?.kind === "minion" && cardOf(state, id)?.type === "hero_identity") {
+    const by = currentName(state, treated.source) ?? cardOf(state, treated.source)?.name ?? "a card";
+    notes.push(`Treated as a minion by ${by}: no player controls it, and its printed text does not apply`);
+  }
   const held = heldByOf(state, id);
   if (held?.kind === "held") notes.push(`Held by ${held.hostName}: in play, engaged with no player, does not activate`);
   if (held?.kind === "captive") notes.push(`Held by ${held.hostName}: under no player's control`);

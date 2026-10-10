@@ -39,6 +39,10 @@ describe("a minion an environment holds", () => {
     expect(model.minions[0]!.instanceId).toBe(panel.instanceId);
     // Other minions are the engaged ones, never tagged.
     for (const minion of model.minions.filter((m) => m !== panel)) expect(minion.heldBy).toBeNull();
+    // A held minion is engaged with no one, so its Guard guards no one: off in words. The engaged one's Guard is live.
+    expect(panel.keywords).toContain("guard");
+    expect(panel.inactiveKeywords).toEqual(["guard"]);
+    for (const minion of model.minions.filter((m) => m !== panel)) expect(minion.inactiveKeywords).toEqual([]);
     expect(placementNotes(game, panel.instanceId)[0]).toBe(
       "Held by Thunderbolt Backup: in play, engaged with no player, does not activate",
     );

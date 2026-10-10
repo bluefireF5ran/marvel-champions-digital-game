@@ -8,6 +8,7 @@
  */
 
 import { footStripLayout, FOOT_STRIP_HEIGHT } from "../../view/foot-strip-layout.js";
+import { activeKeywordTag, inactiveKeywordNote, stripKeepsStats, tagCapacity } from "../../view/keyword-tags.js";
 import { countTween } from "../../ui/bound-tween.js";
 import type Phaser from "phaser";
 import type { InstanceId, PlayerId } from "@mc/engine";
@@ -15,7 +16,16 @@ import { drawArt, type ArtFit } from "../../art/card-art.js";
 import type { ArtSource } from "../../art/art-source.js";
 import { accent, ink, signal, status as statusTokens, surface, typeRole } from "../../tokens.js";
 import { textStyle } from "../../ui/theme.js";
-import { McHpPlate, McStatBadge, fitText, fitWrapped, label, paintPanel, type StatKey } from "../../ui/widgets.js";
+import {
+  McHpPlate,
+  McStatBadge,
+  fitText,
+  fitTight,
+  fitWrapped,
+  label,
+  paintPanel,
+  type StatKey,
+} from "../../ui/widgets.js";
 import {
   attachmentChipDamage,
   attachmentChipText,
@@ -57,6 +67,11 @@ export interface DrawCharacterOptions {
   readonly shape?: PanelShape | "auto";
   /** The seat this panel is the identity of: its Team-Up rings (`BoardDrawContext.teamUpRings`) sit in the free gap of its text column. */
   readonly playerId?: PlayerId;
+  /**
+   * Called with the keyword tag a card-shaped panel had no room to draw as a strip under its art (the stat badges come
+   * first), so the caller can carry it somewhere else, as the minion row does on its chip above the tile.
+   */
+  readonly onTagDropped?: (tag: string) => void;
 }
 
 /** "1 time counter" / "2 time counters, 1 snoop counter" — every counter kind on the card itself, in one short line. */
@@ -102,7 +117,7 @@ export function drawCharacter(
   // rather than as art. The identity asks for the wide panel outright, since
   // a tall window can hand it a slot that *looks* card-shaped.
   if (panelShape(rect, options.shape) === "card") {
-    drawCardShapedPanel(ctx, rect, panel, dim, firstDrawn);
+    drawCardShapedPanel(ctx, rect, panel, dim, firstDrawn, options.onTagDropped);
     return;
   }
 
@@ -170,11 +185,21 @@ export function drawCharacter(
     top += height + 3;
   }
   // A keyword the card does not print but has right now (Hurricane's "retaliate 1"): on the board, not only in Inspect.
-  if (panel.grantedKeywords.length > 0) {
-    const gained = panel.grantedKeywords.join(" \u00b7 ");
-    const height = Math.max(16, footStripLayout(gained, textWidth).height);
-    drawFootStrip(scene, { x: left, y: top, width: textWidth, height }, gained, "note", dim);
-    top += height + 3;
+  const keywordNote = activeKeywordTag(panel.grantedKeywords, panel.inactiveKeywords, tagCapacity(textWidth));
+  const offNote = inactiveKeywordNote(panel.inactiveKeywords);
+  for (const [text, dimmed] of [
+    [keywordNote, false],
+    [offNote, true],
+  ] as const) {
+    if (!text) continue;
+    drawFootStrip(
+      scene,
+      { x: left, y: top, width: textWidth, height: FOOT_STRIP_HEIGHT },
+      text,
+      "note",
+      dimmed ? dim * ink.meta : dim,
+    );
+    top += FOOT_STRIP_HEIGHT + 3;
   }
 
   // Cards tucked under this one (Silk's identity): small cards under an "UNDER n" strip, each opened by a tap; where the
@@ -479,6 +504,7 @@ function drawCardShapedPanel(
   panel: CharacterPanel,
   dim: number,
   firstDrawn: number,
+  onTagDropped?: (tag: string) => void,
 ): void {
   const { scene, controller } = ctx;
   // `firstDrawn` is the caller's index, taken *before* the panel frame, so an
@@ -517,6 +543,8 @@ function drawCardShapedPanel(
     readonly instanceId?: InstanceId;
     /** Taller than the usual strip: a wrapped ability name. */
     readonly height?: number;
+    /** Never wrapped: the strip stays one row high (the keyword tag, `keyword-tags.ts`). */
+    readonly oneRow?: boolean;
     /** A strip about cards tucked here: a tap opens the first in Inspect and steps through these. */
     readonly inspectIds?: readonly InstanceId[];
   }[] = [];
@@ -529,9 +557,8 @@ function drawCardShapedPanel(
       inspectIds: panel.tucked.map((card) => card.instanceId),
     });
   }
-  if (panel.grantedKeywords.length > 0 && rect.height >= 40) {
-    strips.push({ text: panel.grantedKeywords.join(" \u00b7 "), tone: "note" });
-  }
+  // The keyword tag comes after the attachments (below), where it can be left off when the strips would squeeze the stat
+  // badges. A keyword that is off (a held minion's Guard) is not a strip: the tile's chip says so (`drawEngagedChip`).
   // Counters the card itself holds — Quinjet's time counters (`03019`), the
   // reason it has a support-shaped slot in the play area at all: "put an
   // Avenger ally into play with cost <= the number of time counters on
@@ -556,6 +583,18 @@ function drawCardShapedPanel(
     }
   }
   const stripHeight = Math.min(20, Math.max(14, Math.round(inner.height * 0.1)));
+  // The active keyword tag is the least of the strips: it takes its row only while the stat badges keep a readable size.
+  const keywordNote =
+    rect.height >= 40
+      ? activeKeywordTag(panel.grantedKeywords, panel.inactiveKeywords, tagCapacity(inner.width))
+      : null;
+  if (keywordNote) {
+    const reservedSoFar = strips.reduce((total, strip) => total + Math.max(stripHeight, strip.height ?? 0), 0);
+    const statCount = panel.stats.filter((tile) => tile.label !== "HP").length;
+    if (stripKeepsStats(inner.height, inner.width, reservedSoFar, FOOT_STRIP_HEIGHT, statCount, panel.hp !== null))
+      strips.push({ text: keywordNote, tone: "note", height: FOOT_STRIP_HEIGHT, oneRow: true });
+    else onTagDropped?.(keywordNote);
+  }
   if (abilityLine) strips.push({ text: abilityLine, tone: "ability" });
   // A name that does not fit one row wraps and its strip grows (never "ADAMANTIU…" for Adamantium Claws), the damage
   // tag at the right keeping its own room first.
@@ -564,7 +603,9 @@ function drawCardShapedPanel(
     height: Math.max(
       stripHeight,
       strip.height ?? 0,
-      footStripLayout(strip.text, inner.width, strip.tag ? strip.tag.length * 7 + 8 : 0).height,
+      strip.oneRow
+        ? FOOT_STRIP_HEIGHT
+        : footStripLayout(strip.text, inner.width, strip.tag ? strip.tag.length * 7 + 8 : 0).height,
     ),
   }));
   strips.length = 0;
@@ -1052,7 +1093,12 @@ export function drawFootStrip(
     caption.setOrigin(0, 0).setY(rect.y + Math.max(2, (rect.height - caption.height) / 2));
     return;
   }
-  fitText(caption, rect.width - 12 - tagWidth, typeRole.label.size);
+  // A word as wide as the tile ("HANDSPRING" in an 80px minion tile) takes the two pixels between the bar and the text.
+  fitTight(caption, rect.width - 12 - tagWidth, typeRole.label.size);
+  if (caption.text.endsWith("\u2026")) {
+    caption.setText(text.toUpperCase()).setX(rect.x + 6);
+    fitTight(caption, rect.width - 8 - tagWidth, typeRole.label.size);
+  }
 }
 
 /**

@@ -972,6 +972,19 @@ export function fitText(
 }
 
 /**
+ * `fitText`, but a word that is still too wide at the caption floor loses its letter spacing before it loses letters:
+ * "HANDSP…" for Handspring in an 80px minion tile reads as a broken name, and the tracking is what costs the width.
+ */
+export function fitTight(text: Phaser.GameObjects.Text, maxWidth: number, startSize: number): void {
+  const whole = text.text;
+  fitText(text, maxWidth, startSize);
+  if (text.text === whole || text.letterSpacing === 0) return;
+  text.setText(whole);
+  text.setLetterSpacing(0);
+  fitText(text, maxWidth, startSize);
+}
+
+/**
  * A short label that wraps rather than ends in an ellipsis: at most `maxLines` lines, stepping the font down from
  * `startSize` to the caption floor until every word fits its line whole (a word is never broken while a smaller size
  * would hold it) and the lines are no more than `maxLines`. Only past the floor does it cut (`clampLines`): longer

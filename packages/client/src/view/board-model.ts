@@ -213,6 +213,11 @@ export interface CharacterPanel {
    * under no player's control (M.O.D.O.K.'s hostage). The tile says so and names the host. Null for every other card.
    */
   readonly heldBy: HeldByView | null;
+  /**
+   * Keywords this card has that do nothing right now, lowercase ("guard" on a held minion: it is engaged with no one,
+   * so it guards no one). The tile says them as "guard off", dimmed; empty for every other card.
+   */
+  readonly inactiveKeywords: readonly string[];
 }
 
 /** What holds a character that sits on another card instead of in a play area. */
@@ -977,7 +982,16 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
     tucked: tuckedCardsUnder(state, id),
     tuckedCount: instance.tucked.length,
     heldBy: heldByOf(state, id),
+    inactiveKeywords: inactiveKeywordsOf(state, id, deps),
   };
+}
+
+/** What a held minion's keywords do while it is held: Guard needs an engagement to protect, and it has none. */
+function inactiveKeywordsOf(state: GameState, id: InstanceId, deps: EngineDeps): readonly string[] {
+  if (heldByOf(state, id)?.kind !== "held") return [];
+  return keywordsOf(state, id, deps)
+    .filter((keyword) => keyword.name === "guard")
+    .map(keywordLabel);
 }
 
 /**
@@ -1173,6 +1187,8 @@ function subtitleOf(state: GameState, instance: CardInstance, card: AnyCard | un
     }
     case "hero_identity": {
       const player = state.players.find((seat) => seat.identity.instanceId === instance.instanceId);
+      // A hero from the collection in play as a minion (Reluctant Foe) is no seat's identity: its hero side, treated as a minion.
+      if (!player && instance.treatedAs?.kind === "minion") return "Minion (treated as)";
       const form = player?.identity.form ?? "hero";
       const aspects = player ? deckAspects(state, player.playerId) : [];
       const label = aspects.map(aspectLabel).join(" + ");

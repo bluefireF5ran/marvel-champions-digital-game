@@ -112,6 +112,15 @@ import { bindGamepad, bindKeyboard } from "./board/input.js";
 import type { BoardScene } from "./board.js";
 import { SCENES } from "./keys.js";
 import { bindHoldTarget } from "../ui/hold-target.js";
+import {
+  COLLECTION_CAPTION,
+  collectionGrid,
+  collectionPage,
+  collectionPages,
+  collectionRows,
+  collectionSlots,
+  type CollectionRow,
+} from "../view/collection-search.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { OverlayMotion } from "../ui/transitions.js";
 import { McGuideTag } from "../ui/guide-tag.js";
@@ -134,6 +143,8 @@ function fitBarTitle(title: Phaser.GameObjects.Text, maxWidth: number): void {
 
 export class ChoiceOverlay extends Phaser.Scene {
   #selected: string[] = [];
+  /** The collection search's page (`view/collection-search.ts`), kept for the choice it belongs to across redraws. */
+  #collectionPage = { choiceId: "", page: 0 };
   /** The target tiles' bars for the sheet being drawn (`view/choice-tile-bars.ts`), rebuilt with every draw. */
   #tileBars: ReadonlyMap<string, TileBar> = new Map();
   /** Break Time: the table chose "Enter minutes instead", so the stepper stands in for the timer on this choice. */
@@ -394,7 +405,9 @@ export class ChoiceOverlay extends Phaser.Scene {
     // used to fall through to the bare-list branch below purely because
     // `ref.kind` was "ability", not "card": the option named a card just as
     // concretely, the check just didn't recognize it. See `refInstanceId`.
-    const asCards = choice.options.length > 0 && choice.options.every((option) => refInstanceId(option.ref) !== null);
+    const asCards =
+      (choice.options.length > 0 && choice.options.every((option) => refInstanceId(option.ref) !== null)) ||
+      collectionRows(choice, (cardId) => CARDS_BY_ID.get(cardId)) !== null;
 
     // The card (and, where it can be pinned down, the ability and cost) this choice is actually about, ready to
     // *show* rather than only name — the reported gap this panel exists to close (`view/choice-source-panel.ts`'s
@@ -1432,6 +1445,8 @@ export class ChoiceOverlay extends Phaser.Scene {
    * one fully visible, so the card you just chose is always the readable one.
    */
   #drawCardChoice(area: Rect, choice: PendingChoice): void {
+    const collection = collectionRows(choice, (cardId) => CARDS_BY_ID.get(cardId));
+    if (collection) return this.#drawCollectionGrid(area, choice, collection);
     const barState = appSession().store.state.game;
     this.#tileBars = barState ? choiceTileBarsOf(barState, choice, this.#selected, POOL_DEPS) : new Map();
     const byId = new Map(choice.options.map((option) => [option.optionId, option] as const));
@@ -1763,6 +1778,147 @@ export class ChoiceOverlay extends Phaser.Scene {
    * One option drawn as the card it names. A selected card wears the red ring
    * and, when the order matters, the number it will resolve in.
    */
+  /**
+   * The collection search (`view/collection-search.ts`): pages of the hero side's scan with its name under it. A tap
+   * picks (one at most), a press-and-hold or right-click reads it in Inspect, and the page buttons are focus stops
+   * like any option, so the pad and keyboard can turn them.
+   */
+  #drawCollectionGrid(area: Rect, choice: PendingChoice, rows: readonly CollectionRow[]): void {
+    const captionHeight = 20;
+    const gap = 6;
+    const gridArea: Rect = { ...area, y: area.y + captionHeight + 4, height: area.height - captionHeight - 4 };
+    const grid = collectionGrid(gridArea, gap);
+    if (this.#collectionPage.choiceId !== String(choice.choiceId))
+      this.#collectionPage = { choiceId: String(choice.choiceId), page: 0 };
+    const pages = collectionPages(rows.length, grid.perPage);
+    // The page is kept across redraws, so a tap never moves the card away from under the finger.
+    const { rows: shown, page } = collectionPage(rows, this.#collectionPage.page, grid.perPage);
+    this.#collectionPage = { choiceId: String(choice.choiceId), page };
+
+    label(
+      this,
+      area.x,
+      area.y + 4,
+      this.#selected.length > 0
+        ? "selected 1 · tap again to put it back"
+        : "tap to select · long press/right click to read it",
+      typeRole.label,
+      surface.ink.hex,
+      ink.label,
+    );
+    const turn = (delta: -1 | 1): void => {
+      this.#collectionPage = { ...this.#collectionPage, page: page + delta };
+      this.#focus = null;
+      this.#rebuild();
+    };
+    const buttonWidth = 36;
+    const prevRect: Rect = {
+      x: area.x + area.width - buttonWidth * 2 - 94,
+      y: area.y - 2,
+      width: buttonWidth,
+      height: captionHeight + 4,
+    };
+    const nextRect: Rect = { ...prevRect, x: area.x + area.width - buttonWidth };
+    // Between the two buttons, so it reads as their label: "page 2 of 3".
+    label(
+      this,
+      (prevRect.x + buttonWidth + nextRect.x) / 2,
+      area.y + 4,
+      `page ${page + 1} of ${pages}`,
+      typeRole.label,
+      surface.ink.hex,
+      ink.label,
+    ).setOrigin(0.5, 0);
+    for (const [rect, text, delta, enabled] of [
+      [prevRect, "\u25C2", -1, page > 0],
+      [nextRect, "\u25B8", 1, page < pages - 1],
+    ] as const) {
+      this.#buttons.push(
+        new McButton(this, {
+          kind: "secondary",
+          label: text,
+          type: typeRole.rowTitle,
+          rect,
+          enabled,
+          reason: delta < 0 ? "this is the first page" : "this is the last page",
+          onClick: () => turn(delta),
+        }),
+      );
+    }
+
+    const slots = collectionSlots(gridArea, grid, shown.length, gap);
+    shown.forEach((row, index) => this.#drawCollectionTile(slots[index]!, row));
+
+    // Only this page's tiles and the page buttons are stops: the rest are not on screen.
+    const stops = [
+      ...shown.map((row) => row.optionId),
+      ...(page > 0 ? [`${PAGE_STOP}-1`] : []),
+      ...(page < pages - 1 ? [`${PAGE_STOP}1`] : []),
+    ];
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: `${PAGE_STOP}-1` }), prevRect);
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: `${PAGE_STOP}1` }), nextRect);
+    this.#route = choiceFocusOrder(stops, canDeclineChoice(choice));
+  }
+
+  /** One collection tile: the scan whole, its name under it, a ring and "selected" in words when it is the pick. */
+  #drawCollectionTile(slot: Rect, row: CollectionRow): void {
+    const picked = this.#selected.includes(row.optionId);
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: row.optionId }), slot);
+    const g = this.add.graphics();
+    paintPanel(g, slot, "card", picked ? "selected" : "rest");
+    const scan: Rect = {
+      x: slot.x + 3,
+      y: slot.y + 3,
+      width: slot.width - 6,
+      height: slot.height - COLLECTION_CAPTION - 4,
+    };
+    const card = CARDS_BY_ID.get(row.cardId);
+    const key = cardArt(this).request(this, artFor(card, row.face));
+    if (!drawArt(this, key, scan, { fit: "contain" })) {
+      this.add
+        .text(
+          scan.x + scan.width / 2,
+          scan.y + scan.height / 2,
+          row.name,
+          textStyle(typeRole.rowTitle, surface.ink.hex),
+        )
+        .setOrigin(0.5)
+        .setWordWrapWidth(scan.width - 8)
+        .setMaxLines(3);
+    }
+    const caption = label(
+      this,
+      slot.x + slot.width / 2,
+      slot.y + slot.height - COLLECTION_CAPTION / 2 - 1,
+      picked ? `\u2713 ${row.name}` : row.name,
+      typeRole.label,
+      surface.ink.hex,
+      1,
+    )
+      .setOrigin(0.5)
+      .setAlign("center")
+      .setLetterSpacing(0);
+    // Two lines, tracking off: "Black Panther (Shuri)" is the name that tells two heroes apart.
+    fitWrapped(caption, slot.width - 6, 2, typeRole.label.size);
+    const zone = this.add
+      .zone(slot.x, slot.y, slot.width, slot.height)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+    bindHoldTarget(this, zone, {
+      key: row.optionId,
+      onTap: () => this.#toggle(row.optionId, this.#maxSelections),
+      onInspect: () => this.#inspectCollection(row, picked),
+    });
+  }
+
+  #inspectCollection(row: CollectionRow, picked: boolean): void {
+    this.scene.launch(SCENES.inspect, {
+      card: { cardId: row.cardId, face: row.face },
+      choice: { optionId: row.optionId, label: picked ? "Deselect" : "Select" },
+    });
+    this.scene.bringToTop(SCENES.inspect);
+  }
+
   #drawCardOption(slot: Rect, option: PendingChoice["options"][number], ordered: boolean): void {
     const { store } = appSession();
     const state = store.state.game;
@@ -2000,6 +2156,15 @@ export class ChoiceOverlay extends Phaser.Scene {
       else this.#pairTapCharacter(focus.optionId.slice(PAIR_CHARACTER.length) as InstanceId);
       return;
     }
+    if (focus.kind === "option" && focus.optionId.startsWith(PAGE_STOP)) {
+      this.#collectionPage = {
+        ...this.#collectionPage,
+        page: this.#collectionPage.page + Number(focus.optionId.slice(PAGE_STOP.length)),
+      };
+      this.#focus = null;
+      this.#rebuild();
+      return;
+    }
     if (focus.kind === "option" && focus.optionId.startsWith(INSPECT_STOP)) {
       this.#inspectCardId(focus.optionId.slice(INSPECT_STOP.length));
       return;
@@ -2045,6 +2210,8 @@ export class ChoiceOverlay extends Phaser.Scene {
     if (choice.prompt.kind === "accuse" && row?.ref.kind === "cardDefinition")
       return this.#inspectCardId(row.ref.cardId);
     const option = choice.options.find((candidate) => candidate.optionId === optionId);
+    const collected = collectionRows(choice, (cardId) => CARDS_BY_ID.get(cardId))?.find((r) => r.optionId === optionId);
+    if (collected) return this.#inspectCollection(collected, this.#selected.includes(optionId));
     const instanceId = option ? refInstanceId(option.ref) : null;
     if (!instanceId) return;
     if (isAcknowledgeOnly(choice)) {
@@ -2169,6 +2336,8 @@ export class ChoiceOverlay extends Phaser.Scene {
 
 /** The accuse sheet's read-only stops (a Board Member key or a chip of the picked row): Enter or I opens that card. */
 const INSPECT_STOP = "inspect:";
+/** A collection search page button's focus stop: `page:-1` and `page:1`. */
+const PAGE_STOP = "page:";
 
 /** Focus keys for the pair sheet's rows: a card and a character can share an instance id space, never a key. */
 const PAIR_CARD = "pair-card:";
