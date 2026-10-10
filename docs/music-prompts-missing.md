@@ -298,25 +298,23 @@ A track for a scenario or campaign that is not playable yet (all of wave 9 today
 `music/scenarios/_pending/<scenarioId>/` or `music/campaigns/_pending/<campaignId>/`; one for a playable scenario goes
 straight into `music/scenarios/<scenarioId>/` or `music/campaigns/<campaignId>/` with its `TRACK_TITLES` entry.
 
-| Scenario or campaign     | Folder                                   |
-| ------------------------ | ---------------------------------------- |
-| Black Widow              | `scenarios/black-widow/`                 |
-| Batroc                   | `scenarios/batroc/`                      |
-| M.O.D.O.K.               | `scenarios/modok/`                       |
-| Thunderbolts             | `scenarios/thunderbolts/`                |
-| Baron Zemo               | `scenarios/baron-zemo/`                  |
-| Agents of S.H.I.E.L.D.   | `campaigns/aos/` (`interlude`, `finale`) |
-| Enchantress              | `scenarios/enchantress/`                 |
-| God of Lies              | `scenarios/god-of-lies/`                 |
-| Klaw                     | `scenarios/klaw/`                        |
-| Risky Business           | `scenarios/risky-business/`              |
-| Mutagen Formula          | `scenarios/mutagen-formula/`             |
-| The Wrecking Crew        | `scenarios/breakout/`                    |
-| Kang                     | `scenarios/kang/`                        |
-| Absorbing Man            | `scenarios/absorbing-man/`               |
-| Taskmaster               | `scenarios/taskmaster/`                  |
-| Zola                     | `scenarios/zola/`                        |
-| Red Skull                | `scenarios/red-skull/`                   |
-| The Rise of Red Skull    | `campaigns/trors/` (`interlude`)         |
-| The Galaxy's Most Wanted | `campaigns/gmw/` (`interlude`)           |
-| The Mad Titan's Shadow   | `campaigns/mts/` (`interlude`)           |
+- Black Widow: `scenarios/black-widow/`
+- Batroc: `scenarios/batroc/`
+- M.O.D.O.K.: `scenarios/modok/`
+- Thunderbolts: `scenarios/thunderbolts/`
+- Baron Zemo: `scenarios/baron-zemo/`
+- Agents of S.H.I.E.L.D.: `campaigns/aos/` (`interlude`, `finale`)
+- Enchantress: `scenarios/enchantress/`
+- God of Lies: `scenarios/god-of-lies/`
+- Klaw: `scenarios/klaw/`
+- Risky Business: `scenarios/risky-business/`
+- Mutagen Formula: `scenarios/mutagen-formula/`
+- The Wrecking Crew: `scenarios/breakout/`
+- Kang: `scenarios/kang/`
+- Absorbing Man: `scenarios/absorbing-man/`
+- Taskmaster: `scenarios/taskmaster/`
+- Zola: `scenarios/zola/`
+- Red Skull: `scenarios/red-skull/`
+- The Rise of Red Skull: `campaigns/trors/` (`interlude`)
+- The Galaxy's Most Wanted: `campaigns/gmw/` (`interlude`)
+- The Mad Titan's Shadow: `campaigns/mts/` (`interlude`)
