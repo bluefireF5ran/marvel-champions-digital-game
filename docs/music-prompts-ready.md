@@ -148,20 +148,6 @@ Title: "Nothing Left to Absorb"
 
 Folder: `music/scenarios/taskmaster/`
 
-### Lesson Learned (villain wins, `villain-wins.mp3`)
-
-```text
-Generate an instrumental music track. No vocals, no sung or spoken words. Style: orchestral-hybrid film score (full orchestra plus synths and heavy percussion), in the mood of 1990s animated superhero shows and modern comic-book films. Original music only; do not imitate any existing theme. I will give you the exact title for this track at the end of this request. Use that title, word for word, as the track's name and as the file name. Do not invent, change or add to the title.
-
-Villain wins: about 75 seconds, slow and heavy, the same theme turned dark, ends unresolved.
-
-Use the same main melody and instruments as the battle track I just generated.
-
-A skull-masked mercenary and trainer who copies every hero's fighting style after seeing it once, with captured allies held hostage. Sharp, cool and professional: precise martial snare and woodblock patterns, staccato strings, a theme that imitates heroic fanfares and then twists them, sword-ring and shield-clang percussion. About 134 BPM, A minor, exact and controlled.
-
-Title: "Lesson Learned"
-```
-
 ### Class Dismissed (heroes win, `villain-loses.mp3`)
 
 ```text
@@ -628,10 +614,10 @@ Title: "Friendly Neighborhood Heroes"
 
 # Already in the game
 
-These 40 tracks are done: generated, renamed to the title shown and slotted. Their prompts are kept here for reference.
+These 41 tracks are done: generated, renamed to the title shown and slotted. Their prompts are kept here for reference.
 
 <details>
-<summary>Show the 40 prompts already used</summary>
+<summary>Show the 41 prompts already used</summary>
 
 ## Black Widow
 
@@ -1203,6 +1189,20 @@ Battle: about 3 minutes, steady high energy from the first bar, no quiet intro, 
 A skull-masked mercenary and trainer who copies every hero's fighting style after seeing it once, with captured allies held hostage. Sharp, cool and professional: precise martial snare and woodblock patterns, staccato strings, a theme that imitates heroic fanfares and then twists them, sword-ring and shield-clang percussion. About 134 BPM, A minor, exact and controlled.
 
 Title: "Photographic Reflexes"
+```
+
+### Lesson Learned (villain wins, `villain-wins.mp3`)
+
+```text
+Generate an instrumental music track. No vocals, no sung or spoken words. Style: orchestral-hybrid film score (full orchestra plus synths and heavy percussion), in the mood of 1990s animated superhero shows and modern comic-book films. Original music only; do not imitate any existing theme. I will give you the exact title for this track at the end of this request. Use that title, word for word, as the track's name and as the file name. Do not invent, change or add to the title.
+
+Villain wins: about 75 seconds, slow and heavy, the same theme turned dark, ends unresolved.
+
+Use the same main melody and instruments as the battle track I just generated.
+
+A skull-masked mercenary and trainer who copies every hero's fighting style after seeing it once, with captured allies held hostage. Sharp, cool and professional: precise martial snare and woodblock patterns, staccato strings, a theme that imitates heroic fanfares and then twists them, sword-ring and shield-clang percussion. About 134 BPM, A minor, exact and controlled.
+
+Title: "Lesson Learned"
 ```
 
 </details>
