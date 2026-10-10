@@ -340,6 +340,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/risky-business/villain-loses.mp3": "Stock in Freefall",
   "scenarios/risky-business/villain-wins.mp3": "Osborn Always Wins",
   "scenarios/mutagen-formula/battle.mp3": "Pumpkin Bombs Over Manhattan",
+  "scenarios/mutagen-formula/villain-loses.mp3": "The Glider Goes Down",
   "scenarios/mutagen-formula/villain-wins.mp3": "A City of Goblins",
   "scenarios/ultron/battle.mp3": "Endless Drones",
   "scenarios/ultron/villain-loses.mp3": "Signal Lost",
