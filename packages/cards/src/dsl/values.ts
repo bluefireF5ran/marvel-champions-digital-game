@@ -714,6 +714,11 @@ export const resourceTypesOf = (cardsRef: TargetRef): ValueSpec => ({ kind: "res
  * Awareness, Regeneration Cycle, `mts`; docs/phase7-wave4.md §3.12).
  */
 export const distinctAspectsOf = (cardsRef: TargetRef): ValueSpec => ({ kind: "distinctAspects", cards: cardsRef });
+/**
+ * "For each different Trait on friendly characters in play" (Strength in Diversity 53019; docs/phase7-wave9.md §3.48):
+ * the number of different traits among the cards named, each read as it is now (gained traits included).
+ */
+export const distinctTraitsOf = (cardsRef: TargetRef): ValueSpec => ({ kind: "distinctTraits", of: cardsRef });
 /** "That damage" / "it" in an interrupt: the triggering event's amount. */
 export const eventAmount: ValueSpec = { kind: "eventAmount" };
 export const eventResult = (key: string): ValueSpec => ({ kind: "eventResult", key });

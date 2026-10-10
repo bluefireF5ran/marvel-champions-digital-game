@@ -1950,6 +1950,18 @@ export const tuckCards = (from: CardSelector, under: TargetRef, facedown = false
  */
 export const replaceTuckHost = (to: TargetRef): EffectSpec => ({ kind: "replaceTuckHost", to });
 /**
+ * "… attach it to Fixer instead. Text on that card that refers to 'the villain' refers to Fixer instead." (Fixer,
+ * `falcon` 53038; docs/phase7-wave9.md §3.49): in a forced interrupt to `on.cardWouldBeAttached(...)`, the pending
+ * attach is replaced (RRG 1.8 "Replacement Effect", p. 37) and its card is attached to the first card `to` names
+ * instead, at once: a revealed attachment enters play there. `villainAlias`: while the card stays attached to `to`,
+ * `theVillain` in that card's own abilities is `to`. `validateDefinition` rejects it anywhere else.
+ */
+export const replaceAttachHost = (to: TargetRef, opts: { readonly villainAlias?: boolean } = {}): EffectSpec => ({
+  kind: "replaceAttachHost",
+  to,
+  ...(opts.villainAlias ? { villainAlias: true as const } : {}),
+});
+/**
  * "Forced Interrupt: When an ally leaves play, tuck it under here …" (docs/phase7-wave9.md §3.20): in an interrupt to
  * `on.leavesPlay(...)`, the leaving card ends under the first card `tuckedUnder` names instead of where it was going,
  * whatever made it leave (a defeat, a discard, a return to hand or deck). It still left play, and a defeated card was

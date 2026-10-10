@@ -236,6 +236,14 @@ export interface CardInstance {
    */
   readonly heldMinion?: true;
   /**
+   * "Text on that card that refers to 'the villain' refers to [this card] instead" (`EffectSpec replaceAttachHost`
+   * with `villainAlias`; docs/phase7-wave9.md §3.49): the host this attachment was sent to in the villain's place.
+   * While it stays attached there, "the villain" in this card's own text is that host (`TargetRef villain`, and the
+   * `villain` host of its "attach to" text). Removed by every move off that host (`relocateCard`), so it is only ever
+   * present beside an `attachedTo` of the same card; absent on every other instance.
+   */
+  readonly villainAlias?: InstanceId;
+  /**
    * A double-sided encounter card showing its other face (`EncounterCardCommon.flipSide`; RRG 1.8 "Flip", p. 20).
    * A villain's face is `VillainState.side` instead. Always false out of play.
    */

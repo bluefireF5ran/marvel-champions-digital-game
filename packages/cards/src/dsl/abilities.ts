@@ -31,6 +31,7 @@ import type {
   TuckedDiscardCause,
   TuckHostKind,
   ValueSpec,
+  InPlayCombined,
   InPlayCostPick,
   PaidTypesRead,
   PlayerRef,
@@ -727,6 +728,19 @@ export const gainsTraitsOf = (
   traitGrants: [{ traitsOf, target, ...(opts.while ? { while: opts.while } : {}) }],
 });
 export const rule = (r: RuleSpec): ConstantPart => ({ rules: [r] });
+/**
+ * "Any player can attack this card as if it were a minion." (Encased in Ice, `winter` 54035; docs/phase7-wave9.md
+ * §3.50) → `constant(attackableAsMinion())`. The card (default: this card) can be the target of a basic attack and is
+ * a candidate wherever an attack chooses "an enemy" or "a minion" (`chooseTarget` followed by an `attack`, or by an
+ * "(attack)" ability's damage). It is no enemy for anything else, holds the damage it is dealt, has no hit points and
+ * is never defeated: what its damage does is its own text (a `stateCheck`). A `cannotAttack` rule reads its target as
+ * an attack's target, so "attached character cannot attack enemies other than this card" is `rule({ kind:
+ * "cannotAttack", attacker: { hostOfSelf: true }, target: query("enemy", { self: false }) })`.
+ */
+export const attackableAsMinion = (
+  card: TargetQuery = { self: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "attackableAsMinion", card, ...(opts.while ? { while: opts.while } : {}) });
 /**
  * "Attached villain … is considered to have at least 1 hit point" (Golden Horse, `aoa` 45090; Metal Wings 45091;
  * docs/phase7-wave8.md §3.10) → `constant(consideredToHaveHitPoints(query("villain", { hostOfSelf: true })))`. Every
@@ -2235,10 +2249,18 @@ export interface InPlayCostOptions {
    * is why it meets the minimum of one). Not with `each`.
    */
   readonly includingThis?: true;
+  /**
+   * "Exhaust any number of characters you control **with a combined THW greater than attached enemy's SCH** →"
+   * (Tech-Pac, `falcon` 53040; docs/phase7-wave9.md §3.49): the picks' total `stat`, as each stands in play, must be
+   * greater than `moreThan` (`InPlayCostPick.combined`), or the cost is not payable. `exhaustCardsCost(query(
+   * ["identity", "ally"]), { max: "any", combined: { stat: "thw", moreThan: statOf(host, "sch") } })`. Not with `each`.
+   */
+  readonly combined?: { readonly stat: InPlayCombined["stat"]; readonly moreThan: Amount };
 }
 
 const inPlayPick = (q: TargetQuery, opts: InPlayCostOptions, defaultSlot: string): InPlayCostPick => {
   if (opts.each) {
+    if (opts.combined) throw new Error("an `each` cost takes every matching card: `combined` is a threshold on a pick");
     if (opts.max !== undefined) throw new Error("an `each` cost takes every matching card: it has no max");
     if (opts.includingThis) throw new Error("an `each` cost takes every matching card: `includingThis` is a pick");
     return {
@@ -2259,6 +2281,7 @@ const inPlayPick = (q: TargetQuery, opts: InPlayCostOptions, defaultSlot: string
     query: q,
     min,
     ...(max !== "any" ? { max } : {}),
+    ...(opts.combined ? { combined: { stat: opts.combined.stat, moreThan: amount(opts.combined.moreThan) } } : {}),
     ...(opts.includingThis ? { includesSelf: true as const } : {}),
     ...(opts.bind ? { bind: opts.bind } : {}),
     ...(opts.hosts ? { bindHosts: opts.hosts } : {}),
@@ -2931,6 +2954,18 @@ export const on = {
       opts.to === undefined ? {} : asTarget(opts.to),
       opts.by === "you" ? { playerIs: "controller" } : {},
     ),
+  /**
+   * "When a non-scenario-specific Tech attachment **would be attached** to the villain" (Fixer, `falcon` 53038;
+   * docs/phase7-wave9.md §3.49; RRG 1.8 "'Would'", p. 48): `card` is about to be attached to a host matching `to`
+   * (absent: any host), by its own "attach to" text as it is revealed or put into play, or by another ability's
+   * `attach` effect (a boost ability's "attach this card to the villain", a search that attaches). Use it in an
+   * interrupt: the card is still where it was, `eventSource` is that card and `eventTarget` the host it is bound for,
+   * and `replaceAttachHost(self)` is "attach it to [this card] instead". A card whose own text sends it to another host
+   * first ("Attach to Fixer. Otherwise, attach to the villain") is never bound for the villain and is not heard.
+   * Interrupt only: "after you attach" is `on.cardAttached`.
+   */
+  cardWouldBeAttached: (card: TargetQuery, opts: { readonly to?: Who } = {}): EventPattern =>
+    pattern("cardAttached", { sourceIs: card }, opts.to === undefined ? {} : asTarget(opts.to)),
   /**
    * "After you ignore the guard or patrol keyword on a minion" (Acute Control, `mut_gen` 32034) with `["guard",
    * "patrol"]`; "After you ignore the crisis icon on a scheme" (Intangible Interference, 32035) with `["crisis"]`

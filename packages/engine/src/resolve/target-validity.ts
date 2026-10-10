@@ -53,8 +53,8 @@ import {
 import {
   activeRules,
   canAttack,
+  isAttackTarget,
   cardsInPlay,
-  categoriesOf,
   type EffectContext,
   resolveRef,
   resolveValue,
@@ -232,6 +232,18 @@ function attacksThroughSlot(value: unknown, slot: string, found: EffectSpec[] = 
   return found;
 }
 
+/**
+ * The context a target choice's query is read in. When an effect after the choice attacks the chosen card (an `attack`
+ * instruction, or a damage instruction of an "(attack)"-labeled ability: `attacksThroughSlot`), the choice is that of
+ * an attack's target, so a card players may attack "as if it were a minion" (`RuleSpec attackableAsMinion`,
+ * docs/phase7-wave9.md §3.50) is read as one (`EffectContext.choosingAttackTarget`). Any other choice gets `context`
+ * back: such a card is no candidate for an ability that is not an attack.
+ */
+export function attackChoiceContext(rest: readonly EffectSpec[], slot: string, context: EffectContext): EffectContext {
+  const attacks = attacksThroughSlot(rest, slot).some((effect) => effect.kind === "attack" || context.attackLabeled);
+  return attacks ? { ...context, choosingAttackTarget: true } : context;
+}
+
 /** The identity an "(attack)" ability's damage attacks with: its controller's (RRG 1.8 "Labeled Ability", p. 26). */
 const labeledAttacker = (state: GameState, context: EffectContext): InstanceId | null =>
   context.controllerId == null ? null : (getPlayer(state, context.controllerId)?.identity.instanceId ?? null);
@@ -255,7 +267,7 @@ export function attackTargetAllowed(
   id: InstanceId,
   context: EffectContext,
 ): boolean {
-  if (!context.attackLabeled || !categoriesOf(state, id).includes("enemy")) return true;
+  if (!context.attackLabeled || !isAttackTarget(state, id, deps)) return true;
   return attacksThroughSlot(rest, slot).every((effect) => {
     const attacker = effect.kind === "attack" ? attackerOf(state, effect, context) : labeledAttacker(state, context);
     return attacker === null || canAttack(state, attacker, id, deps);
@@ -272,7 +284,7 @@ function judgedCanAffect(
 ): boolean {
   if (effect.kind === "dealDamage") {
     // An "(attack)" ability's damage to an enemy attacks it (owner rulings Q48 and Q49): not one it may not attack.
-    if (context.attackLabeled && isAttackInstruction(effect) && categoriesOf(state, id).includes("enemy")) {
+    if (context.attackLabeled && isAttackInstruction(effect) && isAttackTarget(state, id, deps)) {
       const attacker = labeledAttacker(state, context);
       if (attacker !== null && !canAttack(state, attacker, id, deps)) return false;
     }
@@ -504,7 +516,7 @@ function choiceCandidates(
   judge: boolean,
 ): readonly InstanceId[] {
   if (effect.kind === "chooseCards") return selectCards(createCtx(state, deps), effect.from, context);
-  const candidates = selectTargets(state, effect.query, context).filter((id) =>
+  const candidates = selectTargets(state, effect.query, attackChoiceContext(rest, effect.slot, context)).filter((id) =>
     attackTargetAllowed(state, deps, rest, effect.slot, id, context),
   );
   return judge ? candidates.filter((id) => slotTargetValid(state, deps, rest, effect.slot, id, context)) : candidates;
@@ -861,7 +873,7 @@ function attackNamesNoAttackableEnemy(
   const among = (named: readonly InstanceId[], attacker: InstanceId | null): Verdict | null => {
     const present = named.filter((id) => inPlay.includes(id));
     if (present.length === 0) return "unknown";
-    const enemies = present.filter((id) => categoriesOf(state, id).includes("enemy"));
+    const enemies = present.filter((id) => isAttackTarget(state, id, deps));
     // Damage to the player's own characters only is not an attack on anything.
     if (enemies.length === 0) return null;
     if (enemies.length !== present.length || attacker === null) return "unknown";
@@ -882,7 +894,10 @@ function attackNamesNoAttackableEnemy(
           const choice = all.find((other) => other.kind === "chooseTarget" && other.slot === slot);
           if (choice?.kind !== "chooseTarget" || !isRequiredChoice(choice) || readsBindings(choice.query)) {
             verdicts.push("unknown");
-          } else note(among(selectTargets(state, choice.query, context), attacker));
+          } else {
+            // The choice of this attack's target: a card attacked "as if it were a minion" is a candidate too.
+            note(among(selectTargets(state, choice.query, { ...context, choosingAttackTarget: true }), attacker));
+          }
         } else if (readsBindings(effect.target)) verdicts.push("unknown");
         else note(among(resolveRef(state, effect.target, context), attacker));
       } else if (effect.kind === "dealDamage") {

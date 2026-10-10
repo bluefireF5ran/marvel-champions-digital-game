@@ -75,6 +75,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkHiddenPiles(definition, problems);
   checkPlays(definition, problems);
   checkTuckReplacement(definition, problems);
+  checkAttachReplacement(definition, problems);
   checkLeaveReplacement(definition, problems);
   checkCounterDivision(definition, problems);
   checkCost(definition, problems);
@@ -211,6 +212,8 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     const name = tucked ? "discardTucked" : names[mode];
     // "Discard a card tucked here →" (`TuckedCostPick`): a pick among out-of-play cards, so nothing that reads a card
     // in play applies to it.
+    if (pick.combined && (tucked || pick.each))
+      problems.push(`cost ${name}: combined sums the powers of picked cards in play; not for each or tucked cards`);
     if (tucked && (pick.each || pick.includesSelf || pick.superlative || pick.bindHosts || pick.snapshotStats))
       problems.push(
         `cost ${name}: each, includesSelf, superlative, bindHosts and snapshotStats read cards in play, not tucked cards`,
@@ -657,6 +660,22 @@ function checkTuckReplacement(definition: AbilityDefinition, problems: string[])
   if (kinds.length !== 1 || kinds[0] !== "cardBeingTucked")
     problems.push(
       "replaceTuckHost needs an interrupt on a tuck about to happen (interrupt(on.cardWouldBeTucked(…), …))",
+    );
+}
+
+/**
+ * `replaceAttachHost` changes the attach its ability interrupts (docs/phase7-wave9.md §3.49), so it is read only in an
+ * interrupt whose one triggering condition is `cardAttached` (`on.cardWouldBeAttached`); anywhere else it would find no
+ * pending attach.
+ */
+function checkAttachReplacement(definition: AbilityDefinition, problems: string[]): void {
+  if (!allEffects(definition.effects).some((effect) => effect.kind === "replaceAttachHost")) return;
+  const trigger = definition.trigger;
+  const kinds =
+    trigger.kind === "interrupt" ? (typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on) : [];
+  if (kinds.length !== 1 || kinds[0] !== "cardAttached")
+    problems.push(
+      "replaceAttachHost needs an interrupt on an attach about to happen (forcedInterrupt(on.cardWouldBeAttached(…), …))",
     );
 }
 

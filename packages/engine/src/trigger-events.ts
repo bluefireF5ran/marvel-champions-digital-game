@@ -825,6 +825,21 @@ export type TriggerEventBody =
       readonly instanceId: InstanceId;
       readonly hostInstanceId: InstanceId;
       readonly playerId: PlayerId | null;
+      /**
+       * The attach is still to come: "When a … attachment **would be attached** to the villain, attach it to [this
+       * card] instead" (docs/phase7-wave9.md §3.49; RRG 1.8 "'Would'", p. 48). Such an event is interrupt only: the
+       * card is where it was (an encounter deck, a discard pile, in front of the revealing player), the attach is the
+       * event's apply step, and `EffectSpec replaceAttachHost` replaces it (RRG 1.8 "Replacement Effect", p. 37). It
+       * is pushed only when an interrupt hears it (`resolve/imminent-attach.ts`), so a game with no such ability keeps
+       * its log, its state and its replay. Nothing answers it in a response window: the attach it performs announces
+       * what an attach always did (the card entering play, and this event without `imminent` for an ability's attach).
+       *
+       * `entry`: how the card is being attached. `"placement"`: by its own "attach to" text as it enters play (a
+       * reveal's placement step, RRG 1.8 "Reveal", p. 38, or a card put into play); `"ability"`: by another ability's
+       * `attach` effect ("attach this card to the villain" on a boost ability, a search that attaches).
+       * `sourceInstanceId`: the card whose ability attaches it, null for a placement.
+       */
+      readonly imminent?: ImminentAttach;
     }
   /**
    * A character ignored a guard or patrol keyword, or a crisis icon, that would otherwise have stopped the attack or
@@ -1786,6 +1801,12 @@ export type HostStep =
       readonly keepCounters?: readonly string[];
     };
 
+/** How a card about to be attached is being attached (`TriggerEvent cardAttached.imminent`). */
+export interface ImminentAttach {
+  readonly entry: "placement" | "ability";
+  readonly sourceInstanceId: InstanceId | null;
+}
+
 /** The `cardFlipped` announcement for a card `by` flipped (`null` or absent: the flip had no "you"). */
 export const cardFlippedEvent = (instanceId: InstanceId, by?: PlayerId | null): TriggerEvent => ({
   kind: "cardFlipped",
@@ -1913,6 +1934,10 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     // unless a cost removed them (`paidAsCost`, §3.85 of wave 6): then they are gone already, and only responses answer.
     case "countersRemoved":
       return event.paidAsCost === true;
+    // "When a … attachment would be attached" (docs/phase7-wave9.md §3.49): the attach is still to come. One that
+    // already happened is an announcement, as before.
+    case "cardAttached":
+      return event.imminent === undefined;
     default:
       return true;
   }

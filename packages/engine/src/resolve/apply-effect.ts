@@ -1,5 +1,6 @@
 /** Applying one non-interactive effect from an effects frame. */
 
+import { imminentAttach, imminentAttachHeard, resolveImminentAttach } from "./imminent-attach.js";
 import { announceDeckTops } from "../deck-top.js";
 import { discardTopOfEncounterDeck, encounterTopDiscardVars } from "../encounter-discard-cost.js";
 import type { CardId } from "@mc/content";
@@ -135,7 +136,13 @@ import { pushDefeats } from "./defeated-together.js";
 import { advanceToSetAsideVillain, swapVillain } from "./villain-swap.js";
 import { swapCards } from "./swap-cards.js";
 import { applyFindCard, findToDeal, findToReveal, shuffleSearchedDecks } from "./find.js";
-import { announcesAttaching, attachCardBy, releaseControlOfCaptive, settleUpgradeControl } from "./attach.js";
+import {
+  announcesAttaching,
+  attachCardBy,
+  canAttachTo,
+  releaseControlOfCaptive,
+  settleUpgradeControl,
+} from "./attach.js";
 import { flipToOtherFace } from "./other-face.js";
 import {
   buildScenarioDeck,
@@ -1627,8 +1634,19 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // "After you attach …" (`TriggerEvent cardAttached`): each card that landed, once the effect has attached them all.
       // A card attached from out of play enters play by it: that announcement is always made (`attachCardBy`).
       // `as: "captive"`: the attached ally is then under no player's control (docs/phase7-wave9.md §3.19).
+      // "When … would be attached" (docs/phase7-wave9.md §3.49): a plain attach an interrupt hears waits for that
+      // window, and so does every card after it, so the cards land in the order the effect named them.
+      const plain = effect.facedown !== true && effect.as === undefined;
+      const waiting: TriggerEvent[] = [];
       const attached = targets(effect.card)
         .flatMap((id) => {
+          if (plain && getInstance(ctx.state, id)?.attachedTo !== host && canAttachTo(ctx.state, ctx.deps, id, host)) {
+            const imminent = imminentAttach(id, host, context.controllerId ?? null, "ability", frame.selfInstanceId);
+            if (waiting.length > 0 || imminentAttachHeard(ctx, imminent)) {
+              waiting.push(imminent);
+              return [];
+            }
+          }
           const events = attachCardBy(
             ctx,
             id,
@@ -1641,7 +1659,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           return events;
         })
         .filter((event) => announcesAttaching(event, (e) => heard(ctx.state, ctx.deps, e)));
-      if (attached.length > 0) pushEvents(ctx, attached);
+      if (attached.length + waiting.length > 0) pushEvents(ctx, [...attached, ...waiting]);
       return;
     }
     case "engage": {
@@ -2786,6 +2804,33 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const tuck = pending.event;
       setFrame(ctx, { ...pending, cancelled: true });
       resolveTuck(ctx, tuck, to);
+      return;
+    }
+    case "replaceAttachHost": {
+      // RRG 1.8 "Replacement Effect" (p. 37): the replaced attach "is no longer considered imminent", so its event is
+      // cancelled (no further interrupt answers it, and its apply step attaches nothing) and the card is attached to
+      // the other host now, the way the replaced attach would have been made. It is the same attach sent elsewhere:
+      // no "would be attached" window opens for it.
+      const pending = frame.eventFrameId ? findFrame(ctx.state, frame.eventFrameId) : undefined;
+      const [to] = targets(effect.to);
+      const attach =
+        pending?.kind === "event" && !pending.cancelled && pending.event.kind === "cardAttached"
+          ? pending.event
+          : undefined;
+      if (
+        pending?.kind !== "event" ||
+        attach?.imminent === undefined ||
+        to === undefined ||
+        to === attach.hostInstanceId ||
+        !canAttachTo(ctx.state, ctx.deps, attach.instanceId, to)
+      ) {
+        markPreThenUnresolved(ctx, frame.frameId, "attachNotReplaced");
+        return;
+      }
+      setFrame(ctx, { ...pending, cancelled: true });
+      const landed = resolveImminentAttach(ctx, attach, to);
+      // "Text on that card that refers to 'the villain' refers to [this card] instead": while it stays there.
+      if (landed && effect.villainAlias) updateInstance(ctx, attach.instanceId, (i) => ({ ...i, villainAlias: to }));
       return;
     }
     case "replaceLeaveDestination": {

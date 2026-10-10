@@ -1133,6 +1133,13 @@ export type ValueSpec =
    * docs/phase7-wave2.md §1.2); basic and identity-set cards count for none. docs/phase7-wave4.md §3.12.
    */
   | { readonly kind: "distinctAspects"; readonly cards: TargetRef }
+  /**
+   * The number of different traits among the cards named: "for each different Trait on friendly characters in play"
+   * (docs/phase7-wave9.md §3.48; RRG 1.8 "Traits", p. 45). Each card's traits are read as they are now: the faceup side
+   * of an identity, gained traits included, and the printed traits of a card whose text box is blank. A trait two
+   * cards share counts once.
+   */
+  | { readonly kind: "distinctTraits"; readonly of: TargetRef }
   /** A card's printed cost (RRG 1.8 "Printed", p. 35): "equal to its printed cost" (Headbutt, Thoughtcasting). A card with no printed cost is 0. */
   | { readonly kind: "printedCost"; readonly of: TargetRef }
   /**
@@ -3400,6 +3407,25 @@ export type EffectSpec =
    * before a "Then" did not resolve (`preThenUnresolved`, cause `tuckNotReplaced`; RRG 1.8 "'Then'", p. 44).
    */
   | { readonly kind: "replaceTuckHost"; readonly to: TargetRef }
+  /**
+   * "When a non-scenario-specific Tech attachment would be attached to the villain, attach it to [this card] instead.
+   * Text on that card that refers to 'the villain' refers to [this card] instead." (docs/phase7-wave9.md §3.49). In an
+   * interrupt to an attach still to come (`TriggerEvent cardAttached` with `imminent`): the pending attach is replaced
+   * (RRG 1.8 "Replacement Effect", p. 37; "'Would'", p. 48) and its card is attached to the first card `to` names
+   * instead, at once and the way the replaced attach would have been made: a card being placed by its own "attach to"
+   * text enters play there, an ability's attach lands there. The original event is cancelled, so no later interrupt
+   * answers it, and the attach to `to` opens no "would be attached" window of its own: it is the replaced attach, not
+   * a new one. RRG 1.8 "Attach To" (p. 8): "The 'attach to' phrase on a card is not resolved if another ability causes
+   * that card to attach to a specific game element", so the card's printed host is not read for `to`.
+   *
+   * `villainAlias`: while the card stays attached to `to`, "the villain" in that card's own text is `to`
+   * (`CardInstance.villainAlias`).
+   *
+   * With no pending attach (another interrupt replaced it first), no card for `to`, `to` already the pending host, or
+   * a `to` that cannot have the card attached (`canAttachTo`), nothing changes, the attach goes where it was going, and
+   * the text before a "Then" did not resolve (`preThenUnresolved`, cause `attachNotReplaced`; RRG 1.8 "'Then'", p. 44).
+   */
+  | { readonly kind: "replaceAttachHost"; readonly to: TargetRef; readonly villainAlias?: true }
   /**
    * "Forced Interrupt: When an ally leaves play, tuck it under here …" (docs/phase7-wave9.md §3.20). In an interrupt
    * to `cardLeavesPlay`, whose card is still in play: the leaving card goes under the first card `to.tuckedUnder`

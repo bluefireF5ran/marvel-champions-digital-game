@@ -74,6 +74,7 @@ import {
   type DamageCostPick,
   type DiscardCombined,
   type InPlayCostMode,
+  type InPlayCombined,
   type InPlayCostPick,
   tuckedPickOf,
   fixedResourcesOf,
@@ -215,6 +216,7 @@ import {
   activeAbilityRefs,
   activeRules,
   basicThwartTargetAllowed,
+  attackableAsMinion,
   canAttack,
   cardsInPlay,
   cardTypeOf,
@@ -3037,11 +3039,65 @@ export function defaultInPlayPicks(
       continue;
     }
     if (candidates.length < pick.min) continue;
-    const chosen = candidates.slice(0, pick.min);
+    // "With a combined THW greater than …" (`InPlayCostPick.combined`): the fewest cards that exceed it.
+    const chosen = pick.combined
+      ? fewestExceeding(state, deps, sourceId, playerId, pick, candidates)
+      : candidates.slice(0, pick.min);
+    if (!chosen) continue;
     picks[pick.slot] = chosen;
     for (const id of chosen) taken.add(id);
   }
   return picks;
+}
+
+/** The total of `combined.stat` over `ids` as each stands in play; a dash or a card with no such power adds 0. */
+const combinedStatOf = (
+  state: GameState,
+  deps: EngineDeps,
+  ids: readonly InstanceId[],
+  combined: InPlayCombined,
+): number => ids.reduce((sum, id) => sum + (characterProfile(state, id, deps)?.[combined.stat] ?? 0), 0);
+
+/** What an `InPlayCostPick.combined` total must exceed, read with the ability's card as "self" and the payer as "you". */
+const combinedThreshold = (
+  state: GameState,
+  deps: EngineDeps,
+  sourceId: InstanceId,
+  playerId: PlayerId,
+  combined: InPlayCombined,
+): number =>
+  resolveValue(
+    state,
+    combined.moreThan,
+    { selfInstanceId: sourceId, controllerId: playerId, event: null, bindings: {}, deps },
+    deps,
+  );
+
+/**
+ * The fewest of `candidates` whose combined stat exceeds a `combined` pick's threshold, highest first (ties in
+ * play-area order), at least `min` and at most `max` cards; undefined when no legal pick exceeds it. A pick with
+ * `includesSelf` always holds the ability's own card.
+ */
+function fewestExceeding(
+  state: GameState,
+  deps: EngineDeps,
+  sourceId: InstanceId,
+  playerId: PlayerId,
+  pick: InPlayCostPick,
+  candidates: readonly InstanceId[],
+): readonly InstanceId[] | undefined {
+  const combined = pick.combined;
+  if (!combined) return candidates.slice(0, pick.min);
+  const threshold = combinedThreshold(state, deps, sourceId, playerId, combined);
+  const value = (id: InstanceId): number => combinedStatOf(state, deps, [id], combined);
+  const ranked = [...candidates].sort((a, b) => value(b) - value(a));
+  const ordered = pick.includesSelf ? [sourceId, ...ranked.filter((id) => id !== sourceId)] : ranked;
+  const most = Math.min(pick.max ?? ordered.length, ordered.length);
+  for (let size = Math.max(1, pick.min); size <= most; size++) {
+    const taken = ordered.slice(0, size);
+    if (combinedStatOf(state, deps, taken, combined) > threshold) return taken;
+  }
+  return undefined;
 }
 
 function eligibleForInPlayPick(
@@ -3171,6 +3227,15 @@ function planInPlayPick(
             : `not enough cards you control to ${verb} for this cost`,
         };
   }
+  // "With a combined THW greater than …" (`InPlayCostPick.combined`): unpayable while no legal pick exceeds it.
+  if (pick.combined && fewestExceeding(state, deps, sourceId, playerId, pick, candidates) === undefined) {
+    const threshold = combinedThreshold(state, deps, sourceId, playerId, pick.combined);
+    const stat = pick.combined.stat.toUpperCase();
+    return {
+      code: "no_valid_target",
+      message: `the cards you could ${verb} for this cost have a combined ${stat} of ${threshold} or less`,
+    };
+  }
   // No picks given: pay only a forced choice (exactly `min` candidates); otherwise the choice is the player's.
   const picks = choices[pick.slot] ?? (candidates.length === pick.min ? candidates : undefined);
   if (!picks) return { code: "invalid_choice", message: `choose which cards to ${verb} for ${pick.slot}` };
@@ -3185,7 +3250,17 @@ function planInPlayPick(
   if (pick.includesSelf && !picks.includes(sourceId))
     return { code: "invalid_choice", message: `${pick.slot} must include the card whose cost this is` };
   const bad = picks.find((id) => !candidates.includes(id));
-  return bad ? whyNot(bad) : picks;
+  if (bad) return whyNot(bad);
+  // "With a combined THW greater than …" (`InPlayCostPick.combined`): the picks together must exceed it.
+  if (pick.combined) {
+    const threshold = combinedThreshold(state, deps, sourceId, playerId, pick.combined);
+    if (combinedStatOf(state, deps, picks, pick.combined) <= threshold)
+      return {
+        code: "invalid_choice",
+        message: `${verb} cards with a combined ${pick.combined.stat.toUpperCase()} greater than ${threshold} to pay this cost`,
+      };
+  }
+  return picks;
 }
 
 /**
@@ -5492,7 +5567,9 @@ function basicAttackPaying(
     const targetCard = cardOf(ctx.state, targetInstanceId);
     const targetIsEnemy =
       (targetCard?.type === "villain" && villainOf(ctx.state, targetInstanceId)?.defeated === false) ||
-      isMinion(ctx.state, targetInstanceId);
+      isMinion(ctx.state, targetInstanceId) ||
+      // "Any player can attack this card as if it were a minion" (`RuleSpec attackableAsMinion`, wave 9 §3.50).
+      attackableAsMinion(ctx.state, targetInstanceId, ctx.deps);
     if (!targetIsEnemy) return engineError("no_valid_target", "basic attacks target enemies", command);
     // An enemy in a closed in-play scenario area (the mission area, docs/phase7-wave8.md §3.33) is out of reach of a
     // basic attack: MC45 pp. 5–6 deal damage there only from a mission attempt's pool. See `inClosedScenarioPlayArea`.

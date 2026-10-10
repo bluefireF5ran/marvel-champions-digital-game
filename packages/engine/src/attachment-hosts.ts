@@ -31,6 +31,7 @@ import {
   type EffectContext,
   selectTargets,
   traitsOf,
+  villainAliasOf,
 } from "./select.js";
 import type { TargetQuery } from "./spec.js";
 import type { GameState } from "./state.js";
@@ -61,6 +62,9 @@ const POOL_QUERIES: Record<QualifiedHost["category"] | SuperlativeHost["among"],
 
 /** "The villain" for this context: the active villain, or the context's game area's (docs/phase7-wave2.md §3.1). */
 function theVillain(state: GameState, context: EffectContext): readonly InstanceId[] {
+  // On a card told that "the villain" in its text is its host (docs/phase7-wave9.md §3.49), that host.
+  const alias = villainAliasOf(state, context.selfInstanceId);
+  if (alias !== undefined) return [alias];
   const id = activeVillainIdFor(state, contextArea(state, context));
   const villain = id ? villainOf(state, id) : undefined;
   return villain && !villain.defeated ? [villain.instanceId] : [];

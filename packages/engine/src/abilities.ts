@@ -1052,6 +1052,25 @@ export type RuleSpec =
        */
       readonly attacker?: TargetQuery;
     }
+  /**
+   * "Any player can attack this card as if it were a minion." (docs/phase7-wave9.md §3.50): each card in play matching
+   * `card` (the rule's own card: `{ self: true }`) is a target of player attacks though it is no character.
+   *
+   * - **Where an attack chooses its target.** A basic attack may be aimed at it, and it is a candidate wherever an
+   *   attack chooses "an enemy" or "a minion": a target choice whose chosen card an `attack` instruction, or an
+   *   "(attack)"-labeled ability's damage instruction, then attacks (`EffectContext.choosingAttackTarget`). For that
+   *   choice it reads as a minion engaged with no player, with its own traits. Every player may attack it, with any
+   *   character that may attack it. A `cannotAttack` rule reads its target the same way, so "cannot attack minions"
+   *   and "cannot attack enemies" forbid attacking it; the card's own "attached character cannot attack enemies other
+   *   than this card" is `cannotAttack` with `target: { categories: ["enemy"], self: false }`.
+   * - **Not otherwise.** It is no minion, enemy or character for anything else: an ability that is not an attack, an
+   *   attack that names its enemies as a group ("each minion engaged with you", "the villain and each minion"), a
+   *   count of enemies, "after you attack an enemy". Guard protects villains only (RRG 1.8 "Guard", p. 21), not it.
+   * - **Damage.** An attack's damage to it is placed on it. It has no hit points, so it is never defeated and no
+   *   damage dealt to it is excess (RRG 1.8 "Overkill", p. 31); it has no status cards and none of a minion's
+   *   keywords. What its damage does is its own text (a `stateCheck` on the card).
+   */
+  | { readonly kind: "attackableAsMinion"; readonly card: TargetQuery; readonly while?: Predicate }
   /** "Resolve each 'When Revealed' ability that you reveal 1 additional time." (Media Coverage). */
   | {
       readonly kind: "repeatWhenRevealed";
@@ -2970,6 +2989,29 @@ export interface InPlayCostPick {
    * - Not with `each`, and not beside another part of the cost that spends the same card (`exhaustSelf`).
    */
   readonly includesSelf?: true;
+  /**
+   * "Exhaust any number of characters you control **with a combined THW greater than attached enemy's SCH** →"
+   * (docs/phase7-wave9.md §3.49): a threshold over the picked cards together, beside the count. The picks' `stat` as
+   * it stands in play (modifiers included; a dash, or a card with no such power, as 0: RRG 1.8 "Dash (Value)", p. 15)
+   * is summed, and the payment is legal only when that total is greater than `moreThan`, read as the cost is planned
+   * with the ability's card as "self" and the payer as "you".
+   *
+   * - **Payable** only while every card that could pay, together (the `max` highest when there is a cap), exceeds it:
+   *   RRG 1.8 "Initiating Abilities" (p. 24, steps 3 and 5) and "Cost Arrow Icon" (p. 14, the text before the arrow
+   *   "must be paid and/or resolved in full").
+   * - **Picking.** A payment that does not exceed it is refused. With no picks given, the forced pick pays as for any
+   *   pick; `legalActions`' default pick is the fewest cards that exceed it, highest first.
+   * - Any number above the threshold is legal: a player may exhaust more than is needed (as a cost may be overpaid,
+   *   RRG 1.8 "Cost", p. 13).
+   * - Not with `each`, and not for a tucked pick (a tucked card has no powers).
+   */
+  readonly combined?: InPlayCombined;
+}
+
+/** `InPlayCostPick.combined`: the picks' total `stat` must be greater than `moreThan`. */
+export interface InPlayCombined {
+  readonly stat: "atk" | "thw" | "def" | "rec" | "sch";
+  readonly moreThan: ValueSpec;
 }
 
 export interface AbilityLimit {

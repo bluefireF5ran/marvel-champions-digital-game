@@ -65,6 +65,11 @@ export type PreThenFailure =
    */
   | "tuckNotReplaced"
   /**
+   * A `replaceAttachHost` found no pending attach to send elsewhere, or no card that can have it attached
+   * (docs/phase7-wave9.md §3.49).
+   */
+  | "attachNotReplaced"
+  /**
    * A `replaceLeaveDestination` found no pending leaving it can send elsewhere (none, one already replaced, one with
    * a destination of its own), or no card to send it under (docs/phase7-wave9.md §3.20).
    */

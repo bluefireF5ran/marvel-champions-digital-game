@@ -1,5 +1,6 @@
 /** Revealing encounter cards and placing them (attachment hosts included). */
 
+import { placeAttachment } from "./imminent-attach.js";
 import { displayNameOf } from "../visibility.js";
 import type { AttachmentHost } from "@mc/content";
 import { type Ctx, emit, moveCard, popFrame, pushFrames, requestChoice, setFrame, updateInstance } from "../ctx.js";
@@ -641,8 +642,8 @@ export function enterPlayOnReveal(ctx: Ctx, id: InstanceId, playerId: PlayerId):
         moveCard(ctx, id, discardZoneFor(ctx.state, id), "top");
         break;
       }
-      moveCard(ctx, id, { kind: "attachment", hostInstanceId: host });
-      entered = true;
+      // Attached and announced now, or after a "would be attached" interrupt (docs/phase7-wave9.md §3.49).
+      placeAttachment(ctx, id, host, playerId);
       break;
     }
     case "obligation":
@@ -733,14 +734,12 @@ function resolveAttachmentTarget(ctx: Ctx, frame: Frame<"reveal">, attachesTo: A
     const [picked] = frame.answer;
     const host = picked ? asInstanceId(picked) : legal[0];
     if (!host) return true;
-    moveCard(ctx, frame.instanceId, { kind: "attachment", hostInstanceId: host });
-    enterPlay(ctx, frame.instanceId, frame.playerId);
+    placeAttachment(ctx, frame.instanceId, host, frame.playerId);
     return true;
   }
   if (legal.length === 1) {
     const host = legal[0] as InstanceId;
-    moveCard(ctx, frame.instanceId, { kind: "attachment", hostInstanceId: host });
-    enterPlay(ctx, frame.instanceId, frame.playerId);
+    placeAttachment(ctx, frame.instanceId, host, frame.playerId);
     return true;
   }
   // RRG "First Player": an encounter card with several eligible targets — the

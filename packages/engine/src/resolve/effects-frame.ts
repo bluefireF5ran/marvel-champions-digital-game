@@ -172,6 +172,7 @@ import {
   withMovedAttackTarget,
 } from "./attack-ability.js";
 import {
+  attackChoiceContext,
   attackTargetAllowed,
   canDealDamageTo,
   canRemoveThreatFrom,
@@ -2955,7 +2956,9 @@ function requestTargetChoice(
   const rest = frame.effects.slice(frame.cursor + 1);
   // An enemy an "(attack)" ability would attack through this slot must be one its player's identity may attack (guard;
   // owner ruling Q49, `attackTargetAllowed`).
-  const legal = selectTargets(ctx.state, effect.query, context).filter(
+  // A card players attack "as if it were a minion" is a candidate where the choice is an attack's target
+  // (`attackChoiceContext`, docs/phase7-wave9.md §3.50).
+  const legal = selectTargets(ctx.state, effect.query, attackChoiceContext(rest, effect.slot, context)).filter(
     (id) =>
       slotTargetValid(ctx.state, ctx.deps, rest, effect.slot, id, context) &&
       attackTargetAllowed(ctx.state, ctx.deps, rest, effect.slot, id, context),

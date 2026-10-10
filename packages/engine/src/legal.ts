@@ -88,6 +88,7 @@ import {
 import { formChangeCostSources } from "./form-change-cost.js";
 import {
   activeAbilityRefs,
+  attackableAsMinion,
   cardsInPlay,
   controllerOf,
   isAlly,
@@ -1276,6 +1277,8 @@ export function legalActions(state: GameState, playerId: PlayerId, deps: EngineD
     ...undefeatedVillains(state).map((villain) => villain.instanceId),
     // Not a minion in a closed in-play scenario area (the mission area): `inClosedScenarioPlayArea`.
     ...cardsInPlay(state).filter((id) => isMinion(state, id) && !inClosedScenarioPlayArea(state, id)),
+    // A card any player can attack "as if it were a minion" (`RuleSpec attackableAsMinion`, wave 9 §3.50).
+    ...cardsInPlay(state).filter((id) => !isMinion(state, id) && attackableAsMinion(state, id, deps)),
   ];
   const schemes = [
     ...mainSchemeStates(state).map((scheme) => scheme.instanceId),

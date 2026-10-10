@@ -322,6 +322,7 @@ import {
   categoriesOf,
   type EffectContext,
   evaluate,
+  isAttackTarget,
   resolveRef,
   selectTargets,
 } from "../select.js";
@@ -706,8 +707,7 @@ export const mayAttackWith = (
   attack: AbilityAttack,
   targetId: InstanceId,
 ): boolean =>
-  !categoriesOf(state, targetId).includes("enemy") ||
-  (!attack.cancelled && canAttack(state, attack.attackerId, targetId, deps));
+  !isAttackTarget(state, targetId, deps) || (!attack.cancelled && canAttack(state, attack.attackerId, targetId, deps));
 
 /**
  * The targets of a damage instruction that names its enemies, less the enemies the attack may not attack as it
@@ -722,7 +722,7 @@ export function skipUnattackable(
 ): readonly InstanceId[] {
   if (attack.cancelled) {
     // The attack was cancelled: its damage to enemies is not dealt (row 65); anything else it names is dealt its own.
-    const isEnemy = (id: InstanceId): boolean => categoriesOf(ctx.state, id).includes("enemy");
+    const isEnemy = (id: InstanceId): boolean => isAttackTarget(ctx.state, id, ctx.deps);
     skipForCancelledAttack(ctx, attack, sourceInstanceId, targets.filter(isEnemy));
     return targets.filter((id) => !isEnemy(id));
   }
@@ -798,7 +798,7 @@ function attackAhead(
   ahead: AttackAhead,
 ): void {
   const inPlay = cardsInPlay(state);
-  const isEnemy = (id: InstanceId): boolean => inPlay.includes(id) && categoriesOf(state, id).includes("enemy");
+  const isEnemy = (id: InstanceId): boolean => inPlay.includes(id) && isAttackTarget(state, id, context.deps);
   const found = (maker: AttackMaker): void => {
     if (ahead.makers.length === 0) ahead.firstPreceded = ahead.preceded;
     ahead.makers.push(maker);
@@ -963,9 +963,7 @@ export function beginLabelAttack(
   }
   const inPlay = cardsInPlay(ctx.state);
   const mayAttack = (id: InstanceId): boolean =>
-    inPlay.includes(id) &&
-    categoriesOf(ctx.state, id).includes("enemy") &&
-    canAttack(ctx.state, identity, id, ctx.deps);
+    inPlay.includes(id) && isAttackTarget(ctx.state, id, ctx.deps) && canAttack(ctx.state, identity, id, ctx.deps);
   // The first enemy the identity may attack that an instruction of the attack names, in order.
   const target = ahead.makers.flatMap((maker) => maker.named.filter(mayAttack))[0] ?? null;
   const instruction = ahead.makers.find((maker) => maker.attackEffect);
@@ -1116,9 +1114,7 @@ export function openLabelAttack(
       : selectTargets(ctx.state, effect.among, context);
   const [first] = named.filter(
     (id) =>
-      inPlay.includes(id) &&
-      categoriesOf(ctx.state, id).includes("enemy") &&
-      canAttack(ctx.state, identity, id, ctx.deps),
+      inPlay.includes(id) && isAttackTarget(ctx.state, id, ctx.deps) && canAttack(ctx.state, identity, id, ctx.deps),
   );
   // No enemy to attack: damage to the player's own characters only, or every enemy named is guarded.
   if (first === undefined) return false;
@@ -1241,7 +1237,7 @@ export function abilityAttackDamage(
   targetId: InstanceId,
   moved = false,
 ): { readonly damage: Partial<Damage>; readonly attacked: Attacked; readonly extra: number } | null {
-  if (!moved && !categoriesOf(state, targetId).includes("enemy")) return null;
+  if (!moved && !isAttackTarget(state, targetId, deps)) return null;
   const event = attack.event;
   const keywords = attackKeywordsOf(state, deps, {
     attackerInstanceId: event.attackerInstanceId,

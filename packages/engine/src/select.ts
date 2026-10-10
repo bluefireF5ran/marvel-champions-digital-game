@@ -210,6 +210,12 @@ export interface EffectContext {
    * consequential damage after an attack that defeated its target (`rules.ts` `lastKnownFromAttack`).
    */
   readonly lastKnown?: Readonly<Record<InstanceId, LastKnownCard>>;
+  /**
+   * The query being read chooses the target of a player's attack (`attackChoiceContext`, `target-validity.ts`): a
+   * card players may attack "as if it were a minion" (`RuleSpec attackableAsMinion`, docs/phase7-wave9.md §3.50)
+   * then matches the categories a minion has. Absent everywhere else, so no other query sees such a card as one.
+   */
+  readonly choosingAttackTarget?: true;
 }
 
 /** A card as it last was in play, as far as `EffectContext.lastKnown` carries it. */
@@ -580,6 +586,18 @@ function printedTraitsOf(state: GameState, id: InstanceId): readonly Trait[] {
     return fixedMainSchemeStage(state, id)?.traits ?? [];
   }
   return "traits" in card ? card.traits : [];
+}
+
+/**
+ * "Text on that card that refers to 'the villain' refers to [its host] instead" (`CardInstance.villainAlias`,
+ * docs/phase7-wave9.md §3.49): the card `selfId`'s text means by "the villain", when that is not the villain. Only
+ * while `selfId` is still attached to that card and it is in play.
+ */
+export function villainAliasOf(state: GameState, selfId: InstanceId | null | undefined): InstanceId | undefined {
+  const instance = selfId ? getInstance(state, selfId) : undefined;
+  const alias = instance?.villainAlias;
+  if (alias === undefined || instance?.attachedTo !== alias) return undefined;
+  return cardsInPlay(state).includes(alias) ? alias : undefined;
 }
 
 /**
@@ -1151,6 +1169,8 @@ export function explainQuery(
     const categories = [
       ...categoriesOf(state, id),
       ...(context.deps ? (countsAsExtras(state, context.deps).get(id)?.categories ?? []) : []),
+      // "As if it were a minion", for the choice of an attack's target only (`RuleSpec attackableAsMinion`).
+      ...(context.choosingAttackTarget && attackableAsMinion(state, id, context.deps) ? AS_A_MINION : []),
     ];
     if (!query.categories.some((category) => categories.includes(category))) return "wrongCategory";
     // "A friendly character" is written `["identity", "ally"]`: a captive ally is an ally but no player's (§3.75).
@@ -1966,6 +1986,28 @@ export function basicThwartTargetAllowed(
   );
 }
 
+const AS_A_MINION: readonly TargetCategory[] = ["minion", "enemy", "character"];
+
+/**
+ * Whether players may attack this card "as if it were a minion" though it is no character (`RuleSpec
+ * attackableAsMinion`, docs/phase7-wave9.md §3.50). A card that is an enemy already is not asked.
+ */
+export function attackableAsMinion(state: GameState, id: InstanceId, deps: EngineDeps = DEFAULT_DEPS): boolean {
+  const rules = activeRules(state, deps, "attackableAsMinion");
+  return (
+    rules.length > 0 &&
+    cardsInPlay(state).includes(id) &&
+    rules.some(({ rule, context }) => matchesQuery(state, id, rule.card, context))
+  );
+}
+
+/**
+ * Whether a player's attack on this card is an attack on something: an enemy, or a card players attack as if it were
+ * a minion (`attackableAsMinion`). What the attack machinery asks where it used to ask "is it an enemy".
+ */
+export const isAttackTarget = (state: GameState, id: InstanceId, deps: EngineDeps = DEFAULT_DEPS): boolean =>
+  categoriesOf(state, id).includes("enemy") || attackableAsMinion(state, id, deps);
+
 /**
  * RRG "Guard": while a minion with guard is engaged with a player, that player
  * cannot use cards they control to attack a villain without this keyword. It
@@ -2020,7 +2062,10 @@ function attackForbidden(
         return false;
       }
     }
-    return matchesQuery(state, targetId, target, active.context);
+    // The target is read as an attack's target: a card players attack "as if it were a minion" (`RuleSpec
+    // attackableAsMinion`, docs/phase7-wave9.md §3.50) is a minion to "cannot attack minions" and an enemy to "cannot
+    // attack enemies other than this card".
+    return matchesQuery(state, targetId, target, { ...active.context, choosingAttackTarget: true });
   });
 }
 
@@ -2288,6 +2333,8 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
     case "villain": {
       // "The villain" is the active villain (The Wrecking Crew insert, "The Active Villain"); in a separate game area,
       // that area's (docs/phase7-wave2.md §3.1).
+      const alias = villainAliasOf(state, context.selfInstanceId);
+      if (alias !== undefined) return [alias];
       const chosen = context.bindings[VILLAIN_CHOICE]?.filter((id) => villainOf(state, id)?.defeated === false);
       if (chosen && chosen.length > 0) return chosen;
       const activeId = activeVillainIdFor(state, contextArea(state, context));
@@ -2614,6 +2661,11 @@ export function resolveValue(
           if (aspect !== undefined && FOUR_ASPECTS.includes(aspect)) aspects.add(aspect);
       }
       return aspects.size;
+    }
+    case "distinctTraits": {
+      const traits = new Set<string>();
+      for (const id of resolveRef(state, value.of, context)) for (const t of traitsOf(state, id, deps)) traits.add(t);
+      return traits.size;
     }
     case "printedCost": {
       const [id] = resolveRef(state, value.of, context);
