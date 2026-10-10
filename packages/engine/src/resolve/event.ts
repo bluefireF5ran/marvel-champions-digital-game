@@ -105,6 +105,7 @@ import {
   defeatVillainStage,
   eliminatePlayer,
   holdAtZero,
+  recordIdentityDefeat,
   settleActiveCounter,
 } from "./defeat.js";
 import { openDefeatedTogetherInterrupts, withDefeatedMember } from "./defeated-together.js";
@@ -688,9 +689,15 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
     case "mainSchemeTurnsToB":
       applyMainSchemeTurnsToB(ctx, event);
       return;
-    case "enemyActivating":
-      continueActivation(ctx, event);
+    case "enemyActivating": {
+      // A card-made activation hands its report target on to the attack or scheme it initiates; one that does not
+      // begin after all (the enemy left play, a status card replaced the kind it turned into) reports that now.
+      const began = continueActivation(ctx, event, frame.reportTo);
+      if (!event.cardCaused || !frame.reportTo) return;
+      if (!began) reportResults(ctx, frame, false);
+      updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, reportTo: null } : f));
       return;
+    }
     case "countersRemoved": {
       // Removed already as a cost (`paidAsCost`, wave 6 §3.85): the announcement changes nothing.
       if (event.paidAsCost) {
@@ -840,7 +847,7 @@ function beginOneDefeat(
   // here means no interrupt replaced the defeat ("set his hit point dial to 1 instead", Captain America's Helmet).
   const player = ctx.state.players.find((seat) => seat.identity.instanceId === id);
   if (player) {
-    emit(ctx, { type: "characterDefeated", instanceId: id, cardId: instance.cardId });
+    recordIdentityDefeat(ctx, id, event.parentFrameId, event.reportFrameId);
     eliminatePlayer(ctx, player.playerId);
     return true;
   }

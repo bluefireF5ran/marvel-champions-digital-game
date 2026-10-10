@@ -878,6 +878,8 @@ function nestedLists(effect: EffectSpec): (readonly EffectSpec[])[] {
     case "repeatTimes":
     case "forEachCard":
       return [effect.effects];
+    case "enemyScheme":
+      return effect.wouldPlaceThreat ? [effect.wouldPlaceThreat] : [];
     default:
       return [];
   }
@@ -1171,6 +1173,22 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         prefixes: new Set(scope.prefixes),
       };
       walk(effect.effects, pass, `${where}/0`, problems);
+      return;
+    }
+    // `enemyScheme.wouldPlaceThreat`: resolved later, at the activation's place-threat step, with this ability's slots
+    // and vars as they are here; what those effects bind is read inside them only, and this effect's own `bind` is not
+    // theirs to read (the activation has not finished).
+    if (effect.kind === "enemyScheme" && effect.wouldPlaceThreat) {
+      const { wouldPlaceThreat, ...scheme } = effect;
+      if (wouldPlaceThreat.length === 0) problems.push(`${where}: wouldPlaceThreat resolves no effects`);
+      checkRefs(scheme, scope, where, problems);
+      const placing: Scope = {
+        slots: new Set(scope.slots),
+        vars: new Set(scope.vars),
+        prefixes: new Set(scope.prefixes),
+      };
+      walk(wouldPlaceThreat, placing, `${where}/0`, problems);
+      bindsOf(effect, scope);
       return;
     }
     if (

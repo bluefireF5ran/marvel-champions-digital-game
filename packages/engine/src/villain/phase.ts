@@ -13,6 +13,7 @@ import {
   discardStatusCards,
   expireNextVillainPhaseEffects,
   setActiveVillain,
+  settleAwaitingAttackEffects,
 } from "../effects.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { statusActive } from "../keywords.js";
@@ -41,7 +42,8 @@ import {
   pushRevealFrame,
 } from "../resolve/index.js";
 import { cardsInPlay, gliderMainSchemeId, offSchemeAccelerationTokens } from "../select.js";
-import type { TriggerEvent } from "../trigger-events.js";
+import type { CardCausedActivation, TriggerEvent } from "../trigger-events.js";
+import type { ReportTarget } from "../stack.js";
 import type { GameState, GameStep } from "../state.js";
 
 const livePlayers = (state: GameState, ids: readonly PlayerId[]): readonly PlayerId[] =>
@@ -275,32 +277,84 @@ function initiateActivation(ctx: Ctx, enemyId: InstanceId, playerId: PlayerId, a
  * 'Ambush!' ability. Continue that activation." A villain the interrupt put into play enters with no status card, so
  * the activation is initiated at once; with still no villain in play nothing activates.
  */
-export function continueActivation(ctx: Ctx, event: Extract<TriggerEvent, { kind: "enemyActivating" }>): void {
+export function continueActivation(
+  ctx: Ctx,
+  event: Extract<TriggerEvent, { kind: "enemyActivating" }>,
+  reportTo: ReportTarget | null = null,
+): boolean {
   if (event.enemyInstanceId) {
-    if (!cardsInPlay(ctx.state).includes(event.enemyInstanceId)) return;
+    if (!cardsInPlay(ctx.state).includes(event.enemyInstanceId)) return false;
     const enemyId = event.enemyInstanceId;
     // RRG 1.8 "Activation" (p. 6): the activation is an attack on a player in hero form and a scheme against one in
     // alter-ego form, and an interrupt to "when the enemy would activate" can change the form before it begins (Armor
     // Up's erratum, p. 68: Colossus flips to hero form and is attacked, not schemed against). So the kind is read again
     // here, after those interrupts, and the stun or confuse that would replace the activation is checked for the kind
-    // that is actually happening.
+    // that is actually happening. A card's "X attacks you" or "X schemes" is that kind whatever the form.
     const player = getPlayer(ctx.state, event.playerId);
-    const activation = player ? (player.identity.form === "hero" ? "attack" : "scheme") : event.activation;
+    const made = event.cardCaused;
+    if (made && (!player || player.eliminated)) return false;
+    const byForm = player ? (player.identity.form === "hero" ? "attack" : "scheme") : event.activation;
+    const activation = made && made.kind !== "byForm" ? made.kind : byForm;
     if (activation !== event.activation) {
       if (activation === "attack" && statusActive(ctx.state, enemyId, "stunned", ctx.deps)) {
         announceStatusDiscarded(ctx, discardStatusCards(ctx, enemyId, "stunned", "cancelledAttack"));
-        return;
+        return false;
       }
       if (activation === "scheme" && statusActive(ctx.state, enemyId, "confused", ctx.deps)) {
         announceStatusDiscarded(ctx, discardStatusCards(ctx, enemyId, "confused", "cancelledSchemeOrThwart"));
-        return;
+        return false;
       }
     }
+    if (made && player) {
+      initiateCardCausedActivation(ctx, enemyId, event.playerId, activation, made, reportTo);
+      return true;
+    }
     initiateActivation(ctx, enemyId, event.playerId, activation);
-    return;
+    return true;
   }
   const villainId = activeVillainIdFor(ctx.state, areaOfPlayer(ctx.state, event.playerId));
-  if (villainId && villainOf(ctx.state, villainId)?.defeated === false) activateEnemy(ctx, villainId, event.playerId);
+  if (villainId && villainOf(ctx.state, villainId)?.defeated === false) {
+    activateEnemy(ctx, villainId, event.playerId);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The attack or scheme a card effect made, initiated once its "when [enemy] activates" interrupts are done: the same
+ * event, frame vars and report target the effect would have pushed with nothing listening (`EffectSpec enemyAttack`).
+ */
+function initiateCardCausedActivation(
+  ctx: Ctx,
+  enemyId: InstanceId,
+  playerId: PlayerId,
+  activation: "attack" | "scheme",
+  made: CardCausedActivation,
+  reportTo: ReportTarget | null,
+): void {
+  const noBoost = made.noBoost ? { noBoost: true } : {};
+  const event: TriggerEvent =
+    activation === "attack"
+      ? {
+          kind: "enemyAttack",
+          enemyInstanceId: enemyId,
+          attackedPlayerId: playerId,
+          targetPlayerId: playerId,
+          targetInstanceId: made.targetInstanceId ?? mustPlayer(ctx.state, playerId).identity.instanceId,
+          ...(made.additionalResolution ? { additionalResolution: true } : {}),
+          ...noBoost,
+        }
+      : {
+          kind: "enemyScheme",
+          enemyInstanceId: enemyId,
+          playerId,
+          ...noBoost,
+          ...(made.divert ? { divert: made.divert } : {}),
+          ...(made.wouldPlaceThreat ? { wouldPlaceThreat: made.wouldPlaceThreat } : {}),
+        };
+  const [frameId] = pushEvents(ctx, [event], reportTo, made.vars);
+  if (made.settlesAwaitingAttack && reportTo && activation === "attack" && frameId)
+    settleAwaitingAttackEffects(ctx, reportTo.frameId, frameId);
 }
 
 // RRG "Villain Phase" step 3 + "Hazard Icon": one card each, then one per hazard icon in player order.

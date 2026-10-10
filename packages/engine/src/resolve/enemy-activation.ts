@@ -1347,7 +1347,7 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
         });
         return;
       }
-      const onScheme: TriggerEvent = {
+      const onScheme: Extract<TriggerEvent, { kind: "placeThreat" }> = {
         kind: "placeThreat",
         schemeInstanceId,
         amount: amount - diverted,
@@ -1355,13 +1355,13 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
         parentFrameId: frame.eventFrameId,
       };
       if (!divert || diverted <= 0) {
-        pushEvent(ctx, onScheme);
+        resolveWouldPlaceThreat(ctx, frame.eventFrameId, onScheme, pushEvent(ctx, onScheme));
         return;
       }
       // The diverted part first, then the rest on the main scheme: both are this activation's placement by the enemy
       // and both report to it, so its `threatPlaced` is the whole and `threatDiverted` the part that left the scheme.
       addFrameVars(ctx, frame.eventFrameId, { threatDiverted: diverted });
-      pushEvents(ctx, [
+      const placements = pushEvents(ctx, [
         {
           kind: "placeThreat",
           schemeInstanceId: divert.toInstanceId,
@@ -1371,12 +1371,44 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
         },
         onScheme,
       ]);
+      resolveWouldPlaceThreat(ctx, frame.eventFrameId, onScheme, placements[1]);
       return;
     }
     case "done":
       popFrame(ctx);
       return;
   }
+}
+
+/**
+ * `EffectSpec enemyScheme.wouldPlaceThreat`: the activation's own placement on a main scheme has just been pushed
+ * (`placementFrameId`), and the effects the initiating ability carries for it go on top, so they resolve first, with
+ * the placement as their triggering event: `preventThreat` lowers it and `cancelTriggeringEvent` cancels it before its
+ * interrupt window opens. Nothing is pushed for a placement of 0 or one that is not going on a main scheme.
+ */
+function resolveWouldPlaceThreat(
+  ctx: Ctx,
+  eventFrameId: FrameId | null,
+  placement: Extract<TriggerEvent, { kind: "placeThreat" }>,
+  placementFrameId: FrameId | undefined,
+): void {
+  const activation = eventFrameId ? ctx.state.stack.find((f) => f.frameId === eventFrameId) : undefined;
+  const would =
+    activation?.kind === "event" && activation.event.kind === "enemyScheme"
+      ? activation.event.wouldPlaceThreat
+      : undefined;
+  if (!would || !placementFrameId || placement.amount <= 0) return;
+  if (cardOf(ctx.state, placement.schemeInstanceId)?.type !== "main_scheme") return;
+  pushEffects(ctx, {
+    effects: would.effects,
+    selfInstanceId: would.selfInstanceId,
+    controllerId: would.controllerId,
+    abilityId: would.abilityId,
+    bindings: would.bindings,
+    vars: would.vars,
+    event: placement,
+    eventFrameId: placementFrameId,
+  });
 }
 
 /**

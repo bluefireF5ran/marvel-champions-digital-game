@@ -240,7 +240,8 @@ describe("Thunderbolts scenario with Extreme Risk: solo (Spider-Man), standard, 
   it("round 1 villain phase: Extreme Risk finds Joystick (held, so in play), she engages Spider-Man and attacks him: ATK 1 + 1 icon = 2; no surge", () => {
     act(sim, {}, changeForm());
     stack(sim, BLANK, EXTREME_RISK_CARD, ONE_ICON);
-    round1 = act(sim, { targets: [BLACK_WIDOW] }, endTurn());
+    // Her Forced Interrupt answers this card-made activation too; here she takes the tough status card.
+    round1 = act(sim, { options: ["Give her a tough"], targets: [BLACK_WIDOW] }, endTurn());
     const events = round1.events;
     // Black Widow is a Thunderbolt minion engaged with him: Citizen V gives up his attack, she attacks for 1.
     expect(ofType(events, "enemyActivated").map((e) => codeOf(sim.state, e.enemyInstanceId))).toEqual([
@@ -254,14 +255,15 @@ describe("Thunderbolts scenario with Extreme Risk: solo (Spider-Man), standard, 
     expect(ofType(events, "revealedInPlay")).toMatchObject([{ cardId: JOYSTICK, engaged: true }]);
     expect(attacksBy(events, sim, JOYSTICK)).toMatchObject([{ baseAtk: 1, boostIcons: 1, damageDealt: 2 }]);
     expect(damageOf(sim, me(sim))).toBe(1 + 2);
+    expect(inst(sim.state, idOf(sim, JOYSTICK)).statuses.tough).toBe(1);
     expect(engagedWith(sim, idOf(sim, JOYSTICK))).toBe(P1);
     // Extreme Risk ends in the encounter discard pile; its activation happened, so it did not surge.
     expect(piles(sim.state).discard.map((i) => codeOf(sim.state, i))).toContain(EXTREME_RISK_CARD);
   });
 
   // 51039 prints "Forced Interrupt: When Joystick activates against you ..."; Extreme Risk's "Joystick activates against you"
-  // is such an activation (owner ruling Q67, docs/phase7-wave5.md section 4.1), but no choice is offered.
-  it.fails("Joystick's Forced Interrupt (51039) is offered when Extreme Risk makes her activate against Spider-Man", () => {
+  // is such an activation (owner ruling Q67, docs/phase7-wave5.md section 4.1).
+  it("Joystick's Forced Interrupt (51039) is offered when Extreme Risk makes her activate against Spider-Man", () => {
     expect(
       round1.asked.some((a) => a.kind === "chooseOption" && a.labels[0]?.startsWith("Give her 1 additional")),
     ).toBe(true);
@@ -309,7 +311,12 @@ describe("Thunderbolts scenario with Extreme Risk: solo (Spider-Man), standard, 
     act(sim, {}, changeForm());
     stack(sim, ONE_ICON);
     const handBefore = playerOf(sim.state, P1).hand.length;
-    const events = act(sim, {}, use(P1, truncheon, "51040.energy-truncheon-action")).events;
+    // The Truncheon's attack is an activation against him: her Forced Interrupt is asked again (she keeps her tough card).
+    const used = act(sim, { options: ["Give her a tough"] }, use(P1, truncheon, "51040.energy-truncheon-action"));
+    const events = used.events;
+    expect(used.asked.some((a) => a.kind === "chooseOption" && a.labels[0]?.startsWith("Give her 1 additional"))).toBe(
+      true,
+    );
     // Energy Truncheon prints +1 ATK in its data: Joystick 1 + 1, with one boost icon.
     expect(attacksBy(events, sim, JOYSTICK)).toMatchObject([{ baseAtk: 2, boostIcons: 1, damageDealt: 3 }]);
     expect(inPlayCard(sim.state, TRUNCHEON)).toBeUndefined();

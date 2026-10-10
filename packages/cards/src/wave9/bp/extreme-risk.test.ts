@@ -322,18 +322,38 @@ describe("Extreme Risk (51042)", () => {
     expect([card.type, card.boostIcons, card.starIcon, card.quantityInSet]).toEqual(["treachery", 2, true, 2]);
   });
 
-  it("WHEN REVEALED (hero): Joystick is found, engages the revealing player and attacks: ATK 1 + 1 icon = 2 damage; no surge", () => {
-    const run = villainPhase(onlyDeck(heroForm(setupGame()), BLANK, RISK, JOYSTICK, ONE_ICON), []);
+  // "Joystick activates against you" is an activation her own Forced Interrupt answers (RRG 1.8 "Activation", p. 6;
+  // owner ruling Q67, docs/phase7-wave5.md section 4.1), so each reveal below answers her choice first.
+  it("WHEN REVEALED (hero): Joystick is found, engages the revealing player and attacks; her Forced Interrupt's additional boost card is flipped too: ATK 1 + 1 + 2 icons = 4 damage, and you draw 1; no surge", () => {
+    const staged = onlyDeck(heroForm(setupGame()), BLANK, RISK, JOYSTICK, ONE_ICON, TWO_ICON);
+    const run = villainPhase(staged, [], labeled("Give her 1 additional boost card"));
+    const declined = villainPhase(staged, [], labeled("Give her a tough"));
     const joystick = inPlayCard(run.state, JOYSTICK)!;
     expect(inst(run.state, joystick).engagedWith).toBe(P1);
-    expect(attacksBy(run.state, run.events, JOYSTICK)).toMatchObject([{ baseAtk: 1, boostIcons: 1, damageDealt: 2 }]);
+    expect(attacksBy(run.state, run.events, JOYSTICK)).toMatchObject([{ baseAtk: 1, boostIcons: 3, damageDealt: 4 }]);
+    expect(types(run.events, "boostCardDealt").filter((e) => e.enemyInstanceId === joystick)).toHaveLength(2);
+    expect(draws(run.events, P1) - draws(declined.events, P1)).toBe(1);
+    expect(tough(run.state, joystick)).toBe(0);
     expect(revealedCodes(run.state, run.events)).toEqual([RISK, JOYSTICK]);
     expect(inDiscard(run.state, RISK)).toHaveLength(1);
   });
 
-  it("WHEN REVEALED (alter-ego): Joystick schemes: SCH 1 + 1 icon = 2 threat", () => {
-    const run = villainPhase(onlyDeck(setupGame(), BLANK, RISK, JOYSTICK, ONE_ICON), []);
+  it("WHEN REVEALED (hero), the interrupt's other option: she gets a tough status card and attacks with her one boost card: ATK 1 + 1 icon = 2 damage", () => {
+    const run = villainPhase(
+      onlyDeck(heroForm(setupGame()), BLANK, RISK, JOYSTICK, ONE_ICON),
+      [],
+      labeled("Give her a tough"),
+    );
+    const joystick = inPlayCard(run.state, JOYSTICK)!;
+    expect(attacksBy(run.state, run.events, JOYSTICK)).toMatchObject([{ baseAtk: 1, boostIcons: 1, damageDealt: 2 }]);
+    expect(types(run.events, "boostCardDealt").filter((e) => e.enemyInstanceId === joystick)).toHaveLength(1);
+    expect(tough(run.state, joystick)).toBe(1);
+  });
+
+  it("WHEN REVEALED (alter-ego): Joystick schemes: SCH 1 + 1 icon = 2 threat (her Forced Interrupt answered with the tough status card)", () => {
+    const run = villainPhase(onlyDeck(setupGame(), BLANK, RISK, JOYSTICK, ONE_ICON), [], labeled("Give her a tough"));
     expect(schemesBy(run.state, run.events, JOYSTICK)).toMatchObject([{ baseSch: 1, boostIcons: 1, threatPlaced: 2 }]);
+    expect(tough(run.state, inPlayCard(run.state, JOYSTICK)!)).toBe(1);
   });
 
   it("WHEN REVEALED: with Joystick already in play (engaged with player 2) she engages the revealing player 1 and attacks them: 1 + 2 icons = 3 damage (after her own 2 against player 2)", () => {

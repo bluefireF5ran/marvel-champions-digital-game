@@ -2,7 +2,7 @@ import type { AbilityId, CardId, Trait } from "@mc/content";
 import type { EventPattern } from "./abilities.js";
 import type { EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
 import type { StatusDiscardCause } from "./events.js";
-import type { CardDestination, Predicate, StatName, StatusName, TargetCategory } from "./spec.js";
+import type { CardDestination, EffectSpec, Predicate, StatName, StatusName, TargetCategory } from "./spec.js";
 import { PAID_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
 import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./state.js";
 
@@ -343,6 +343,8 @@ export type TriggerEventBody =
       readonly noBoost?: boolean;
       /** `EffectSpec enemyScheme.divert` (docs/phase7-wave9.md §3.9), read at this activation's place-threat step. */
       readonly divert?: SchemeThreatDivert;
+      /** `EffectSpec enemyScheme.wouldPlaceThreat`, resolved at this activation's place-threat step. */
+      readonly wouldPlaceThreat?: SchemeWouldPlaceThreat;
     }
   /**
    * An enemy was given a facedown boost card (docs/phase7-wave9.md §3.44): "Hero Response (defense): After an
@@ -1229,6 +1231,14 @@ export type TriggerEventBody =
       readonly enemyInstanceId: InstanceId | null;
       readonly activation: "attack" | "scheme";
       readonly playerId: PlayerId;
+      /**
+       * Set when a card effect makes the activation (`EffectSpec enemyAttack` / `enemyScheme` / `enemyActivation`)
+       * rather than step two of the villain phase. RRG 1.8 "Activation" (p. 6): attacks and schemes a card ability
+       * causes "are also considered activations", so "when [enemy] activates against you" interrupts them too (owner
+       * ruling, docs/phase7-wave5.md §4.1 Q67). It carries what the effect fixed for the attack or scheme, which
+       * `continueActivation` initiates once the interrupts are done.
+       */
+      readonly cardCaused?: CardCausedActivation;
     }
   /**
    * A boost card's icons are about to be counted for an activation (docs/phase7-wave2.md §3.6): "When boost icons on an
@@ -1521,6 +1531,25 @@ export type TriggerEventBody =
     };
 
 /**
+ * What a card effect fixed for the activation it makes, carried by that activation's `enemyActivating` announcement.
+ * `kind`: "X attacks you" is an attack and "X schemes" a scheme whatever the player's form; `"byForm"` is "X activates
+ * against you", read from the player's form as the activation begins (after the interrupts, as in the villain phase).
+ * `vars` seeds the attack's or scheme's frame (`atkBonus`, `schBonus`, the keywords, the boost changes).
+ */
+export interface CardCausedActivation {
+  readonly kind: "attack" | "scheme" | "byForm";
+  /** "X attacks [that character]": the attack's target, when it is not the player's identity. */
+  readonly targetInstanceId?: InstanceId;
+  readonly additionalResolution?: boolean;
+  readonly noBoost?: boolean;
+  readonly divert?: SchemeThreatDivert;
+  readonly wouldPlaceThreat?: SchemeWouldPlaceThreat;
+  readonly vars: Vars;
+  /** A rule waiting on "that attack" (`LastingDuration awaitingAttack`) is retimed to this activation's attack. */
+  readonly settlesAwaitingAttack?: boolean;
+}
+
+/**
  * Part of one scheme activation's threat placed on a card instead of on the main scheme (`EffectSpec
  * enemyScheme.divert`, docs/phase7-wave9.md §3.9). `amount` and `toInstanceId` were fixed when the effect that
  * initiated the activation resolved; `if` is evaluated at the place-threat step in the scope of that effect's ability
@@ -1532,6 +1561,20 @@ export interface SchemeThreatDivert {
   readonly if?: Predicate;
   readonly selfInstanceId: InstanceId | null;
   readonly controllerId: PlayerId | null;
+  readonly bindings: Bindings;
+  readonly vars: Vars;
+}
+
+/**
+ * The effects one scheme activation resolves as it is about to place threat on a main scheme (`EffectSpec
+ * enemyScheme.wouldPlaceThreat`), with the scope of the ability that initiated the activation as it was when that
+ * effect resolved, which is why they travel with the event (as `SchemeThreatDivert`).
+ */
+export interface SchemeWouldPlaceThreat {
+  readonly effects: readonly EffectSpec[];
+  readonly selfInstanceId: InstanceId | null;
+  readonly controllerId: PlayerId | null;
+  readonly abilityId?: AbilityId;
   readonly bindings: Bindings;
   readonly vars: Vars;
 }

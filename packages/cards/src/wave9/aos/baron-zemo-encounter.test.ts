@@ -497,3 +497,20 @@ describe("The Ends Justify the Means (50177)", () => {
     expect(total(run.state)).toBe(0);
   });
 });
+
+// A hero is a character (RRG 1.8 "Character", p. 12) and is defeated at zero hit points ("Defeat", p. 15), so the
+// Sword answers an attack that eliminates a player while the game goes on.
+describe("Baron Zemo's Sword (50170): the attack defeats a hero in a two-player game", () => {
+  it("Forced Response: Spider-Man is defeated and eliminated, 1 secret counter goes on the fewest, and Iron Man plays on", () => {
+    const base = withSword(withCounters(open([SPIDER_MAN, IRON_MAN])));
+    const spiderMan = playerOf(base, P1).identity.instanceId;
+    // One hit point left: Zemo's undefended attack defeats him.
+    const start = patchInstance(base, spiderMan, { damage: 9 });
+    const run = villainPhase(start, [BLANK, BLANK, ONE_ICON]);
+    expect(run.events.some((e) => e.type === "characterDefeated" && e.instanceId === spiderMan)).toBe(true);
+    expect(run.events.filter((e) => e.type === "playerEliminated")).toMatchObject([{ playerId: P1 }]);
+    expect(counts(run.state)).toEqual([2, 2, 3]);
+    expect(run.state.outcome).toBeNull();
+    expect(run.state.players.find((p) => p.playerId !== P1)!.eliminated).toBe(false);
+  });
+});

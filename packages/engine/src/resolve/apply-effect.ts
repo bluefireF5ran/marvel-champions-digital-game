@@ -116,7 +116,13 @@ import {
   type ReportTarget,
   type StackFrame,
 } from "../stack.js";
-import { cardFlippedEvent, type LeavePatch, type SchemeThreatDivert, type TriggerEvent } from "../trigger-events.js";
+import {
+  cardFlippedEvent,
+  type LeavePatch,
+  type SchemeThreatDivert,
+  type SchemeWouldPlaceThreat,
+  type TriggerEvent,
+} from "../trigger-events.js";
 import { uniqueEntryBlocker } from "../unique.js";
 import { campaignSeatNumber } from "../campaign-state.js";
 import { campaignLogValueOf, recordCampaignRemoval, recordCampaignWrite } from "./campaign.js";
@@ -3087,7 +3093,24 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
               },
             }
           : {};
+      // "If this activation would place any threat on the main scheme, …" (`enemyScheme.wouldPlaceThreat`): the
+      // effects travel with each scheme this effect initiates, in this ability's scope as it is now.
+      const wouldPlace: { readonly wouldPlaceThreat?: SchemeWouldPlaceThreat } =
+        effect.kind === "enemyScheme" && effect.wouldPlaceThreat && effect.wouldPlaceThreat.length > 0
+          ? {
+              wouldPlaceThreat: {
+                effects: effect.wouldPlaceThreat,
+                selfInstanceId: frame.selfInstanceId,
+                controllerId: frame.controllerId,
+                ...(frame.abilityId !== undefined ? { abilityId: frame.abilityId } : {}),
+                bindings: frame.bindings,
+                vars: frame.vars,
+              },
+            }
+          : {};
       const events: TriggerEvent[] = [];
+      // Each activation's "when [enemy] activates" announcement, pushed in its place when an ability listens.
+      const announces: Extract<TriggerEvent, { kind: "enemyActivating" }>[] = [];
       const discarded: StatusDiscarded[] = [];
       let cancelledByStatus = 0;
       let firstCancelled: InstanceId | null = null;
@@ -3130,6 +3153,22 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             firstCancelled ??= enemy;
             continue;
           }
+          const kind = attacking ? "attack" : "scheme";
+          announces.push({
+            kind: "enemyActivating",
+            enemyInstanceId: enemy,
+            activation: kind,
+            playerId,
+            cardCaused: {
+              kind: effect.kind === "enemyActivation" ? "byForm" : kind,
+              ...(character ? { targetInstanceId: character } : {}),
+              ...(effect.kind === "enemyAttack" && effect.additionalResolution ? { additionalResolution: true } : {}),
+              ...noBoost,
+              ...(attacking ? {} : divert),
+              ...(attacking ? {} : wouldPlace),
+              vars: {},
+            },
+          });
           events.push(
             attacking
               ? {
@@ -3143,7 +3182,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
                     : {}),
                   ...noBoost,
                 }
-              : { kind: "enemyScheme", enemyInstanceId: enemy, playerId, ...noBoost, ...divert },
+              : { kind: "enemyScheme", enemyInstanceId: enemy, playerId, ...noBoost, ...divert, ...wouldPlace },
           );
         }
       }
@@ -3180,16 +3219,35 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const vacuous = cancelledByStatus === 0 && initiated === 0 && effect.enemies.kind === "each";
       if (!vacuous && (cancelledByStatus > 0 || initiated === 0))
         markPreThenUnresolved(ctx, frame.frameId, "activationDidNotHappen", firstCancelled ?? undefined);
+      // RRG 1.8 "Activation" (p. 6): an attack or scheme a card ability causes is "also considered" an activation, so
+      // "when [enemy] activates against you" interrupts it (owner ruling, docs/phase7-wave5.md §4.1 Q67). Announced as
+      // the villain phase announces its own (`activateEnemy`), only when an ability listens; the announcement carries
+      // what this effect fixed, and `continueActivation` initiates the attack or scheme after the interrupts.
+      const lastAttack = events.map((e) => e.kind).lastIndexOf("enemyAttack");
+      const batch = events.map((event, index): TriggerEvent => {
+        const announce = announces[index];
+        // The same attack resolved against another player (`additionalResolution`) is not another activation.
+        if (!announce?.cardCaused || announce.cardCaused.additionalResolution) return event;
+        if (!heard(ctx.state, ctx.deps, announce)) return event;
+        return {
+          ...announce,
+          cardCaused: {
+            ...announce.cardCaused,
+            vars: bonus,
+            ...(index === lastAttack ? { settlesAwaitingAttack: true } : {}),
+          },
+        };
+      });
       const pushed = pushEvents(
         ctx,
-        events,
+        batch,
         { frameId: frame.frameId, prefix: effect.bind ?? null, gatesThen: true },
         bonus,
       );
       // "The Lizard attacks you. You cannot play events until after that attack resolves." (`applyRuleUntil` with
       // `attack: "initiated"`): the rule waiting on this frame is now scoped to the attack, the last one if several.
-      const lastAttack = events.map((e) => e.kind).lastIndexOf("enemyAttack");
-      if (effect.kind === "enemyAttack" || lastAttack >= 0)
+      // An announced attack settles it as it is initiated (`CardCausedActivation.settlesAwaitingAttack`).
+      if ((effect.kind === "enemyAttack" || lastAttack >= 0) && batch[lastAttack]?.kind !== "enemyActivating")
         settleAwaitingAttackEffects(ctx, frame.frameId, pushed[lastAttack] ?? null);
       // Pushed last, so the discards' shared response window resolves before the activations the statuses did not stop.
       announceStatusDiscarded(ctx, discarded);

@@ -353,7 +353,10 @@ describe("§3.10 'Card abilities cannot remove this ally from play' (cannotLeave
 
     expect(offered).toContain(guarded);
     expect(mustPlayer(after, P1).discard).toContain(guarded);
-    expect(defeats(events)).toEqual([]);
+    // No ally is defeated. The revealed card's damage defeats player 1's hero, which is logged as any character's
+    // defeat is (RRG 1.8 "Defeat", p. 15).
+    const hero = mustPlayer(after, P1).identity.instanceId;
+    expect(defeats(events).filter((id) => id !== hero)).toEqual([]);
     expect(blocked(events)).toEqual([]);
     expectReplays(session);
   });

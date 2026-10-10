@@ -551,6 +551,15 @@ export const enemyScheme = (
     readonly extraBoostCards?: Amount;
     readonly boostIconsEach?: Amount;
     readonly divert?: { readonly amount?: Amount; readonly to: TargetRef; readonly if?: Predicate };
+    /**
+     * "If this activation would place any threat on the main scheme, you may spend … to prevent X of that threat
+     * and …" (Battle of Wits, `aos` 50175): the rest of the sentence, resolved at the activation's place-threat step
+     * when it is about to place 1 or more threat on a main scheme, with that placement as the triggering event:
+     * `eventAmount` is the threat about to be placed, `preventThreat(n)` prevents some of it, `cancelIt()` all of it.
+     * The effects read this ability's slots and vars as they were when the scheme was initiated; what they bind is
+     * theirs alone. Works on a card that is not in play (a treachery's When Revealed).
+     */
+    readonly wouldPlaceThreat?: readonly EffectArg[];
   } = {},
 ): EffectSpec => ({
   kind: "enemyScheme",
@@ -568,6 +577,7 @@ export const enemyScheme = (
         },
       }
     : {}),
+  ...(opts.wouldPlaceThreat ? { wouldPlaceThreat: flatten(opts.wouldPlaceThreat) } : {}),
 });
 /**
  * "Venom activates against you" (Biting Retort, `sm` 27082): the enemies activate against the player the way the

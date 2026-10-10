@@ -49,7 +49,7 @@ import {
 } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { defeatedTogetherDefeated, defeatedTogetherPending, defeatFrames } from "./defeated-together.js";
-import { base, eventFrame, gameAbilityFrames } from "./frames.js";
+import { addFrameVars, base, eventFrame, gameAbilityFrames } from "./frames.js";
 import { mainSchemeStageFrames } from "./main-scheme-side.js";
 import { flipMainSchemeStage, leaveAreaOnDefeat, leaveVillainRow, passActiveCounter } from "./game-areas.js";
 import { attachmentHostCandidates, inciteFrames, revealNewFaceFrame } from "./reveal.js";
@@ -756,9 +756,30 @@ export function checkDefeats(ctx: Ctx, hints?: DefeatHint | readonly DefeatHint[
       pushFrames(ctx, [eventFrame(ctx, defeat)]);
       continue;
     }
+    recordIdentityDefeat(ctx, identityId, hint?.parentFrameId, hint?.reportFrameId);
     eliminatePlayer(ctx, player.playerId);
     if (ctx.state.outcome) return;
   }
+}
+
+/**
+ * An identity is defeated (RRG 1.8 "Defeat", p. 15: a character with zero or fewer remaining hit points "is defeated";
+ * "Character", p. 12: identities are characters), recorded as an ally's or minion's defeat is before its player is
+ * eliminated ("Player Elimination", p. 34): the log line, and `defeated` on the damage that did it (`parentFrameId`)
+ * and on the attack that damage belongs to (`reportFrameId`), so "after [enemy] attacks and defeats a character"
+ * answers a hero's defeat in a game that goes on.
+ */
+export function recordIdentityDefeat(
+  ctx: Ctx,
+  identityId: InstanceId,
+  parentFrameId: FrameId | null | undefined,
+  reportFrameId: FrameId | null | undefined,
+): void {
+  const instance = getInstance(ctx.state, identityId);
+  if (!instance) return;
+  emit(ctx, { type: "characterDefeated", instanceId: identityId, cardId: instance.cardId });
+  addFrameVars(ctx, parentFrameId, { defeated: 1 });
+  if (reportFrameId && reportFrameId !== parentFrameId) addFrameVars(ctx, reportFrameId, { defeated: 1 });
 }
 
 /** An identity at zero remaining hit points that can be defeated: the sweep defeats it. */

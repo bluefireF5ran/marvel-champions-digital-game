@@ -2920,12 +2920,34 @@ export type EffectSpec =
         readonly to: TargetRef;
         readonly if?: Predicate;
       };
+      /**
+       * "[Enemy] schemes. If this activation would place any threat on the main scheme, you may … to prevent X of
+       * that threat …": the rest of this ability's own text about the placement, resolved at each scheme activation
+       * this effect initiates, at its place-threat step (RRG 1.8 "Scheme (Enemy Activation)", p. 39, step 3), once SCH
+       * and the boost icons are counted and only if that step is about to place 1 or more threat on a main scheme.
+       * The card resolving this effect need not be in play (a treachery being revealed is not, and so has no interrupt
+       * of its own to the placement it starts), which is why the effects travel with the activation
+       * (`TriggerEvent enemyScheme.wouldPlaceThreat`) instead of being a triggered ability.
+       *
+       * The effects resolve as an interrupt to that placement does, in this ability's scope (its card, controller,
+       * slots and vars as they were when this effect resolved): the placement is their triggering event, so
+       * `eventAmount` is the threat about to go on the main scheme, `eventTarget` the main scheme, and
+       * `preventThreat` / `cancelTriggeringEvent` act on it. They resolve before the placement's own interrupt window
+       * opens: they are the rest of an ability that is already resolving, not a new trigger competing in that
+       * window (engine reading; the RRG does not order the two). What they bind stays with them: it is not handed back to the effects after this one.
+       *
+       * Not resolved when the activation places no threat on a main scheme: SCH 0 or a dashed SCH with no boost icons,
+       * a `schemeThreatDestination` rule sending the threat to another scheme, an activation that removes threat
+       * instead (`modifyAttack.removesThreat`), or all of it diverted (`divert`); nor when the activation does not
+       * happen. With `divert`, only the part still going on the main scheme is the event.
+       */
+      readonly wouldPlaceThreat?: readonly EffectSpec[];
     }
   /**
    * "Venom activates against you" (Biting Retort, `sm` 27082): each enemy in `enemies` activates against each player
    * in `against` (absent = the player it is engaged with, else this ability's player) the way the villain phase
    * activates it: an attack if that player's identity is in hero form, a scheme if it is in alter-ego form, read when
-   * this effect resolves (RRG 1.8 "Activation", p. 6: "Some card abilities can also cause enemies to attack or
+   * this effect resolves, and again after any "when [enemy] activates" interrupt (RRG 1.8 "Activation", p. 6: "Some card abilities can also cause enemies to attack or
    * scheme. These are also considered activations"; docs/phase7-wave5.md §4.1 Q67). Each activation is then exactly
    * `enemyAttack`'s or `enemyScheme`'s, so the stack, the log and a replay show which one it was: a stunned enemy
    * discards its stun instead of the attack, a confused one its confusion instead of the scheme (RRG 1.8 "Stun",
