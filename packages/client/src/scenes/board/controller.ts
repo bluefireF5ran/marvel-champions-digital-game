@@ -1079,9 +1079,10 @@ export class BoardController {
   async confirmInPlayCost(): Promise<void> {
     if (this.#readOnly || this.#selection.kind !== "choosingInPlayCost") return;
     const { choice, target, controllerId, costSelection } = this.#selection;
-    if (!slotAnswered(choice)) return;
+    const { game: current } = appSession().store.state;
+    if (!current || !slotAnswered(choice, current, POOL_DEPS)) return;
     if (!isLastSlot(choice)) {
-      this.#selection = { ...this.#selection, choice: advanceInPlayCostChoice(choice) };
+      this.#selection = { ...this.#selection, choice: advanceInPlayCostChoice(choice, current, POOL_DEPS) };
       this.#host.redraw();
       return;
     }

@@ -17,6 +17,7 @@
 
 import {
   activeAbilityRefs,
+  characterProfile,
   inPlayCostCandidates,
   inPlayPicksOf,
   resolveValue,
@@ -24,6 +25,7 @@ import {
   type CostChoices,
   type EngineDeps,
   type GameState,
+  type InPlayCombined,
   type InPlayCostMode,
   type InstanceId,
   type LegalAction,
@@ -44,6 +46,12 @@ export interface InPlayCostSlot {
   readonly uncapped: boolean;
   /** The count the cost binds to a variable (`bind`), for a preview that scales with it. */
   readonly bind?: string;
+  /**
+   * "With a combined THW greater than attached enemy's SCH" (`InPlayCostPick.combined`): the stat the picks add up and the
+   * number the total must exceed, read as the engine reads it for this ability's card and payer. Absent for a pick with
+   * no such threshold.
+   */
+  readonly combined?: { readonly stat: "atk" | "thw" | "def" | "rec" | "sch"; readonly moreThan: number };
   readonly candidates: readonly InstanceId[];
 }
 
@@ -111,10 +119,40 @@ export function beginInPlayCostChoice(
       max: Math.min(pick.max ?? offered.length, offered.length),
       uncapped: pick.max === undefined,
       ...(pick.bind ? { bind: pick.bind } : {}),
+      ...(pick.combined ? { combined: combinedOf(state, deps, ref.instanceId, playerId, pick.combined) } : {}),
       candidates: offered,
     };
   });
   return { action, playerId, source: ref.instanceId, slots, index: 0, picks: {} };
+}
+
+/** The number a combined total must exceed, resolved with the ability's card as "self" and the payer as "you". */
+function combinedOf(
+  state: GameState,
+  deps: EngineDeps,
+  source: InstanceId,
+  playerId: PlayerId,
+  combined: InPlayCombined,
+): NonNullable<InPlayCostSlot["combined"]> {
+  const moreThan = resolveValue(
+    state,
+    combined.moreThan,
+    { selfInstanceId: source, controllerId: playerId, event: null, bindings: {}, deps },
+    deps,
+  );
+  return { stat: combined.stat, moreThan };
+}
+
+/** The picks' total of a combined stat as each stands in play (a dash, or no such power, adds 0), the engine's own `characterProfile`. */
+export function combinedTotal(
+  state: GameState,
+  deps: EngineDeps,
+  slot: InPlayCostSlot,
+  picked: readonly InstanceId[],
+): number {
+  const stat = slot.combined?.stat;
+  if (!stat) return 0;
+  return picked.reduce((sum, id) => sum + (characterProfile(state, id, deps)?.[stat] ?? 0), 0);
 }
 
 const currentSlot = (choice: InPlayCostChoiceState): InPlayCostSlot => choice.slots[choice.index]!;
@@ -137,19 +175,28 @@ export function toggleInPlayPick(choice: InPlayCostChoiceState, id: InstanceId):
   return { ...choice, picks: { ...choice.picks, [slot.slot]: [...picked, id] } };
 }
 
-/** Whether the current slot's picks are a count its cost takes. */
-export function slotAnswered(choice: InPlayCostChoiceState): boolean {
+/**
+ * Whether the current slot's picks are a count its cost takes, and, for a cost with a combined threshold, a total that
+ * exceeds it: the engine refuses a short pick, so Confirm waits rather than sending one.
+ */
+export function slotAnswered(choice: InPlayCostChoiceState, state: GameState, deps: EngineDeps): boolean {
   const slot = currentSlot(choice);
-  const count = (choice.picks[slot.slot] ?? []).length;
-  return count >= slot.min && count <= slot.max;
+  const picked = choice.picks[slot.slot] ?? [];
+  if (picked.length < slot.min || picked.length > slot.max) return false;
+  if (slot.combined) return combinedTotal(state, deps, slot, picked) > slot.combined.moreThan;
+  return true;
 }
 
 /** True when the current slot is the last one asked, so confirming it sends the play. */
 export const isLastSlot = (choice: InPlayCostChoiceState): boolean => choice.index >= choice.slots.length - 1;
 
 /** The next slot, once the current one is answered. The same state when it is not, or when none is left. */
-export function advanceInPlayCostChoice(choice: InPlayCostChoiceState): InPlayCostChoiceState {
-  if (!slotAnswered(choice) || isLastSlot(choice)) return choice;
+export function advanceInPlayCostChoice(
+  choice: InPlayCostChoiceState,
+  state: GameState,
+  deps: EngineDeps,
+): InPlayCostChoiceState {
+  if (!slotAnswered(choice, state, deps) || isLastSlot(choice)) return choice;
   return { ...choice, index: choice.index + 1 };
 }
 
@@ -259,6 +306,10 @@ export function previewOf(state: GameState, deps: EngineDeps, choice: InPlayCost
   }
 }
 
+/** "Combined THW 3, need more than 4", then "Combined THW 5, more than 4" once the total beats it. */
+export const combinedLine = (combined: { stat: string; total: number; moreThan: number }): string =>
+  `Combined ${combined.stat} ${combined.total}, ${combined.total > combined.moreThan ? "" : "need "}more than ${combined.moreThan}`;
+
 /** The picker as the board draws it. */
 export interface InPlayCostChoiceView {
   /** The card whose cost this is. */
@@ -274,6 +325,13 @@ export interface InPlayCostChoiceView {
   /** "PICKED 2 (any number)". */
   readonly summary: string;
   readonly preview: string | null;
+  /** The running total of a combined stat against the number it must exceed (`InPlayCostPick.combined`); null for a cost with none. */
+  readonly combined: {
+    readonly stat: string;
+    readonly total: number;
+    readonly moreThan: number;
+    readonly met: boolean;
+  } | null;
   readonly canConfirm: boolean;
   /** Why Confirm is not yet available, in a few words; null when it is. */
   readonly reason: string | null;
@@ -288,8 +346,16 @@ export function inPlayCostChoiceView(
 ): InPlayCostChoiceView {
   const slot = currentSlot(choice);
   const picked = choice.picks[slot.slot] ?? [];
-  const canConfirm = slotAnswered(choice);
+  const canConfirm = slotAnswered(choice, state, deps);
   const short = slot.min - picked.length;
+  const combined = slot.combined
+    ? {
+        stat: slot.combined.stat.toUpperCase(),
+        total: combinedTotal(state, deps, slot, picked),
+        moreThan: slot.combined.moreThan,
+      }
+    : null;
+  const preview = previewOf(state, deps, choice);
   return {
     subject: cardName(state, choice.source),
     source: choice.source,
@@ -299,9 +365,17 @@ export function inPlayCostChoiceView(
     offered: offeredNow(choice),
     picked: new Set(picked),
     summary: `PICKED ${picked.length} (${rangeText(slot)})`,
-    preview: previewOf(state, deps, choice),
+    // The running total beside the number to beat, in words: "Combined THW 3, need more than 4" until it is beaten.
+    preview: combined ? [combinedLine(combined), preview].filter(Boolean).join(" · ") : preview,
+    combined: combined ? { ...combined, met: combined.total > combined.moreThan } : null,
     canConfirm,
-    reason: canConfirm ? null : short > 0 ? `Pick ${short} more` : null,
+    reason: canConfirm
+      ? null
+      : short > 0
+        ? `Pick ${short} more`
+        : combined
+          ? `Need a combined ${combined.stat} of more than ${combined.moreThan}`
+          : null,
     confirmLabel: isLastSlot(choice) ? "Confirm" : "Next",
   };
 }

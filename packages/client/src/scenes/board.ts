@@ -34,6 +34,7 @@ import { cssOf } from "../ui/theme.js";
 import { McSelectionRing, McTabs, paintDotGrid } from "../ui/widgets.js";
 import { boardModel, type BoardModel } from "../view/board-model.js";
 import { highlights, type Highlights } from "../view/highlights.js";
+import { withAttackBarWording } from "../view/attack-bar.js";
 import { withDefenseLockout } from "../view/defense-lockout.js";
 import { appendCardHistory, emptyCardHistoryLog, type CardHistoryLog } from "../view/card-history.js";
 import { appendEvents, emptyLog, type LogState } from "../view/log-lines.js";
@@ -524,7 +525,12 @@ export class BoardScene extends Phaser.Scene {
     const mine = state.legal?.playerId === state.perspectiveId ? state.legal.actions : null;
     this.#model = this.#withDebugSideSchemes(boardModel(state.game, state.perspectiveId, POOL_DEPS, mine));
     this.#marks = state.legal
-      ? withDefenseLockout(highlights(state.legal.actions), state.game, state.perspectiveId, POOL_DEPS)
+      ? withDefenseLockout(
+          withAttackBarWording(highlights(state.legal.actions), state.legal.actions, state.game, POOL_DEPS),
+          state.game,
+          state.perspectiveId,
+          POOL_DEPS,
+        )
       : null;
     const present = presentTeamUps(state.game, TEAM_UP_PAIRS);
     this.#teamUps = present.map((entry) => entry.pair);
@@ -1046,7 +1052,14 @@ export class BoardScene extends Phaser.Scene {
     this.#motion.startTravels(previous, this.#frame, layout);
     // Last, so beats and traveling ghosts float above the table rather than
     // under a later panel.
-    this.#motion.drawBeats(this.#frame.hitRects);
+    this.#motion.drawBeats(
+      new Map([
+        ...[...this.#frame.focusRects].flatMap(([key, chip]): [InstanceId, Rect][] =>
+          key.startsWith("card:") ? [[key.slice(5) as InstanceId, chip]] : [],
+        ),
+        ...this.#frame.hitRects,
+      ]),
+    );
     this.#motion.renderTravels();
     // Held while the villain-phase walkthrough or the round debrief covers the table: the walkthrough stays up
     // into the next player phase until the player continues or skips it, and every round after the first the
@@ -1132,6 +1145,14 @@ export class BoardScene extends Phaser.Scene {
   }
 
   /** Pulsing rings on the valid targets while a target is being chosen. */
+  /**
+   * Where a card is on the table this draw: its own tile, or, for an attachment (Encased in Ice is a target of attacks),
+   * the chip that stands for it on its host. Rings and damage numbers go here.
+   */
+  #cardRect(id: InstanceId): Rect | undefined {
+    return this.#frame.hitRects.get(id) ?? this.#frame.focusRects.get(focusKey({ kind: "card", instanceId: id }));
+  }
+
   #drawTargetRings(): void {
     for (const ring of this.#targetRings) {
       ring.destroy();
@@ -1143,7 +1164,7 @@ export class BoardScene extends Phaser.Scene {
     if (selection.kind !== "targeting") return;
     const reduced = appSession().settings.reducedMotion;
     for (const target of selection.action.targets) {
-      const rect = this.#frame.hitRects.get(target);
+      const rect = this.#cardRect(target);
       if (!rect) continue;
       const ring = new McSelectionRing(this);
       ring.show(rect, "pulse", reduced);
