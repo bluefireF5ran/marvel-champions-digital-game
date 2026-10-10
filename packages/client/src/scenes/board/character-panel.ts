@@ -21,6 +21,7 @@ import {
   attachmentChipText,
   counterNote,
   threatNote,
+  tuckedLine,
   type CharacterPanel,
   type StatTile,
 } from "../../view/board-model.js";
@@ -42,6 +43,7 @@ import type { BoardDrawContext } from "./context.js";
 import type { DefeatFlashState, ExhaustMotionState, HpTickState, StatusStampState } from "./motion.js";
 import { dimAlpha, targetState } from "./selection.js";
 import { drawTeamUpBlurb, drawTeamUpRing } from "./team-up-badge.js";
+import { drawTuckedRow, type TuckedRowDrawn } from "./tucked-row.js";
 import { columnRings, ringDiameterFor } from "../../view/team-up-layout.js";
 
 export interface DrawCharacterOptions {
@@ -173,6 +175,26 @@ export function drawCharacter(
     const height = Math.max(16, footStripLayout(gained, textWidth).height);
     drawFootStrip(scene, { x: left, y: top, width: textWidth, height }, gained, "note", dim);
     top += height + 3;
+  }
+
+  // Cards tucked under this one (Silk's identity): small cards under an "UNDER n" strip, each opened by a tap; where the
+  // column has no room for the row (a short panel) the strip alone says the count and a tap opens the first.
+  const tuckTargets: { readonly rect: Rect; readonly ids: readonly InstanceId[] }[] = [];
+  let tuckedRow: TuckedRowDrawn | null = null;
+  if (panel.tuckedCount > 0) {
+    const roomLeft = rect.y + rect.height - 8 - top - TUCKED_STAT_RESERVE;
+    const drawn = compact
+      ? null
+      : drawTuckedRow(ctx, { x: left, y: top, width: textWidth, height: Math.min(roomLeft, 70) }, panel, dim);
+    if (drawn && drawn.height > 0) {
+      tuckedRow = drawn;
+      top += drawn.height + 4;
+    } else {
+      const strip: Rect = { x: left, y: top, width: textWidth, height: 16 };
+      drawFootStrip(scene, strip, tuckedLine(panel, false), "note", dim);
+      tuckTargets.push({ rect: strip, ids: panel.tucked.map((card) => card.instanceId) });
+      top += 19;
+    }
   }
 
   if (panel.exhausted && !compact) {
@@ -377,7 +399,18 @@ export function drawCharacter(
     // A tap shows the card; its sheet offers any ability it has, so nothing is used by a stray tap.
     ctx.makeTapTarget(target.rect, target.instanceId, () => controller.onCharacterTap(target.instanceId));
   }
+  for (const target of tuckTargets) openTucked(ctx, target.rect, target.ids);
+  tuckedRow?.addTapTargets();
 }
+
+/** A tap target over a tucked-cards strip: it opens the first card in Inspect, ◂ ▸ stepping through the rest. */
+function openTucked(ctx: BoardDrawContext, rect: Rect, ids: readonly InstanceId[]): void {
+  const first = ids[0];
+  if (first) ctx.makeTapTarget(rect, first, () => ctx.inspect(first, ids));
+}
+
+/** The height a wide panel keeps for its stat badges and HP plate before the tucked-cards row may take any. */
+const TUCKED_STAT_RESERVE = 90;
 
 /** A wide panel shorter than this draws its status tags small and on one row (`drawStatusTags`). */
 const COMPACT_PANEL_HEIGHT = 150;
@@ -484,8 +517,18 @@ function drawCardShapedPanel(
     readonly instanceId?: InstanceId;
     /** Taller than the usual strip: a wrapped ability name. */
     readonly height?: number;
+    /** A strip about cards tucked here: a tap opens the first in Inspect and steps through these. */
+    readonly inspectIds?: readonly InstanceId[];
   }[] = [];
   if (panel.ownerName && rect.height >= 40) strips.push({ text: `from ${panel.ownerName}`, tone: "note" });
+  // What is tucked under this card (a minion with Energy Shield under it, an ally): the count, and a tap opens them.
+  if (panel.tuckedCount > 0 && rect.height >= 40) {
+    strips.push({
+      text: tuckedLine(panel, false),
+      tone: "note",
+      inspectIds: panel.tucked.map((card) => card.instanceId),
+    });
+  }
   if (panel.grantedKeywords.length > 0 && rect.height >= 40) {
     strips.push({ text: panel.grantedKeywords.join(" \u00b7 "), tone: "note" });
   }
@@ -539,6 +582,7 @@ function drawCardShapedPanel(
     drawStatBlock(ctx, column, panel, dim);
   }
   const stripTargets: { readonly rect: Rect; readonly instanceId: InstanceId }[] = [];
+  const tuckTargets: { readonly rect: Rect; readonly ids: readonly InstanceId[] }[] = [];
   let stripY = inner.y + inner.height - reserved;
   strips.forEach((strip) => {
     const y = stripY;
@@ -546,6 +590,7 @@ function drawCardShapedPanel(
     stripY += stripRect.height;
     drawFootStrip(scene, stripRect, strip.text, strip.tone, dim, strip.tag ?? null);
     if (strip.instanceId) stripTargets.push({ rect: stripRect, instanceId: strip.instanceId });
+    if (strip.inspectIds) tuckTargets.push({ rect: stripRect, ids: strip.inspectIds });
   });
 
   // A brief ±4px shake on damage, wrapping everything drawn so far — the
@@ -566,6 +611,7 @@ function drawCardShapedPanel(
   for (const target of stripTargets) {
     ctx.makeTapTarget(target.rect, target.instanceId, () => controller.onCharacterTap(target.instanceId));
   }
+  for (const target of tuckTargets) openTucked(ctx, target.rect, target.ids);
 }
 
 /**

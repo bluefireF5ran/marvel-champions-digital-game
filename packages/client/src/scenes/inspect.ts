@@ -99,6 +99,7 @@ import {
   type InspectModel,
   type InspectPayment,
 } from "../view/inspect-model.js";
+import { tuckedSiblings } from "../view/inspect-notes.js";
 import type { GamepadIntent } from "../view/gamepad.js";
 import { PressArm } from "../view/press-arm.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
@@ -290,7 +291,11 @@ export class InspectOverlay extends Phaser.Scene {
 
   create(data: InspectData): void {
     this.#instanceId = data.instanceId ?? null;
-    this.#siblings = data.siblings ?? [];
+    // Opened on a card with cards under it (or on one of those): ◂ ▸ step through the host and what is tucked under it.
+    const game = appSession().store.state.game;
+    this.#siblings =
+      data.siblings ??
+      (game && data.instanceId && !data.choice && !data.card ? [...tuckedSiblings(game, data.instanceId)] : []);
     this.#choice = data.choice;
     this.#card = data.card;
     this.#note = data.note;
@@ -569,9 +574,7 @@ export class InspectOverlay extends Phaser.Scene {
     this.#drawCardPanel(layout.card, model);
     this.#drawRulesPanel(layout.rules, model);
     const hint =
-      this.#siblings.length > 1
-        ? "◂ previous card in hand · next ▸ · click anywhere to dismiss"
-        : "click anywhere to dismiss";
+      this.#siblings.length > 1 ? "◂ previous card · next ▸ · click anywhere to dismiss" : "click anywhere to dismiss";
     label(
       this,
       layout.hint.x + layout.hint.width / 2,

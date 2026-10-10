@@ -27,7 +27,7 @@ import {
 } from "@mc/engine";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
-import { cardName, formWords, playerName, seatName } from "./names.js";
+import { cardName, faceUpName, formWords, playerName, seatName } from "./names.js";
 
 export type StatusName = "stunned" | "confused" | "tough";
 
@@ -250,6 +250,19 @@ function describe(
       }
       if (event.from.kind === "scenarioPlayArea") {
         return { text: `${card(event.instanceId)} leaves the ${event.from.name} area.`, voice: "villain" };
+      }
+      // A minion a card held (Thunderbolt Backup's end-of-round swap) comes off it and engages a player: the engine
+      // records only the move, so without this line the swap read as one minion being held and nothing else.
+      if (
+        event.from.kind === "attachment" &&
+        event.to.kind === "playArea" &&
+        cardOf(state, event.instanceId)?.type === "minion" &&
+        !burst?.events.some((other) => other.type === "cardDetached" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: `${card(event.instanceId)} leaves ${faceUpName(state, event.from.hostInstanceId)} and engages ${who(event.to.playerId)}.`,
+          voice: "villain",
+        };
       }
       return null;
     // A set-aside modular set joining the deck (Mojo's 1B, The Hood): which one, since the board only shows a deck grow.
@@ -1083,11 +1096,15 @@ function describe(
     // §3.19, §3.21: an ally held captive, a minion held by an environment.
     case "controlReleased":
       return {
-        text: `${card(event.instanceId)} is held captive by ${card(event.hostInstanceId)}.`,
+        text: `${card(event.instanceId)} is held captive by ${faceUpName(state, event.hostInstanceId)}.`,
         voice: "villain",
       };
     case "minionHeld":
-      return { text: `${card(event.instanceId)} is held by ${card(event.hostInstanceId)}.`, voice: "villain" };
+      // The holder by the face that is up: Thunderbolt Backup is the flipped side of its card, which `cardName` would not name.
+      return {
+        text: `${card(event.instanceId)} is held by ${faceUpName(state, event.hostInstanceId)}.`,
+        voice: "villain",
+      };
     // §3.24
     case "engagementRotated":
       return {

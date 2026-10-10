@@ -18,7 +18,11 @@ import {
   getPlayer,
   identityFace,
   iconsOn,
+  boostIconsFor,
+  hasStarIcon,
   isMinion,
+  isCaptiveAlly,
+  isHeldMinion,
   traitsOf,
   keywordsOf,
   printedKeywordsOf,
@@ -197,6 +201,27 @@ export interface CharacterPanel {
   readonly ownerName: string | null;
   /** Lasting effects aimed at this identity's seat, as short notes ("next card costs 1 less"). */
   readonly effects: readonly string[];
+  /**
+   * Cards tucked under this one (RRG 1.8 "Tuck", p. 45): Silk's identity, a minion with a card under it. Out of play,
+   * but a table shows what sits under a card. A facedown one is a card back, never named (`tuckedCardsUnder`).
+   */
+  readonly tucked: readonly TuckedCardView[];
+  /** `tucked.length`; the tile's "UNDER n" count. */
+  readonly tuckedCount: number;
+  /**
+   * Set while a card holds this character: a minion an environment holds (Thunderbolt Backup), or an ally attached
+   * under no player's control (M.O.D.O.K.'s hostage). The tile says so and names the host. Null for every other card.
+   */
+  readonly heldBy: HeldByView | null;
+}
+
+/** What holds a character that sits on another card instead of in a play area. */
+export interface HeldByView {
+  /** "held": a minion an environment holds (engaged with nobody); "captive": an ally under no player's control. */
+  readonly kind: "held" | "captive";
+  readonly hostId: InstanceId;
+  /** The host's name as the table reads it. */
+  readonly hostName: string;
 }
 
 export interface AttachmentChip {
@@ -516,6 +541,23 @@ export interface DeckTopView {
   readonly tag: string | null;
 }
 
+/** The shown top card of the encounter deck, readable at a glance: Falcon's whole kit reads its boost icons. */
+export interface EncounterTopView {
+  readonly instanceId: InstanceId;
+  readonly name: string;
+  /** The boost icons the card counts now (`boostIconsFor`: printed, plus modifiers). */
+  readonly boostIcons: number;
+  /** A printed boost star: the card has a Boost ability (RRG 1.8 "Boost Icon", p. 11). Not an icon itself. */
+  readonly star: boolean;
+  /** "BOOST 2 \u2605", "BOOST 0": the count and the star in words and a symbol, never color alone. */
+  readonly boostLine: string;
+}
+
+/** The boost line of a card: the icon count, then a star when its boost area prints one. */
+export function boostLineOf(boostIcons: number, star: boolean): string {
+  return `BOOST ${boostIcons}${star ? " \u2605" : ""}`;
+}
+
 export interface PileCounts {
   readonly deck: number;
   readonly discard: number;
@@ -595,6 +637,11 @@ export interface BoardModel {
    * Widow's scenario); null while it is facedown, so the tile keeps the card back.
    */
   readonly encounterDeckTopArt: ArtSource | null;
+  /**
+   * The faceup top card of the encounter deck as words the tile can wear: its name and printed boost, only while the
+   * engine shows it (the same condition as `encounterDeckTopArt`). Null while it is facedown or the deck is empty.
+   */
+  readonly encounterDeckTop: EncounterTopView | null;
   /** The encounter discard's own top card, for Inspect — faceup, since a discard pile is open information. Null with an empty pile. */
   readonly encounterDiscardTopInstanceId: InstanceId | null;
   /**
@@ -648,6 +695,20 @@ const ROMAN = ["I", "II", "III", "IV", "V"] as const;
 function encounterDeckTopArt(state: GameState, deps: EngineDeps): ArtSource | null {
   const top = shownEncounterTop(state, deps);
   return top === null ? null : artFor(cardOf(state, top), { kind: "front" });
+}
+
+function encounterDeckTopView(state: GameState, deps: EngineDeps): EncounterTopView | null {
+  const top = shownEncounterTop(state, deps);
+  if (top === null) return null;
+  const boostIcons = boostIconsFor(state, deps, top);
+  const star = hasStarIcon(state, top);
+  return {
+    instanceId: top,
+    name: currentName(state, top) ?? cardOf(state, top)?.name ?? "Card",
+    boostIcons,
+    star,
+    boostLine: boostLineOf(boostIcons, star),
+  };
 }
 
 function topOfDiscard(state: GameState, pile: readonly InstanceId[]): ArtSource | null {
@@ -795,6 +856,7 @@ export function boardModel(
     encounterDiscardTop: topOfDiscard(state, activeEncounterDeck(state).discard),
     encounterDeckTopInstanceId: activeEncounterDeck(state).deck[0] ?? null,
     encounterDeckTopArt: encounterDeckTopArt(state, deps),
+    encounterDeckTop: encounterDeckTopView(state, deps),
     encounterDiscardTopInstanceId: activeEncounterDeck(state).discard[0] ?? null,
     separateDecks: separateDeckPiles(state, me),
     team: state.players
@@ -858,8 +920,8 @@ function stepLabel(state: GameState, perspectiveId: PlayerId): string {
 function minionsOf(state: GameState): readonly InstanceId[] {
   const fromVillainArea = state.villainArea.filter((id) => !isVillain(state, id) && isMinion(state, id));
   const engaged = state.players.flatMap((player) => minionsEngagedWith(state, player.playerId));
-  // A minion can only be in one zone, so the two lists never overlap.
-  return [...fromVillainArea, ...engaged];
+  // A minion can only be in one zone, so the lists never overlap. What a card holds comes first, next to its host.
+  return [...heldCharacters(state), ...fromVillainArea, ...engaged];
 }
 
 /** The seat an enemy is engaged with, named for a chip on the minion; null in a solo game or when unengaged. */
@@ -912,7 +974,38 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
         ? playerName(state, instance.ownerId)
         : null,
     effects: seatEffectsOf(state, state.players.find((seat) => seat.identity.instanceId === id)?.playerId ?? null),
+    tucked: tuckedCardsUnder(state, id),
+    tuckedCount: instance.tucked.length,
+    heldBy: heldByOf(state, id),
   };
+}
+
+/**
+ * "UNDER 2" for a tile with room for a count only, "UNDER 2 · Albert Moon, Facedown card" where the names fit. A facedown
+ * tucked card is only ever "Facedown card" (`tuckedCardsUnder`). Empty when nothing is tucked here.
+ */
+export function tuckedLine(panel: Pick<CharacterPanel, "tucked" | "tuckedCount">, names: boolean): string {
+  if (panel.tuckedCount === 0) return "";
+  const head = `UNDER ${panel.tuckedCount}`;
+  return names ? `${head} \u00b7 ${panel.tucked.map((card) => card.name).join(", ")}` : head;
+}
+
+/** What holds `id`, when it is a held minion or a captive ally on another card; null for every other card. */
+export function heldByOf(state: GameState, id: InstanceId): HeldByView | null {
+  const hostId = getInstance(state, id)?.attachedTo ?? null;
+  if (hostId === null) return null;
+  const kind = isHeldMinion(state, id) ? "held" : isCaptiveAlly(state, id) ? "captive" : null;
+  if (kind === null) return null;
+  return { kind, hostId, hostName: currentName(state, hostId) ?? cardOf(state, hostId)?.name ?? "a card" };
+}
+
+/** Held minions and captive allies in play, oldest first: the engine's own two predicates, so a rule is never restated. */
+function heldCharacters(state: GameState): readonly InstanceId[] {
+  const inPlay = new Set(cardsInPlay(state));
+  return Object.values(state.instances)
+    .filter((instance) => instance.attachedTo !== null && inPlay.has(instance.instanceId))
+    .map((instance) => instance.instanceId)
+    .filter((id) => heldByOf(state, id) !== null);
 }
 
 /**

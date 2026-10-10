@@ -55,7 +55,7 @@ import { howThisWorksFor } from "./how-this-works.js";
 import { citeLabelOf, everyGlossaryEntry } from "./rules-reference.js";
 import { faceVisible } from "./visibility.js";
 import { poolTeamUpPairs, teamUpNoticeFor, teamUpWhyNot, type TeamUpNotice } from "./team-up-model.js";
-import { hitPointFloorNote, resourceIconNote, scenarioAreaNotes } from "./inspect-notes.js";
+import { hitPointFloorNote, placementNotes, resourceIconNote, scenarioAreaNotes } from "./inspect-notes.js";
 import {
   damageNote,
   counterNote,
@@ -427,7 +427,7 @@ export function inspectModel(
     counterNote: counterNote(countersOf(state, instanceId)),
     hitPointFloorNote: hitPointFloorNote(state, instanceId, deps),
     resourceIconNote: resourceIconNote(state, deps, instanceId),
-    areaNotes: scenarioAreaNotes(state, deps, instanceId),
+    areaNotes: [...scenarioAreaNotes(state, deps, instanceId), ...placementNotes(state, instanceId)],
     canPayAsResource: payment !== null && payment.spendableInstanceIds.has(instanceId),
     howItWorks: howThisWorksFor(card),
     campaignNotice: campaignNoticeFor(textOf(card, face).current),

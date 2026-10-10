@@ -7,6 +7,8 @@
 
 import {
   cardOf,
+  currentName,
+  getInstance,
   cardsInPlay,
   hitPointFloor,
   resourceIconsInPlay,
@@ -18,6 +20,7 @@ import {
   type ResourcePool,
   type ResourceType,
 } from "@mc/engine";
+import { heldByOf, tuckedCardsUnder } from "./board-model.js";
 
 /** "Considered to have at least 1 hit point", or null when no rule sets a floor on this card. */
 export function hitPointFloorNote(state: GameState, id: InstanceId, deps: EngineDeps): string | null {
@@ -59,4 +62,35 @@ export function scenarioAreaNotes(state: GameState, deps: EngineDeps, id: Instan
     notes.push("Its text box is blank, except for traits");
   }
   return notes;
+}
+
+/**
+ * Where this card sits relative to another, when that is not a play area: the cards tucked under it (a facedown one is
+ * only counted, never named), the card it is tucked under, and the card that holds it (a held minion, a captive ally).
+ * Empty for a card with none of these.
+ */
+export function placementNotes(state: GameState, id: InstanceId): readonly string[] {
+  const notes: string[] = [];
+  const under = tuckedCardsUnder(state, id);
+  if (under.length > 0) notes.push(`Under it: ${under.map((card) => card.name).join(", ")}`);
+  const host = Object.values(state.instances).find((instance) => instance.tucked.includes(id));
+  if (host) {
+    const name = currentName(state, host.instanceId) ?? cardOf(state, host.instanceId)?.name ?? "a card";
+    notes.push(`Tucked under ${name}: not in play`);
+  }
+  const held = heldByOf(state, id);
+  if (held?.kind === "held") notes.push(`Held by ${held.hostName}: in play, engaged with no player, does not activate`);
+  if (held?.kind === "captive") notes.push(`Held by ${held.hostName}: under no player's control`);
+  return notes;
+}
+
+/**
+ * The cards the sheet steps through (◂ ▸) when it is opened on a card with others under it, or on one of those: the
+ * host first, then what is tucked under it in order. Empty for a card in neither role.
+ */
+export function tuckedSiblings(state: GameState, id: InstanceId): readonly InstanceId[] {
+  const own = getInstance(state, id)?.tucked ?? [];
+  if (own.length > 0) return [id, ...own];
+  const host = Object.values(state.instances).find((instance) => instance.tucked.includes(id));
+  return host ? [host.instanceId, ...host.tucked] : [];
 }

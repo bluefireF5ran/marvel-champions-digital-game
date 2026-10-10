@@ -49,7 +49,7 @@ import {
 import { POOL_DEPS } from "../../content/pool.js";
 import { otherSeatAbilityCards, type OtherSeatAbilityCard } from "../../view/other-seat-abilities.js";
 import { seatLineOffsets, teamLayout, type TeamLayout } from "../../view/team-layout.js";
-import { encounterPileSlots, pileChipsOf, setAsideLines } from "../../view/encounter-pile-layout.js";
+import { encounterPileSlots, pileChipsOf, setAsideLines, shownTopChipsOf } from "../../view/encounter-pile-layout.js";
 import { bandHeightWithMinions, MINION_ROW_MIN_HEIGHT } from "../../view/enemies-band.js";
 import { pileKey, type BoardDrawContext } from "./context.js";
 import { drawPile } from "./piles.js";
@@ -90,19 +90,16 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
     const belowSlots =
       minionArea.height > 40 ? cardRow(minionArea, model.minions.length, { gap: 8, maxHeight: minionArea.height }) : [];
     if (belowSlots.length === 0 || sideSlots[0]!.height > belowSlots[0]!.height) {
-      model.minions.forEach((minion, index) => {
-        drawCharacter(ctx, sideSlots[index]!, minion);
-        drawEngagedChip(ctx, sideSlots[index]!, minion);
-      });
+      model.minions.forEach((minion, index) => drawCharacter(ctx, sideSlots[index]!, minion));
+      // After every tile, so a chip wider than its own tile is never covered by the next one.
+      model.minions.forEach((minion, index) => drawEngagedChip(ctx, sideSlots[index]!, minion));
       return;
     }
   }
   if (model.minions.length > 0 && minionArea.height > 40) {
     const slots = cardRow(minionArea, model.minions.length, { gap: 8, maxHeight: minionArea.height });
-    model.minions.forEach((minion, index) => {
-      drawCharacter(ctx, slots[index]!, minion);
-      drawEngagedChip(ctx, slots[index]!, minion);
-    });
+    model.minions.forEach((minion, index) => drawCharacter(ctx, slots[index]!, minion));
+    model.minions.forEach((minion, index) => drawEngagedChip(ctx, slots[index]!, minion));
   }
 }
 
@@ -111,19 +108,29 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
  * (`CharacterPanel.engagedName` is null otherwise). Words on ink, never a seat color alone.
  */
 function drawEngagedChip(ctx: BoardDrawContext, rect: Rect, minion: CharacterPanel): void {
-  if (!minion.engagedName) return;
+  // A character a card holds (Thunderbolt Backup's minion, M.O.D.O.K.'s hostage) is engaged with nobody: its chip names
+  // the holder instead, with the caution bar the board uses for "something is under or on this", never color alone.
+  const held = minion.heldBy;
+  const words = held ? `${held.kind === "held" ? "held" : "captive"} \u00b7 ${held.hostName}` : minion.engagedName;
+  if (!words) return;
   const { scene } = ctx;
-  const text = label(scene, 0, 0, `vs ${minion.engagedName}`, typeRole.label, surface.paper.hex, 1);
+  const text = label(scene, 0, 0, held ? words : `vs ${words}`, typeRole.label, surface.paper.hex, 1);
   // A small tile gets a chip wider than itself (centered over it) rather than a clipped name.
-  fitText(text, Math.max(88, rect.width - 14), typeRole.label.size);
-  const width = Math.ceil(text.width) + 10;
-  const chip: Rect = { x: rect.x + Math.min(2, (rect.width - width) / 2), y: rect.y - 9, width, height: 15 };
+  fitText(text, Math.max(held ? 210 : 88, rect.width - 14 - (held ? 4 : 0)), typeRole.label.size);
+  const width = Math.ceil(text.width) + 10 + (held ? 4 : 0);
+  const chip: Rect = {
+    x: rect.x + (held ? 2 : Math.min(2, (rect.width - width) / 2)),
+    y: rect.y - 9,
+    width,
+    height: 15,
+  };
   const g = scene.add.graphics();
   g.fillStyle(surface.ink.hex, 1).fillRect(chip.x, chip.y, chip.width, chip.height);
   g.lineStyle(1, surface.paper.hex, 0.6).strokeRect(chip.x, chip.y, chip.width, chip.height);
+  if (held) g.fillStyle(signal.caution.hex, 1).fillRect(chip.x, chip.y, 4, chip.height);
   // The chip's own fill goes under its text: the text was created first, so it is raised above the fill.
   scene.children.bringToTop(text);
-  text.setPosition(chip.x + 5, chip.y + (chip.height - text.height) / 2);
+  text.setPosition(chip.x + 5 + (held ? 4 : 0), chip.y + (chip.height - text.height) / 2);
 }
 
 /** The room a minion row needs under the villain band before the band is allowed to grow into it. */
@@ -789,22 +796,41 @@ export function drawEncounter(
     const inner: Rect = { x: box.x + 3, y: box.y + 3, width: box.width - 6, height: box.height - 6 };
     const drawn = count > 0 && drawArt(scene, ctx.art.request(scene, art), inner, { fit: "cover" }) !== null;
 
-    const chips = pileChipsOf(box);
+    // A faceup top card (Falcon's hero form) puts its name and boost on the tile: the art alone is a crop too small to read.
+    const shown = kind === "encounterDeck" && drawn ? model.encounterDeckTop : null;
+    const shownChips = shown ? shownTopChipsOf(box) : null;
+    const chips = shownChips ?? pileChipsOf(box);
     // Name and count ride on ink chips over the art, so they stay readable and never overprint each other.
     if (drawn) {
       const chipG = scene.add.graphics();
       chipG.fillStyle(surface.ink.hex, 0.78).fillRect(chips.name.x, chips.name.y, chips.name.width, chips.name.height);
       chipG.fillRect(chips.count.x, chips.count.y, chips.count.width, chips.count.height);
+      if (shownChips) {
+        chipG
+          .fillStyle(surface.ink.hex, 0.9)
+          .fillRect(shownChips.card.x, shownChips.card.y, shownChips.card.width, shownChips.card.height);
+        chipG
+          .fillStyle(signal.caution.hex, 1)
+          .fillRect(shownChips.card.x, shownChips.card.y, 3, shownChips.card.height);
+      }
     }
     // Roomy chips get a bigger name and count: at 9px the name was the smallest text on the table.
     const roomy = chips.name.height >= 18;
     const nameRole = roomy ? { ...typeRole.label, size: 11 } : typeRole.label;
-    const countRole = chips.mode === "row" ? (roomy ? typeRole.statSmall : typeRole.label) : typeRole.stat;
+    const countRole = shownChips
+      ? typeRole.statSmall
+      : chips.mode === "row"
+        ? roomy
+          ? typeRole.statSmall
+          : typeRole.label
+        : typeRole.stat;
+    // A short tile has one strip, so the faceup card's boost rides in the name there.
+    const shownInRow = shown && !shownChips ? ` \u00b7 ${shown.boostLine}` : "";
     const nameText = label(
       scene,
       chips.name.x + 5,
       chips.name.y + chips.name.height / 2,
-      name,
+      `${name}${shownInRow}`,
       nameRole,
       drawn ? surface.paper.hex : surface.ink.hex,
       drawn ? ink.body : ink.label,
@@ -819,6 +845,30 @@ export function drawEncounter(
       )
       .setOrigin(0.5);
     fitText(countText, chips.count.width - 4, countRole.size);
+    if (shown && shownChips) {
+      const { card } = shownChips;
+      // The name wraps onto a second line rather than being cut; the boost line sits on the strip's foot.
+      const cardName = label(
+        scene,
+        card.x + 8,
+        card.y + 3,
+        shown.name,
+        { ...typeRole.label, size: 9 },
+        surface.paper.hex,
+        1,
+      );
+      fitWrapped(cardName, card.width - 12, 2, 9);
+      const boost = label(
+        scene,
+        card.x + 8,
+        card.y + card.height - 3,
+        shown.boostLine,
+        { ...typeRole.label, size: 12 },
+        signal.caution.hex,
+        1,
+      ).setOrigin(0, 1);
+      fitText(boost, card.width - 12, 12);
+    }
 
     // Every pile with a card in it is readable, the deck's own facedown top included (D08's own subtitle: "any
     // card, anywhere, including facedown counts") — Inspect already draws the honest "facedown" face for it via
