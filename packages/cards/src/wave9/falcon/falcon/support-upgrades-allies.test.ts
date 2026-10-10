@@ -1,4 +1,4 @@
-import { FALCON_CARDS, cardId, trait, type AllyCard, type SupportCard, type UpgradeCard } from "@mc/content";
+import { FALCON_CARDS, cardId, type AllyCard, type SupportCard, type UpgradeCard } from "@mc/content";
 import {
   activeEncounterDeck,
   applyCommand,
@@ -13,7 +13,7 @@ import {
 } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
 import { abilityRefIds } from "../../../ability-refs.js";
-import { after, discardTopOfEncounterDeckCost, draw, mergeRegistries, query, response } from "../../../dsl/index.js";
+import { mergeRegistries } from "../../../dsl/index.js";
 import { validateDefinition } from "../../../dsl/validate.js";
 import {
   P1,
@@ -62,7 +62,7 @@ const WEAVE_CONSTANT = "53013.vibranium-microweave-constant";
 const WEAVE = "53013.vibranium-microweave-interrupt";
 const EAGLE = "53001a.eagle-eyed";
 const REFS = [REDWING, FLOCK, KITCHEN, EVAC, RECON_ACTION, RECON, AWARE, FIRE, TALON, WEAVE_CONSTANT, WEAVE];
-const SKIPPED_REFS = [RECON_ACTION];
+const SKIPPED_REFS: readonly string[] = [];
 const CODES = ["53002", "53006", "53007", "53008", "53009", "53010", "53011", "53012", "53013"];
 
 const ZERO = "01098";
@@ -811,11 +811,85 @@ describe("53009 Aerial Recon", () => {
     expect(inst(state, id).counters.recon ?? 0).toBe(0);
     expect(playerOf(state, P1).dealtEncounter.length + playerOf(state, P2).dealtEncounter.length).toBe(0);
   });
-  it("the Hero Action (deal a player of your choice a facedown card, then place a counter) is skipped: nothing in the module offers it", () => {
-    const { state: s } = recon(0);
-    expect(canUse(s, RECON_ACTION)).toBe(false);
-    expect(RECON_ACTION in REGISTRY).toBe(false);
-    expect(SKIPPED[RECON_ACTION]).toContain("dealEncounterCardsCost");
+  describe("Hero Action: exhaust Aerial Recon and deal a player 1 facedown encounter card, then place 1 recon counter", () => {
+    const dealtCards = (events: readonly GameEvent[]) =>
+      ofType(events, "cardMoved").flatMap((e) =>
+        e.to.kind === "dealtEncounter" ? [[e.to.playerId, e.instanceId] as const] : [],
+      );
+    const targetsOf = (s: GameState, id: InstanceId): readonly InstanceId[] => {
+      const legal = legalActions(s, P1, FALCON_DEPS);
+      if (legal.kind !== "turn") throw new Error(legal.kind);
+      const entry = legal.legal.find(
+        (a) => a.action.kind === "useAbility" && a.action.instanceId === id && a.action.abilityId === RECON_ACTION,
+      );
+      return entry?.targets ?? [];
+    };
+
+    it("solo: Falcon is dealt the top card facedown, Aerial Recon exhausts and holds 1 recon counter", () => {
+      const { state: s, id } = recon(0);
+      const top = deckOf(s)[0]!;
+      expect(canUse(s, RECON_ACTION)).toBe(true);
+      // One player: nobody to pick between.
+      expect(targetsOf(s, id)).toEqual([]);
+      const { state, events } = run(s, firstLegal, use(P1, id, RECON_ACTION));
+      expect(dealtCards(events)).toEqual([[P1, top]]);
+      expect(playerOf(state, P1).dealtEncounter).toEqual([top]);
+      expect(inst(state, top).faceup).toBe(false);
+      expect(inst(state, id).exhausted).toBe(true);
+      expect(inst(state, id).counters).toEqual({ recon: 1 });
+      // Exhausted: not offered again this turn.
+      expect(canUse(state, RECON_ACTION)).toBe(false);
+    });
+    it("solo: the card dealt by the action is revealed in the villain phase; the new counter replaces that phase's own deal", () => {
+      const { state: s, id } = recon(0);
+      const top = deckOf(s)[0]!;
+      const used = run(s, firstLegal, use(P1, id, RECON_ACTION)).state;
+      const { state, events } = villainPhase(used, true);
+      expect(inst(state, id).counters.recon ?? 0).toBe(0);
+      // One card revealed: the one the action dealt. The villain phase's own deal was replaced.
+      expect(ofType(events, "encounterCardRevealed").map((e) => e.instanceId)).toEqual([top]);
+    });
+    it("two players: each player is offered; choosing the other player deals them the card, not Falcon", () => {
+      const { state: s, id } = recon(0, falconHeroGame({ twoPlayers: true }));
+      const top = deckOf(s)[0]!;
+      const mine = playerOf(s, P1).identity.instanceId;
+      const theirs = playerOf(s, P2).identity.instanceId;
+      expect(targetsOf(s, id)).toEqual([mine, theirs]);
+      // With two players the pick must be made.
+      expect(refusal(s, use(P1, id, RECON_ACTION))).toBeDefined();
+      const { state, events } = run(s, firstLegal, use(P1, id, RECON_ACTION, [], { dealtPlayer: [theirs] }));
+      expect(dealtCards(events)).toEqual([[P2, top]]);
+      expect(playerOf(state, P1).dealtEncounter).toEqual([]);
+      expect(playerOf(state, P2).dealtEncounter).toEqual([top]);
+      expect(inst(state, id).counters).toEqual({ recon: 1 });
+      expect(inst(state, id).exhausted).toBe(true);
+    });
+    it("two players: Falcon may choose himself", () => {
+      const { state: s, id } = recon(0, falconHeroGame({ twoPlayers: true }));
+      const mine = playerOf(s, P1).identity.instanceId;
+      const { state } = run(s, firstLegal, use(P1, id, RECON_ACTION, [], { dealtPlayer: [mine] }));
+      expect(playerOf(state, P1).dealtEncounter).toHaveLength(1);
+      expect(playerOf(state, P2).dealtEncounter).toEqual([]);
+    });
+    it("a Hero Action: not offered in alter-ego form, nor while Aerial Recon is exhausted", () => {
+      const alter = recon(0, falconGame());
+      expect(canUse(alter.state, RECON_ACTION)).toBe(false);
+      const { state: s, id } = recon(0);
+      expect(canUse(patchInstance(s, id, { exhausted: true }), RECON_ACTION)).toBe(false);
+    });
+    it("a deal paid as a cost is not announced: with a counter already there, the interrupt is not offered for the action's own deal", () => {
+      const { state: s, id } = recon(1);
+      const offers: string[][] = [];
+      const pick: Picker = (st) => {
+        const c = st.pendingChoice!;
+        if (c.prompt.kind === "chooseTriggers") offers.push(c.options.map((o) => o.optionId as string));
+        return firstLegal(st);
+      };
+      const { state } = run(s, pick, use(P1, id, RECON_ACTION));
+      expect(offers.flat().some((o) => o.endsWith(RECON))).toBe(false);
+      expect(playerOf(state, P1).dealtEncounter).toHaveLength(1);
+      expect(inst(state, id).counters).toEqual({ recon: 2 });
+    });
   });
 });
 
@@ -966,24 +1040,11 @@ describe("53012 Talon Line", () => {
     };
   }
   /**
-   * ENGINE GAP (reported): `abilityResolved` carries only the slots the ability held when it began to resolve (costs,
-   * targets), "a slot the ability's effects bind later is not carried" (trigger-events.ts), and Eagle-Eyed (identity.ts)
-   * binds `discarded` by an effect, so Talon Line cannot read it in the real game (the last test of this block shows
-   * that). These tests exercise Talon Line's own script with a stand-in Eagle-Eyed that has the same trigger and
-   * discards the top card as a cost bound to `discarded`, plus a harmless effect so that the resolution is announced.
+   * The real Eagle-Eyed (identity.ts) discards by an effect bound to `discarded`; `abilityResolved` carries the slots
+   * an ability's effects bound (engine `announceAbilityResolved`), so Talon Line reads that card in the real game.
    */
-  const STAND_IN: EngineDeps = {
-    abilities: {
-      ...FALCON_DEPS.abilities,
-      [EAGLE]: response(
-        after.youPlayedCard(query([], { trait: trait("AERIAL") })),
-        { cost: discardTopOfEncounterDeckCost("discarded") },
-        draw(0),
-      ),
-    },
-  };
-  const playRedwing = (t: ReturnType<typeof talon>, pick: Picker, deps: EngineDeps = STAND_IN) =>
-    driveEventsPicking(deps, t.state, pick, play(P1, t.redwing, t.pay));
+  const playRedwing = (t: ReturnType<typeof talon>, pick: Picker) =>
+    driveEventsPicking(FALCON_DEPS, t.state, pick, play(P1, t.redwing, t.pay));
 
   it("played from hand for 2: attached to Falcon, ready", () => {
     const given = moveToHand(falconHeroGame(), P1, "53012");
@@ -1062,10 +1123,10 @@ describe("53012 Talon Line", () => {
     );
     expect(seen2.some((x) => x.labels.includes("Talon Line"))).toBe(false);
   });
-  it.fails("REAL FLOW (engine gap, passes only once the engine carries slots an effect binds): Talon Line is offered after the real Eagle-Eyed", () => {
+  it("offered by name in the trigger prompt after the real Eagle-Eyed discards a 3-icon card", () => {
     const t = talon([THREE]);
     const seen: Seen[] = [];
-    playRedwing(t, scripted({}, seen), FALCON_DEPS);
+    playRedwing(t, scripted({}, seen));
     expect(seen.some((x) => x.kind === "chooseTriggers" && x.labels.includes("Talon Line"))).toBe(true);
   });
   it("Q35 = A (docs/phase7-wave9.md section 4.1): a Serpent Soldier Serpent Solutions deals away after Eagle-Eyed discards it is not counted by Eagle-Eyed, but Talon Line still reads its printed icon", () => {

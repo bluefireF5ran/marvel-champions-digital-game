@@ -36,9 +36,10 @@ vi.setConfig({ testTimeout: 240_000 });
  * phase); every play, ability and attack is a command the engine validates. Deterministic by seed (1). Dependencies are
  * `FALCON_DEPS` (every earlier script plus the pack's own modules).
  *
- * Known gaps this game avoids (recorded elsewhere): Aerial Recon's action (53009, not scripted), Talon Line (53012, not
- * offered in a real game), Redwing's "while ready" stand-in for the exhaust cost, Captain America's Shield (53034),
- * the Techno module and Strength in Diversity (53019).
+ * Not played here (covered in support-upgrades-allies.test.ts): Aerial Recon's action (53009), whose recon counter this
+ * game seeds by surgery so the round's numbers stay put. Known gaps this game avoids (recorded elsewhere): Redwing's
+ * "while ready" stand-in for the exhaust cost, Captain America's Shield (53034), the Techno module and Strength in
+ * Diversity (53019).
  *
  * Rules the game leans on (RRG 1.8 = mc_rulesreference_v18_compressed.md):
  * - Search (p. 39): the deck is shuffled afterward. Response (p. 37): an optional response resolves after its trigger.
@@ -164,6 +165,7 @@ const AWARE = "53010.battlefield-awareness-interrupt";
 const EVAC = "53008.aerial-evacuation-interrupt";
 const RECON = "53009.aerial-recon-interrupt";
 const AWAY = "53005.up-up-and-away-response";
+const TALON = "53012.talon-line-response";
 /** Core Rhino-deck cards with known boost areas: 01104 Hard to Keep Down none, 01188 Caught Off Guard one, 01100 Enhanced Ivory Horn two. */
 const ZERO = "01104";
 const ONE = "01188";
@@ -318,15 +320,30 @@ describe("Falcon (Leadership) precon against Rhino (standard, solo), seed 1", ()
     act({}, playFrom("53006", fodder(2)));
     const flock = inPlayOf("53006")!;
     expect(inst(state, flock).counters).toEqual({ bird: 5 });
+    // Talon Line (an Item, not Aerial) is attached first, paid with two spent cards taken back from the discard pile.
+    give("53012");
+    const spent = playerOf(state, P1).discard.length;
+    const back = moveToHand(state, P1, "53024", "53024");
+    state = back.state;
+    expect(playerOf(state, P1).discard).toHaveLength(spent - 2);
+    act({}, playFrom("53012", back.ids, { attachToInstanceId: me() }));
+    const talon = inPlayOf("53012")!;
+    expect(inst(state, me()).exhausted).toBe(true);
+    stack(ONE);
     const discardBefore = encounterDiscard().length;
+    const seen: { kind: string; labels: readonly string[] }[] = [];
     const events = act(
-      { take: [EAGLE] },
+      { take: [EAGLE, TALON], labels: ["Ready"], targets: [me()], seen },
       play(P1, handOf("53002")[0]!, fodder(1), { abilities: [resourceAbility(flock, FLOCK)] }),
     );
     expect(ofType(events, "cardPlayed")).toMatchObject([{ resourcesPaid: 2 }]);
     expect(inst(state, flock).counters).toEqual({ bird: 4 });
     expect(inPlayOf("53002")).toBeDefined();
     expect(encounterDiscard().length).toBe(discardBefore + 1);
+    // Talon Line answers Eagle-Eyed's resolution: the discarded card shows 1 icon, so one choice, here readying Falcon.
+    expect(seen.filter((x) => x.kind === "chooseOption")).toHaveLength(1);
+    expect(playerOf(state, P1).discard).toContain(talon);
+    expect(inst(state, me()).exhausted).toBe(false);
   });
 
   it("round 2: Bird of Prey discards a 1-icon top card for 4 + 1 = 5 damage to Rhino", () => {
@@ -399,7 +416,7 @@ describe("Falcon (Leadership) precon against Rhino (standard, solo), seed 1", ()
     expect(encounterDiscard().map((i) => code(i))).toContain(TWO);
   });
 
-  it("round 3: Aerial Recon is attached (its action is a known gap, so a recon counter is seeded by surgery)", () => {
+  it("round 3: Aerial Recon is attached (a recon counter is seeded by surgery; its action has its own tests)", () => {
     give("53009");
     act({}, playFrom("53009", fodder(1), { attachToInstanceId: me() }));
     const recon = inPlayOf("53009")!;

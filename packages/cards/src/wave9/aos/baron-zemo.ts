@@ -58,13 +58,13 @@ import {
   remainingHpOf,
   removeCountersAmong,
   removeCountersFrom,
-  repeatTimes,
   resetHitPoints,
   response,
   searchCollection,
   self,
   setup,
   spendResources,
+  spendXResources,
   superlative,
   theAccused,
   theMainScheme,
@@ -72,6 +72,7 @@ import {
   theVillain,
   treatAttachedHeroAsMinion,
   valueAtLeast,
+  varOf,
   varAtLeast,
   when,
   whenDefeated,
@@ -328,27 +329,20 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
   ),
 
   // Battle of Wits: Zemo schemes; the threat that activation would place on the main scheme is the pending amount
-  // (`eventAmount`), and X is paid one [mental] resource at a time, each preventing 1 threat and removing 1 secret
-  // counter (the pattern of A.I.M. Interference 50184). The player who paid is the revealing player (`you`); the first
-  // player splits the removal (Q28 = A). The "Spend" option is offered only to a player who can pay it (`option` makes
-  // the spend required), and "Spend no more" ends the loop. The removal is not conditional on a counter being left: the
-  // prevention does not depend on it, and removing fewer than X because fewer remain is "as many as possible". With no
-  // threat to place the effects never resolve, so nothing is offered.
+  // (`eventAmount`), the most X can be. The revealing player (`you`) chooses X once, from 0 to the most [mental]
+  // resources they could pay, and pays X in one payment (`spendXResources`), so a card that generates two [mental]
+  // covers 2. X of that threat is prevented and X secret counters are removed, the first player splitting the removal
+  // (Q28 = A). The removal is not conditional on a counter being left: the prevention does not depend on it, and
+  // removing fewer than X because fewer remain is "as many as possible". With no threat to place the effects never
+  // resolve, and a player with no [mental] resource to spend is not asked.
   "50175.when-revealed": whenRevealed(
     enemyScheme(theVillain, {
       wouldPlaceThreat: [
-        repeatTimes(
-          eventAmount,
-          chooseOne(
-            option(
-              "Spend 1 [mental] resource to prevent 1 threat and remove 1 secret counter",
-              spendResources({ mental: 1 }, "paid", you, { required: true }),
-              preventThreat(1),
-              removeCountersAmong("secret", 1, BOARD_MEMBER_ENVIRONMENTS, { chooser: firstPlayer }),
-            ),
-            option("Spend no more"),
-          ),
-        ),
+        spendXResources({ mental: 1 }, eventAmount, "paid"),
+        ifThen(made("paid"), [
+          preventThreat(varOf("paid.amount")),
+          removeCountersAmong("secret", varOf("paid.amount"), BOARD_MEMBER_ENVIRONMENTS, { chooser: firstPlayer }),
+        ]),
       ],
     }),
   ),

@@ -290,9 +290,9 @@ describe("wave 9 precons: legal, and nothing in them is unscripted", () => {
       expect(validateDeck(deckOf(deck), PLAYABLE_CARDS)).toEqual({ ok: true });
     });
   });
-  // `unscriptedCards` also counts the hero's obligation and nemesis set. Falcon's one is the known gap (Aerial Recon
-  // 53009's action), listed so the day it is scripted this test says so.
-  const KNOWN_GAPS: Readonly<Record<string, readonly string[]>> = { "falcon-leadership": ["53009"] };
+  // `unscriptedCards` also counts the hero's obligation and nemesis set. No precon has a known gap; one would be
+  // listed here by deck id, so the day it is scripted this test says so.
+  const KNOWN_GAPS: Readonly<Record<string, readonly string[]>> = {};
   it.each(HEROES.filter((h) => h.identity !== "50001a"))(
     "$name: unscripted cards are only the known gaps",
     ({ deck }) => {

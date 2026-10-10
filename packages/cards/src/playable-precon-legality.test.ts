@@ -73,11 +73,8 @@ const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
   ...UNSCRIPTED_WAVE9_PACKS,
 ]);
 
-/**
- * Precon cards left unscripted on purpose: Falcon's Aerial Recon 53009 (its action; wave9/custom-decks.test.ts
- * `KNOWN_GAPS`). Falcon is seatable with it.
- */
-const KNOWN_UNSCRIPTED: ReadonlySet<string> = new Set(["53009"]);
+/** Precon cards left unscripted on purpose (wave9/custom-decks.test.ts `KNOWN_GAPS`). None. */
+const KNOWN_UNSCRIPTED: ReadonlySet<string> = new Set();
 
 const byId = new Map(PLAYABLE_CARDS.map((card) => [card.id as string, card]));
 

@@ -78,6 +78,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkAttachReplacement(definition, problems);
   checkLeaveReplacement(definition, problems);
   checkCounterDivision(definition, problems);
+  checkSpendX(definition, problems);
   checkCost(definition, problems);
   checkScaled(definition, "definition", problems);
   checkBindings(definition, problems);
@@ -175,6 +176,9 @@ function checkCost(definition: AbilityDefinition, problems: string[]): void {
     problems.push("cost enemyAttack: not on a resource ability");
   if (definition.trigger.kind === "resource" && looks.some((part) => part.resolveAbility))
     problems.push("cost resolveAbility: not on a resource ability");
+  // The engine asks for the player a cost deals to only as an action is initiated (`AbilityCost.dealEncounterCardsTo`).
+  if (definition.trigger.kind !== "action" && looks.some((part) => part.dealEncounterCardsTo))
+    problems.push("cost dealEncounterCardsTo: only on an action (a window cannot ask which player is dealt the card)");
   for (const part of looks) {
     const floor = part.resolveAbility?.asIf?.remainingHpAtLeast;
     if (floor !== undefined && (!Number.isInteger(floor) || floor < 1))
@@ -348,6 +352,11 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
   const dealt = cost.dealDamage?.amount;
   if (dealt !== undefined && (!Number.isInteger(dealt) || dealt < 1))
     problems.push("cost dealDamage: amount must be a whole number of at least 1");
+  const dealtTo = cost.dealEncounterCardsTo;
+  if (dealtTo && (!Number.isInteger(dealtTo.count) || dealtTo.count < 1))
+    problems.push("cost dealEncounterCardsTo: count must be a whole number of at least 1");
+  if (dealtTo && dealtTo.slot === "")
+    problems.push("cost dealEncounterCardsTo: needs a slot for the player's identity");
   const boosts = cost.giveBoostCards?.count;
   if (boosts !== undefined && (!Number.isInteger(boosts) || boosts < 1))
     problems.push("cost giveBoostCards: count must be a whole number of at least 1");
@@ -368,6 +377,7 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     ...(cost.discardFromEncounterDeck ? [cost.discardFromEncounterDeck.slot] : []),
     ...(cost.attach ? [cost.attach.to.slot, ...(cost.attach.bind ? [cost.attach.bind] : [])] : []),
     ...(cost.dealDamage?.choose ? [cost.dealDamage.choose.slot] : []),
+    ...(cost.dealEncounterCardsTo ? [cost.dealEncounterCardsTo.slot] : []),
     ...inPlayPicksOf(cost).flatMap(({ pick }) => [pick.slot, ...(pick.bindHosts ? [pick.bindHosts] : [])]),
   ];
   if (new Set(slots).size !== slots.length)
@@ -703,6 +713,20 @@ function checkCounterDivision(definition: AbilityDefinition, problems: string[])
  * is read only in an interrupt whose one triggering condition is `cardLeavesPlay`: a response finds the card gone, and
  * any other event has no leaving to send elsewhere.
  */
+/**
+ * "Spend X [type] resources" (`EffectSpec spendResources.x`): `resources` is the price of one, so it must ask for at
+ * least 1 resource, and X is the player's to set, so the spend is neither `required` nor of `distinctTypes`.
+ */
+function checkSpendX(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind !== "spendResources" || !effect.x) continue;
+    const each = Object.values(effect.resources).reduce((sum, count) => sum + (count ?? 0), 0);
+    if (each < 1) problems.push("spendResources x: resources is the price of one and must ask for at least 1 resource");
+    if (effect.required) problems.push("spendResources x: not with required (X of 0 is the player's to choose)");
+    if (effect.distinctTypes !== undefined) problems.push("spendResources x: not with distinctTypes");
+  }
+}
+
 function checkLeaveReplacement(definition: AbilityDefinition, problems: string[]): void {
   if (!allEffects(definition.effects).some((effect) => effect.kind === "replaceLeaveDestination")) return;
   const trigger = definition.trigger;
@@ -1319,6 +1343,7 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
     }
     if (cost.either) scope.vars.add("cost.branch");
     if (cost.dealDamage?.choose) scope.slots.add(cost.dealDamage.choose.slot);
+    if (cost.dealEncounterCardsTo) scope.slots.add(cost.dealEncounterCardsTo.slot);
     for (const { pick } of inPlayPicksOf(cost)) {
       scope.slots.add(pick.slot);
       if (pick.bindHosts) scope.slots.add(pick.bindHosts);

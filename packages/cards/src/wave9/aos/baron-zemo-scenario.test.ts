@@ -674,7 +674,7 @@ describe("Baron Zemo scenario, game B: solo (Spider-Man), a wrong accusation tha
     expect(atZemoInterrupt(b.state)).toBe(true);
     const medical = memberOf(b.state, MEDICAL);
     stack(b, BLANK, INTERFERENCE_ENERGY, "01188");
-    const events = act(b, { options: ["Place 1 secret counter", "Place the counter"], targets: [medical] });
+    const events = act(b, { options: ["Place 1 secret counter"], targets: [medical] });
     // Zemo (ATK 2, +2 the Sword, +1 the Tactical Officer's Aid) hits the hero for 5; his interrupt had put 1 counter on Medical (3).
     expect(ofType(events, "attackResolved")).toMatchObject([{ enemyInstanceId: zemo(), baseAtk: 5, damageDealt: 5 }]);
     expect(ofType(events, "boostCardFlipped")).toHaveLength(1); // the counter was chosen instead of the additional boost card
@@ -925,14 +925,34 @@ describe("Baron Zemo scenario, game E: solo (Spider-Man), standard, seed 1, Relu
     expectInvariants(e);
   });
 
-  it("round 2 villain phase: Battle of Wits makes Zemo scheme; each [mental] resource prevents 1 threat and removes 1 secret counter", () => {
+  it("round 2 villain phase: Battle of Wits makes Zemo scheme; X of 3 [mental] resources, paid at once, prevents 3 threat and removes 3 secret counters", () => {
     give(e, P1, ...MENTAL.slice(0, 2));
     const before = { secrets: counts(e).reduce((a, b) => a + b, 0) };
     stack(e, BLANK, WITS);
-    const events = act(e, planner({ options: ["Spend 1 [mental]"], pay: 1 }), endTurn(P1));
-    const spent = ofType(events, "threatPrevented");
-    // Zemo's SCH is 3 and the plan always spends: three payments, one threat and one counter each.
-    expect(spent.map((x) => x.amount)).toEqual([1, 1, 1]);
+    const asked: string[][] = [];
+    const payments: number[] = [];
+    const plan = planner({});
+    const events = act(
+      e,
+      (s) => {
+        const choice = s.pendingChoice!;
+        // "Spend X": the largest X offered, then the payment the engine lists first (the fewest cards that pay it).
+        if (choice.prompt.kind === "chooseNumber") {
+          asked.push(choice.options.map((o) => o.label));
+          return [choice.options.at(-1)!.optionId];
+        }
+        if (choice.prompt.kind === "spendResources") {
+          payments.push(choice.minSelections);
+          return choice.options.slice(0, choice.minSelections).map((o) => o.optionId);
+        }
+        return plan(s);
+      },
+      endTurn(P1),
+    );
+    // Zemo's SCH is 3: one prompt for X (0 to 3), one payment, and all 3 threat prevented together.
+    expect(asked).toEqual([["0", "1", "2", "3"]]);
+    expect(payments).toHaveLength(1);
+    expect(ofType(events, "threatPrevented").map((x) => x.amount)).toEqual([3]);
     expect(counts(e).reduce((a, b) => a + b, 0)).toBe(before.secrets - 3);
     expectInvariants(e);
   });

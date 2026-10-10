@@ -135,19 +135,13 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
   // the label's own declaration to that effect (`declareDefender` in `apply-effect.ts`; FAQ p. 63).
   if (definition.label?.includes("defense") && frame.controllerId && !declaresDefender(definition))
     declareLabeledDefense(ctx, frame.controllerId);
-  // RRG 1.8 "Resolve" (p. 37): resolved once its effects resolve, so the announcement waits under them. Pushed only when
-  // something could respond ("After you resolve the ability of a Preparation card you control"). It carries the
-  // ability's slots, what its costs bound among them (docs/phase7-wave9.md §3.43 (c)): "After you resolve Falcon's
-  // 'Eagle-Eyed' ability, … for each icon in the discarded card's boost area" reads the card that cost discarded.
-  const carried = slotsCarriedByResolved(frame.bindings);
-  const resolved: TriggerEvent = {
-    kind: "abilityResolved",
+  // RRG 1.8 "Resolve" (p. 37): resolved once its effects resolve, so its effects frame makes the announcement as it
+  // finishes (`Frame<"effects">.announceResolved`, `announceAbilityResolved`), with the slots it then holds.
+  const announceResolved = {
     instanceId: frame.instanceId,
     abilityId: frame.abilityId,
     controllerId: frame.controllerId,
-    ...(carried ? { carried } : {}),
   };
-  if (definition.effects.length > 0 && heard(ctx.state, ctx.deps, resolved)) announce(ctx, resolved);
   // A player's own ability, or one a player chose to use (docs/phase7-wave4.md §3.44).
   const trigger = definition.trigger;
   // A keyword is a game rule, not a player's choice: "players cannot discard …" does not stop temporary.
@@ -167,10 +161,29 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
     vars: frame.vars,
     byPlayer,
     abilityId: frame.abilityId,
+    announceResolved,
     ...(frame.returnBindingsTo
       ? { returnBindingsTo: frame.returnBindingsTo.frameId, returnBindingsPrefix: frame.returnBindingsTo.prefix }
       : {}),
   });
+}
+
+/**
+ * An ability's effects have resolved, so the ability has (RRG 1.8 "Resolve", p. 37): the announcement that "After you
+ * resolve the ability of …" answers, made by the ability's effects frame as it finishes and only when something could
+ * respond. It carries the slots the ability holds by then (docs/phase7-wave9.md §3.43 (c)): what its costs bound, its
+ * chosen targets, and what its effects bound, so "After you resolve Falcon's 'Eagle-Eyed' ability, … for each icon in
+ * the discarded card's boost area" reads the card that ability's effect discarded.
+ */
+export function announceAbilityResolved(ctx: Ctx, frame: Frame<"effects">): void {
+  if (!frame.announceResolved) return;
+  const carried = slotsCarriedByResolved(frame.bindings);
+  const resolved: TriggerEvent = {
+    kind: "abilityResolved",
+    ...frame.announceResolved,
+    ...(carried ? { carried } : {}),
+  };
+  if (heard(ctx.state, ctx.deps, resolved)) announce(ctx, resolved);
 }
 
 /**

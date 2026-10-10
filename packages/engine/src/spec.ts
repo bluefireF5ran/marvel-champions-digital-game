@@ -3010,6 +3010,18 @@ export type EffectSpec =
    * - reached all the same by a player who cannot pay (the only option left, or no `chooseOne` around it), nobody is
    *   asked, nothing is spent and `<bind>.made` is 0.
    * Without it the effect is the "either spend … or" / "you may spend" prompt above, where paying nothing declines.
+   *
+   * `x`: "you may spend X [mental] resources to prevent X of that threat" (Battle of Wits, `aos` 50175; A.I.M.
+   * Interference 50184). `resources` is then the price of one, and the player sets X before paying:
+   * 1. X runs from 0 to the smaller of `x.max` (read as the effect resolves) and the most that player could pay from
+   *    their payment options now (`canPaySpend` of X times `resources`). With no player or a top of 0 nobody is asked.
+   * 2. The player chooses X (a `chooseNumber` choice, logged as `numberChosen`; asked even when the range is 0 to 1,
+   *    since 0 is the "may" declined). Choosing 0 ends the effect there.
+   * 3. They pay X times `resources` in **one** payment (a `spendResources` choice, `required`: the player chose to
+   *    spend, so nothing less than a payment in full is accepted, RRG 1.8 "Cost", p. 13; overpaying is legal), so a
+   *    card that generates two of the type pays for 2.
+   * `<bind>.amount` is X as paid (0 when nothing was) and `<bind>.made` is 1 when X is at least 1. Not combined with
+   * `required` or `distinctTypes`.
    */
   | {
       readonly kind: "spendResources";
@@ -3018,6 +3030,7 @@ export type EffectSpec =
       readonly bind: string;
       readonly distinctTypes?: number;
       readonly required?: true;
+      readonly x?: { readonly max: ValueSpec };
     }
   /**
    * "You may place any number of ratings counters on The Champion to reduce this damage by 1 for each counter placed

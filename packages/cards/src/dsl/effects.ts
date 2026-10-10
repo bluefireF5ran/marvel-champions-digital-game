@@ -408,8 +408,9 @@ export const option = (label: string, ...rest: readonly (EffectArg | { readonly 
   return {
     label,
     ...(condition ? { condition: condition.when } : {}),
+    // Not a "spend X" (`spendXResources`): its X is the player's to set, 0 included, as it resolves.
     effects: flatten(effects).map((effect) =>
-      effect.kind === "spendResources" ? { ...effect, required: true as const } : effect,
+      effect.kind === "spendResources" && !effect.x ? { ...effect, required: true as const } : effect,
     ),
   };
 };
@@ -2110,6 +2111,20 @@ export const spendResources = (
   ...(opts.distinctTypes !== undefined ? { distinctTypes: opts.distinctTypes } : {}),
   ...(opts.required ? { required: true as const } : {}),
 });
+/**
+ * "You may spend X [mental] resources to prevent X of that threat" (Battle of Wits, `aos` 50175; A.I.M. Interference
+ * 50184): `player` chooses X from 0 to `max` (and no more than they could pay), then pays X times `each` in one
+ * payment, so a card that generates two of the type covers 2 (engine `EffectSpec spendResources.x`). `each` is the
+ * price of one: `{ mental: 1 }`. Read X with `varOf(`${bind}.amount`)` (0 when nothing was spent); `made(bind)` holds
+ * when X is at least 1. One prompt for X and, unless it is 0, one payment; with nothing they could pay, or `max` 0,
+ * nobody is asked. A live `Amount` for `max` is read when the effect resolves.
+ */
+export const spendXResources = (
+  each: ResourceRequirement,
+  max: Amount,
+  bind: string,
+  player: PlayerRef = you,
+): EffectSpec => ({ kind: "spendResources", player, resources: each, bind, x: { max: amount(max) } });
 /** "Spend N different resources": N resources of N different types, a wild being any one type (§3.69). */
 export const spendDifferentResources = (count: number, bind: string, player: PlayerRef = you): EffectSpec =>
   spendResources({ generic: count }, bind, player, { distinctTypes: count });

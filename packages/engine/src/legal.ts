@@ -78,13 +78,8 @@ import {
 import { attachmentHostCandidates } from "./resolve/index.js";
 import { addPools, combineRequirements, poolTotal, requirementTotal, type ResolvedRequirement } from "./resources.js";
 import { basicPowerCostNeeds } from "./basic-power-uses.js";
-import {
-  abilityCostFor,
-  attachmentReachOf,
-  formChangeCostsFor,
-  playDestinationsOf,
-  type FormChangeCost,
-} from "./rules.js";
+import { dealToCostChoices } from "./deal-to-cost.js";
+import { attachmentReachOf, formChangeCostsFor, playDestinationsOf, type FormChangeCost } from "./rules.js";
 import { formChangeCostSources } from "./form-change-cost.js";
 import {
   activeAbilityRefs,
@@ -703,14 +698,37 @@ function damageChoiceSets(
   playerId: PlayerId,
   source: InstanceId,
   cost: AbilityCost | undefined,
-  sets: readonly CostChoiceSet[],
+  given: readonly CostChoiceSet[],
 ): readonly CostChoiceSet[] {
+  const sets = dealToChoiceSets(state, cost, given);
   const choose = cost?.dealDamage?.choose;
   if (!choose) return sets;
   const candidates = dealDamageCostChoices(state, deps, source, playerId, choose);
   if (candidates.length === 0) return sets;
   return sets.flatMap(({ costChoices, target }) =>
     candidates.map((card) => ({ costChoices: { ...costChoices, [choose.slot]: [card] }, target: target ?? card })),
+  );
+}
+
+/**
+ * "Deal a player 1 facedown encounter card →" (`AbilityCost.dealEncounterCardsTo`): each variant once per player the
+ * payer may pick, named by that player's identity card (the variant's target). With one player the pick is forced
+ * and the variants are left as they are.
+ */
+function dealToChoiceSets(
+  state: GameState,
+  cost: AbilityCost | undefined,
+  sets: readonly CostChoiceSet[],
+): readonly CostChoiceSet[] {
+  const deal = cost?.dealEncounterCardsTo;
+  if (!deal) return sets;
+  const candidates = dealToCostChoices(state);
+  if (candidates.length < 2) return sets;
+  return sets.flatMap(({ costChoices, target }) =>
+    candidates.map((identity) => ({
+      costChoices: { ...costChoices, [deal.slot]: [identity] },
+      target: target ?? identity,
+    })),
   );
 }
 
@@ -1094,7 +1112,7 @@ function evaluateAbility(
   instanceId: InstanceId,
   abilityId: AbilityId,
 ): Evaluated {
-  const cost = costAsDetermined(state, deps, instanceId, playerId, abilityCostFor(state, deps, instanceId, abilityId));
+  const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
   const picks = discardPicks(state, deps, playerId, instanceId, cost);
   const reserved = new Set(picks);
   const spend = spendOrder(state, deps, playerId, reserved, null);
@@ -1540,13 +1558,7 @@ function payableFor(
   }
   if (action.kind === "useAbility") {
     const { instanceId, abilityId } = action;
-    const cost = costAsDetermined(
-      state,
-      deps,
-      instanceId,
-      playerId,
-      abilityCostFor(state, deps, instanceId, abilityId),
-    );
+    const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
     const picks = options.costChoices?.discard ?? discardPicks(state, deps, playerId, instanceId, cost);
     const sets = costChoiceSets(state, deps, playerId, instanceId, cost, picks);
     const chosen = sets.find((set) => set.target !== null && set.target === options.target) ?? sets[0];

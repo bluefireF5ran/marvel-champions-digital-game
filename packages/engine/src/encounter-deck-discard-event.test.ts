@@ -191,15 +191,44 @@ const SWEEP = action("sweep", {
     },
   ],
 });
-const EVENTS = [MILL_3, COST_3, LOOK, UNTIL, SWEEP];
+/** Eagle-Eyed as printed: the discard is an effect, so the slot is bound while the ability resolves. */
+const EYE_EFFECT = action("eye-effect", {
+  effects: [
+    { kind: "discardEncounterCards", count: constant(1), bind: "discarded" },
+    measure("count", v("discarded.count")),
+  ],
+});
+const TALON_AFTER_EFFECT = stubAbility(
+  "talon-after-effect.response",
+  def({
+    trigger: {
+      kind: "response",
+      forced: false,
+      on: { on: "abilityResolved", playerIs: "controller", eventIs: { abilityId: EYE_EFFECT.ability.ref.id } },
+      while: HAS_ICONS,
+    },
+    cost: { discardSelf: true },
+    effects: [measure("talon", iconsOf("moment.discarded"))],
+  }),
+);
+const TALON_2 = stubUpgrade({ id: "talon-2", cost: 0, abilities: [TALON_AFTER_EFFECT.ref] });
+const EVENTS = [MILL_3, COST_3, LOOK, UNTIL, SWEEP, EYE_EFFECT];
 
-const SHARED = [EYE_ACTION, TALON_RESPONSE, DRAIN_REVEALED, MINE_YOURS, MINE_ANY, ...EVENTS.map((e) => e.ability)];
+const SHARED = [
+  EYE_ACTION,
+  TALON_RESPONSE,
+  TALON_AFTER_EFFECT,
+  DRAIN_REVEALED,
+  MINE_YOURS,
+  MINE_ANY,
+  ...EVENTS.map((e) => e.ability),
+];
 const deps: EngineDeps = depsOf(SOLUTIONS_RESPONSE, WATCH_ALL, WATCH_COST, WATCH_EFFECT, ...SHARED);
 /** The same cards with no ability that hears the encounter deck's discards (a player deck's are still heard). */
 const silentDeps: EngineDeps = depsOf(...SHARED);
 
 const ENCOUNTER: readonly AnyCard[] = [BLANK, PIP, STARRED, SOLDIER, THUG, DRAIN];
-type InPlay = typeof WATCH | typeof MINE | typeof EYE | typeof TALON;
+type InPlay = typeof WATCH | typeof MINE | typeof EYE | typeof TALON | typeof TALON_2;
 interface Table {
   readonly state: GameState;
   /** The encounter deck's top cards, in order. */
@@ -224,9 +253,9 @@ function start(
 ): Table {
   let state = gameAtFirstTurn({
     deps: options.using ?? deps,
-    cards: [...ENCOUNTER, SOLUTIONS, WATCH, MINE, METER, EYE, TALON, ...EVENTS.map((e) => e.card)],
+    cards: [...ENCOUNTER, SOLUTIONS, WATCH, MINE, METER, EYE, TALON, TALON_2, ...EVENTS.map((e) => e.card)],
     encounter: [SOLUTIONS.id, ...ENCOUNTER.flatMap((card) => copiesOf(card.id, 8))],
-    deck: [WATCH.id, MINE.id, METER.id, EYE.id, TALON.id, ...EVENTS.map((e) => e.card.id)],
+    deck: [WATCH.id, MINE.id, METER.id, EYE.id, TALON.id, TALON_2.id, ...EVENTS.map((e) => e.card.id)],
   });
   if (options.solutions) state = encounterCardInVillainArea(state, SOLUTIONS.id, 6).state;
   const inPlay: Record<string, InstanceId> = {};
@@ -566,5 +595,40 @@ describe("§3.43 (c): abilityResolved carries the resolved ability's slots", () 
     const table = start([STARRED], { inPlay: [EYE] });
     const { events } = useEye(table);
     expect(events.some((e) => e.type === "triggerEvent" && e.event.kind === "abilityResolved")).toBe(false);
+  });
+});
+
+describe("§3.43 (c): abilityResolved carries the slots the resolved ability's effects bound", () => {
+  const talon = triggering(TALON_AFTER_EFFECT);
+  const resolvedOf = (events: readonly GameEvent[]) =>
+    events.flatMap((e) =>
+      e.type === "triggerEvent" && e.phase === "resolved" && e.event.kind === "abilityResolved" ? [e.event] : [],
+    );
+
+  it("a card an effect discarded: the response is offered and reads its 3 icons", () => {
+    const table = start([STARRED], { inPlay: [TALON_2] });
+    const { state, events } = play(table, EYE_EFFECT, talon);
+    const [resolved] = resolvedOf(events);
+    expect(resolved?.abilityId).toBe(EYE_EFFECT.ability.ref.id);
+    expect(resolved?.carried?.discarded).toEqual([table.top[0]]);
+    expect(metered(table, state, "talon")).toBe(3);
+    expect(zoneOf(state, table.inPlay[TALON_2.id])).toBe("discard");
+    expect(metered(table, state, "count")).toBe(1);
+  });
+
+  it("a card of 0 icons: judged once the effect has discarded it, the response is not offered and no event is made", () => {
+    const table = start([BLANK], { inPlay: [TALON_2] });
+    const { state, events } = play(table, EYE_EFFECT, talon);
+    expect(resolvedOf(events)).toEqual([]);
+    expect(zoneOf(state, table.inPlay[TALON_2.id])).toBe("playArea");
+  });
+
+  it("a Serpent Society minion the effect discarded and Serpent Solutions dealt away is still the discarded card", () => {
+    const table = start([SOLDIER], { solutions: true, inPlay: [TALON_2] });
+    const { state, events } = play(table, EYE_EFFECT, talon);
+    expect(mustPlayer(state, P1).dealtEncounter).toEqual([table.top[0]]);
+    expect(metered(table, state, "count")).toBe(0);
+    expect(resolvedOf(events)[0]?.carried?.discarded).toEqual([table.top[0]]);
+    expect(metered(table, state, "talon")).toBe(1);
   });
 });

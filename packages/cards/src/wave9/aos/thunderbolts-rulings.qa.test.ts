@@ -103,6 +103,7 @@ const HAYMAKER = "01087"; // Hero Action (attack): 3 damage to an enemy, cost 2
 const COSMIC_FLIGHT = "01017"; // gives Captain Marvel the Aerial trait
 const PHYSICAL_CARDS = ["01003", "01008"]; // each prints one physical resource
 const ENERGY_CARDS = ["01002", "01006"]; // each prints one energy resource
+const ENERGY_DOUBLE = "01088"; // Energy: a resource card that generates two energy resources
 // Wave 9 cards
 const CITIZEN_V = "50129a";
 const JUSTICE = "50131a";
@@ -791,13 +792,8 @@ describe("S.H.I.E.L.D. Executive Board", () => {
   // p. 24: incite is "When a card with the incite X keyword is revealed". A boost card is not revealed.
   it("A.I.M. Interference as a boost card places its counters but no incite threat on the main scheme", () => {
     const base = heroForm(setupGame());
-    const asBoost = run(
-      deps,
-      onlyDeck(base, AIM_ENERGY, FILLER_A, FILLER_B),
-      { option: "Place the counter" },
-      endTurn(P1),
-    );
-    const control = run(deps, onlyDeck(base, BLANK, FILLER_A, FILLER_B), { option: "Place the counter" }, endTurn(P1));
+    const asBoost = run(deps, onlyDeck(base, AIM_ENERGY, FILLER_A, FILLER_B), {}, endTurn(P1));
+    const control = run(deps, onlyDeck(base, BLANK, FILLER_A, FILLER_B), {}, endTurn(P1));
     const counts = (s: GameState) => ["50181a", "50182a", "50183a"].map((c) => secretsOn(s, boardMember(s, c)));
     expect(counts(asBoost.state)).toEqual([1, 1, 1]);
     expect(counts(control.state)).toEqual([0, 0, 0]);
@@ -812,7 +808,8 @@ describe("S.H.I.E.L.D. Executive Board", () => {
   function secondPlayerReveals() {
     let s = setupGame([SPIDER_MAN, IRON_MAN]);
     s = heroForm(s, P1, P2);
-    const given = moveToHand(s, P1, ...ENERGY_CARDS);
+    // Both players hold [energy] to spend: only a player who could pay is asked for X.
+    const given = moveToHand(moveToHand(s, P1, ...ENERGY_CARDS).state, P2, ENERGY_DOUBLE);
     // Two activations of Rhino (a boost card each), then P1's card, then P2's A.I.M. Interference.
     const staged = onlyDeck(given.state, BLANK, BLANK, FILLER_A, AIM_ENERGY, FILLER_B);
     const asked: { kind: string; playerId: PlayerId }[] = [];
@@ -820,10 +817,10 @@ describe("S.H.I.E.L.D. Executive Board", () => {
     return { asked, r };
   }
 
-  it("the second player, who reveals A.I.M. Interference, is the one asked whether to spend a resource", () => {
+  it("the second player, who reveals A.I.M. Interference, is the one asked how many resources to spend", () => {
     const { asked } = secondPlayerReveals();
-    const optionAsks = asked.filter((a) => a.kind === "chooseOption");
-    expect(optionAsks.length).toBeGreaterThan(0);
-    expect(optionAsks.every((a) => a.playerId === P2)).toBe(true);
+    // One "choose X" prompt (`spendXResources`), and it is the revealing player's.
+    const numberAsks = asked.filter((a) => a.kind === "chooseNumber");
+    expect(numberAsks.map((a) => a.playerId)).toEqual([P2]);
   });
 });

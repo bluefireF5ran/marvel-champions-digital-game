@@ -2,6 +2,7 @@ import { trait } from "@mc/content";
 import type { AbilityRegistry } from "@mc/engine";
 import {
   YOUR_HERO,
+  addCounters,
   alterEgoAction,
   aScheme,
   allOf,
@@ -15,6 +16,7 @@ import {
   controllerOf,
   countersOn,
   dealDamage,
+  dealEncounterCardsToChosenPlayerCost,
   defineAbilities,
   discardThis,
   discardTopOfEncounterDeckCost,
@@ -99,6 +101,13 @@ const EAGLE_ICONS = boostAreaIconsOn(chosen("moment.discarded"));
  * the damage is still considered dealt. The change is an effect, so it does not use the voluntary form change of the
  * round (rules insert); either change is skipped for a player who cannot change form.
  *
+ * **53009.aerial-recon-action** (Hero Action): "Exhaust Aerial Recon and deal a player 1 facedown encounter card ->
+ * place 1 recon counter here." Both parts are the cost. "A player" is any player still in the game, Falcon's own
+ * included, picked as the action is initiated (`dealEncounterCardsToChosenPlayerCost`; forced in a one-player game).
+ * The card waits facedown in front of that player and is revealed in step four of the next villain phase (RRG 1.8
+ * "Deal, Deal an Encounter Card", p. 15). A deal paid as a cost is not announced to "would be dealt" interrupts (every
+ * cost is paid at once, RRG 1.8 "Cost", p. 13), so the card's own interrupt does not answer its own action.
+ *
  * **53009.aerial-recon-interrupt** (Interrupt): "When a player would be dealt an encounter card, remove 1 recon counter
  * from here instead." Works in either form (not a Hero Interrupt); not offered at 0 counters; the card replaced stays on
  * the deck and nothing is dealt.
@@ -169,6 +178,11 @@ export const FALCON_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
     ifThen(refMatches(eventTarget, query("hero")), changeForm(controllerOf(eventTarget), "alterEgo")),
   ),
 
+  "53009.aerial-recon-action": heroAction(
+    { cost: [exhaustThis, dealEncounterCardsToChosenPlayerCost(1)] },
+    addCounters("recon", 1),
+  ),
+
   "53009.aerial-recon-interrupt": interrupt(
     on.aPlayerWouldBeDealtAnEncounterCard(),
     { would: true, while: valueAtLeast(countersOn(self, "recon"), 1) },
@@ -216,14 +230,5 @@ export const FALCON_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   ),
 });
 
-/**
- * Refs of this module's cards deliberately left unscripted, each with its written reason.
- */
-export const FALCON_SUPPORT_UPGRADES_ALLIES_SKIPPED: Readonly<Record<string, string>> = {
-  "53009.aerial-recon-action":
-    "Hero Action: Exhaust Aerial Recon and deal a player 1 facedown encounter card -> place 1 recon counter here. The only " +
-    "cost the DSL has for a deal is dealEncounterCardsCost(n) (AbilityCost.dealEncounterCards), which deals the paying " +
-    "player (engine actions.ts: dealEncounterCardTo(ctx, playerId, 'ability')); the card says a player of the payer's " +
-    "choice. Needs an engine cost that deals a chosen player, and the 3.45 interrupt would then have to hear a deal made " +
-    "as a cost (trigger-events.ts says a cost deal is not announced).",
-};
+/** Refs of this module's cards deliberately left unscripted, each with its written reason. None. */
+export const FALCON_SUPPORT_UPGRADES_ALLIES_SKIPPED: Readonly<Record<string, string>> = {};

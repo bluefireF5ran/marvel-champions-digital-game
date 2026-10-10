@@ -45,7 +45,6 @@ import { simultaneousOrderer } from "../villain/authority.js";
 import { limitReached } from "./ability.js";
 import { abilityFrame, base, type Frame } from "./frames.js";
 import { pushPlayCardFrame } from "./play-card.js";
-import { abilityCostFor } from "../rules.js";
 import { activeAbilityRefs, cardsInPlay } from "../select.js";
 import { keywordAbilityOf } from "../keyword-abilities.js";
 import { candidatesFor, hearerKey, hearersOf, stillOffered } from "./triggers.js";
@@ -605,7 +604,7 @@ function askCostCounters(
   rest: readonly TriggerCandidate[],
 ): boolean {
   const controller = candidate.controllerId;
-  const cost = abilityCostFor(ctx.state, ctx.deps, candidate.instanceId, candidate.abilityId);
+  const cost = ctx.deps.abilities[candidate.abilityId]?.cost;
   if (!controller || !cost) return false;
   if (costSelectionFor(frame, candidate).counters !== undefined) return false;
   const choices = costChoicesFor(frame, candidate);
@@ -669,7 +668,7 @@ function askCostPick(
   rest: readonly TriggerCandidate[],
 ): boolean {
   const controller = candidate.controllerId;
-  const cost = abilityCostFor(ctx.state, ctx.deps, candidate.instanceId, candidate.abilityId);
+  const cost = ctx.deps.abilities[candidate.abilityId]?.cost;
   if (!controller || !cost) return false;
   const choices = costChoicesFor(frame, candidate);
   const taken = new Set(Object.values(choices).flat());
@@ -733,7 +732,7 @@ function askHandDiscard(
   rest: readonly TriggerCandidate[],
 ): boolean {
   const controller = candidate.controllerId;
-  const cost = abilityCostFor(ctx.state, ctx.deps, candidate.instanceId, candidate.abilityId);
+  const cost = ctx.deps.abilities[candidate.abilityId]?.cost;
   const discard = cost?.discardFromHand;
   if (!controller || !discard || (discard.min <= 0 && !discard.combined)) return false;
   const choices = costChoicesFor(frame, candidate);
@@ -794,7 +793,7 @@ function withoutHandDiscards(
 function absorbCostPick(ctx: Ctx, frame: Frame<"window">, answer: readonly string[], slot: string | null): void {
   const candidate = frame.paying;
   const { costPicks: _dropped, ...cleared } = { ...frame, answer: null, awaiting: null, paying: null };
-  const cost = candidate ? abilityCostFor(ctx.state, ctx.deps, candidate.instanceId, candidate.abilityId) : undefined;
+  const cost = candidate ? ctx.deps.abilities[candidate.abilityId]?.cost : undefined;
   // A pick of cards in play, or the hand-discard cost's (`askHandDiscard`), which needs at least one card.
   const pick =
     inPlayPicksOf(cost).find((entry) => entry.pick.slot === slot)?.pick ??
@@ -839,9 +838,7 @@ function triggerCandidate(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCa
   ) {
     return;
   }
-  // With what a rule adds for an "(attack)" or "(thwart)" ability of this character (`abilityCostFor`).
-  const written = definition && abilityCostFor(ctx.state, ctx.deps, candidate.instanceId, candidate.abilityId);
-  if (!definition || !written || !controller) {
+  if (!definition?.cost || !controller) {
     pushFrames(ctx, [abilityFrame(ctx, candidate, on.event, on.eventFrameId)]);
     return;
   }
@@ -850,7 +847,7 @@ function triggerCandidate(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCa
     ctx.deps,
     candidate.instanceId,
     controller,
-    written,
+    definition.cost,
     costChoicesFor(frame, candidate),
     new Set(),
     selection,
@@ -862,8 +859,8 @@ function triggerCandidate(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCa
   // (the same guard `requestWindowPayment` has; docs/phase7-wave4.md §3.36).
   // So is a size the player chooses ("spend up to 3 resources →", `ResourcesChoice`; docs/phase7-wave8.md §3.62): the
   // prompt carries its range, and `resolveChoice` refuses a selection below it (above it, the rest is overpaid).
-  const chosenSize = resourcesChoiceOf(plan.cost ?? written);
-  if (needed > 0 || written.resourcesX !== undefined || chosenSize) {
+  const chosenSize = resourcesChoiceOf(plan.cost ?? definition.cost);
+  if (needed > 0 || definition.cost.resourcesX !== undefined || chosenSize) {
     const payingFor = plan.payingFor ?? candidate.instanceId;
     const options = withoutHandDiscards(frame, candidate, paymentOptions(ctx, controller, null, payingFor));
     setFrame(ctx, { ...frame, awaiting: "pay", paying: candidate });
@@ -884,7 +881,7 @@ function triggerCandidate(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCa
     return;
   }
   pushFrames(ctx, [abilityFrame(ctx, candidate, on.event, on.eventFrameId, plan.bindings, plan.vars)]);
-  payCost(ctx, candidate.instanceId, controller, written, plan);
+  payCost(ctx, candidate.instanceId, controller, definition.cost, plan);
 }
 
 /** The answer to a `payForAbility` choice: pay and resolve, or decline by under-paying. */
@@ -896,7 +893,6 @@ function payWindowAbility(ctx: Ctx, frame: Frame<"window">, answer: readonly str
   const controller = candidate?.controllerId;
   const definition = candidate ? ctx.deps.abilities[candidate.abilityId] : undefined;
   if (!candidate || !controller || !definition) return;
-  const written = abilityCostFor(ctx.state, ctx.deps, candidate.instanceId, candidate.abilityId);
   const on = answered(frame, candidate);
   const payment = paymentsFromOptionIds(answer);
   const plan = planCost(
@@ -904,7 +900,7 @@ function payWindowAbility(ctx: Ctx, frame: Frame<"window">, answer: readonly str
     ctx.deps,
     candidate.instanceId,
     controller,
-    written,
+    definition.cost,
     costChoicesFor(frame, candidate),
     // A hand card spent on the resources cannot also be the card discarded for the cost (RRG 1.8 "Cost", p. 13).
     handCardsIn(payment),
@@ -918,7 +914,7 @@ function payWindowAbility(ctx: Ctx, frame: Frame<"window">, answer: readonly str
   if (!pool || !satisfies(pool, plan.requirement)) return;
   // The same checks and vars an action's payment gets: "of the same type" / "of different types", X
   // (docs/phase7-wave3.md §3.43). A payment that fails one is a decline, as an under-payment is.
-  const paidVars = resourceVars(pool, plan.cost ?? written, plan.requirement);
+  const paidVars = resourceVars(pool, plan.cost ?? definition.cost, plan.requirement);
   if (isPriceFault(paidVars)) return;
   // The types the ability reads of this payment (docs/phase7-wave8.md §3.62): a wild whose declaration can change the
   // reading is asked about by the ability's own frame, before it resolves anything.
@@ -929,7 +925,7 @@ function payWindowAbility(ctx: Ctx, frame: Frame<"window">, answer: readonly str
     pool,
     { ...plan.vars, ...paidVars },
     plan.requirement,
-    plan.cost ?? written,
+    plan.cost ?? definition.cost,
   );
   if (isPriceFault(settled)) return;
   const spent = payPayment(ctx, controller, payment, payingFor);
@@ -937,7 +933,7 @@ function payWindowAbility(ctx: Ctx, frame: Frame<"window">, answer: readonly str
     abilityFrame(ctx, candidate, on.event, on.eventFrameId, plan.bindings, settled.vars, settled.types?.undeclared),
   ]);
   logAbilityWildTypes(ctx, controller, candidate.instanceId, candidate.abilityId, settled.types);
-  payCost(ctx, candidate.instanceId, controller, written, plan);
+  payCost(ctx, candidate.instanceId, controller, definition.cost, plan);
   announceResourcesSpent(ctx, controller, spent, candidate.instanceId, "ability");
 }
 

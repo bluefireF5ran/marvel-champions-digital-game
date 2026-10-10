@@ -462,6 +462,17 @@ export type StackFrame =
        * attachments …" (Powerful Enchantments, `valk` 25030) reads it. docs/phase7-wave4.md §3.44.
        */
       readonly byPlayer?: true;
+      /**
+       * The effects of an ability (`resolveAbility`), which has resolved once they have (RRG 1.8 "Resolve", p. 37): as
+       * this frame finishes it announces `abilityResolved` for that ability, carrying the slots the frame then holds
+       * (`announceAbilityResolved`, docs/phase7-wave9.md §3.43 (c)). Absent on a branch and on effects that are not an
+       * ability's own.
+       */
+      readonly announceResolved?: {
+        readonly instanceId: InstanceId;
+        readonly abilityId: AbilityId;
+        readonly controllerId: PlayerId | null;
+      };
       /** The setup instruction these effects resolve, when they are one (see `SetupInstructionSource`). */
       readonly instruction?: SetupInstructionSource;
       /**
