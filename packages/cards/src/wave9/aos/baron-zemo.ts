@@ -24,6 +24,7 @@ import {
   each,
   enemyAttack,
   enemyScheme,
+  eventAmount,
   exists,
   findCard,
   firstPlayer,
@@ -44,12 +45,14 @@ import {
   option,
   perHero,
   placeThreat,
+  preventThreat,
   printedCostOf,
   product,
   query,
   remainingHpOf,
   removeCountersAmong,
   removeCountersFrom,
+  repeatTimes,
   resetHitPoints,
   response,
   self,
@@ -190,7 +193,7 @@ const swordPayment = (type: "physical" | "energy") =>
  * - 50172 S.H.I.E.L.D. Agent (minion)
  * - 50173 Divided Loyalties (side_scheme)
  * - 50174 Undermine Support (side_scheme)
- * - 50175 Battle of Wits (treachery; skipped, no engine hook)
+ * - 50175 Battle of Wits (treachery)
  * - 50176 Might Makes Right (treachery)
  * - 50177 The Ends Justify the Means (treachery)
  */
@@ -294,6 +297,32 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
     ),
   ),
 
+  // Battle of Wits: Zemo schemes; the threat that activation would place on the main scheme is the pending amount
+  // (`eventAmount`), and X is paid one [mental] resource at a time, each preventing 1 threat and removing 1 secret
+  // counter (the pattern of A.I.M. Interference 50184). The player who paid is the revealing player (`you`); the first
+  // player splits the removal (Q28 = A). The "Spend" option is offered only to a player who can pay it (`option` makes
+  // the spend required), and "Spend no more" ends the loop. The removal is not conditional on a counter being left: the
+  // prevention does not depend on it, and removing fewer than X because fewer remain is "as many as possible". With no
+  // threat to place the effects never resolve, so nothing is offered.
+  "50175.when-revealed": whenRevealed(
+    enemyScheme(theVillain, {
+      wouldPlaceThreat: [
+        repeatTimes(
+          eventAmount,
+          chooseOne(
+            option(
+              "Spend 1 [mental] resource to prevent 1 threat and remove 1 secret counter",
+              spendResources({ mental: 1 }, "paid", you, { required: true }),
+              preventThreat(1),
+              removeCountersAmong("secret", 1, BOARD_MEMBER_ENVIRONMENTS, { chooser: firstPlayer }),
+            ),
+            option("Spend no more"),
+          ),
+        ),
+      ],
+    }),
+  ),
+
   // The Ends Justify the Means: the revealing player chooses. The tie for "fewest remaining hit points" and the split of
   // the counters are the first player's.
   "50177.when-revealed": whenRevealed(
@@ -324,6 +353,4 @@ export const BARON_ZEMO_SKIPPED: Readonly<Record<string, string>> = {
   "50171.reluctant-foe-constant": "waits on engine task 21 (an identity card from the collection treated as a minion)",
   "50171.when-defeated": "waits on engine task 21 (removing the hero and the attachment from the game)",
   "50171.when-revealed": "waits on engine task 21 (the collection search for a hero and putting it into play)",
-  "50175.when-revealed":
-    "no engine hook: 'If this activation would place any threat on the main scheme, you may spend X mental resources to prevent X' needs a way for the revealing treachery (not in play, so its triggers are not gathered) to interrupt the scheme activation it starts; enemyScheme has divert/schBonus but no payment-and-prevent option",
 };

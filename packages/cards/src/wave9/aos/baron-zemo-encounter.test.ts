@@ -6,6 +6,7 @@ import {
   type GameState,
   type InstanceId,
 } from "@mc/engine";
+import { CORE_CARDS } from "@mc/content";
 import { describe, expect, it, vi } from "vitest";
 import { mergeRegistries } from "../../dsl/index.js";
 import { validateDefinition } from "../../dsl/validate.js";
@@ -48,8 +49,7 @@ vi.setConfig({ testTimeout: 300_000 });
 /**
  * The encounter cards of the Baron Zemo set (50170 to 50177; docs/phase7-wave9.md sections 3.27, 3.30, 3.31, owner
  * answer Q28 = A). The real Zemo scenario with the Executive Board, driven by real turns: the encounter deck is stacked
- * top first (Zemo's boost card, then the cards the players are dealt). Battle of Wits (no engine hook), Reluctant Foe
- * (engine task 21) are skipped.
+ * top first (Zemo's boost card, then the cards the players are dealt). Reluctant Foe (engine task 21) is skipped.
  */
 const DEPS: EngineDeps = { abilities: mergeRegistries(WAVE8_ABILITIES, BARON_ZEMO, EXECUTIVE_BOARD) };
 
@@ -86,10 +86,11 @@ const REFS = [
   "50174.when-defeated",
   "50176.when-revealed-alter-ego",
   "50176.when-revealed-hero",
+  "50175.when-revealed",
   "50177.when-revealed",
 ];
 
-const SKIPPED = ["50171.reluctant-foe-constant", "50171.when-defeated", "50171.when-revealed", "50175.when-revealed"];
+const SKIPPED = ["50171.reluctant-foe-constant", "50171.when-defeated", "50171.when-revealed"];
 
 function open(players: readonly (typeof SPIDER_MAN | typeof IRON_MAN)[] = [SPIDER_MAN], hero = true): GameState {
   const created = createGame(wave9Scenario("baron-zemo", { players, seed: 1, difficulty: "standard" }), DEPS);
@@ -184,10 +185,9 @@ describe("registry", () => {
     for (const [id, def] of Object.entries(BARON_ZEMO)) expect(validateDefinition(def), id).toEqual([]);
   });
 
-  it("skips exactly Reluctant Foe and Battle of Wits, each with its reason", () => {
+  it("skips exactly Reluctant Foe, with its reason with its reason", () => {
     expect(Object.keys(BARON_ZEMO_SKIPPED).sort()).toEqual([...SKIPPED].sort());
     expect(BARON_ZEMO_SKIPPED["50171.when-revealed"]).toContain("engine task 21");
-    expect(BARON_ZEMO_SKIPPED["50175.when-revealed"]).toContain("no engine hook");
     for (const id of SKIPPED) expect(BARON_ZEMO[id]).toBeUndefined();
   });
 });
@@ -495,6 +495,176 @@ describe("The Ends Justify the Means (50177)", () => {
     const cat = playFromHand(DEPS, base, "01002", 2);
     const run = villainPhase(cat.state, [BLANK, "50177"], scripted({ label: "Discard an ally", target: cat.id }), true);
     expect(total(run.state)).toBe(0);
+  });
+});
+
+describe("Battle of Wits (50175)", () => {
+  const WITS = "50175";
+  /** Core treachery with no boost icons and no Boost ability, a second filler. */
+  const ASSAULT = "01187";
+  const MENTAL_CARDS = ["01004", "01004", "01061"];
+  const PHYSICAL_CARDS = ["01003", "01003", "01008"];
+
+  /** The player's hand is exactly these cards (the rest of it goes to the discard pile). */
+  const handOf = (state: GameState, player: typeof P1, ...codes: string[]): GameState => {
+    const emptied = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === player ? { ...p, hand: [], discard: [...p.discard, ...p.hand] } : p,
+      ),
+    };
+    return moveToHand(emptied, player, ...codes).state;
+  };
+
+  /** The player holds no card that pays [mental] anywhere (the hand is drawn back up before the villain phase). */
+  const withoutMental = (state: GameState, player: typeof P1): GameState => ({
+    ...state,
+    players: state.players.map((p) => {
+      const keep = (id: InstanceId) => {
+        const card = CORE_CARDS.find((c) => (c.id as string) === codeOf(state, id)) as
+          | { resourceIcons?: Record<string, number>; producesIcons?: Record<string, number> }
+          | undefined;
+        const icons = { ...card?.resourceIcons, ...card?.producesIcons };
+        return !icons["mental"] && !icons["wild"];
+      };
+      return p.playerId === player
+        ? { ...p, hand: p.hand.filter(keep), deck: p.deck.filter(keep), discard: p.discard.filter(keep) }
+        : p;
+    }),
+  });
+
+  /** Spends `spend` [mental] resources one at a time (paying from the hand), then declines; records each prompt. */
+  const spending = (spend: number, asked: string[][] = [], payer?: string): Picker => {
+    let spent = 0;
+    return (s) => {
+      const choice = s.pendingChoice!;
+      if (choice.prompt.kind === "chooseOption") {
+        asked.push(choice.options.map((o) => o.label));
+        const wanted = spent < spend ? "Spend 1 [mental]" : "Spend no more";
+        const hit = choice.options.find((o) => o.label.includes(wanted));
+        if (hit) {
+          if (wanted !== "Spend no more") spent++;
+          return [hit.optionId];
+        }
+      }
+      if (payer && choice.prompt.kind === "spendResources") expect(choice.playerId).toBe(payer);
+      if (choice.prompt.kind === "spendResources" || choice.prompt.kind === "payForAbility") {
+        return choice.options
+          .map((o) => o.optionId)
+          .filter((id) => id.startsWith("hand:"))
+          .slice(0, 1);
+      }
+      return firstLegal(s);
+    };
+  };
+
+  /** Round 1: Zemo's own attack takes a blank boost, then Battle of Wits is revealed and Zemo's scheme boosts blank. */
+  const reveal = (start: GameState, pick: Picker) => villainPhase(start, [BLANK, WITS, ASSAULT], pick);
+  /** The threat Zemo's activations actually put on the main scheme (`schemeResolved.threatPlaced` is before prevention). */
+  const placed = (run: ReturnType<typeof reveal>): number =>
+    run.events
+      .filter(
+        (e) =>
+          e.type === "threatPlaced" &&
+          e.schemeInstanceId === run.state.mainScheme.instanceId &&
+          e.sourceInstanceId === villainOf(run.state),
+      )
+      .reduce((sum, e) => sum + (e.type === "threatPlaced" ? e.amount : 0), 0);
+  const staged = (...mental: string[]) => withCounters(handOf(open(), P1, ...mental), 2, 2, 2);
+
+  it("nothing spent: Zemo schemes for his full amount, no counter is removed, and the prompt comes once per threat", () => {
+    const asked: string[][] = [];
+    const start = staged(...MENTAL_CARDS);
+    const run = reveal(start, spending(0, asked));
+    expect(placed(run)).toBe(3);
+    expect(total(run.state)).toBe(total(start));
+    // Known gap (reported, not worked around): "Spend no more" ends one threat's turn, not the loop, so the prompt
+    // comes once per threat about to be placed (3 here) instead of once.
+    expect(asked).toHaveLength(3);
+  });
+
+  it("spending 1 [mental] resource prevents 1 threat and removes 1 secret counter; the first player picks where", () => {
+    const start = staged(...MENTAL_CARDS);
+    const run = reveal(start, spending(1));
+    expect(placed(run)).toBe(2);
+    expect(total(run.state)).toBe(total(start) - 1);
+  });
+
+  it("spending 2 prevents 2 threat and removes 2 secret counters", () => {
+    const start = staged(...MENTAL_CARDS);
+    const run = reveal(start, spending(2));
+    expect(placed(run)).toBe(1);
+    expect(total(run.state)).toBe(total(start) - 2);
+  });
+
+  it("the removal does not depend on a counter being left: prevention still happens with the environments bare", () => {
+    const start = withCounters(handOf(open(), P1, ...MENTAL_CARDS), 0, 0, 0);
+    const run = reveal(start, spending(2));
+    expect(placed(run)).toBe(1);
+    expect(total(run.state)).toBe(0);
+  });
+
+  it("the first player chooses which environments lose the counters", () => {
+    const start = staged(...MENTAL_CARDS);
+    const medical = memberOf(start, MEDICAL);
+    const spend = spending(1);
+    const run = reveal(start, (s) => {
+      const choice = s.pendingChoice!;
+      const hit =
+        choice.prompt.kind === "chooseTarget"
+          ? choice.options.find((o) => o.ref.kind === "card" && o.ref.instanceId === medical)
+          : undefined;
+      return hit ? [hit.optionId] : spend(s);
+    });
+    expect(placed(run)).toBe(2);
+    expect(counts(run.state)).toEqual([1, 2, 2]);
+  });
+
+  it("a non-mental resource does not pay: with only physical cards in hand the spend is not offered", () => {
+    const asked: string[][] = [];
+    const start = withoutMental(staged(...PHYSICAL_CARDS), P1);
+    const run = reveal(start, spending(1, asked));
+    expect(asked).toEqual([]);
+    expect(placed(run)).toBe(3);
+    expect(total(run.state)).toBe(total(start));
+  });
+
+  it("no threat to place (Zemo is confused and removes the status instead of scheming): nothing is offered", () => {
+    const asked: string[][] = [];
+    const base = staged(...MENTAL_CARDS);
+    const start = patchInstance(base, villainOf(base), {
+      statuses: { ...inst(base, villainOf(base)).statuses, confused: 1 },
+    });
+    const run = reveal(start, spending(1, asked));
+    expect(asked).toEqual([]);
+    expect(placed(run)).toBe(0);
+    expect(total(run.state)).toBe(total(start));
+  });
+
+  it("two players: the revealing player pays and the first player chooses the environments", () => {
+    const base = withCounters(open([IRON_MAN, SPIDER_MAN]), 2, 2, 2);
+    const p2 = base.players.find((p) => p.playerId !== P1)!.playerId;
+    const start = handOf(withoutMental(base, P1), p2, ...MENTAL_CARDS);
+    // Zemo attacks each hero (two boost cards), then the first player is dealt the Sword and the second Battle of Wits.
+    const pay = spending(1, [], p2);
+    const dividers: string[] = [];
+    const run = villainPhase(start, [BLANK, ASSAULT, SWORD, WITS, ASSAULT], (s) => {
+      if (s.pendingChoice!.prompt.kind === "divide") dividers.push(s.pendingChoice!.playerId as string);
+      return pay(s);
+    });
+    expect(dividers).toEqual([P1]);
+    expect(placed(run)).toBe(2);
+    expect(total(run.state)).toBe(total(start) - 1);
+  });
+
+  it("a boost-card flip of Battle of Wits does none of this", () => {
+    const asked: string[][] = [];
+    const start = staged(...MENTAL_CARDS);
+    // Zemo's attack flips Battle of Wits as its boost card (1 boost icon); nothing is revealed.
+    const run = villainPhase(start, [WITS, ASSAULT], spending(1, asked));
+    expect(asked).toEqual([]);
+    expect(schemesBy(run.state, run.events, ZEMO)).toHaveLength(0);
+    expect(total(run.state)).toBe(total(start));
   });
 });
 
