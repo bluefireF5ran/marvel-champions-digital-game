@@ -152,6 +152,8 @@ function open(
   players: readonly (typeof SPIDER_MAN | typeof IRON_MAN)[],
   difficulty: "standard" | "expert" = "standard",
   firstPlayerIndex?: number,
+  /** The two cards no script reached when the first games were written; game E plays them, so it keeps them. */
+  keepUnscripted = false,
 ): Sim {
   const config = wave9Scenario("baron-zemo", {
     players,
@@ -161,14 +163,10 @@ function open(
   });
   const created = createGame(config, DEPS);
   if (!created.ok) throw new Error(created.error.message);
-  // Reluctant Foe (50171) and Battle of Wits (50175) are not scripted: out of the encounter deck.
-  const state = without(
-    without(
-      settle(created.state, firstLegal, (s) => s.step.phase === "player", DEPS),
-      "50171",
-    ),
-    "50175",
-  );
+  // Games A to D never stack Reluctant Foe (50171) or Battle of Wits (50175): they stay out of the encounter deck so
+  // those games' seeded draws are what they were. Game E keeps them.
+  const settled = settle(created.state, firstLegal, (s) => s.step.phase === "player", DEPS);
+  const state = keepUnscripted ? settled : without(without(settled, "50171"), "50175");
   return { state, log: [], ops: [] };
 }
 
@@ -894,12 +892,61 @@ describe("Baron Zemo scenario, game D: solo, expert, the opening and the flip to
 });
 
 // ---------------------------------------------------------------------------------------------------------------
+// Game E: solo, standard, Reluctant Foe and Battle of Wits, each stacked and played in a real round
+// ---------------------------------------------------------------------------------------------------------------
+
+describe("Baron Zemo scenario, game E: solo (Spider-Man), standard, seed 1, Reluctant Foe and Battle of Wits", () => {
+  const e = open([SPIDER_MAN], "standard", undefined, true);
+  const CAPTAIN_MARVEL = "01010a";
+  const FOE = "50171";
+  const WITS = "50175";
+  const finding: Picker = (s) =>
+    s.pendingChoice!.prompt.kind === "searchCollection" ? [CAPTAIN_MARVEL] : planner({})(s);
+  const hero = () =>
+    (Object.keys(e.state.instances) as InstanceId[]).find((i) => codeOf(e.state, i) === CAPTAIN_MARVEL)!;
+  const foe = () => (Object.keys(e.state.instances) as InstanceId[]).find((i) => codeOf(e.state, i) === FOE)!;
+
+  it("round 1: Zemo's boost card, then Reluctant Foe is revealed: Captain Marvel enters play engaged with Spider-Man", () => {
+    stack(e, BLANK, FOE);
+    act(e, finding, endTurn(P1));
+    expect(inst(e.state, foe()).attachedTo).toBe(hero());
+    expect(inst(e.state, hero()).engagedWith).toBe(P1);
+    expect(hasKeyword(e.state, hero(), "villainous", DEPS)).toBe(true);
+    expect(maxHitPoints(e.state, hero(), DEPS)).toBe(12);
+    expect(e.state.round).toBe(2);
+  });
+
+  it("round 2: Spider-Man defeats it: Captain Marvel and Reluctant Foe are removed from the game", () => {
+    stage(e, (s) => patchInstance(s, hero(), { damage: 11 }));
+    const events = act(e, planner({}), toHero(), attack(identityOf(e.state, P1), hero()));
+    expect(ofType(events, "characterDefeated").map((x) => x.instanceId)).toEqual([hero()]);
+    expect(e.state.removedFromGame).toEqual(expect.arrayContaining([hero(), foe()]));
+    expect(playerOf(e.state, P1).discard).not.toContain(hero());
+    expectInvariants(e);
+  });
+
+  it("round 2 villain phase: Battle of Wits makes Zemo scheme; each [mental] resource prevents 1 threat and removes 1 secret counter", () => {
+    give(e, P1, ...MENTAL.slice(0, 2));
+    const before = { secrets: counts(e).reduce((a, b) => a + b, 0) };
+    stack(e, BLANK, WITS);
+    const events = act(e, planner({ options: ["Spend 1 [mental]"], pay: 1 }), endTurn(P1));
+    const spent = ofType(events, "threatPrevented");
+    // Zemo's SCH is 3 and the plan always spends: three payments, one threat and one counter each.
+    expect(spent.map((x) => x.amount)).toEqual([1, 1, 1]);
+    expect(counts(e).reduce((a, b) => a + b, 0)).toBe(before.secrets - 3);
+    expectInvariants(e);
+  });
+
+  it("replay: the game again from its first op ends in the same state", () => {
+    expect(replayOf(e, () => open([SPIDER_MAN], "standard", undefined, true))).toEqual(e.state);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
 // What the games do not prove
 // ---------------------------------------------------------------------------------------------------------------
 
 describe("not played in a whole game", () => {
-  it.todo("Reluctant Foe (50171): not scripted (engine task 21); out of the encounter deck in every game here");
-  it.todo("Battle of Wits (50175): not scripted (no engine hook); out of the encounter deck in every game here");
   it.todo("campaign mode: the envelopes arrive from the campaign log, the Setup counters and the 1-card gain differ");
   it.todo(
     "A.I.M. Interference's payment (spending X resources to prevent X counters): unit tests only (executive-board.test.ts)",

@@ -222,10 +222,8 @@ describe("registry", () => {
     }
   });
 
-  it("skips only the refs that wait on the engine (the encounter cards are tested in baron-zemo-encounter.test.ts)", () => {
-    expect(Object.keys(BARON_ZEMO_SKIPPED).sort()).toEqual(
-      ["50171.reluctant-foe-constant", "50171.when-defeated", "50171.when-revealed"].sort(),
-    );
+  it("skips nothing (the encounter cards are tested in baron-zemo-encounter.test.ts)", () => {
+    expect(BARON_ZEMO_SKIPPED).toEqual({});
   });
 
   it("the data names these refs for the villain faces and the main scheme", () => {

@@ -10,6 +10,7 @@ import {
   advanceMainScheme,
   allOf,
   bindTargets,
+  cards,
   chooseOne,
   chooseOneBy,
   chooseTarget,
@@ -33,13 +34,17 @@ import {
   forcedInterrupt,
   forcedResponse,
   gainFromHiddenPile,
+  gainsAbility,
+  gainsKeyword,
   heroAction,
+  heroNoCharacterIsTitledAs,
   hiddenPileCount,
   identifyMole,
   ifThen,
   instead,
   made,
   modifyAttack,
+  moveCards,
   not,
   on,
   option,
@@ -47,6 +52,7 @@ import {
   placeThreat,
   preventThreat,
   printedCostOf,
+  putIntoPlayAsHost,
   product,
   query,
   remainingHpOf,
@@ -55,6 +61,7 @@ import {
   repeatTimes,
   resetHitPoints,
   response,
+  searchCollection,
   self,
   setup,
   spendResources,
@@ -63,6 +70,7 @@ import {
   theMainScheme,
   theMole,
   theVillain,
+  treatAttachedHeroAsMinion,
   valueAtLeast,
   varAtLeast,
   when,
@@ -75,6 +83,7 @@ import {
 } from "../../dsl/index.js";
 
 const BOARD_MEMBER = trait("BOARD MEMBER");
+const ELITE = trait("ELITE");
 /** "Board Member environment": the environment face only (every removal, 1B's Response). */
 const BOARD_MEMBER_ENVIRONMENTS = query("environment", { trait: BOARD_MEMBER });
 /** "Board Member card": either face, in play (50165b / 50166b, 50168b step 2). */
@@ -182,14 +191,14 @@ const swordPayment = (type: "physical" | "energy") =>
  * character; S.H.I.E.L.D. Agent's Forced Interrupt answers its own activation or defeat; Undermine Support taxes
  * readying a support; both side schemes remove 1[per_hero] secret counters when defeated; Might Makes Right and The
  * Ends Justify the Means finish with secret counters removed from among the Board Member environments (the first
- * player splits them, Q28 = A). The unscripted refs are in `BARON_ZEMO_SKIPPED`.
+ * player splits them, Q28 = A). Reluctant Foe is the §3.30 hero-as-minion kit (below); `BARON_ZEMO_SKIPPED` is empty.
  *
  * Cards (11):
  * - 50165a Baron Zemo (villain)
  * - 50166a Baron Zemo (villain)
  * - 50167a Zemo's Manipulations (main_scheme)
  * - 50170 Baron Zemo's Sword (attachment)
- * - 50171 Reluctant Foe (attachment; skipped, engine task 21)
+ * - 50171 Reluctant Foe (attachment)
  * - 50172 S.H.I.E.L.D. Agent (minion)
  * - 50173 Divided Loyalties (side_scheme)
  * - 50174 Undermine Support (side_scheme)
@@ -280,6 +289,27 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
     ...placeOnFewest(1),
   ),
 
+  // Reluctant Foe (docs/phase7-wave9.md section 3.30; owner Q39 to Q46, MC50 p. 22). The constant treats the attached
+  // hero as an Elite minion (SCH from its printed THW, its printed traits kept, Q41), makes it Villainous and gives it
+  // the When Defeated below in place of its printed text. In that When Defeated `self` is the hero, and the order
+  // matters: the attachment first (it needs the hero as its host), then the hero. The When Revealed searches the
+  // collection for a hero whose hero-side title matches no character in play (Q42, Q44) and puts it into play engaged
+  // with the revealing player with this card attached. The card has no `attachesTo`, so a reveal that finds no hero
+  // discards it (Q46).
+  "50171.reluctant-foe-constant": constant(
+    treatAttachedHeroAsMinion([ELITE]),
+    gainsKeyword({ name: "villainous" }, { hostOfSelf: true }),
+    gainsAbility("50171.when-defeated", { to: { hostOfSelf: true } }),
+  ),
+  "50171.when-defeated": whenDefeated(
+    moveCards(cards(each(query("attachment", { name: "Reluctant Foe", host: self }))), "removedFromGame"),
+    moveCards(cards(self), "removedFromGame"),
+  ),
+  "50171.when-revealed": whenRevealed(
+    searchCollection(heroNoCharacterIsTitledAs, "hero"),
+    putIntoPlayAsHost(chosen("hero")),
+  ),
+
   // Divided Loyalties: Hinder is data; every ally's attack, thwart and defense costs its player 1 more resource.
   "50173.divided-loyalties-constant": constant(additionalPowerCost(query("ally"), ["attack", "thwart", "defend"], 1)),
   "50173.when-defeated": removePerHero(),
@@ -348,9 +378,5 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
   ),
 });
 
-/** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const BARON_ZEMO_SKIPPED: Readonly<Record<string, string>> = {
-  "50171.reluctant-foe-constant": "waits on engine task 21 (an identity card from the collection treated as a minion)",
-  "50171.when-defeated": "waits on engine task 21 (removing the hero and the attachment from the game)",
-  "50171.when-revealed": "waits on engine task 21 (the collection search for a hero and putting it into play)",
-};
+/** Refs of this module's cards deliberately left unscripted, each with its written reason. None remain. */
+export const BARON_ZEMO_SKIPPED: Readonly<Record<string, string>> = {};

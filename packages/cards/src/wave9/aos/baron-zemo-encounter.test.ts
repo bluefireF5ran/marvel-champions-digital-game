@@ -1,15 +1,22 @@
 import {
   activeEncounterDeckId,
   applyCommand,
+  characterProfile,
   createGame,
+  keywordsOf,
+  locateCard,
+  minionsEngagedWith,
+  traitsOf,
+  activeAbilityRefs,
   type EngineDeps,
   type GameState,
   type InstanceId,
 } from "@mc/engine";
-import { CORE_CARDS } from "@mc/content";
+import { CORE_CARDS, abilityId, trait } from "@mc/content";
 import { describe, expect, it, vi } from "vitest";
-import { mergeRegistries } from "../../dsl/index.js";
+import { action, defineAbilities, discard, each, mergeRegistries, query } from "../../dsl/index.js";
 import { validateDefinition } from "../../dsl/validate.js";
+import { relabel } from "../../testing/qa-bench.js";
 import {
   P1,
   endTurn,
@@ -24,7 +31,13 @@ import {
   use,
   type Picker,
 } from "../../testing/harness.js";
-import { driveEventsPicking, encounterCardInVillainArea, playFromHand, withDamage } from "../../testing/staging.js";
+import {
+  driveEventsPicking,
+  encounterCardInVillainArea,
+  playFromHand,
+  withDamage,
+  withForm,
+} from "../../testing/staging.js";
 import { WAVE8_ABILITIES } from "../../wave8/index.js";
 import { wave9Scenario } from "../setup.js";
 import {
@@ -49,7 +62,7 @@ vi.setConfig({ testTimeout: 300_000 });
 /**
  * The encounter cards of the Baron Zemo set (50170 to 50177; docs/phase7-wave9.md sections 3.27, 3.30, 3.31, owner
  * answer Q28 = A). The real Zemo scenario with the Executive Board, driven by real turns: the encounter deck is stacked
- * top first (Zemo's boost card, then the cards the players are dealt). Reluctant Foe (engine task 21) is skipped.
+ * top first (Zemo's boost card, then the cards the players are dealt). Reluctant Foe (engine task 21) is the hero-as-minion kit.
  */
 const DEPS: EngineDeps = { abilities: mergeRegistries(WAVE8_ABILITIES, BARON_ZEMO, EXECUTIVE_BOARD) };
 
@@ -88,9 +101,10 @@ const REFS = [
   "50176.when-revealed-hero",
   "50175.when-revealed",
   "50177.when-revealed",
+  "50171.reluctant-foe-constant",
+  "50171.when-defeated",
+  "50171.when-revealed",
 ];
-
-const SKIPPED = ["50171.reluctant-foe-constant", "50171.when-defeated", "50171.when-revealed"];
 
 function open(players: readonly (typeof SPIDER_MAN | typeof IRON_MAN)[] = [SPIDER_MAN], hero = true): GameState {
   const created = createGame(wave9Scenario("baron-zemo", { players, seed: 1, difficulty: "standard" }), DEPS);
@@ -185,10 +199,8 @@ describe("registry", () => {
     for (const [id, def] of Object.entries(BARON_ZEMO)) expect(validateDefinition(def), id).toEqual([]);
   });
 
-  it("skips exactly Reluctant Foe, with its reason with its reason", () => {
-    expect(Object.keys(BARON_ZEMO_SKIPPED).sort()).toEqual([...SKIPPED].sort());
-    expect(BARON_ZEMO_SKIPPED["50171.when-revealed"]).toContain("engine task 21");
-    for (const id of SKIPPED) expect(BARON_ZEMO[id]).toBeUndefined();
+  it("skips nothing: every card of the set is scripted", () => {
+    expect(BARON_ZEMO_SKIPPED).toEqual({});
   });
 });
 
@@ -665,6 +677,191 @@ describe("Battle of Wits (50175)", () => {
     expect(asked).toEqual([]);
     expect(schemesBy(run.state, run.events, ZEMO)).toHaveLength(0);
     expect(total(run.state)).toBe(total(start));
+  });
+});
+
+describe("Reluctant Foe (50171): a hero from the collection in play as a minion", () => {
+  const FOE = "50171";
+  const CAPTAIN_MARVEL = "01010a";
+  const HULK = "10001a";
+  const HULK_ALLY = "01050";
+  const SPIDER = "01001a";
+  const IRON = "01029a";
+  const BACKFLIP = "01003";
+
+  /** Backflip stands in for an event that discards cards from play (the box has none): `01003.free` and `01003.banish`. */
+  const FREER: EngineDeps = {
+    abilities: mergeRegistries(
+      DEPS.abilities,
+      defineAbilities({
+        "01003.free": action(discard(each(query("attachment", { name: "Reluctant Foe" })))),
+        "01003.banish": action(discard(each(query("minion")))),
+      }),
+    ),
+  };
+  const withFreer = (state: GameState, ref: "01003.free" | "01003.banish"): GameState => {
+    const backflip = state.cardPool[BACKFLIP as never]!;
+    return {
+      ...state,
+      cardPool: {
+        ...state.cardPool,
+        [BACKFLIP]: { ...backflip, cost: 0, abilities: [{ id: abilityId(ref) }] } as never,
+      },
+    };
+  };
+
+  const find = (s: GameState, code: string): InstanceId | undefined =>
+    (Object.keys(s.instances) as InstanceId[]).find((i) => codeOf(s, i) === code);
+  /** Answers the collection search with `hero` (null: finds nothing), recording who was offered what. */
+  const finding =
+    (hero: string | null, offered: { player: string; ids: string[] }[] = [], base: Picker = firstLegal): Picker =>
+    (s) => {
+      const choice = s.pendingChoice!;
+      if (choice.prompt.kind !== "searchCollection") return base(s);
+      offered.push({ player: choice.playerId as string, ids: choice.options.map((o) => o.optionId) });
+      return hero === null ? [] : [hero];
+    };
+  /** Round 1: the second dealt encounter card is Reluctant Foe (one player: the first). */
+  const reveal = (
+    start: GameState,
+    hero: string | null,
+    offered: { player: string; ids: string[] }[] = [],
+    deck: readonly string[] = [BLANK, FOE, SPARE],
+  ) => villainPhase(start, deck, finding(hero, offered), true);
+  const nobodyToFind = (s: GameState): GameState => {
+    const seated = new Set(s.players.map((p) => p.identity.cardId as string));
+    return {
+      ...s,
+      cardPool: Object.fromEntries(
+        Object.entries(s.cardPool).filter(([id, card]) => card.type !== "hero_identity" || seated.has(id)),
+      ) as GameState["cardPool"],
+    };
+  };
+
+  it("the reveal offers hero identity cards, not one titled like a character in play (Q42, Q44)", () => {
+    // Both seats are in alter-ego form (Tony Stark, Peter Parker): their hero titles still count (Q44 = A).
+    let start = open([IRON_MAN, SPIDER_MAN], false);
+    // An ally titled Hulk is in play.
+    start = playFromHand(DEPS, relabel(start, HULK_ALLY).state, HULK_ALLY, 2).state;
+    expect(inPlayCard(start, HULK_ALLY)).toBeDefined();
+    const offered: { player: string; ids: string[] }[] = [];
+    const run = reveal(start, null, offered, [BLANK, BLANK, FOE, SPARE]);
+    // The first player is dealt Reluctant Foe: the first of the two encounter cards after the boost cards.
+    expect(offered).toHaveLength(1);
+    const ids = offered[0]!.ids;
+    expect(ids).toContain(CAPTAIN_MARVEL);
+    expect(ids).not.toContain(IRON);
+    expect(ids).not.toContain(SPIDER);
+    expect(ids).not.toContain(HULK);
+    // Found nothing: it is discarded.
+    expect(locateCard(run.state, find(run.state, FOE)!)?.kind).toBe("encounterDiscard");
+  });
+
+  it("the chosen hero enters play engaged with the revealer as an Elite minion with its printed stats", () => {
+    const run = reveal(open(), CAPTAIN_MARVEL);
+    const hero = find(run.state, CAPTAIN_MARVEL)!;
+    const foe = find(run.state, FOE)!;
+    expect(inst(run.state, foe).attachedTo).toBe(hero);
+    expect(minionsEngagedWith(run.state, P1)).toEqual([hero]);
+    // ATK 2 printed, SCH its printed THW (2), its 12 hit points; DEF and the rest have no effect.
+    expect(characterProfile(run.state, hero, DEPS)).toMatchObject({ kind: "minion", atk: 2, sch: 2, maxHp: 12 });
+    // Printed traits beside Elite (Q41 = A).
+    expect([...traitsOf(run.state, hero, DEPS)].sort()).toEqual(
+      [trait("AVENGER"), trait("ELITE"), trait("SOLDIER")].sort(),
+    );
+    // Its printed text box is replaced: no Rechannel, only Villainous and the When Defeated.
+    expect(keywordsOf(run.state, hero, DEPS)).toEqual([{ name: "villainous" }]);
+    expect(activeAbilityRefs(run.state, hero, DEPS).map((r) => r.id)).toEqual(["50171.when-defeated"]);
+  });
+
+  it("it attacks a hero in the villain phase with its printed ATK and a boost card (Villainous)", () => {
+    const first = reveal(open(), CAPTAIN_MARVEL);
+    const hero = find(first.state, CAPTAIN_MARVEL)!;
+    // Round 2: Zemo's boost card, then the foe's (one boost icon).
+    const run = villainPhase(first.state, [BLANK, ONE_ICON, SPARE], firstLegal, true);
+    const dealt = run.events.flatMap((e) => (e.type === "boostCardDealt" && e.enemyInstanceId === hero ? [e] : []));
+    expect(dealt).toHaveLength(1);
+    const damage = run.events.flatMap((e) =>
+      e.type === "damageDealt" && e.sourceInstanceId === hero ? [e.amount] : [],
+    );
+    expect(damage).toEqual([3]);
+  });
+
+  it("it schemes for its printed THW plus the boost card against a player in alter-ego form", () => {
+    const first = reveal(open(), CAPTAIN_MARVEL);
+    const hero = find(first.state, CAPTAIN_MARVEL)!;
+    const run = villainPhase(withForm(first.state, "alterEgo"), [BLANK, ONE_ICON, SPARE], firstLegal, true);
+    const placed = run.events.flatMap((e) =>
+      e.type === "threatPlaced" && e.sourceInstanceId === hero ? [e.amount] : [],
+    );
+    expect(placed).toEqual([3]);
+  });
+
+  it("a player attacks and defeats it: the hero and Reluctant Foe are removed from the game, and an ally of that title can be played", () => {
+    const first = reveal(open(), HULK);
+    const hero = find(first.state, HULK)!;
+    const foe = find(first.state, FOE)!;
+    // 18 hit points printed.
+    expect(characterProfile(first.state, hero, DEPS)).toMatchObject({ kind: "minion", maxHp: 18 });
+    const run = heroAttacks(DEPS, withDamage(first.state, hero, 17), hero);
+    expect(run.events.some((e) => e.type === "characterDefeated" && e.instanceId === hero)).toBe(true);
+    expect(run.state.removedFromGame).toEqual(expect.arrayContaining([hero, foe]));
+    expect(playerOf(run.state, P1).discard).not.toContain(hero);
+    expect(minionsEngagedWith(run.state, P1)).toEqual([]);
+    // Hulk's ally (Bruce Banner) matches the hero's alter-ego title: it could not be played while the hero was in play.
+    const ally = playFromHand(DEPS, relabel(run.state, HULK_ALLY).state, HULK_ALLY, 2);
+    expect(inPlayCard(ally.state, HULK_ALLY)).toBe(ally.id);
+  });
+
+  it("Reluctant Foe discarded first: the hero is removed from the game with it, not defeated (Q39 = A)", () => {
+    const first = reveal(withFreer(open(), "01003.free"), CAPTAIN_MARVEL);
+    const hero = find(first.state, CAPTAIN_MARVEL)!;
+    const foe = find(first.state, FOE)!;
+    const played = playFromHand(FREER, relabel(first.state, BACKFLIP).state, BACKFLIP, 0);
+    expect(locateCard(played.state, foe)?.kind).toBe("encounterDiscard");
+    expect(played.state.removedFromGame).toContain(hero);
+    expect(minionsEngagedWith(played.state, P1)).toEqual([]);
+  });
+
+  it("the hero leaving play undefeated with Reluctant Foe on it is removed from the game; Foe is discarded (Q45)", () => {
+    const first = reveal(withFreer(open(), "01003.banish"), CAPTAIN_MARVEL);
+    const hero = find(first.state, CAPTAIN_MARVEL)!;
+    const foe = find(first.state, FOE)!;
+    const played = playFromHand(FREER, relabel(first.state, BACKFLIP).state, BACKFLIP, 0);
+    expect(played.state.removedFromGame).toContain(hero);
+    expect(playerOf(played.state, P1).discard).not.toContain(hero);
+    expect(locateCard(played.state, foe)?.kind).toBe("encounterDiscard");
+  });
+
+  it("two players: the player dealt Reluctant Foe searches and is engaged", () => {
+    const offered: { player: string; ids: string[] }[] = [];
+    const start = open([IRON_MAN, SPIDER_MAN]);
+    const p2 = start.players.find((p) => p.playerId !== P1)!.playerId;
+    // Zemo's two boost cards, then the first player's card, then the second player's.
+    const run = reveal(start, CAPTAIN_MARVEL, offered, [BLANK, ONE_ICON, SPARE, FOE]);
+    expect(offered.map((o) => o.player)).toEqual([p2]);
+    const hero = find(run.state, CAPTAIN_MARVEL)!;
+    expect(minionsEngagedWith(run.state, p2)).toEqual([hero]);
+    expect(minionsEngagedWith(run.state, P1)).toEqual([]);
+  });
+
+  it("with nobody to find, nothing enters play and Reluctant Foe is discarded", () => {
+    const offered: { player: string; ids: string[] }[] = [];
+    const run = reveal(nobodyToFind(open()), CAPTAIN_MARVEL, offered);
+    expect(offered).toEqual([]);
+    expect(minionsEngagedWith(run.state, P1)).toEqual([]);
+    expect(locateCard(run.state, find(run.state, FOE)!)?.kind).toBe("encounterDiscard");
+    expect(find(run.state, CAPTAIN_MARVEL)).toBeUndefined();
+  });
+
+  it("flipped as a boost card, it does none of this", () => {
+    const offered: { player: string; ids: string[] }[] = [];
+    // Zemo's attack flips Reluctant Foe as its boost card (3 boost icons).
+    const run = reveal(open(), CAPTAIN_MARVEL, offered, [FOE, BLANK, BLANK]);
+    expect(offered).toEqual([]);
+    expect(find(run.state, CAPTAIN_MARVEL)).toBeUndefined();
+    expect(minionsEngagedWith(run.state, P1)).toEqual([]);
+    expect(run.state.removedFromGame).toEqual([]);
   });
 });
 
