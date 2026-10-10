@@ -3954,6 +3954,37 @@ export type EffectSpec =
       readonly into?: { readonly scenarioPlayArea: string };
     }
   /**
+   * "Put it into play engaged with you. Attach this card to it." (Reluctant Foe, `aos` 50171; docs/phase7-wave9.md
+   * §3.30), for a card that can be in play only as what `attachment` makes it: an identity card no player is using,
+   * which a `treatHostAsMinion` attachment treats as a minion (MC50 p. 22: "attach Reluctant Foe to that identity card
+   * with its hero side faceup. That hero becomes a minion"). One step, because the card is no kind of card in play
+   * until the attachment is on it.
+   *
+   * The first card `card` names, if it is out of play and is such an identity card, goes faceup to the play area of
+   * the first player `engagedWith` names, engaged with them and controlled by nobody; it keeps its owner (RRG 1.8
+   * "Search", p. 39: the searcher owns it "until the end of the game"). The first card `attachment` names is then
+   * attached to it (`attachCard`: a host that "cannot have cards attached" refuses). The unique rule applies as to
+   * any entry (RRG 1.8 "Unique Icon", pp. 45–46: a refused player card stays where it was).
+   *
+   * Once both have moved the card is a minion engaged with that player, and that is what is announced (owner
+   * decision, §4.1 Q43 = A; RRG 1.8 "Enters Play", p. 18, "Engage", p. 18): its `cardEntersPlay` (the enter-play
+   * keywords it has by then are that event's apply step; interrupts to the engagement share its window), a
+   * quickstrike attack, teamwork, then "after you engage". The attachment's own `cardAttached` and entry are announced
+   * as an `attach` effect's are.
+   *
+   * Nothing enters play, logged `putIntoPlayRefused`, for a card of another type, in play already or a seat's
+   * identity (`cardType`), and when the attachment could not be attached or does not treat the card as a minion
+   * (`noLegalHost`): the card is then removed from the game, as it is when that attachment leaves play (§4.1 Q39).
+   * `bind`: the card, when it entered play (`<bind>.count` 1 or 0).
+   */
+  | {
+      readonly kind: "putIntoPlayAsHost";
+      readonly card: TargetRef;
+      readonly attachment: TargetRef;
+      readonly engagedWith: PlayerRef;
+      readonly bind?: string;
+    }
+  /**
    * "Deal an encounter card to each player" / "Deal 2 encounter cards to each player" (Green Goblin II). Cards come
    * from the active villain's deck (§3.2). With more than one player receiving cards the first player chooses the
    * order they receive them (RRG 1.8 "Each Player", p. 17; ruling, Jan 26, 2026 (4) answer 3: "the first player
@@ -5078,4 +5109,16 @@ export type CardDestination =
  * out basic, identity-specific and unclassified (scenario- or campaign-specific) cards. `traits`: it prints at least
  * one of these. An absent field asks nothing; an empty list matches no card.
  */
-export type CollectionSearchFilter = Pick<CollectionFilter, "categories" | "aspects" | "traits">;
+export type CollectionSearchFilter = Pick<CollectionFilter, "categories" | "aspects" | "traits"> & {
+  /**
+   * "A hero whose title does not match a character in play" (Reluctant Foe, `aos` 50171; docs/phase7-wave9.md §3.30;
+   * MC50 p. 22: "an identity card from a Marvel Champions hero you are not using in your current game whose title
+   * does not match the title of a character in play"): the card is an identity card, and its hero-side title
+   * (`foeHeroFace`; §4.1 Q40 = A, Q42 = A: the alter-ego title is not compared) is the title no character in play is
+   * showing. A hero a player is using is never found: the game holds its one copy (the copy accounting above), and
+   * the hero-side titles of every seat's identity count as in play whichever side is up, so a second identity card
+   * that shares a hero title with a seat's alter-ego is not found either (§3.30's open question, the engine's
+   * default). A version of a progressing identity other than the first, and a separated identity, are not found.
+   */
+  readonly heroTitleNotInPlay?: true;
+};

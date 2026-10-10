@@ -110,6 +110,27 @@ export const heroFacesOf = (card: HeroIdentityCard): readonly HeroFaceWithTraits
 ];
 
 /**
+ * The hero side of an identity card that is in play as no player's identity (docs/phase7-wave9.md §3.30; MC50 p. 22:
+ * "with its hero side faceup"). An identity with several hero faces or forms uses the hero face it starts a game on
+ * (owner decision, §4.1 Q40 = A), which is `hero`: the outside hero face, and every `additionalHeroForms` entry is a
+ * form a player changes to during a game.
+ */
+export const foeHeroFace = (card: HeroIdentityCard): HeroFaceWithTraits => card.hero;
+
+/**
+ * Whether `id` is an identity card that is no seat's identity: a hero from a collection, in play only while an
+ * attachment treats it as a minion (`CardInstance.treatedAs`; Reluctant Foe, docs/phase7-wave9.md §3.30).
+ */
+export function isSeatlessIdentity(state: GameState, id: InstanceId): boolean {
+  const instance = state.instances[id];
+  return (
+    instance !== undefined &&
+    state.cardPool[instance.cardId]?.type === "hero_identity" &&
+    !state.players.some((p) => p.identity.instanceId === id)
+  );
+}
+
+/**
  * The face of this player's identity that is up (docs/phase7-wave2.md §3.2): the hero face `heroFormIndex` names in hero
  * form, else the alter-ego face. Every reader of a face's stats, traits, keywords, abilities and hand size goes through
  * here, so a three-sided identity (Ant-Man, Wasp) reads its Giant face while that face is up.
@@ -450,6 +471,8 @@ export function currentName(state: GameState, id: InstanceId): string | undefine
   if (card.type === "hero_identity") {
     const player = state.players.find((p) => p.identity.instanceId === id);
     if (player) return identityFace(state, player).face.faceName;
+    // A hero in play as a minion shows its hero side (`foeHeroFace`).
+    if (instance.treatedAs?.kind === "minion") return foeHeroFace(card).faceName;
   }
   // A main scheme stage with its own title ("Remove the Chronopolis from the game"; `MainSchemeStage.name`).
   const scheme = card.type === "main_scheme" ? mainSchemeStateOf(state, id) : undefined;
@@ -746,6 +769,21 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
       def: 0,
       rec: 0,
       sch: statValue(sch),
+      maxHp: card.hp,
+    };
+  }
+  // A hero treated as a minion (docs/phase7-wave9.md §3.30; MC50 p. 22: "SCH equal to its THW value, and hit points
+  // equal to its starting hit point value. Its DEF value has no effect"): its hero side's ATK, and no DEF or REC.
+  if (instance.treatedAs?.kind === "minion" && card.type === "hero_identity") {
+    const face = foeHeroFace(card);
+    return {
+      kind: "minion",
+      missing: [],
+      atk: face.atk,
+      thw: 0,
+      def: 0,
+      rec: 0,
+      sch: instance.treatedAs.schFromThw ? face.thw : 0,
       maxHp: card.hp,
     };
   }

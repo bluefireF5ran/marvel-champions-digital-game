@@ -35,6 +35,7 @@ import {
   characterProfile,
   discardZoneFor,
   getInstance,
+  isMinion,
   locateCard,
   mustInstance,
   mustPlayer,
@@ -81,8 +82,9 @@ const getsBoostCard = (state: GameState, deps: EngineDeps, enemyId: InstanceId):
   const card = cardOf(state, enemyId);
   if (!card) return false;
   if (card.type === "villain") return true;
-  if (card.type === "minion") return hasKeyword(state, enemyId, "villainous", deps);
-  return false;
+  // A card in play as a minion counts (`isMinion`): a hero an attachment treats as one, with the keyword that
+  // attachment gives it (Reluctant Foe, docs/phase7-wave9.md §3.30).
+  return isMinion(state, enemyId) && hasKeyword(state, enemyId, "villainous", deps);
 };
 
 /**

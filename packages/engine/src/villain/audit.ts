@@ -127,7 +127,9 @@ function observeShadow(shadow: Shadow, state: GameState, event: GameEvent): void
     case "cardMoved": {
       const type = state.cardPool[event.cardId]?.type;
       if (event.from.kind === "playArea") shadow.engaged.get(event.from.playerId)?.delete(event.instanceId);
-      if (event.to.kind === "playArea" && type === "minion")
+      // An identity card moved to a play area is a hero in play as a minion (docs/phase7-wave9.md §3.30): a seat's
+      // identity is never in one.
+      if (event.to.kind === "playArea" && (type === "minion" || type === "hero_identity"))
         shadow.engaged.get(event.to.playerId)?.add(event.instanceId);
       if (event.from.kind === "villainArea") shadow.sideSchemes.delete(event.instanceId);
       if (event.to.kind === "villainArea" && type === "side_scheme") shadow.sideSchemes.add(event.instanceId);

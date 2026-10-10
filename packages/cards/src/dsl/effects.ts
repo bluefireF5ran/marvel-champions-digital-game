@@ -2130,6 +2130,32 @@ export const searchCollection = (
  */
 export const fromAnyAspect: readonly string[] = ["aggression", "justice", "leadership", "protection", "pool"];
 /**
+ * "Search your collection for a hero whose title does not match a character in play" (Reluctant Foe, `aos` 50171;
+ * docs/phase7-wave9.md §3.30; MC50 p. 22) → `searchCollection(heroNoCharacterIsTitledAs, "hero")`: an identity card
+ * no player is using whose hero-side title no character in play is showing (§4.1 Q40 = A, Q42 = A). The scenario's
+ * card pool must hold the identity cards to choose from (§4.1 Q47 = A: the collection is the game's card pool).
+ */
+export const heroNoCharacterIsTitledAs: CollectionSearchFilter = { heroTitleNotInPlay: true };
+/**
+ * "… and put it into play engaged with you. Attach this card to it." (Reluctant Foe, `aos` 50171; docs/phase7-wave9.md
+ * §3.30) → `putIntoPlayAsHost(chosen("hero"))`, one step for a card that can be in play only as what the attachment
+ * makes it: the identity card `card` names enters play engaged with `engagedWith` (default: you) under nobody's
+ * control, `attachment` (default: this card) is attached to it, and it is then announced as the minion it is (§4.1
+ * Q43 = A: "minion enters play" and "engages" abilities hear it). The attachment's constant carries
+ * `treatAttachedHeroAsMinion`. With nothing bound nothing happens, and an attachment this card's When Revealed did
+ * not attach is discarded by its reveal. `bind`: the card that entered play, `<bind>.count` 1 or 0.
+ */
+export const putIntoPlayAsHost = (
+  card: TargetRef,
+  opts: { readonly attachment?: TargetRef; readonly engagedWith?: PlayerRef; readonly bind?: string } = {},
+): EffectSpec => ({
+  kind: "putIntoPlayAsHost",
+  card,
+  attachment: opts.attachment ?? self,
+  engagedWith: opts.engagedWith ?? you,
+  ...withBind(opts.bind),
+});
+/**
  * A fact from outside the game that is known only when the card resolves (docs/phase7-wave7.md §3.83): `player` is
  * asked to report it, and the report is a recorded answer, never something the engine measures. Read it with
  * `varOf(`${bind}.amount`)`: the number for `"minutesAway"` ("heal 1 damage from each identity for every minute you

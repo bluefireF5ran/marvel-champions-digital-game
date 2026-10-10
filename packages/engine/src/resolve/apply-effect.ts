@@ -48,6 +48,7 @@ import {
   takeTopOfDeck,
   settleAwaitingAttackEffects,
   turnToFlipSide,
+  leavePlayAtOnce,
 } from "../effects.js";
 import { ANY_COUNTER, anyCounterPickOf, anyCounterTake, landingCounterType } from "../counter-types.js";
 import { EngineInvariantError } from "../errors.js";
@@ -74,7 +75,9 @@ import {
   beforeStartingHandsDrawn,
   getPlayer,
   inAnyEncounterDiscard,
+  isMinion,
   isPlayerCardType,
+  isSeatlessIdentity,
   locateCard,
   mainSchemeStateOf,
   maxHitPoints,
@@ -1889,6 +1892,59 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             : f,
         );
       }
+      pushFrames(ctx, frames);
+      return;
+    }
+    case "putIntoPlayAsHost": {
+      const [playerId] = resolvePlayers(ctx.state, effect.engagedWith, context);
+      const [id] = targets(effect.card);
+      const [attachment] = targets(effect.attachment);
+      const bound = (entered: readonly InstanceId[]): void => {
+        const slot = effect.bind;
+        if (slot === undefined) return;
+        updateFrame(ctx, frame.frameId, (f) =>
+          f.kind === "effects"
+            ? {
+                ...f,
+                bindings: { ...f.bindings, [slot]: entered },
+                vars: { ...f.vars, [`${slot}.count`]: entered.length },
+              }
+            : f,
+        );
+      };
+      bound([]);
+      if (!playerId || id === undefined) return;
+      // Only a card that can be in play as nothing else: an identity card no player is using, out of play.
+      if (!isSeatlessIdentity(ctx.state, id) || cardsInPlay(ctx.state).includes(id)) {
+        emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId, reason: "cardType" });
+        return;
+      }
+      if (admitUniqueEntry(ctx, [id], playerId).length === 0) return;
+      moveCard(ctx, id, { kind: "playArea", playerId });
+      updateInstance(ctx, id, (i) => ({ ...i, controllerId: null, engagedWith: playerId, faceup: true }));
+      const attached =
+        attachment === undefined ? [] : attachCardBy(ctx, attachment, id, context.controllerId ?? playerId);
+      if (!isMinion(ctx.state, id)) {
+        // Nothing treats it as a minion (the attachment was refused, or has no such rule): an identity card cannot
+        // stay in play as no player's identity, so it goes as it does when that attachment leaves (§4.1 Q39 = A).
+        emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId, reason: "noLegalHost" });
+        leavePlayAtOnce(ctx, id, { kind: "removedFromGame" });
+        return;
+      }
+      bound([id]);
+      // Announced as the minion it now is (§4.1 Q43 = A), in the order `putIntoPlay` announces a minion.
+      const entered: TriggerEvent[] = [{ kind: "cardEntersPlay", instanceId: id, playerId }];
+      const quickstrike = quickstrikeAttack(ctx, id);
+      if (quickstrike) entered.push(quickstrike);
+      const frames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
+      const teamwork = teamworkFrame(ctx, id);
+      if (teamwork) frames.push(teamwork);
+      frames.push(...engagedEvent(ctx, id).map((event) => eventFrame(ctx, event)));
+      frames.push(
+        ...attached
+          .filter((event) => announcesAttaching(event, (e) => heard(ctx.state, ctx.deps, e)))
+          .map((event) => eventFrame(ctx, event)),
+      );
       pushFrames(ctx, frames);
       return;
     }

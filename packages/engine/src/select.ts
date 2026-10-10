@@ -34,6 +34,7 @@ import {
   getPlayer,
   handSize,
   hasStarIcon,
+  foeHeroFace,
   heroFacesOf,
   identityFace,
   isMinion,
@@ -561,7 +562,8 @@ function printedTraitsOf(state: GameState, id: InstanceId): readonly Trait[] {
   const treated = getInstance(state, id)?.treatedAs;
   if (treated) {
     if (treated.kind === "ally") return treated.traits;
-    const printed = card.type === "ally" ? card.traits : [];
+    // A hero treated as a minion keeps its hero side's traits (docs/phase7-wave9.md §4.1 Q41 = A).
+    const printed = card.type === "ally" ? card.traits : card.type === "hero_identity" ? foeHeroFace(card).traits : [];
     return treated.keepPrintedTraits ? [...treated.traits, ...printed] : treated.traits;
   }
   const face = encounterFace(state, id);

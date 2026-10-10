@@ -40,6 +40,11 @@ export interface Ctx {
    * command, like `events`; never part of the state.
    */
   deckTopsHeld?: number;
+  /**
+   * Cards whose own leaving of play is discarding their attachments right now (`leaveNow`): `syncTreatedAs` leaves
+   * such a host alone, since the card is going whatever its attachments made it. Working memory of one command.
+   */
+  leavingHosts?: InstanceId[];
 }
 
 export const createCtx = (state: GameState, deps: EngineDeps): Ctx => ({ state, events: [], deps });

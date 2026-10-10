@@ -7,9 +7,11 @@ import type { AnyCard, CardId } from "@mc/content";
 import { CARD_DATA_CATEGORIES, cardTraits } from "../campaign/ops.js";
 import { type Ctx, emit, nextInstanceId, requestChoice, setFrame, updatePlayer } from "../ctx.js";
 import { EngineInvariantError } from "../errors.js";
-import { type EffectContext, resolvePlayers } from "../select.js";
+import { foeHeroFace, heroFacesOf, titleShowing } from "../query.js";
+import { cardsInPlay, categoriesOf, type EffectContext, resolvePlayers } from "../select.js";
 import type { CollectionSearchFilter, EffectSpec } from "../spec.js";
 import { type CardInstance, type GameState, NO_STATUSES } from "../state.js";
+import { sameTitle } from "../titles.js";
 import { effectChoiceAuthority } from "../villain/authority.js";
 import type { Frame } from "./frames.js";
 import { markPreThenUnresolved } from "./then.js";
@@ -19,8 +21,19 @@ import { markPreThenUnresolved } from "./then.js";
  * campaign from the same product" (RRG 1.8 "Campaign-Specific Card", p. 11), by that campaign's own rules, and the
  * owner's decision leaves every such card out (§4.1 Q47 = A), whatever aspect it also prints.
  */
-const matchesFilter = (card: AnyCard, filter: CollectionSearchFilter): boolean => {
+const matchesFilter = (
+  card: AnyCard,
+  filter: CollectionSearchFilter,
+  titlesInPlay: () => ReadonlySet<string>,
+): boolean => {
   if ("specificTo" in card && card.specificTo !== undefined) return false;
+  if (filter.heroTitleNotInPlay) {
+    if (card.type !== "hero_identity" || card.separatedIdentity) return false;
+    // Only the version a game starts with is a hero to choose (the others replace it during a game).
+    if (card.progressingIdentity && card.progressingIdentity.versions[0] !== card.id) return false;
+    const title = foeHeroFace(card).faceName;
+    if ([...titlesInPlay()].some((inPlay) => sameTitle(title, inPlay))) return false;
+  }
   const categories = CARD_DATA_CATEGORIES[card.type];
   if (filter.categories && !filter.categories.some((category) => categories.includes(category))) return false;
   if (filter.aspects && !filter.aspects.includes("aspect" in card ? (card.aspect as string) : "")) return false;
@@ -48,9 +61,31 @@ export function collectionCandidates(state: GameState, filter: CollectionSearchF
     if (a.name !== b.name) return a.name < b.name ? -1 : 1;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   };
+  let titles: ReadonlySet<string> | undefined;
+  const titlesInPlay = (): ReadonlySet<string> => (titles ??= characterTitlesInPlay(state));
   return Object.values(state.cardPool)
-    .filter((card) => matchesFilter(card, filter) && card.quantityInSet - (inGame.get(card.id) ?? 0) > 0)
+    .filter((card) => matchesFilter(card, filter, titlesInPlay) && card.quantityInSet - (inGame.get(card.id) ?? 0) > 0)
     .sort(byTitle);
+}
+
+/**
+ * The titles of the characters in play, for `CollectionSearchFilter.heroTitleNotInPlay`: the title each character is
+ * showing (`titleShowing`; RRG 1.8 "Identity", p. 23: an identity by its faceup side), and for each seat's identity
+ * every hero-side title its card prints, whichever side is up. A subtitle is not a title (RRG 1.8 "Subtitle", p. 41).
+ */
+function characterTitlesInPlay(state: GameState): ReadonlySet<string> {
+  const titles = new Set<string>();
+  for (const id of cardsInPlay(state)) {
+    if (!categoriesOf(state, id).includes("character")) continue;
+    const title = titleShowing(state, id);
+    if (title !== undefined) titles.add(title);
+  }
+  for (const player of state.players) {
+    if (player.eliminated) continue;
+    const identity = state.cardPool[player.identity.cardId];
+    if (identity?.type === "hero_identity") for (const face of heroFacesOf(identity)) titles.add(face.faceName);
+  }
+  return titles;
 }
 
 /**

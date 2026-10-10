@@ -1035,6 +1035,7 @@ function bindsOf(effect: EffectSpec, scope: Scope): void {
     // this way" (docs/phase7-wave5.md §3.1) — the Sinister Six's "Ambush!" reads its own bind right back with
     // `setActiveVillain(chosen(bind))`, which needs the slot registered here.
     case "putIntoPlay":
+    case "putIntoPlayAsHost":
     case "addVillain":
       if (effect.bind) {
         scope.slots.add(effect.bind);

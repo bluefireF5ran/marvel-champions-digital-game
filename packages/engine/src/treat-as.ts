@@ -6,6 +6,9 @@
  * - a minion with a `treatHostAsAlly` attachment on it is its controller's ally until that attachment goes (Mind
  *   Control);
  * - a minion a `treatAsAlly` effect took is its controller's ally while the effect's card stays in play (Karma).
+ * - a hero from a collection, an identity card that is no seat's identity, is a minion while a `treatHostAsMinion`
+ *   card is attached to it, and is in play only for that long (Reluctant Foe, docs/phase7-wave9.md §3.30): when the
+ *   attachment goes and the hero is not leaving play itself, the hero is removed from the game (§4.1 Q39 = A).
  *
  * `relocateCard` calls `syncTreatedAs` whenever a card moves onto or off a host, which is every attach, detach and
  * discard of an attachment, so the flag never lags a frame behind the attachment ("Attach to the ally with the highest
@@ -15,8 +18,9 @@
  */
 
 import { type Ctx, emit, moveCard, updateInstance } from "./ctx.js";
+import { leavePlayAtOnce } from "./effects.js";
 import type { InstanceId, PlayerId } from "./ids.js";
-import { cardOf, getInstance, locateCard } from "./query.js";
+import { cardOf, getInstance, isSeatlessIdentity, locateCard } from "./query.js";
 import { activeAbilityRefs, cardsInPlay, controllerOf } from "./select.js";
 import type { TreatedAs, TreatedAsAlly } from "./state.js";
 
@@ -24,13 +28,15 @@ import type { TreatedAs, TreatedAsAlly } from "./state.js";
 function fromAttachments(ctx: Ctx, hostId: InstanceId, current: TreatedAs | null): TreatedAs | null {
   const host = getInstance(ctx.state, hostId);
   const type = cardOf(ctx.state, hostId)?.type;
-  if (!host || (type !== "ally" && type !== "minion")) return null;
+  // A hero no player is using is treated as an ally is (docs/phase7-wave9.md §3.30); a seat's identity never is.
+  const foe = type === "hero_identity" && isSeatlessIdentity(ctx.state, hostId);
+  if (!host || (type !== "ally" && type !== "minion" && !foe)) return null;
   for (const attachment of host.attachments) {
     for (const ref of activeAbilityRefs(ctx.state, attachment, ctx.deps)) {
       const definition = ctx.deps.abilities[ref.id];
       if (definition?.trigger.kind !== "constant") continue;
       for (const rule of definition.trigger.rules ?? []) {
-        if (rule.kind === "treatHostAsMinion" && type === "ally") {
+        if (rule.kind === "treatHostAsMinion" && (type === "ally" || foe)) {
           return {
             kind: "minion",
             traits: rule.traits,
@@ -62,6 +68,8 @@ export function syncTreatedAs(ctx: Ctx, hostId: InstanceId): void {
   const host = getInstance(ctx.state, hostId);
   if (!host) return;
   const current = host.treatedAs ?? null;
+  // Leaving play itself, its attachments discarded with it (`leaveNow`): it stays what it is until it has moved.
+  if (ctx.leavingHosts?.includes(hostId)) return;
   // An effect's (Karma's) lasts while its card is in play, whatever attachments come and go.
   if (current && !host.attachments.includes(current.source) && cardsInPlay(ctx.state).includes(current.source)) {
     return;
@@ -100,6 +108,15 @@ function apply(ctx: Ctx, hostId: InstanceId, current: TreatedAs | null, next: Tr
     updateInstance(ctx, hostId, (i) => ({ ...i, treatedAs: next, controllerId: next.controller, engagedWith: null }));
   } else if (next) {
     updateInstance(ctx, hostId, (i) => ({ ...i, treatedAs: next }));
+  } else if (current?.kind === "minion" && isSeatlessIdentity(ctx.state, hostId)) {
+    // The attachment went and nothing else treats the hero as a minion. An identity card cannot stay in play as no
+    // player's identity, so it is removed from the game with the attachment (owner decision, docs/phase7-wave9.md
+    // §4.1 Q39 = A), as a double-sided card leaving play is (RRG 1.8 "Double-Sided Card", p. 17). It is not defeated:
+    // no When Defeated ability resolves. A hero leaving play itself does not come here (`Ctx.leavingHosts`).
+    updateInstance(ctx, hostId, (i) => ({ ...i, treatedAs: null }));
+    emit(ctx, { type: "treatedAsChanged", instanceId: hostId, as: null });
+    if (cardsInPlay(ctx.state).includes(hostId)) leavePlayAtOnce(ctx, hostId, { kind: "removedFromGame" });
+    return;
   } else if (current?.kind === "minion") {
     // The attachment went: an ally again, controlled by whoever controlled it before, in their play area.
     const controller = current.controllerBefore ?? host.ownerId;

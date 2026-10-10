@@ -23,6 +23,7 @@ import {
   getInstance,
   heroFacesOf,
   isPlayerCardType,
+  isSeatlessIdentity,
   locateCard,
   mainSchemeStates,
   mustCard,
@@ -954,7 +955,10 @@ export function listensForTuckedDiscard(deps: EngineDeps): boolean {
 /** What a host of tucked cards is (`TuckHostKind`): an identity card, hero or alter-ego side up, or any other card. */
 export function tuckHostKind(state: GameState, hostId: InstanceId): TuckHostKind {
   const host = getInstance(state, hostId);
-  return host && state.cardPool[host.cardId]?.type === "hero_identity" ? "identity" : "other";
+  // A hero in play as a minion is no player's identity (docs/phase7-wave9.md §3.30).
+  return host && state.cardPool[host.cardId]?.type === "hero_identity" && !isSeatlessIdentity(state, hostId)
+    ? "identity"
+    : "other";
 }
 
 /**
@@ -1549,7 +1553,10 @@ function removedAsDoubleSided(state: GameState, id: InstanceId, requested: ZoneI
   const doubleSided =
     card !== undefined && (("flipSide" in card && card.flipSide !== undefined) || card.otherFaceId !== undefined);
   const keepsCard = requested === "victoryDisplay" || requested === "setAside" || requested === "encounterSetAside";
-  return doubleSided && !keepsCard;
+  // An identity card is double-sided. One in play as a minion (docs/phase7-wave9.md §3.30) is the only identity card
+  // that leaves play as a card does, so the rule sends it out of the game whatever discards or moves it; a seat's
+  // identity never comes here (`eliminatePlayer`).
+  return (doubleSided || isSeatlessIdentity(state, id)) && !keepsCard;
 }
 
 /** Where a card leaving play for `requested` is going (double-sided removal, a discard redirect), read before it moves. */
@@ -1963,7 +1970,12 @@ function leaveNow(
   if (redirect !== null) to = { kind: "scenarioArea", name: redirect.area };
   // Its consequential-scoped damage-taken rules still apply to a pending consequential damage (wave 6 §4.1 Q50).
   keepLingeringConsequentialRules(ctx, id);
+  // A hero in play as a minion (docs/phase7-wave9.md §3.30) is leaving play itself: the attachment that treats it as
+  // one, discarded with it below, is then not what takes it out of play (`syncTreatedAs`).
+  const foe = instance.treatedAs !== undefined && instance.treatedAs !== null && isSeatlessIdentity(ctx.state, id);
+  if (foe) (ctx.leavingHosts ??= []).push(id);
   for (const attachment of [...instance.attachments]) discardWithLeavingHost(ctx, attachment);
+  if (foe) ctx.leavingHosts?.pop();
   // RRG "Tuck": when a card leaves play, each card tucked under it is discarded.
   for (const tuckedId of [...instance.tucked]) {
     // Faceup first: a discard into an emptied deck's discard pile can reset that deck at once (`settlePlayerDecks`).

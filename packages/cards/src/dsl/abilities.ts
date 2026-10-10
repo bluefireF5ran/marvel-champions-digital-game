@@ -1419,6 +1419,23 @@ export const treatAttachedAllyAsMinion = (
   ],
 });
 /**
+ * "Treat attached hero as an Elite minion with SCH equal to its printed THW. Replace its printed text box with:
+ * 'Villainous. When Defeated: Remove this hero and Reluctant Foe from the game.'" (Reluctant Foe, `aos` 50171;
+ * docs/phase7-wave9.md §3.30; MC50 p. 22) →
+ * `constant(treatAttachedHeroAsMinion([ELITE]), gainsKeyword({ name: "villainous" }, { hostOfSelf: true }),
+ * gainsAbility(WHEN_DEFEATED_ID, { to: { hostOfSelf: true } }))`. The hero is an identity card no player is using
+ * (`putIntoPlayAsHost`): a minion with its hero side's ATK, SCH equal to that side's THW, its printed hit points and
+ * no DEF, its printed traits beside `traits` (§4.1 Q41 = A) and none of its printed keywords or abilities. The two
+ * quoted lines are what the attachment gives its host: the keyword, and a When Defeated that is a registry-only
+ * ability in which `self` is the hero. When the attachment leaves play first, the hero is removed from the game with
+ * it (§4.1 Q39 = A), not defeated. So that When Defeated removes the attachment first, then the hero
+ * (`moveCards(cards(each(query("attachment", { name, host: self }))), "removedFromGame")`, then `cards(self)`): the
+ * other way round the attachment is discarded with its host before the effect can name it.
+ */
+export const treatAttachedHeroAsMinion = (traits: readonly Trait[]): ConstantPart => ({
+  rules: [{ kind: "treatHostAsMinion", traits, schFromThw: true, keepPrintedTraits: true }],
+});
+/**
  * "Nebula ignores the guard keyword, the patrol keyword, and the crisis icon" (Evasive Maneuvering, `nebu` 22005; Wasp,
  * `ironheart` 29034; Shadowcat, `mut_gen` 32002/32030a; Psionic Training, `psylocke` 41010, guard and patrol only):
  * `constant(ignores(YOUR_IDENTITY, ["guard", "patrol", "crisis"], isHero()))`. docs/phase7-wave4.md §3.24.
