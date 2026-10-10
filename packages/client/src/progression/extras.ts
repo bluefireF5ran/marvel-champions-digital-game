@@ -453,6 +453,21 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/en-sabah-nur/villain-loses.mp3": "The End of Eternity",
   "campaigns/aoa/finale.mp3": "Dawn of a New Age",
   "campaigns/aoa/interlude.mp3": "Apocalypse on the Horizon",
+  "scenarios/black-widow/battle.mp3": "Red Room Protocol",
+  "scenarios/black-widow/villain-loses.mp3": "Cover Blown",
+  "scenarios/black-widow/villain-wins.mp3": "The Widow's Bite",
+  "scenarios/batroc/battle.mp3": "The Leaper's Gambit",
+  "scenarios/batroc/villain-loses.mp3": "Contract Canceled",
+  "scenarios/batroc/villain-wins.mp3": "Paid in Full",
+  "scenarios/modok/battle.mp3": "Designed Only for Killing",
+  "scenarios/modok/villain-loses.mp3": "System Failure at A.I.M.",
+  "scenarios/modok/villain-wins.mp3": "A Superior Intellect",
+  "scenarios/thunderbolts/battle.mp3": "Justice, Like Lightning",
+  "scenarios/thunderbolts/villain-loses.mp3": "Masks Off",
+  "scenarios/thunderbolts/villain-wins.mp3": "Heroes in Name Only",
+  "scenarios/baron-zemo/battle.mp3": "The Baron's Design",
+  "scenarios/baron-zemo/villain-loses.mp3": "The Mole Exposed",
+  "scenarios/baron-zemo/villain-wins.mp3": "Thirteenth Baron Triumphant",
 };
 
 /** "music:scenarios/rhino/battle.mp3" → "scenarios/rhino/battle.mp3". */
