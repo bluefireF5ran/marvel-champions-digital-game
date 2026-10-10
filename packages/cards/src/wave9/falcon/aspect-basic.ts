@@ -1,11 +1,14 @@
 import { trait } from "@mc/content";
 import type { AbilityRegistry } from "@mc/engine";
 import {
+  aScheme,
   after,
+  anEnemy,
   attackInProgress,
   boostIconsOn,
   cards,
   chooseCards,
+  chooseOne,
   chooseTarget,
   chosen,
   choosePlayer,
@@ -13,6 +16,10 @@ import {
   constant,
   dealDamage,
   defineAbilities,
+  distinctTraitsOf,
+  each,
+  option,
+  removeThreat,
   encounterCards,
   eventTarget,
   exhaustCardsCost,
@@ -178,7 +185,11 @@ const CAPTAINS_SHIELD = query("upgrade", { name: "Captain America's Shield" });
  * defended attack and an undefended attack are not answered. Removing the counter is the cost; the threat removal is a
  * plain removal (not a thwart) from a scheme of the player's choice.
  *
- * **Skipped** (see the map): 53019 (task 34).
+ * **53019.strength-in-diversity-action**: "for each different Trait on friendly characters in play" is the number of
+ * distinct traits among the identity and allies in play (`distinctTraitsOf`, section 3.48); one choice per trait. The
+ * choices are made one after another, each re-reading the board.
+ *
+ * Nothing is skipped.
  *
  * Cards (19):
  * - 53014 Adam Warlock (ally)
@@ -234,6 +245,16 @@ export const FALCON_ASPECT_BASIC: AbilityRegistry = defineAbilities({
     { while: valueAtLeast(refCount(paidCards), 1) },
     chooseCards("tucked", zone("discard", eachPlayer, { filter: { inSlot: PAID_CARDS } }), { min: 1, max: 1 }),
     tuckCards(cards(chosen("tucked")), self),
+  ),
+
+  "53019.strength-in-diversity-action": heroAction(
+    repeatTimes(
+      distinctTraitsOf(each(query(["identity", "ally"]))),
+      chooseOne(
+        option("Remove 1 threat from a scheme", aScheme(), removeThreat(1, chosen("scheme"))),
+        option("Deal 1 damage to an enemy", anEnemy(), dealDamage(1, chosen("enemy"))),
+      ),
+    ),
   ),
 
   "53020.flight-squadron-constant": constant(
@@ -314,7 +335,4 @@ export const FALCON_ASPECT_BASIC: AbilityRegistry = defineAbilities({
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const FALCON_ASPECT_BASIC_SKIPPED: Readonly<Record<string, string>> = {
-  "53019.strength-in-diversity-action":
-    "needs engine task 34 (section 3.48): `ValueSpec distinctTraits { of }`, the number of different traits among friendly characters in play (only `distinctAspects` and `distinctCardTypes` exist); the rest is `repeatTimes(times, chooseOne(...))`",
-};
+export const FALCON_ASPECT_BASIC_SKIPPED: Readonly<Record<string, string>> = {};

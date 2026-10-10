@@ -2,6 +2,7 @@ import {
   applyCommand,
   maxHitPoints,
   createGame,
+  legalActions,
   type Command,
   type EngineDeps,
   type GameEvent,
@@ -10,6 +11,7 @@ import {
   type InstanceId,
   type PlayerId,
 } from "@mc/engine";
+import { cardId } from "@mc/content";
 import { describe, expect, it, vi } from "vitest";
 import { mergeRegistries } from "../../dsl/index.js";
 import {
@@ -18,6 +20,9 @@ import {
   firstLegal,
   identityOf,
   inst,
+  moveToHand,
+  payWith,
+  play,
   playerOf,
   settle,
   stackEncounterDeck,
@@ -27,7 +32,9 @@ import { WAVE8_ABILITIES } from "../../wave8/index.js";
 import { EXTREME_RISK } from "../bp/extreme-risk.js";
 import { GROWING_STRONG } from "../silk/growing-strong.js";
 import { wave9Scenario } from "../setup.js";
-import { SPIDER_MAN, codeOf, inPlayCard, piles } from "../testing.js";
+import { WHITEOUT } from "../winter/whiteout.js";
+import { CAPTAIN_MARVEL, SPIDER_MAN, codeOf, inPlayCard, piles } from "../testing.js";
+import { TECHNO } from "../falcon/techno.js";
 import { GRAVITATIONAL_PULL } from "./gravitational-pull.js";
 import { HARD_SOUND } from "./hard-sound.js";
 import { PALE_LITTLE_SPIDER } from "./pale-little-spider.js";
@@ -50,6 +57,8 @@ const DEPS: EngineDeps = {
     THE_LEAPER,
     EXTREME_RISK,
     GROWING_STRONG,
+    TECHNO,
+    WHITEOUT,
   ),
 };
 
@@ -156,6 +165,12 @@ const ATLAS = "52035";
 const GROW_INVULNERABLE = "52036";
 const GROWING_STRONG_CARD = "52037";
 const TITANIC = "52038";
+const BLIZZARD = "54034";
+const ICE = "54035";
+const SLIPPERY = "54036";
+const WHITEOUT_CARD = "54037";
+const RADIOACTIVE_MAN = "50152";
+const BLACK_CAT_ALLY = "01002";
 
 const changeForm = (p: PlayerId = P1): Command => ({ type: "changeForm", playerId: p });
 const recover = (): Command => ({ type: "basicRecover", playerId: P1 });
@@ -207,8 +222,8 @@ function expectInvariants(sim: Sim) {
  * Whole-game tests of the Thunderbolts scenario (MC50 p. 15) whose seeded modular pool draws one of the four new
  * hero-pack sets (docs/phase7-wave9.md section 8.4 item 53): no `setAsideModularSetIds` is pinned, so the draw is the
  * scenario builder's own (`chooseModularSets` on the game's seed). Seed 7 at one player draws Extreme Risk
- * (Black Panther (Shuri)) with Pale Little Spider; seed 6 draws Growing Strong (Silk) with Supersonic. Techno (Falcon)
- * and Whiteout (Winter Soldier) are not scripted yet, so no seed drawing either is played: see the todos. Only the
+ * (Black Panther (Shuri)) with Pale Little Spider; seed 6 draws Growing Strong (Silk) with Supersonic. Seed 1 draws Whiteout (Winter Soldier) with Power of the Atom. Techno (Falcon)
+ * is not scripted yet, so no seed drawing it is played: see the todo. Only the
  * encounter deck's order (`stackEncounterDeck`) and the cards a turn needs in hand (`moveToHand`) are seeded; every
  * play, attack, recover and end of turn is a command the engine validates, one decision at a time.
  */
@@ -448,11 +463,190 @@ describe("Thunderbolts scenario with Growing Strong: solo (Spider-Man), standard
   });
 });
 
-describe("Thunderbolts scenario with the other new sets", () => {
-  it.todo(
-    "a seed drawing Techno (Falcon, 53038 to 53042): its minion joins the Thunderbolts pool and its cards come up (waits on the Techno script, spec 8.1 item 51)",
-  );
-  it.todo(
-    "a seed drawing Whiteout (Winter Soldier, 54034 to 54037): its minion joins the Thunderbolts pool and its cards come up (waits on the Whiteout script, spec 8.1 item 59)",
-  );
+describe("Thunderbolts scenario with Whiteout: solo (Spider-Man), standard, seed 1", () => {
+  const { sim, config } = open(1);
+  let round1: { events: GameEvent[]; asked: Asked[] };
+  let round2: { events: GameEvent[]; asked: Asked[] };
+  let ice: InstanceId;
+
+  const blizzard = () => idOf(sim, BLIZZARD);
+  const iceOn = () => inst(sim.state, me(sim)).attachments.filter((id) => codeOf(sim.state, id) === ICE);
+  const attackIce = (): Command => ({
+    type: "basicAttack",
+    playerId: P1,
+    attackerInstanceId: me(sim),
+    targetInstanceId: ice,
+  });
+
+  it("setup: the seeded draw is Whiteout and Power of the Atom; Radioactive Man is engaged, Blizzard held, both copies of Encased in Ice in the deck", () => {
+    expect((config.setAsideModularSets ?? []).map((m) => m.encounterSetId)).toEqual(["whiteout", "power_of_the_atom"]);
+    expect(engagedWith(sim, idOf(sim, RADIOACTIVE_MAN))).toBe(P1);
+    expect(heldBy(sim)).toBe(blizzard());
+    const deck = deckCodes(sim);
+    expect(deck[BLIZZARD]).toBeUndefined();
+    expect([deck[ICE], deck[SLIPPERY], deck[WHITEOUT_CARD]]).toEqual([2, 1, 2]);
+  });
+
+  it("round 1 villain phase: Whiteout makes the held Blizzard engage Spider-Man and attack, and Encased in Ice attaches to him; no surge", () => {
+    act(sim, {}, changeForm());
+    // Radioactive Man's boost card, the card dealt to Spider-Man, then Blizzard's boost card.
+    stack(sim, BLANK, WHITEOUT_CARD, BLANK, FILLER);
+    round1 = act(sim, { targets: [RADIOACTIVE_MAN] }, endTurn());
+    const events = round1.events;
+    expect(ofType(events, "encounterCardRevealed").map((e) => codeOf(sim.state, e.instanceId))).toEqual([
+      WHITEOUT_CARD,
+      BLIZZARD,
+    ]);
+    expect(attacksBy(events, sim, BLIZZARD)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+    expect(engagedWith(sim, blizzard())).toBe(P1);
+    // Forced Response: the first copy found attaches to the attacked character; no stun.
+    expect(iceOn()).toHaveLength(1);
+    ice = iceOn()[0]!;
+    expect(inst(sim.state, me(sim)).statuses.stunned).toBe(0);
+    expect(deckCodes(sim)[ICE]).toBe(1);
+    expect(ofType(events, "deckShuffled").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("round 1 end: Radioactive Man is held (the tie is the first player's choice) and Blizzard stays engaged", () => {
+    expect(heldBy(sim)).toBe(idOf(sim, RADIOACTIVE_MAN));
+    expect(engagedWith(sim, blizzard())).toBe(P1);
+    expect(sim.state.round).toBe(2);
+  });
+
+  it("round 2: encased Spider-Man cannot attack Blizzard or Citizen V; his only target is the ice, which takes 2", () => {
+    const l = legalActions(sim.state, P1, DEPS);
+    if (l.kind !== "turn") throw new Error(l.kind);
+    const targets = l.legal
+      .filter((a) => a.action.kind === "basicAttack" && a.action.instanceId === me(sim))
+      .flatMap((a) => a.targets);
+    expect(targets).toEqual([ice]);
+    const events = act(sim, {}, attackIce()).events;
+    expect(inst(sim.state, ice).damage).toBe(2);
+    expect(ofType(events, "characterDefeated")).toEqual([]);
+    expect(inst(sim.state, blizzard()).damage).toBe(0);
+  });
+
+  it("round 2 villain phase (alter-ego form, so Blizzard schemes and has no attack response): Slippery Conditions is dealt and enters play with 3 threat", () => {
+    act(sim, {}, changeForm());
+    stack(sim, BLANK, SLIPPERY, FILLER);
+    round2 = act(sim, { targets: [RADIOACTIVE_MAN] }, endTurn());
+    const slippery = inPlayCard(sim.state, SLIPPERY)!;
+    expect(slippery).toBeDefined();
+    expect(inst(sim.state, slippery).threat).toBe(3);
+    expect(schemesBy(round2.events, sim, BLIZZARD)).toMatchObject([{ baseSch: 1 }]);
+    expect(iceOn()).toEqual([ice]);
+    expect(sim.state.round).toBe(3);
+  });
+
+  it("round 3: a second attack for 2 breaks the ice: 1 damage moves to Spider-Man and the card is discarded; Slippery Conditions exhausts a newly played ally", () => {
+    act(sim, {}, changeForm());
+    const before = damageOf(sim, me(sim));
+    act(sim, {}, attackIce());
+    expect(damageOf(sim, me(sim))).toBe(before + 1);
+    expect(iceOn()).toEqual([]);
+    expect(piles(sim.state).discard).toContain(ice);
+    // Black Cat (Core ally, cost 2) played with Slippery Conditions in play enters exhausted.
+    const given = moveToHand(sim.state, P1, BLACK_CAT_ALLY);
+    sim.state = given.state;
+    const cat = given.ids[0]!;
+    act(sim, {}, play(P1, cat, payWith(sim.state, P1, 2, [cat])));
+    expect(playerOf(sim.state, P1).playArea).toContain(cat);
+    expect(inst(sim.state, cat).exhausted).toBe(true);
+  });
+
+  it("invariants: nothing pending, no card in two zones, Spider-Man alive", () => {
+    expectInvariants(sim);
+    expect(sim.state.outcome).toBeNull();
+  });
+});
+
+const FIXER = "53038";
+const TECH_PAC = "53040";
+const TECHNO_CARD = "53042";
+const INNOVATION = "53041";
+const MARIA_HILL = "01067";
+
+/**
+ * Solo Captain Marvel (hero THW 2) on seed 2, which draws Techno and Hard Sound. One Energy Truncheon (51040, Black
+ * Panther) is added to the encounter deck by hand: it is the Tech attachment that prints "attach to the villain" (here
+ * Citizen V), which Fixer's Forced Interrupt sends to him instead. The set's own Jet Pack and Tech-Pac print "attach
+ * to Fixer" and need no redirect.
+ */
+function openTechno(): { sim: Sim; config: GameSetupConfig } {
+  const config = wave9Scenario("thunderbolts", { players: [CAPTAIN_MARVEL], seed: 2 });
+  const created = createGame({ ...config, encounterDeck: [...config.encounterDeck, cardId(TRUNCHEON)] }, DEPS);
+  if (!created.ok) throw new Error(created.error.message);
+  return {
+    sim: { state: settle(created.state, firstLegal, (s) => s.step.phase === "player", DEPS), events: [] },
+    config,
+  };
+}
+
+describe("Thunderbolts scenario with Techno: solo (Captain Marvel), standard, seed 2", () => {
+  const { sim, config } = openTechno();
+  const fixer = () => idOf(sim, FIXER);
+  let round1: { events: GameEvent[]; asked: Asked[] };
+  let round2: { events: GameEvent[]; asked: Asked[] };
+  let maria: InstanceId;
+
+  it("setup: the seeded draw is Hard Sound and Techno; Fixer is in play (engaged or held), not in the deck", () => {
+    expect((config.setAsideModularSets ?? []).map((m) => m.encounterSetId)).toEqual(["hard_sound", "techno"]);
+    expect(inPlayCard(sim.state, FIXER)).toBeDefined();
+    expect(deckCodes(sim)[FIXER]).toBeUndefined();
+    // The other cards of the set: Jet Pack, Tech-Pac, Technological Innovation and two Technos.
+    const deck = deckCodes(sim);
+    expect([deck["53039"], deck[TECH_PAC], deck[INNOVATION], deck[TECHNO_CARD]]).toEqual([1, 1, 1, 2]);
+  });
+
+  it("round 1: Captain Marvel (alter-ego form, so the villain phase only schemes) plays Maria Hill (THW 2) from hand", () => {
+    const given = moveToHand(sim.state, P1, MARIA_HILL);
+    maria = given.ids[0]!;
+    sim.state = given.state;
+    const pay = playerOf(sim.state, P1)
+      .hand.filter((i) => i !== maria)
+      .slice(0, 2);
+    act(sim, {}, play(P1, maria, pay));
+    expect(inst(sim.state, maria).exhausted).toBe(false);
+    expect(playerOf(sim.state, P1).playArea).toContain(maria);
+  });
+
+  it("round 1 villain phase: Energy Truncheon is revealed bound for Citizen V and Fixer's Forced Interrupt attaches it to Fixer instead", () => {
+    stack(sim, "01186", "01187", TRUNCHEON, "01190");
+    round1 = act(sim, {}, endTurn());
+    const truncheon = inPlayCard(sim.state, TRUNCHEON);
+    expect(ofType(round1.events, "encounterCardRevealed").map((e) => codeOf(sim.state, e.instanceId))).toContain(
+      TRUNCHEON,
+    );
+    expect(truncheon).toBeDefined();
+    expect(inst(sim.state, truncheon!).attachedTo).toBe(fixer());
+    expect(inst(sim.state, sim.state.villains[0]!.instanceId).attachments).toEqual([]);
+    expect(inst(sim.state, fixer()).attachments).toContain(truncheon);
+  });
+
+  it("round 2 villain phase: Tech-Pac is revealed and attaches to Fixer as printed", () => {
+    stack(sim, "01186", "01187", TECH_PAC, "01190");
+    round2 = act(sim, {}, endTurn());
+    expect(ofType(round2.events, "encounterCardRevealed").map((e) => codeOf(sim.state, e.instanceId))).toContain(
+      TECH_PAC,
+    );
+    expect(inst(sim.state, inPlayCard(sim.state, TECH_PAC)!).attachedTo).toBe(fixer());
+  });
+
+  it("round 3: Tech-Pac's Hero Action exhausts Captain Marvel and Maria Hill (THW 2 + 2 = 4 against Fixer's SCH 2 + 1 = 3) and is discarded", () => {
+    const pac = inPlayCard(sim.state, TECH_PAC)!;
+    const hero = me(sim);
+    act(sim, {}, changeForm());
+    const used = act(sim, {}, use(P1, pac, "53040.tech-pac-action", [], { exhausted: [hero, maria] }));
+    expect(inPlayCard(sim.state, TECH_PAC)).toBeUndefined();
+    expect(piles(sim.state).discard).toContain(pac);
+    expect(inst(sim.state, hero).exhausted).toBe(true);
+    expect(inst(sim.state, maria).exhausted).toBe(true);
+    expect(used.events.length).toBeGreaterThan(0);
+  });
+
+  it("invariants: nothing pending, no card in two zones, Fixer and the Truncheon still in play", () => {
+    expectInvariants(sim);
+    expect(sim.state.outcome).toBeNull();
+    expect(inst(sim.state, inPlayCard(sim.state, TRUNCHEON)!).attachedTo).toBe(fixer());
+  });
 });

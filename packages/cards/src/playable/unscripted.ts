@@ -18,9 +18,6 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
   "enchantress_villain",
   "god_of_lies",
   "trickster_magic",
-  // The Thunderbolt minion sets of the Falcon and Winter Soldier packs, in the Thunderbolts scenario's pool of ten.
-  "techno",
-  "whiteout",
 ]);
 
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */

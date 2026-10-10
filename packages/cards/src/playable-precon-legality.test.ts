@@ -74,10 +74,10 @@ const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Precon cards left unscripted on purpose: Falcon's Aerial Recon 53009 (its action) and Strength in Diversity 53019
- * (wave9/custom-decks.test.ts `KNOWN_GAPS`). Falcon is seatable with both.
+ * Precon cards left unscripted on purpose: Falcon's Aerial Recon 53009 (its action; wave9/custom-decks.test.ts
+ * `KNOWN_GAPS`). Falcon is seatable with it.
  */
-const KNOWN_UNSCRIPTED: ReadonlySet<string> = new Set(["53009", "53019"]);
+const KNOWN_UNSCRIPTED: ReadonlySet<string> = new Set(["53009"]);
 
 const byId = new Map(PLAYABLE_CARDS.map((card) => [card.id as string, card]));
 

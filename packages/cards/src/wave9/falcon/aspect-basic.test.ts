@@ -54,7 +54,7 @@ vi.setConfig({ testTimeout: 120_000 });
  * Wave 9 `falcon/aspect-basic` (53014 to 53028, 53034 to 53037), docs/phase7-wave9.md sections 3.43, 3.46, 3.48, 3.51,
  * 3.52. The Falcon Leadership precon against Core's Rhino. Falcon is ATK 2, THW 2, DEF 2 with 10 hit points in hero
  * form and an Aerial; Sam Wilson (alter ego) is REC 3. Only earlier waves and this module are scripted here, so
- * Falcon's own Eagle-Eyed is inert. The ref of 53019 is skipped (named in `SKIPPED`).
+ * Falcon's own Eagle-Eyed is inert. Nothing is skipped.
  */
 const ADAM = "53014";
 const AERO = "53015";
@@ -216,6 +216,7 @@ describe("registry", () => {
         "53017.hugin-and-munin-response",
         "53018.spectrum-granted-response",
         "53018.spectrum-response",
+        "53019.strength-in-diversity-action",
         "53020.flight-squadron-constant",
         "53020.flight-squadron-granted-response",
         "53021.resource-reserve-action",
@@ -242,10 +243,9 @@ describe("registry", () => {
     expect(printed).toHaveLength(Object.keys(REGISTRY).length - 2 + Object.keys(SKIPPED).length);
     for (const ref of printed) expect(ref in REGISTRY !== ref in SKIPPED, ref).toBe(true);
   });
-  it("skips Strength in Diversity alone, with a reason", () => {
-    expect(Object.keys(SKIPPED)).toEqual(["53019.strength-in-diversity-action"]);
-    expect(SKIPPED["53019.strength-in-diversity-action"]).toContain("task 34");
-    for (const [ref, why] of Object.entries(SKIPPED)) expect(why.length, ref).toBeGreaterThan(10);
+  it("skips nothing: Strength in Diversity is scripted (spec 3.48)", () => {
+    expect(SKIPPED).toEqual({});
+    expect(REGISTRY["53019.strength-in-diversity-action"]).toMatchObject({ trigger: { kind: "action", form: "hero" } });
   });
   it("timing words, forms and costs", () => {
     expect(REGISTRY["53014.adam-warlock-response"]).toMatchObject({ trigger: { kind: "response", forced: false } });
@@ -1885,12 +1885,88 @@ describe("the linked shield at setup", () => {
   );
 });
 
-describe("the skipped cards stay inert", () => {
-  it("Strength in Diversity has no script in this registry", () => {
-    for (const ref of Object.keys(SKIPPED)) expect(REGISTRY[ref], ref).toBeUndefined();
+describe("53019.strength-in-diversity-action: for each different Trait on friendly characters in play, remove 1 threat from a scheme or deal 1 damage to an enemy", () => {
+  const VILLAIN = (s: GameState): InstanceId => s.villains[0]!.instanceId;
+  /** Strength in Diversity played by P1 (paid by the resources in hand; `extra` more for a second player's share). */
+  function played(s: GameState, plan: Plan | Picker = { option: "Deal 1 damage" }, extra = 0) {
+    const given = withHand(s, [DIVERSITY, ENERGY, GENIUS, STRENGTH, ENERGY, GENIUS].slice(0, 3 + extra));
+    const picker: Picker = typeof plan === "function" ? plan : planner(plan);
+    const out = driveEventsPicking(DEPS, given.state, picker, play(P1, given.ids[0]!, given.ids.slice(1)));
+    return {
+      ...out,
+      damage: ofType(out.events, "damageDealt").filter((e) => e.targetInstanceId === VILLAIN(s)),
+      removed: ofType(out.events, "threatRemoved"),
+    };
+  }
+  const traitsOf = (code: string): string[] => (card(code) as unknown as { traits: string[] }).traits;
+  const withAllies = (s: GameState, ...codes: string[]) => codes.reduce((acc, c) => stagedInPlay(acc, c).state, s);
+
+  it("the printed traits the cases below count", () => {
+    expect(traitsOf(REDWING)).toEqual(["AERIAL", "AVENGER", "BIRD"]);
+    expect(traitsOf("53015")).toEqual(["AERIAL", "AGENT OF ATLAS"]);
+    expect(traitsOf("53018")).toEqual(["AERIAL", "AVENGER"]);
   });
-  it("the first player's end-of-turn still works with them in the deck (no ability is registered under their ids)", () => {
-    const s = aspectHero();
-    expect(refusal(s, endTurn(P1))).toBeUndefined();
+
+  it("Falcon alone (Aerial, Avenger): 2 different traits, 2 choices: 2 damage dealt to the villain", () => {
+    const out = played(aspectHero());
+    expect(out.damage.map((e) => e.amount)).toEqual([1, 1]);
+    expect(out.removed).toHaveLength(0);
+    expect(ofType(out.events, "cardPlayed")).toHaveLength(1);
   });
+
+  it("an ally that shares both traits adds none (Spectrum: Aerial, Avenger): still 2", () => {
+    expect(played(withAllies(aspectHero(), "53018")).damage).toHaveLength(2);
+  });
+
+  it("an ally with one new trait adds one (Redwing: Bird): 3", () => {
+    expect(played(withAllies(aspectHero(), REDWING)).damage).toHaveLength(3);
+  });
+
+  it("allies with distinct traits add each once (Redwing: Bird; Aero: Agent of Atlas; Spectrum shares): 4", () => {
+    expect(played(withAllies(aspectHero(), REDWING, "53015", "53018")).damage).toHaveLength(4);
+  });
+
+  it("each choice is its own: remove 1 threat from a scheme, then deal 1 damage to an enemy", () => {
+    const base = aspectHero();
+    const scheme = base.mainScheme.instanceId;
+    const s = patchInstance(base, scheme, { threat: 3 });
+    const threatBefore = inst(s, scheme).threat;
+    let n = 0;
+    const alternate: Picker = (state) => {
+      const choice = state.pendingChoice!;
+      if (choice.prompt.kind !== "chooseOption") return firstLegal(state);
+      const want = n++ % 2 === 0 ? "Remove 1 threat" : "Deal 1 damage";
+      return [choice.options.find((o) => o.label.startsWith(want))!.optionId as string];
+    };
+    const out = played(s, alternate);
+    expect(out.removed).toMatchObject([{ schemeInstanceId: scheme, amount: 1 }]);
+    expect(inst(out.state, scheme).threat).toBe(threatBefore - 1);
+    expect(out.damage).toHaveLength(1);
+  });
+
+  it("friendly characters of another player count, in either form: a second player in alter-ego form (Genius) makes 3", () => {
+    const s = aspectHero({ second: true });
+    expect(playerOf(s, P2).identity.form).toBe("alterEgo");
+    expect(played(s, undefined, 1).damage).toHaveLength(3);
+  });
+
+  it("a second player in hero form (Avenger, shared with Falcon) adds nothing: 2", () => {
+    const s = withForm(aspectHero({ second: true }), { heroForm: 0 }, P2);
+    expect(played(s, undefined, 1).damage).toHaveLength(2);
+  });
+
+  it("a gained trait counts: Warrior of the Great Web gives Falcon Web-Warrior: 3", () => {
+    const s = aspectHero({ swap: { "53003": "30029" } });
+    const held = stagedInPlay(s, "30029", { attach: true });
+    expect(played(held.state).damage).toHaveLength(3);
+  });
+
+  it("is a Hero Action: refused in alter-ego form", () => {
+    const given = withHand(aspectGame(), [DIVERSITY, ENERGY, GENIUS]);
+    expect(refusal(given.state, play(P1, given.ids[0]!, [given.ids[1]!, given.ids[2]!]))).toBeDefined();
+  });
+
+  it.todo(
+    "zero different traits (no friendly character with a trait): no choice is made. Unreachable with the pool, every identity form prints a trait; the engine's distinctTraits value is tested in packages/engine/src/distinct-traits.test.ts",
+  );
 });

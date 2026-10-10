@@ -82,6 +82,7 @@ import {
   FALCON_SUPPORT_UPGRADES_ALLIES,
   FALCON_SUPPORT_UPGRADES_ALLIES_SKIPPED,
 } from "./falcon/falcon/support-upgrades-allies.js";
+import { TECHNO, TECHNO_SKIPPED } from "./falcon/techno.js";
 import { SILK_ASPECT_BASIC, SILK_ASPECT_BASIC_SKIPPED } from "./silk/aspect-basic.js";
 import { GROWING_STRONG, GROWING_STRONG_SKIPPED } from "./silk/growing-strong.js";
 import { SILK_ABILITIES } from "./silk/index.js";
@@ -95,6 +96,7 @@ import {
 import { TT_ABILITIES } from "./tt/index.js";
 import { WINTER_ASPECT_BASIC, WINTER_ASPECT_BASIC_SKIPPED } from "./winter/aspect-basic.js";
 import { WINTER_ABILITIES } from "./winter/index.js";
+import { WHITEOUT, WHITEOUT_SKIPPED } from "./winter/whiteout.js";
 import { WINTER_SOLDIER_EVENTS, WINTER_SOLDIER_EVENTS_SKIPPED } from "./winter/winter-soldier/events.js";
 import { WINTER_SOLDIER_IDENTITY, WINTER_SOLDIER_IDENTITY_SKIPPED } from "./winter/winter-soldier/identity.js";
 import {
@@ -515,6 +517,12 @@ const SCRIPTED_MODULES: Readonly<
       registry: FALCON_SUPPORT_UPGRADES_ALLIES,
       skipped: FALCON_SUPPORT_UPGRADES_ALLIES_SKIPPED,
     },
+    {
+      module: "techno",
+      cardIds: ["53038", "53039", "53040", "53041", "53042"],
+      registry: TECHNO,
+      skipped: TECHNO_SKIPPED,
+    },
   ],
   winter: [
     {
@@ -564,6 +572,12 @@ const SCRIPTED_MODULES: Readonly<
       cardIds: ["54027", "54028", "54029", "54030", "54031"],
       registry: WINTER_SOLDIER_OBLIGATION_NEMESIS,
       skipped: WINTER_SOLDIER_OBLIGATION_NEMESIS_SKIPPED,
+    },
+    {
+      module: "winter/whiteout",
+      cardIds: ["54034", "54035", "54036", "54037"],
+      registry: WHITEOUT,
+      skipped: WHITEOUT_SKIPPED,
     },
   ],
 };
