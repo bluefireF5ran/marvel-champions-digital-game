@@ -436,6 +436,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "campaigns/gmw/finale.mp3": "Saviors of the Galaxy",
   "campaigns/gmw/interlude.mp3": "Adrift Among the Stars",
   "campaigns/mts/finale.mp3": "The Gauntlet Falls Silent",
+  "campaigns/mts/interlude.mp3": "The Quiet Before Titan",
   "campaigns/sm/finale.mp3": "Friendly Neighborhood Heroes",
   "campaigns/sm/interlude.mp3": "Between Patrols",
   "campaigns/mut_gen/finale.mp3": "Where We Begin Again",
