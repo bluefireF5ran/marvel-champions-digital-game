@@ -2,8 +2,9 @@
  * The Briefing's player-side-scheme choice (NeXt Evolution, MC40 p. 7), drawn: the picker while the runner is asking,
  * and the settled section (the chosen row, "Same as last time", what carries in, the fixed sets) once composed. Plain
  * drawing over `SideSchemeBriefing` (`view/campaign-side-scheme-model.ts`); the scene owns the answer, the Inspect
- * launch and the redraw. A row is picked only by its own PICK button: the card chips beside it open Inspect, so
- * reading a card can never answer the question.
+ * launch and the redraw. A row shows its cards as pictures (`view/campaign-briefing-model.ts`'s `sideSchemePickCards`
+ * and `pickRowLayout`): the scheme, the environment it earns and the encounter card it brings. A row is picked only
+ * by its own PICK button: a picture opens Inspect, so reading a card can never answer the question.
  */
 import Phaser from "phaser";
 import { accent, hit, ink, signal, surface, typeRole } from "../../tokens.js";
@@ -17,7 +18,10 @@ import type {
   SideSchemeBriefing,
   SideSchemeRow,
 } from "../../view/campaign-side-scheme-model.js";
+import { pickRowLayout, sideSchemePickCards, type PickCard } from "../../view/campaign-briefing-model.js";
+import { CARDS_BY_ID } from "../../content/pool.js";
 import type { FocusStop } from "../focus-route.js";
+import { drawPickCards } from "./briefing-pick-cards.js";
 
 export interface SideSchemeDrawContext {
   readonly scene: Phaser.Scene;
@@ -31,18 +35,9 @@ export interface SideSchemeDrawContext {
 /** Inspect chips and Pick are full touch targets. */
 const CHIP_HEIGHT = hit.target;
 const ROW_GAP = 8;
-const WIDE = 600;
 
-/** The three cards a row names, as Inspect chips: its scheme, the environment on its back, and its encounter card. */
-function cardChipsOf(
-  row: SideSchemeRow,
-): readonly { readonly key: string; readonly word: string; readonly card: SchemeCardRef }[] {
-  const chips: { key: string; word: string; card: SchemeCardRef }[] = [];
-  if (row.scheme.cardId) chips.push({ key: "scheme", word: "Scheme", card: row.scheme });
-  if (row.environment) chips.push({ key: "environment", word: "Environment", card: row.environment });
-  if (row.encounterCard) chips.push({ key: "encounter", word: "Encounter", card: row.encounterCard });
-  return chips;
-}
+const pickCardsOf = (row: SideSchemeRow): readonly PickCard[] =>
+  sideSchemePickCards(row, (id) => CARDS_BY_ID.get(id)?.type);
 
 function chip(ctx: SideSchemeDrawContext, rect: Rect, word: string, stopKey: string, card: SchemeCardRef): void {
   const open = (): void => ctx.inspect(card);
@@ -58,33 +53,10 @@ function chip(ctx: SideSchemeDrawContext, rect: Rect, word: string, stopKey: str
   ctx.stops.set(stopKey, { rect, activate: open });
 }
 
-/** A row's chips laid left to right inside `width` from `x`, each an equal share. Returns nothing: they draw themselves. */
-function chipRow(
-  ctx: SideSchemeDrawContext,
-  row: SideSchemeRow,
-  x: number,
-  y: number,
-  width: number,
-  keyBase: string,
-): void {
-  const chips = cardChipsOf(row);
-  if (chips.length === 0) return;
-  const gap = 6;
-  const each = Math.floor((width - gap * (chips.length - 1)) / chips.length);
-  chips.forEach((entry, index) => {
-    chip(
-      ctx,
-      { x: x + index * (each + gap), y, width: each, height: CHIP_HEIGHT },
-      entry.word,
-      `${keyBase}:${entry.key}`,
-      entry.card,
-    );
-  });
-}
-
 /**
- * The picker: one row per offered scheme, labeled by `labels` ("Mission Prep → Mission Prepped"), its three cards as
- * chips, and a PICK button that answers with the row's name. Returns the bottom edge.
+ * The picker: one row per offered scheme with its cards as pictures (each opens Inspect) and a PICK button that
+ * answers with the row's name. A stacked row is headed by `labels` ("Mission Prep → Mission Prepped"); a wide row
+ * names each card beside its picture instead. Returns the bottom edge.
  */
 export function drawSideSchemeCall(
   ctx: SideSchemeDrawContext,
@@ -104,52 +76,45 @@ export function drawSideSchemeCall(
     .text(
       rect.x,
       y,
-      "Its environment is earned by defeating it.",
+      "Its environment is earned by defeating it. Tap a card to read it.",
       textStyle(typeRole.body, surface.ink.hex, ink.secondary),
     )
     .setOrigin(0, 0)
     .setWordWrapWidth(rect.width);
   y += note.height + 10;
 
-  const wide = rect.width >= WIDE;
   const pickWidth = phone ? 84 : 96;
   for (const row of briefing.offered) {
-    const text = labels.get(row.name) ?? row.name;
-    const keyBase = `call-scheme:${row.name}`;
-    const pick = (): void => onPick(row.name);
-    const chips = cardChipsOf(row);
-    const chipsWidth = wide ? chips.length * 112 + Math.max(0, chips.length - 1) * 6 : rect.width - 24;
-    const height = wide ? 56 : 8 + CHIP_HEIGHT + 6 + CHIP_HEIGHT + 8;
-    const g = scene.add.graphics();
-    g.fillStyle(0xfffaf0, 1).fillRect(rect.x, y, rect.width, height);
-    g.lineStyle(2, surface.ink.hex, 1).strokeRect(rect.x, y, rect.width, height);
-    const titleWidth = wide ? rect.width - 12 - pickWidth - 12 - chipsWidth - 24 : rect.width - 12 - pickWidth - 24;
-    const title = scene.add
-      .text(
-        rect.x + 12,
-        y + (wide ? height / 2 : 8 + CHIP_HEIGHT / 2),
-        text,
-        textStyle({ ...typeRole.rowTitle, size: 14 }, surface.ink.hex),
-      )
-      .setOrigin(0, 0.5)
-      .setWordWrapWidth(titleWidth);
-    void title;
-    const pickRect: Rect = {
-      x: rect.x + rect.width - 12 - pickWidth,
-      y: wide ? y + (height - CHIP_HEIGHT) / 2 : y + 8,
-      width: pickWidth,
-      height: CHIP_HEIGHT,
-    };
-    ctx.buttons.push(
-      new McButton(scene, { kind: "primary", label: "Pick", type: typeRole.label, rect: pickRect, onClick: pick }),
+    const cards = pickCardsOf(row);
+    const layout = pickRowLayout(
+      rect.width,
+      cards.map((card) => card.shape),
+      { pickWidth },
     );
-    ctx.stops.set(`call-option:${row.name}`, { rect: pickRect, activate: pick });
-    if (wide) {
-      chipRow(ctx, row, pickRect.x - 12 - chipsWidth, y + (height - CHIP_HEIGHT) / 2, chipsWidth, keyBase);
-    } else {
-      chipRow(ctx, row, rect.x + 12, y + 8 + CHIP_HEIGHT + 6, chipsWidth, keyBase);
+    const pick = (): void => onPick(row.name);
+    const g = scene.add.graphics();
+    g.fillStyle(0xfffaf0, 1).fillRect(rect.x, y, rect.width, layout.height);
+    g.lineStyle(2, surface.ink.hex, 1).strokeRect(rect.x, y, rect.width, layout.height);
+    if (layout.title) {
+      scene.add
+        .text(
+          rect.x + layout.title.x,
+          y + layout.title.y + layout.title.height / 2,
+          labels.get(row.name) ?? row.name,
+          textStyle({ ...typeRole.rowTitle, size: 14 }, surface.ink.hex),
+        )
+        .setOrigin(0, 0.5)
+        .setWordWrapWidth(layout.title.width);
     }
-    y += height + ROW_GAP;
+    drawPickCards(scene, rect.x, y, cards, layout, `call-scheme:${row.name}`, ctx.stops, ctx.inspect);
+    if (layout.pick) {
+      const pickRect: Rect = { ...layout.pick, x: rect.x + layout.pick.x, y: y + layout.pick.y };
+      ctx.buttons.push(
+        new McButton(scene, { kind: "primary", label: "Pick", type: typeRole.label, rect: pickRect, onClick: pick }),
+      );
+      ctx.stops.set(`call-option:${row.name}`, { rect: pickRect, activate: pick });
+    }
+    y += layout.height + ROW_GAP;
   }
   return y;
 }
@@ -165,41 +130,29 @@ export function drawSideSchemeSettled(
   let y = ruleHeading(scene, rect.x, top, rect.width, "Side scheme", surface.ink.hex, 20) + 2;
   const row = briefing.chosen;
   if (row) {
-    const wide = rect.width >= WIDE;
-    const chips = cardChipsOf(row);
-    const chipsWidth = wide ? chips.length * 112 + Math.max(0, chips.length - 1) * 6 : rect.width - 24;
+    const cards = pickCardsOf(row);
     const heading = row.environment ? `${row.name} → ${row.environment.name}` : row.name;
     const title = scene.add
-      .text(rect.x + 12, 0, heading.toUpperCase(), textStyle(bangers(phone ? 20 : 22), surface.ink.hex))
+      .text(rect.x + 16, y + 8, heading.toUpperCase(), textStyle(bangers(phone ? 20 : 22), surface.ink.hex))
       .setOrigin(0, 0);
-    fitText(title, rect.width - 24, phone ? 20 : 22);
+    fitText(title, rect.width - 28, phone ? 20 : 22);
     const marker = briefing.repeated
-      ? label(scene, 0, 0, "Same as last time", typeRole.label, signal.cost.hex, 1)
+      ? label(scene, rect.x + 16, y + 8 + title.height + 2, "Same as last time", typeRole.label, signal.cost.hex, 1)
       : null;
-    const height = wide ? 56 : 8 + title.height + (marker ? 6 + marker.height : 0) + 12 + CHIP_HEIGHT + 8;
+    // The heading is the row's title line; the pictures sit under it, as on a stacked picker row with no Pick.
+    const layout = pickRowLayout(
+      rect.width,
+      cards.map((card) => card.shape),
+      { withPick: false, titleHeight: title.height + (marker ? 2 + marker.height : 0), stacked: true },
+    );
     const g = scene.add.graphics();
-    g.fillStyle(0xfffaf0, 1).fillRect(rect.x, y, rect.width, height);
-    g.lineStyle(2, surface.ink.hex, 1).strokeRect(rect.x, y, rect.width, height);
-    g.fillStyle(signal.heal.hex, 1).fillRect(rect.x, y, 6, height);
+    g.fillStyle(0xfffaf0, 1).fillRect(rect.x, y, rect.width, layout.height);
+    g.lineStyle(2, surface.ink.hex, 1).strokeRect(rect.x, y, rect.width, layout.height);
+    g.fillStyle(signal.heal.hex, 1).fillRect(rect.x, y, 6, layout.height);
     scene.children.bringToTop(title);
     if (marker) scene.children.bringToTop(marker);
-    if (wide) {
-      title.setPosition(rect.x + 16, y + (marker ? 8 : (height - title.height) / 2));
-      marker?.setPosition(rect.x + 16, y + 8 + title.height + 2);
-      chipRow(
-        ctx,
-        row,
-        rect.x + rect.width - 12 - chipsWidth,
-        y + (height - CHIP_HEIGHT) / 2,
-        chipsWidth,
-        "scheme-chosen",
-      );
-    } else {
-      title.setPosition(rect.x + 16, y + 8);
-      marker?.setPosition(rect.x + 16, y + 8 + title.height + 6);
-      chipRow(ctx, row, rect.x + 12, y + height - 8 - CHIP_HEIGHT, chipsWidth, "scheme-chosen");
-    }
-    y += height + 12;
+    drawPickCards(scene, rect.x + 4, y, cards, layout, "scheme-chosen", ctx.stops, ctx.inspect);
+    y += layout.height + 12;
   }
   for (const carry of briefing.carryIns) y = drawCarryIn(ctx, y, carry) + 8;
   if (briefing.requiredSetIds.length > 0) {

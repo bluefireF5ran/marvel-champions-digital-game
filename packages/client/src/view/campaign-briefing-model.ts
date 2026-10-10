@@ -679,3 +679,194 @@ export function briefingViewOf(
     missions: definition ? missionBriefingOf(record, definition) : null,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// "Your call": the cards an option shows
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A scheme is printed sideways; every other card stands upright. */
+export type PickCardShape = "landscape" | "portrait";
+
+/** One card picture beside a "Your call" option: a few words over it, and the card Inspect opens when it is tapped. */
+export interface PickCard {
+  /** Which of the option's cards this is ("scheme", "environment", "encounter", or "card" for an option that is one). */
+  readonly key: string;
+  /** What the card is to the option, in a word ("Scheme", "Earns", "Brings"). Empty when the option is the card. */
+  readonly caption: string;
+  readonly cardId: CardId;
+  readonly name: string;
+  readonly shape: PickCardShape;
+}
+
+/** A card's type, for its shape; undefined for an id that is no card. */
+export type CardTypeOf = (id: string) => string | undefined;
+
+export const pickCardShapeOf = (type: string | undefined): PickCardShape =>
+  type !== undefined && type.endsWith("scheme") ? "landscape" : "portrait";
+
+/**
+ * The cards a side-scheme row shows, in reading order: the scheme, the environment on its back (earned by defeating
+ * it), and the encounter card the pick brings into the deck. A card the definition does not name is left out.
+ */
+export function sideSchemePickCards(
+  row: {
+    readonly scheme: { readonly cardId: CardId; readonly name: string };
+    readonly environment: { readonly cardId: CardId; readonly name: string } | null;
+    readonly encounterCard: { readonly cardId: CardId; readonly name: string } | null;
+  },
+  typeOf: CardTypeOf,
+): readonly PickCard[] {
+  const cards: PickCard[] = [];
+  const add = (key: string, caption: string, ref: { readonly cardId: CardId; readonly name: string } | null): void => {
+    if (!ref || (ref.cardId as string) === "") return;
+    cards.push({ key, caption, cardId: ref.cardId, name: ref.name, shape: pickCardShapeOf(typeOf(ref.cardId)) });
+  };
+  add("scheme", "Scheme", row.scheme);
+  add("environment", "Earns", row.environment);
+  add("encounter", "Brings", row.encounterCard);
+  return cards;
+}
+
+/**
+ * The card each option of a plain "Your call" pick is, when every option is a card (a box's "you may shuffle in X",
+ * a pick from a deck): the option buttons then carry the card's picture, which opens Inspect. Null when any option
+ * is not a card (a set, a yes/no, a role), so a mixed list stays plain buttons.
+ */
+export function cardPickOptionsOf(
+  options: readonly string[],
+  cardOf: (id: string) => { readonly name: string; readonly type: string } | undefined,
+): ReadonlyMap<string, PickCard> | null {
+  if (options.length === 0) return null;
+  const cards = new Map<string, PickCard>();
+  for (const id of options) {
+    const card = cardOf(id);
+    if (!card) return null;
+    cards.set(id, {
+      key: "card",
+      caption: "",
+      cardId: id as CardId,
+      name: card.name,
+      shape: pickCardShapeOf(card.type),
+    });
+  }
+  return cards;
+}
+
+/** A rectangle inside a pick row, relative to the row's own top-left corner. */
+export interface PickRowRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface PickRowLayout {
+  /** One line: pictures, their captions beside them, then Pick. Otherwise the title and Pick sit over the pictures. */
+  readonly wide: boolean;
+  readonly height: number;
+  /** The option's own title line; null on a wide row, where each picture's caption names its card. */
+  readonly title: PickRowRect | null;
+  /** The Pick button; null for a row that only shows (the settled pick). */
+  readonly pick: PickRowRect | null;
+  readonly cards: readonly { readonly art: PickRowRect; readonly caption: PickRowRect }[];
+}
+
+/** Narrowest a caption may be beside its picture before the row stacks instead. */
+const PICK_CAPTION_MIN = 78;
+const PICK_ART_HEIGHT = { wide: 76, stacked: 64 } as const;
+const PICK_TARGET = 44;
+
+const pickArtWidth = (shape: PickCardShape, height: number): number =>
+  Math.round(shape === "landscape" ? height * 1.42 : height / 1.42);
+
+/**
+ * Where a pick row's pictures, captions and Pick button go for a row `width` wide. Wide: everything on one line,
+ * each caption to the right of its picture, sharing what the pictures and the button leave. Stacked (a phone, a
+ * narrow column): the title and Pick on top, the pictures in equal cells under them with captions beneath.
+ */
+export function pickRowLayout(
+  width: number,
+  shapes: readonly PickCardShape[],
+  options: {
+    readonly pickWidth?: number;
+    readonly withPick?: boolean;
+    readonly titleHeight?: number;
+    /** Always the stacked form: a row that has its own heading over the pictures. */
+    readonly stacked?: boolean;
+  } = {},
+): PickRowLayout {
+  const withPick = options.withPick ?? true;
+  const pickWidth = withPick ? (options.pickWidth ?? 96) : 0;
+  const pad = 10;
+  const gap = 12;
+  const artHeight = PICK_ART_HEIGHT.wide;
+  const arts = shapes.map((shape) => pickArtWidth(shape, artHeight));
+  const fixed =
+    pad * 2 + arts.reduce((sum, art) => sum + art + 8, 0) + gap * shapes.length + (withPick ? pickWidth : -gap);
+  const captionWidth = shapes.length > 0 ? Math.floor((width - fixed) / shapes.length) : 0;
+  if (!options.stacked && shapes.length > 0 && captionWidth >= PICK_CAPTION_MIN) {
+    const height = artHeight + 16;
+    let x = pad;
+    const cards = arts.map((art) => {
+      const cell = {
+        art: { x, y: 8, width: art, height: artHeight },
+        caption: { x: x + art + 8, y: 8, width: captionWidth, height: artHeight },
+      };
+      x += art + 8 + captionWidth + gap;
+      return cell;
+    });
+    return {
+      wide: true,
+      height,
+      title: null,
+      pick: withPick
+        ? { x: width - pad - pickWidth, y: (height - PICK_TARGET) / 2, width: pickWidth, height: PICK_TARGET }
+        : null,
+      cards,
+    };
+  }
+  const side = 12;
+  const titleHeight = options.titleHeight ?? PICK_TARGET;
+  const stackedArt = PICK_ART_HEIGHT.stacked;
+  const captionHeight = 28;
+  const cellGap = 8;
+  const count = Math.max(1, shapes.length);
+  const cellWidth = Math.floor((width - side * 2 - cellGap * (count - 1)) / count);
+  const artTop = 8 + titleHeight + 8;
+  const cards = shapes.map((shape, index) => {
+    const x = side + index * (cellWidth + cellGap);
+    const artWidth = Math.min(cellWidth, pickArtWidth(shape, stackedArt));
+    return {
+      art: { x, y: artTop, width: artWidth, height: stackedArt },
+      caption: { x, y: artTop + stackedArt + 4, width: cellWidth, height: captionHeight },
+    };
+  });
+  return {
+    wide: false,
+    height: shapes.length > 0 ? artTop + stackedArt + 4 + captionHeight + 8 : 8 + titleHeight + 8,
+    title: { x: side, y: 8, width: width - side * 2 - (withPick ? pickWidth + 12 : 0), height: titleHeight },
+    pick: withPick ? { x: width - side - pickWidth, y: 8, width: pickWidth, height: PICK_TARGET } : null,
+    cards,
+  };
+}
+
+/** The option grid's cell when every option is a card (`callGridOf`'s spec): tall enough for the picture. */
+export const CARD_OPTION_GRID = { height: 76, minButtonWidth: 230, maxButtonWidth: 300 } as const;
+
+/** A card option's cell split in two: the picture on the left, the option's own button (a full touch target) beside it. */
+export function cardOptionCell(
+  cell: PickRowRect,
+  shape: PickCardShape,
+): { readonly art: PickRowRect; readonly button: PickRowRect } {
+  const artWidth = pickArtWidth(shape, cell.height);
+  const gap = 8;
+  return {
+    art: { x: cell.x, y: cell.y, width: artWidth, height: cell.height },
+    button: {
+      x: cell.x + artWidth + gap,
+      y: cell.y + (cell.height - PICK_TARGET) / 2,
+      width: cell.width - artWidth - gap,
+      height: PICK_TARGET,
+    },
+  };
+}
