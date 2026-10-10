@@ -349,6 +349,7 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/crossbones/villain-loses.mp3": "When the Siege Breaks",
   "scenarios/crossbones/villain-wins.mp3": "Calculated Finality",
   "scenarios/red-skull/battle.mp3": "Hail the Skull",
+  "scenarios/red-skull/villain-wins.mp3": "The Cube Is His",
   "scenarios/brotherhood-of-badoon/battle.mp3": "The Brotherhood Descends",
   "scenarios/infiltrate-the-museum/battle.mp3": "Rows of Silent Glass",
   "scenarios/escape-the-museum/battle.mp3": "The Keeper's Iron Maze",
