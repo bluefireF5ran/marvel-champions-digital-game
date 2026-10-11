@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateCard, validateScenario } from "../schema/index.js";
 import type { AnyCard, Scenario, VillainCard } from "../schema/index.js";
+import { FALCON_CARDS } from "./falcon/cards.js";
 import { TT_CARDS, TT_SCENARIOS } from "./index.js";
 
 /** Trickster Takeover (MC55) corrections of docs/phase7-wave9.md section 1.15 (data items 18 to 21 and 26 of section 8.1). */
@@ -86,5 +87,39 @@ describe("tt corrections", () => {
     expect(crown.type).toBe("attachment");
     expect("statModifiers" in crown ? crown.statModifiers?.sch : undefined).toBeUndefined();
     expect(crown.text.printed).toContain("[star] Forced Response");
+  });
+
+  it("Love Triangle attaches only to an ally its player controls", () => {
+    const love = card("55062");
+    if (love.type !== "attachment") throw new Error("55062 is not an attachment");
+    expect(love.attachesTo).toEqual({ kind: "qualified", category: "ally", controlledBy: "you" });
+    expect(validateCard(love).errors).toEqual([]);
+  });
+
+  it("the Enchantress record sets the Future of Despair side scheme aside", () => {
+    const s = scenario("enchantress");
+    expect(s.setAsideCardIds?.map(String)).toEqual(["55006"]);
+    expect(validateScenario(s).errors).toEqual([]);
+    expect(scenario("god-of-lies").setAsideCardIds).toBeUndefined();
+  });
+
+  it("item 23: the linked keyword carries a title and a card type (tt allies and Captain America's Shield)", () => {
+    const linkedOf = (c: AnyCard) => ("keywords" in c ? c.keywords : undefined)?.filter((k) => k.name === "linked");
+    const expected: Record<string, string> = {
+      "55063": "Absorbing Man",
+      "55064": "Titania",
+      "55065": "Whirlwind",
+      "55066": "Zzzax",
+    };
+    for (const [id, title] of Object.entries(expected)) {
+      expect(linkedOf(card(id)), id).toEqual([{ name: "linked", cardTitle: title, cardType: "minion" }]);
+      // The linked ally and its minion share a set code.
+      const minion = TT_CARDS.find((c) => c.type === "minion" && c.name === title);
+      expect(minion?.setCode, id).toBe(card(id).setCode);
+    }
+    const shield = FALCON_CARDS.find((c) => (c.id as string) === "53034");
+    expect(shield && linkedOf(shield)).toEqual([{ name: "linked", cardTitle: "Captain America", cardType: "upgrade" }]);
+    const cap = FALCON_CARDS.find((c) => c.type === "upgrade" && c.name === "Captain America");
+    expect(cap?.setCode).toBe(shield?.setCode);
   });
 });

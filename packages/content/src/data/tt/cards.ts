@@ -1843,7 +1843,7 @@ export const TT_CARDS: readonly AnyCard[] = [
     quantityInSet: 1,
     unique: false,
     images: { front: imageRef("/bundles/cards/55062.png") },
-    attachesTo: { kind: "ally" },
+    attachesTo: { kind: "qualified", category: "ally", controlledBy: "you" },
     encounterSetIds: [encounterSetId("trickster_magic")],
     boostIcons: 1,
     traits: [trait("CONDITION")],
@@ -1877,7 +1877,7 @@ export const TT_CARDS: readonly AnyCard[] = [
     consequentialDamage: { attack: 2, thwart: 2 },
     aspect: "basic",
     traits: [trait("DEFIANT")],
-    keywords: [{ name: "linked", cardTitle: "Absorbing Man minion" }, { name: "victory", value: 0 }],
+    keywords: [{ name: "linked", cardTitle: "Absorbing Man", cardType: "minion" }, { name: "victory", value: 0 }],
     deckLimit: 1,
     text: {
       printed: "Linked (Absorbing Man minion). Victory 0. Does not count against your ally limit.\n[star] Interrupt: When Absorbing Man attacks or thwarts, exhaust an upgrade or support you control. Absorbing Man gets +X to that power for this use, where X is that card's printed cost (to a maximum of +3).",
@@ -1910,7 +1910,7 @@ export const TT_CARDS: readonly AnyCard[] = [
     consequentialDamage: { attack: 2, thwart: 1 },
     aspect: "basic",
     traits: [trait("DEFIANT")],
-    keywords: [{ name: "linked", cardTitle: "Titania minion" }, { name: "victory", value: 0 }],
+    keywords: [{ name: "linked", cardTitle: "Titania", cardType: "minion" }, { name: "victory", value: 0 }],
     deckLimit: 1,
     text: {
       printed: "Linked (Titania minion). Victory 0. Does not count against your ally limit.\n[star] Titania's attacks gain overkill and piercing.",
@@ -1937,7 +1937,7 @@ export const TT_CARDS: readonly AnyCard[] = [
     consequentialDamage: { attack: 1, thwart: 1 },
     aspect: "basic",
     traits: [trait("DEFIANT")],
-    keywords: [{ name: "linked", cardTitle: "Whirlwind minion" }, { name: "victory", value: 0 }],
+    keywords: [{ name: "linked", cardTitle: "Whirlwind", cardType: "minion" }, { name: "victory", value: 0 }],
     deckLimit: 1,
     text: {
       printed: "Linked (Whirlwind minion). Victory 0. Does not count against your ally limit.\n[star] Interrupt: When Whirlwind attacks, remove 1 threat from each scheme in play. For each threat removed this way, Whirlwind gets +1 ATK for that attack.",
@@ -1963,7 +1963,7 @@ export const TT_CARDS: readonly AnyCard[] = [
     consequentialDamage: { attack: 1, thwart: 2 },
     aspect: "basic",
     traits: [trait("DEFIANT")],
-    keywords: [{ name: "linked", cardTitle: "Zzzax minion" }, { name: "victory", value: 0 }],
+    keywords: [{ name: "linked", cardTitle: "Zzzax", cardType: "minion" }, { name: "victory", value: 0 }],
     deckLimit: 1,
     text: {
       printed: "Linked (Zzzax minion). Victory 0. Does not count against your ally limit.\nResponse: After Zzzax enters play, search the top 5 cards of your deck for a card with a printed [energy] resource and add it to your hand. (Shuffle.)",

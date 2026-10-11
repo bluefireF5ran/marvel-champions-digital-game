@@ -83,6 +83,14 @@ export const TT_CURATION: PackCuration = {
         'Scan 55022.png (read 2026-10-10): "When Defeated: Each player whose identity has the Defiant trait places 1 charm counter on the Enchantment card in their play area. Each player whose identity has the Enthralled trait discards a card they control." Threat 4 with a single crisis-type icon; no boost box. docs/phase7-wave9.md section 1.15 item 1.',
       textReplace: { find: "When Revealed", replace: "When Defeated" },
     },
+    {
+      code: "55062",
+      reason:
+        'Love Triangle prints "Attach to an ally you control."; the parser reads that as the plain `ally` host, which let it attach to another player\'s ally. The host carries `controlledBy: "you"`.',
+      evidence:
+        'Raw text of 55062 ("Attach to an ally you control.") and scan 55062.png. `HostQualifiers.controlledBy` (packages/content/src/schema/cards/attachment-host.ts); same shape as Manipulated Mind (`sm` 27171). docs/phase7-wave9.md section 8.1.',
+      impliedAttachHost: { kind: "qualified", category: "ally", controlledBy: "you" } as const,
+    },
     figment("55029b"),
     figment("55030b"),
     figment("55031b"),
@@ -179,6 +187,8 @@ export const TT_CURATION: PackCuration = {
       // 55004a Contents: "Enchantress (I) and Enchantress (II). (Enchantress (II) and Enchantress (III) instead for expert mode.)"
       villainStages: { standard: [1, 2], expert: [2, 3] },
       modularSetCount: 1,
+      // 55004a Setup: "Set the Future of Despair side scheme aside." (55006).
+      setAsideCardCodes: ["55006"],
       evidence:
         'Prime Real Estate 1A (55004a) Contents: "Enchantress (I) and Enchantress (II). (Enchantress (II) and Enchantress (III) instead for expert mode.) Enchantress and Standard encounter sets. One modular set (Trickster Magic)." Setup: "Set the Future of Despair side scheme aside. Attach a random Hypnotic Gaze to each identity (players cannot look at the reverse sides). Set each remaining Hypnotic Gaze aside." Insert pp. 6 to 7 (scenario 1). The Trickster Magic modular set is the one required modular set; its four linked allies are set aside at setup for any scenario using it (insert p. 2). The Expert encounter set comes from RRG 1.8 "Modes of Play" (p. 28), not from the pack (see expertSetCodes).',
     },

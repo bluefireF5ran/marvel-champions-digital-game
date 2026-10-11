@@ -20,6 +20,7 @@ export const TT_SCENARIOS: readonly Scenario[] = [
     expertEncounterSetIds: [encounterSetId("expert")],
     villainStages: { standard: [1, 2], expert: [2, 3] },
     modularSetCount: 1,
+    setAsideCardIds: [cardId("55006")],
   },
   {
     id: scenarioId("god-of-lies"),

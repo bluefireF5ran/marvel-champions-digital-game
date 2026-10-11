@@ -613,11 +613,11 @@ describe("Puppet Master (55061)", () => {
 });
 
 describe("Love Triangle (55062)", () => {
-  it("is data: an attachment to an ally with 1 boost icon, the Condition trait", () => {
+  it("is data: an attachment to an ally you control with 1 boost icon, the Condition trait", () => {
     const card = dataOf(LOVE) as { type: string; attachesTo: unknown; boostIcons: number; traits: string[] };
     expect([card.type, card.attachesTo, card.boostIcons, card.traits]).toEqual([
       "attachment",
-      { kind: "ally" },
+      { kind: "qualified", category: "ally", controlledBy: "you" },
       1,
       ["CONDITION"],
     ]);
@@ -640,7 +640,7 @@ describe("Love Triangle (55062)", () => {
   // DATA ERROR (not fixable here): 55062 prints "Attach to an ally you control" but its data has `attachesTo: { kind:
   // "ally" }`, so it attaches to another player's ally. The host should carry `controlledBy: "you"`. `it.fails` passes
   // while the data is wrong and starts failing the day it is fixed: then make this a plain `it`.
-  it.fails("dealt to a player with no ally while another player has one, it is not attached to that player's ally", () => {
+  it("dealt to a player with no ally while another player has one, it is not attached to that player's ally", () => {
     const base = withInPlay(setupGame([SPIDER_MAN, CAPTAIN_MARVEL]), [BLACK_CAT], P2);
     const run = villainPhase(base, [BLANK, BLANK, LOVE, FILLER_A]);
     expect(types(run.events, "encounterCardRevealed").map((e) => codeOf(run.state, e.instanceId))[0]).toBe(LOVE);

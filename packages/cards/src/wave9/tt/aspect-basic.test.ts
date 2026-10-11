@@ -215,10 +215,10 @@ describe("registry", () => {
 
 describe("the four allies' data", () => {
   it.each([
-    [ABSORBING, "Carl Creel", 3, 1, 1, 3, { attack: 2, thwart: 2 }, "Absorbing Man minion"],
-    [TITANIA, "Mary MacPherran", 4, 3, 2, 5, { attack: 2, thwart: 1 }, "Titania minion"],
-    [WHIRLWIND, "David Cannon", 4, 0, 1, 3, { attack: 1, thwart: 1 }, "Whirlwind minion"],
-    [ZZZAX, undefined, 3, 1, 3, 4, { attack: 1, thwart: 2 }, "Zzzax minion"],
+    [ABSORBING, "Carl Creel", 3, 1, 1, 3, { attack: 2, thwart: 2 }, "Absorbing Man"],
+    [TITANIA, "Mary MacPherran", 4, 3, 2, 5, { attack: 2, thwart: 1 }, "Titania"],
+    [WHIRLWIND, "David Cannon", 4, 0, 1, 3, { attack: 1, thwart: 1 }, "Whirlwind"],
+    [ZZZAX, undefined, 3, 1, 3, 4, { attack: 1, thwart: 2 }, "Zzzax"],
   ] as const)(
     "%s (%s): cost %i, ATK %i, THW %i, %i hit points, %j, Linked (%s), Victory 0, basic aspect",
     (code, subtitle, cost, atk, thw, hp, consequential, linked) => {
@@ -246,7 +246,7 @@ describe("the four allies' data", () => {
       ]);
       expect(card.consequentialDamage).toEqual(consequential);
       expect(card.keywords).toEqual([
-        { name: "linked", cardTitle: linked },
+        { name: "linked", cardTitle: linked, cardType: "minion" },
         { name: "victory", value: 0 },
       ]);
     },
