@@ -1,0 +1,20 @@
+# What an editor should do before oxfmt (.oxfmtrc.json) and .gitattributes have their say: the same thing.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+max_line_length = 120
+
+[*.{bat,cmd}]
+end_of_line = crlf
+
+[*.{go,gradle,java,swift,py,rs}]
+indent_size = unset
+indent_style = unset
+
+[Makefile]
+indent_style = tab
