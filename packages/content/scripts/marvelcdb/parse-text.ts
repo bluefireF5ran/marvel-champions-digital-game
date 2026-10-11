@@ -32,6 +32,7 @@
 import type {
   AttachmentHost,
   AttachmentHostCategory,
+  CardType,
   HostMeasure,
   KeywordInstance,
   ResourceIconCounts,
@@ -397,8 +398,15 @@ function parseKeyword(sentence: string): KeywordInstance | undefined {
   // Instead, they are brought into the game by the card title in the parentheses following the keyword." A bare
   // `Linked.` (no title — none observed yet) still resolves, with `cardTitle` left unset.
   const linked = /^Linked(?: \((.+)\))?\.?$/.exec(sentence);
-  if (linked)
-    return { name: "linked", ...(linked[1] !== undefined ? { cardTitle: (linked[1] as string).trim() } : {}) };
+  if (linked) {
+    if (linked[1] === undefined) return { name: "linked" };
+    // "Linked (Absorbing Man minion)" (`tt` 55063 to 55066), "Linked (Captain America upgrade)" (`falcon` 53034): the
+    // parenthesis names a title and the card type of the card that brings this one in. Only these card-type words are
+    // split off, so a title that merely ends in another word stays whole.
+    const typed = /^(.+?) (minion|upgrade|ally|support|event|attachment)$/.exec((linked[1] as string).trim());
+    if (typed) return { name: "linked", cardTitle: typed[1] as string, cardType: typed[2] as CardType };
+    return { name: "linked", cardTitle: (linked[1] as string).trim() };
+  }
   // Icons print adjacent (`[mental][mental]`, R&D Facility 29020) or space-separated (`[energy] [mental]
   // [physical]`, Spider-Man ally 27049/52022) — both are the same keyword, so the separator is optional.
   const requirement = /^Requirement \(((?:\[(?:energy|mental|physical|wild)\]\s*)+)\)\.?$/.exec(sentence);

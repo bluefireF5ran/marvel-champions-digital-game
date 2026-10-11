@@ -339,6 +339,8 @@ export function stubMinion(spec: {
   readonly nemesisMinion?: boolean;
   /** `hp` is printed with the per player icon (RRG 1.8 "Per Player Icon", p. 32). */
   readonly hpPerPlayer?: true;
+  /** `hp` is printed with the per group icon (MC55 p. 4). */
+  readonly hpPerGroup?: true;
 }): MinionCard {
   return {
     ...base(spec.id, spec.id),
@@ -355,6 +357,7 @@ export function stubMinion(spec: {
     sch: spec.sch,
     hp: spec.hp,
     ...(spec.hpPerPlayer ? { hpPerPlayer: true as const } : {}),
+    ...(spec.hpPerGroup ? { hpPerGroup: true as const } : {}),
   };
 }
 
@@ -385,7 +388,8 @@ export function stubSideScheme(spec: {
   readonly id: string;
   /** Encounter sets the card belongs to (a nemesis set, for setup tests). */
   readonly encounterSetIds?: readonly string[];
-  readonly startingThreat: number;
+  /** A number is a flat value; a `ScalingValue` is taken as printed (a per player or per group icon). */
+  readonly startingThreat: number | ScalingValue;
   readonly icons?: readonly SchemeIcon[];
   readonly boostIcons?: number;
   /** The boost area prints a star icon (★): a printed fact, separate from `boostIcons` (RRG 1.8 "Boost", p. 11). */
@@ -397,7 +401,7 @@ export function stubSideScheme(spec: {
     ...base(spec.id, spec.id),
     type: "side_scheme",
     encounterSetIds: (spec.encounterSetIds ?? []).map((id) => encounterSetId(id)),
-    startingThreat: flat(spec.startingThreat),
+    startingThreat: typeof spec.startingThreat === "number" ? flat(spec.startingThreat) : spec.startingThreat,
     icons: spec.icons ?? [],
     boostIcons: spec.boostIcons ?? 1,
     ...(spec.starIcon === undefined ? {} : { starIcon: spec.starIcon }),

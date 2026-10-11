@@ -720,6 +720,7 @@ function nestedEffects(effect: EffectSpec): readonly (readonly EffectSpec[])[] {
     case "forEachPlayer":
     case "forEachCard":
     case "forEachCardPass":
+    case "inGroup":
       return [effect.effects];
     case "chooseOne":
       return effect.options.map((option) => option.effects);

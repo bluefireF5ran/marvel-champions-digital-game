@@ -3,6 +3,8 @@ import type { CampaignCardFace, CampaignWindow, LogWrite } from "./campaign.js";
 import type { RulesCardType } from "./card-types.js";
 import type { ChoiceId, EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
 import type { CardPosition, PendingChoice } from "./choices.js";
+import type { GroupId } from "./ids.js";
+import type { SharedEvent, SharedPodState, SharedResult } from "./pod.js";
 import type {
   AccusationGuess,
   FacedownRole,
@@ -1474,6 +1476,38 @@ export type GameEvent =
       readonly counterType: string;
       readonly amount: number;
     }
+  /**
+   * `EffectSpec chooseGroup` (docs/phase7-wave9.md §3.67): `playerId` chose a group of the pod, bound under `bind`. Also
+   * logged when the pod is one group and nobody was asked.
+   */
+  | { readonly type: "groupChosen"; readonly playerId: PlayerId; readonly bind: string; readonly groupId: GroupId }
+  /**
+   * An `inGroup` block is to be resolved in another group's game area (docs/phase7-wave9.md §3.67): nothing of it
+   * resolved here. `block` is its place among the `inGroup` blocks of `abilityId` on `sourceCardId`, from 1
+   * (`podBlocksOf`). This is what a host forwards to the pod's coordinator; never emitted in a pod of one group.
+   */
+  | {
+      readonly type: "podEffectRequested";
+      readonly toGroupId: GroupId;
+      readonly sourceCardId: CardId;
+      readonly abilityId: AbilityId;
+      readonly block: number;
+    }
+  /**
+   * A script asked the pod's shared record for a change (`EffectSpec sharedEvent`, docs/phase7-wave9.md §3.66): damage
+   * to the shared villain or threat on the shared scheme. `seq` is this group's count of such events, from 1. This is
+   * what a host forwards to the pod's coordinator in Epic Multiplayer; with a local coordinator a `sharedStateChanged`
+   * follows in the same command when the record changed.
+   */
+  | { readonly type: "sharedEventEmitted"; readonly seq: number; readonly event: SharedEvent }
+  /** This group's copy of the pod's shared record changed; `shared` is the whole record after the change. */
+  | { readonly type: "sharedStateChanged"; readonly shared: SharedPodState }
+  /**
+   * A result of a shared event was applied in this group's game, once nothing was resolving (`applyInbound`): the
+   * shared villain flipped or was defeated, or the shared scheme was completed. What it did follows in the log (a
+   * `cardFlipped`, a `momentRaised`, a `gameEnded`).
+   */
+  | { readonly type: "sharedResultApplied"; readonly result: SharedResult }
   /**
    * Counters that were to be placed on a card and were not, because the card may hold no more of them (`RuleSpec
    * counterLimit`, "Max 1 [per player] synergy counters here"; docs/phase7-wave9.md §3.61). `amount` is the number not

@@ -82,23 +82,6 @@ function isPermanentWithoutSetup(id: CardId): boolean {
   return names.includes("permanent") && !names.includes("setup");
 }
 
-/**
- * Linked allies (keyword `linked`, `cardTitle` "<Title> minion") whose minion is among these cards and that no set
- * deals: Trickster Magic's four (55063 to 55066, "set aside at setup", insert p. 2).
- */
-function linkedAlliesOf(dealt: readonly CardId[]): Extract<AnyCard, { type: "ally" }>[] {
-  const minionTitles = new Set(
-    dealt.map((id) => cardsById.get(id)).flatMap((card) => (card?.type === "minion" ? [card.name] : [])),
-  );
-  return WAVE9_CARDS.flatMap((card) => {
-    if (card.type !== "ally" || ("encounterSetIds" in card && (card.encounterSetIds as readonly string[]).length > 0))
-      return [];
-    const linked = card.keywords.find((k) => k.name === "linked") as { cardTitle?: string } | undefined;
-    const title = linked?.cardTitle?.match(/^(.*) minion$/)?.[1];
-    return title !== undefined && minionTitles.has(title) ? [card] : [];
-  });
-}
-
 /** `Scenario.victoryCondition`'s mode key. */
 function victoryConditionModeOf(modes: ReturnType<typeof resolveModes>): "skirmish" | "standard" | "expert" | "heroic" {
   if (modes.skirmish) return "skirmish";
@@ -119,7 +102,8 @@ function victoryConditionModeOf(modes: ReturnType<typeof resolveModes>): "skirmi
  * - **Permanent cards by keyword**: a permanent card without the setup keyword (Hypnotic Gaze x5, Intense Focus, the
  *   four Synergy environments, the Executive Board attachments' b faces) is set aside, not dealt; Gene Pool-style
  *   permanent + setup cards stay dealt for step 11. A double-sided card is dealt once, front face (`otherFaceId`), for
- *   every route including the extra modular set. A linked ally whose "<Title> minion" is dealt (Trickster Magic) is set aside.
+ *   every route including the extra modular set.
+ *   A linked ally (Trickster Magic's four) is not set aside here: the engine does it at setup when its named minion is in the game.
  * - **Thunderbolts**: `chooseModularSets` takes the restricted pool and the set-aside count (base 1 + 1 per player).
  * - **Baron Zemo**: Executive Board Evidence (50185 to 50193) is never in the encounter deck (docs/phase7-wave9.md
  *   section 1.10): it is left out here, and the hidden piles wait on the engine row 3.29 and data item 1. The scenario
@@ -171,11 +155,7 @@ function buildScenario(scenario: Scenario, options: Wave9ScenarioOptions): GameS
   // step 11 on its own, so it stays dealt. RRG 1.8 "Permanent" and "Setup (Keyword)" (p. 40); docs/phase7-wave9.md §8.1 item 27.
   const encounterDeck = dealt.filter((id) => !isPermanentWithoutSetup(id));
   const permanentAside = dealt.filter(isPermanentWithoutSetup);
-  // A linked ally (Trickster Magic's four) is in no set: it is set aside when its minion is in the game.
-  const linkedAside = linkedAlliesOf(dealt).flatMap((ally) =>
-    Array.from({ length: ally.quantityInSet }, () => ally.id as CardId),
-  );
-  const setAside = [...namedAside, ...permanentAside, ...linkedAside];
+  const setAside = [...namedAside, ...permanentAside];
   const setAsideVillainCardIds = (expertVillain ?? scenario).setAsideVillainCardIds ?? [];
   return {
     seed: options.seed,

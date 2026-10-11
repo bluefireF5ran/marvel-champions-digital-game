@@ -20,6 +20,17 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
   "trickster_magic",
 ]);
 
+/**
+ * Gated sets whose every ability is scripted but which are held back for another reason, each with that reason. The
+ * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
+ */
+export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
+  enchantress_villain:
+    "Scripted in full; waits on the client: a Hypnotic Gaze's hidden reverse side must not be shown (`otherFaceVisible`), and Forced Actions need their prompt and the End Turn refusal. Un-gate with trickster_magic once those are in and the scenario game (spec 8.4 item 70) passes.",
+  trickster_magic:
+    "Scripted in full; the Enchantress scenario's required modular set. Un-gate together with enchantress_villain (the pinned pool counts and snapshots move once).",
+};
+
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */
 export function scenarioIsScripted(scenario: Pick<Scenario, "encounterSetIds" | "multipleVillains">): boolean {
   return ![

@@ -154,16 +154,29 @@ describe("wave9Scenario", () => {
       }
     });
 
-    it("sets Trickster Magic's four linked allies aside whenever the set is in the game, and only then", () => {
+    it("sets Trickster Magic's four linked allies aside whenever the set is in the game (the engine does it), and only then", () => {
       const allies = ["55063", "55064", "55065", "55066"];
+      const asideCodes = (state: GameState): string[] => state.encounterSetAside.map((id) => codeOf(state, id));
       for (const id of ["enchantress", "god-of-lies"] as const) {
         const config = wave9Scenario(id, { players: SEATS, seed: 1 });
+        // The builder lists none of them; the engine sets one of each aside, in no deck.
         for (const ally of allies) {
-          expect(count(config.setAside, ally), `${id} ${ally}`).toBe(1);
+          expect(config.setAside ?? [], `${id} ${ally}`).not.toContain(ally);
           expect(config.encounterDeck).not.toContain(ally);
         }
+        const state = build(config);
+        for (const ally of allies) expect(count(asideCodes(state), ally), `${id} ${ally}`).toBe(1);
       }
-      expect(wave9Scenario("black-widow", { players: SEATS, seed: 1 }).setAside ?? []).not.toContain("55063");
+      // Without the set, and with Core minions of the same titles (a Core Titania or Whirlwind), none.
+      const widow = build(wave9Scenario("black-widow", { players: SEATS, seed: 1 }));
+      for (const ally of allies) expect(count(asideCodes(widow), ally), `black-widow ${ally}`).toBe(0);
+      // Core's Whirlwind (01130) and Titania (01162) in the encounter deck bring no linked ally of Trickster Magic.
+      const withCoreMinions = wave9Scenario("black-widow", { players: SEATS, seed: 1 });
+      const coreGame = build({
+        ...withCoreMinions,
+        encounterDeck: [...withCoreMinions.encounterDeck, "01130", "01162"] as never,
+      });
+      for (const ally of allies) expect(count(asideCodes(coreGame), ally), `core minions ${ally}`).toBe(0);
     });
 
     it("builds Enchantress and God of Lies with the permanent cards set aside", () => {

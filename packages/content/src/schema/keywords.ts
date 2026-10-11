@@ -1,3 +1,4 @@
+import type { CardType } from "./cards/base.js";
 import type { ResourceIconCounts, ResourceIconType, Trait } from "./common.js";
 
 /**
@@ -176,7 +177,14 @@ export type KeywordInstance =
    * card that brings the linked cards into play (indicated in the parentheses following the
    * keyword)." `cardTitle` is that parenthesized title.
    */
-  | (KeywordBase<"linked"> & { readonly cardTitle?: string })
+  | (KeywordBase<"linked"> & {
+      readonly cardTitle?: string;
+      /**
+       * The type of the card that brings this one in, when the printed keyword names one ("Linked (Absorbing Man
+       * minion)": `cardTitle` "Absorbing Man", `cardType` "minion"). Absent when the parenthesis is only a title.
+       */
+      readonly cardType?: CardType;
+    })
   /**
    * "Prerequisite (form or trait)", the Fear No Evil rulebook, "Featured Keywords" (p. 3). Printed as
    * `Prerequisite ([Defender]).` on Defend Our City (61029, `jj`), a player side scheme. RRG 1.8 has no entry.

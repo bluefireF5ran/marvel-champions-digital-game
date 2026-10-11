@@ -113,13 +113,15 @@ export function normalizeEncounterCard(
       // itself from its own When Revealed (RRG 1.8 "Reveal", p. 38 step 2; ruling, Feb 20, 2026 (4)), so it carries no
       // `attachesTo`.
       const ownWhenRevealed = p.impliedAttachHost === "ownWhenRevealed";
+      // A curated full `AttachmentHost` object wins over the parsed sentence (Love Triangle `tt` 55062: the parser reads
+      // "Attach to an ally you control." as the plain `ally` host, dropping "you control"); the string kinds only fill
+      // in when the text parses to nothing.
       const attachesTo =
+        (typeof p.impliedAttachHost === "object" ? p.impliedAttachHost : undefined) ??
         parsed.attachesTo ??
-        (typeof p.impliedAttachHost === "object"
-          ? p.impliedAttachHost
-          : p.impliedAttachHost && p.impliedAttachHost !== "ownWhenRevealed"
-            ? { kind: p.impliedAttachHost }
-            : undefined);
+        (p.impliedAttachHost && p.impliedAttachHost !== "ownWhenRevealed" && typeof p.impliedAttachHost === "string"
+          ? { kind: p.impliedAttachHost }
+          : undefined);
       if (!attachesTo && !ownWhenRevealed) {
         errors.push(`${r.code}: attachment without an attach rule`);
         return;

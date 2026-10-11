@@ -333,7 +333,9 @@ export const TT_PROVENANCE: readonly CardProvenance[] = [
     cardId: cardId("55062"),
     cardSetCode: "trickster_magic",
     marvelcdbCodes: ["55062"],
-    corrections: [],
+    corrections: [
+      "55062: Love Triangle prints \"Attach to an ally you control.\"; the parser reads that as the plain `ally` host, which let it attach to another player's ally. The host carries `controlledBy: \"you\"`. [evidence: Raw text of 55062 (\"Attach to an ally you control.\") and scan 55062.png. `HostQualifiers.controlledBy` (packages/content/src/schema/cards/attachment-host.ts); same shape as Manipulated Mind (`sm` 27171). docs/phase7-wave9.md section 8.1.]",
+    ],
   },
   {
     cardId: cardId("55063"),

@@ -718,7 +718,10 @@ describe("printed data of the second half", () => {
       { wild: 1 },
       [trait("ITEM")],
     ]);
-    expect(c.keywords).toEqual([{ name: "linked", cardTitle: "Captain America upgrade" }, { name: "restricted" }]);
+    expect(c.keywords).toEqual([
+      { name: "linked", cardTitle: "Captain America", cardType: "upgrade" },
+      { name: "restricted" },
+    ]);
   });
   it("Winter Soldier (Bucky Barnes): unique Aggression S.H.I.E.L.D. Soldier ally, cost 3, ATK 2, THW 1, 3 HP, consequential 1/1, [mental]", () => {
     const c = card<AllyCard & Printed>(WINTER);

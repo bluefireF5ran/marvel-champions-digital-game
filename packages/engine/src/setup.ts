@@ -1,4 +1,4 @@
-import { modeOnlyFlipped } from "./query.js";
+import { modeOnlyFlipped, scale } from "./query.js";
 import type {
   AnyCard,
   CardId,
@@ -18,6 +18,7 @@ import { runFlow } from "./flow.js";
 import type { OutsideFacts } from "./outside-facts.js";
 import { encounterDeckId, instanceId, playerId, type EncounterDeckId, type InstanceId, type PlayerId } from "./ids.js";
 import { linkedKeywordNames, linkedKeywordsOf, linkedNameKey } from "./linked.js";
+import { podSetupFault, type PodSetup, type PodState } from "./pod.js";
 import { createRng, nextInt } from "./rng.js";
 import {
   FIRST_CAMPAIGN_STEP,
@@ -357,6 +358,16 @@ export interface GameSetupConfig {
    * field existed.
    */
   readonly stack?: SetupStack;
+  /**
+   * The Epic Multiplayer pod this game is one group of (`GameState.pod`, docs/phase7-wave9.md §3.64): passed by the
+   * builder of a scenario with neutral cards (`Scenario.neutralCards`), with the single-group values in Single Group
+   * Mode (MC55 p. 10), and by nothing else. `coordinator: "local"` with more than one group in the game is refused: a
+   * local coordinator cannot hear the other groups. With `neutral`, setup creates the closed in-play area of that name,
+   * puts the two neutral cards in it as plain cards (neither is the villain or a main scheme of this game, §3.59), and
+   * scales their printed values into the shared record with the **game's** counts (§3.65, §3.66). Absent: no pod record,
+   * and nothing about the game changes.
+   */
+  readonly pod?: PodSetup;
 }
 
 /**
@@ -1220,6 +1231,66 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
       return invalid(`setup option ${option.option} states ${option.amount}, which is not a whole number of 0 or more`);
     setupOptionIds.add(option.option);
   }
+  // The pod record, and the pod's two neutral cards in a closed area of their own (docs/phase7-wave9.md §3.59, §3.64).
+  // Created last, so every other card's instance id is what it would be without them.
+  let pod: PodState | undefined;
+  let neutralArea: { readonly name: string; readonly cards: readonly InstanceId[] } | undefined;
+  if (config.pod) {
+    const fault = podSetupFault(config.pod, players.length);
+    if (fault) return invalid(fault);
+    const { neutral, groupsInGame, playersInGame } = config.pod;
+    pod = {
+      groupId: config.pod.groupId,
+      coordinator: config.pod.coordinator,
+      groupsInPodAtStart: config.pod.groupsInPod,
+      groupsInGameAtStart: groupsInGame,
+      playersInGameAtStart: playersInGame,
+      shared: null,
+      outboundSeq: 0,
+      inboundSeq: 0,
+      ...(config.pod.groupIdsInPod && config.pod.groupIdsInPod.length > 1
+        ? { groupIdsInPod: config.pod.groupIdsInPod }
+        : {}),
+    };
+    if (neutral) {
+      const villainCard = pool[neutral.villainCardId];
+      const schemeCard = pool[neutral.mainSchemeCardId];
+      if (neutral.area === "") return invalid("the pod's neutral area needs a name");
+      if (villainCard?.type !== "villain") return invalid(`${neutral.villainCardId} is not a villain card`);
+      if (schemeCard?.type !== "main_scheme") return invalid(`${neutral.mainSchemeCardId} is not a main scheme card`);
+      if (Object.values(instances).some((i) => i.cardId === villainCard.id || i.cardId === schemeCard.id))
+        return invalid("a neutral card of the pod is already in the game as another card");
+      const startingSide = villainCard.startingSide ?? "A";
+      const villainStage = villainCard.sides.find((side) => side.side === startingSide)?.stages[0];
+      const schemeStage = schemeCard.stages[0];
+      if (!villainStage || !schemeStage) return invalid("a neutral card of the pod has no stage");
+      const home: CardHome = { kind: "encounterDeck", deckId: deckIds[0] as EncounterDeckId };
+      const villainInstanceId = nextId();
+      const mainSchemeInstanceId = nextId();
+      instances[villainInstanceId] = { ...blankInstance(villainInstanceId, villainCard.id, null, home), faceup: true };
+      instances[mainSchemeInstanceId] = {
+        ...blankInstance(mainSchemeInstanceId, schemeCard.id, null, home),
+        faceup: true,
+      };
+      neutralArea = { name: neutral.area, cards: [villainInstanceId, mainSchemeInstanceId] };
+      // The neutral cards' icons count the whole game (MC55 p. 4; the neutral scheme's own text), once, here.
+      pod = {
+        ...pod,
+        shared: {
+          villainHp: scale(villainStage.hp, playersInGame, groupsInGame),
+          villainDamage: 0,
+          villainFlipAtRemaining: neutral.villainFlipAtRemaining
+            ? scale(neutral.villainFlipAtRemaining, playersInGame, groupsInGame)
+            : null,
+          villainFlipped: false,
+          schemeThreat: 0,
+          schemeTarget: scale(schemeStage.targetThreat, playersInGame, groupsInGame),
+          status: "playing",
+        },
+        neutral: { area: neutral.area, villainInstanceId, mainSchemeInstanceId },
+      };
+    }
+  }
   // The scenario's own rules, then the rules its campaign puts in force for this game (`CampaignNode.scenarioRuleSpecs`:
   // MC45 p. 5's Mission Rules card, p. 20's "Professor X cannot enter play during this game").
   const scenarioRuleSpecs = [...(config.scenarioRuleSpecs ?? []), ...(config.campaign?.scenarioRuleSpecs ?? [])];
@@ -1277,6 +1348,8 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     playedThisPhase: {},
     playedByPlayerThisRound: {},
     attackedThisTurn: {},
+    ...(neutralArea ? { scenarioPlayAreas: { [neutralArea.name]: { cards: neutralArea.cards, closed: true } } } : {}),
+    ...(pod ? { pod } : {}),
     // Both absent outside a campaign, so a standalone game's serialized state is unchanged (see `GameState`).
     ...(config.campaign ? { campaign: config.campaign, campaignWrites: NO_CAMPAIGN_WRITES } : {}),
     ...(setupStack ? { setupStack } : {}),
@@ -1298,6 +1371,7 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     firstPlayerId: firstPlayer.playerId,
     seed: config.seed,
   });
+  if (neutralArea) emit(ctx, { type: "scenarioPlayAreaCreated", name: neutralArea.name, closed: true });
   for (const entry of permanentSetAside) emit(ctx, { type: "cardsSetAside", ...entry, reason: "permanent" });
   for (const entry of linkedSetAside) emit(ctx, { type: "linkedCardsSetAside", ...entry });
   for (const entry of autoIncluded) {

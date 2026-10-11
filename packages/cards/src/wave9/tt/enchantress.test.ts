@@ -247,24 +247,28 @@ const cardNameOf = (s: GameState, id: InstanceId): string | undefined =>
 const cardNames = (s: GameState, ids: readonly InstanceId[]): string[] => ids.map((id) => codeOf(s, id));
 
 describe("registry", () => {
-  it("registers the 33 refs of the first half, each a valid definition", () => {
-    expect(Object.keys(ENCHANTRESS).sort()).toEqual([...REFS].sort());
+  it("registers the 33 refs of the frame, each a valid definition (the encounter cards are in enchantress-encounter.test.ts)", () => {
+    const encounter = Array.from({ length: 15 }, (_, i) => String(55012 + i)).flatMap((code) =>
+      abilityRefIds(TT_CARDS.find((c) => (c.id as string) === code) as never),
+    );
+    expect(
+      Object.keys(ENCHANTRESS)
+        .filter((id) => !encounter.includes(id))
+        .sort(),
+    ).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(ENCHANTRESS)) expect(validateDefinition(def), id).toEqual([]);
   });
 
-  it("registers every ref the data names for 55001 to 55011 and skips every ref of 55012 to 55026 with a reason", () => {
-    const first = ["55001", "55004a", "55006", ...GAZES].flatMap((code) =>
-      abilityRefIds(TT_CARDS.find((c) => (c.id as string) === code) as never),
-    );
-    expect(first.filter((id) => !(id in ENCHANTRESS)).sort()).toEqual([]);
-    expect(Object.keys(ENCHANTRESS).filter((id) => !first.includes(id))).toEqual([]);
-    const second = Array.from({ length: 15 }, (_, i) => String(55012 + i)).flatMap((code) =>
-      abilityRefIds(TT_CARDS.find((c) => (c.id as string) === code) as never),
-    );
-    expect(Object.keys(ENCHANTRESS_SKIPPED).sort()).toEqual([...second].sort());
-    for (const reason of Object.values(ENCHANTRESS_SKIPPED)) expect(reason).toContain("second half, not scripted yet");
-    expect(ENCHANTRESS_SKIPPED["55016.crown-of-the-enchantress-action"]).toContain("task 41");
-    expect(ENCHANTRESS_SKIPPED["55015.seduced-constant"]).toContain("task 50");
+  it("registers every ref the data names for 55001 to 55026 and skips none", () => {
+    const all = [
+      "55001",
+      "55004a",
+      "55006",
+      ...GAZES,
+      ...Array.from({ length: 15 }, (_, i) => String(55012 + i)),
+    ].flatMap((code) => abilityRefIds(TT_CARDS.find((c) => (c.id as string) === code) as never));
+    expect(all.filter((id) => !(id in ENCHANTRESS)).sort()).toEqual([]);
+    expect(Object.keys(ENCHANTRESS_SKIPPED)).toEqual([]);
   });
 });
 
@@ -726,15 +730,18 @@ describe("Sovereign Sorceress 2A (55005a) and the stage's completion (55005b)", 
     const gaze = flipByAttack(sim, "55010a");
     run(sim, use(P1, gaze, FORCED_ACTION_OF["55010a"]));
     nearlyComplete(sim);
-    stack(sim, ...PAD);
+    // Stage 2A's When Revealed searches the encounter deck for the Crown and shuffles it (printed "(Shuffle.)", even when
+    // the Crown is not there), so the stacked order is lost at the stage change. PAD holds two Assaults (01187, "the
+    // villain attacks you"), which a shuffle can deal: that was the second attack seen in this round. A deck without any
+    // card that attacks leaves the one activation.
+    stack(sim, "01186", "01186", "01188");
     sim.events = [];
     toNextPlayerPhase(sim);
     expect(sim.state.mainScheme.stageIndex).toBe(1);
     expect(charm(sim.state, gaze)).toBe(0);
-    // The threat is placed by stage 2B itself, 1 for each attack on the player.
-    const attacks = types(sim.events, "attackResolved").length;
-    expect(attacks).toBeGreaterThan(0);
-    expect(placedBy(sim, sim.state.mainScheme.instanceId)).toEqual(Array.from({ length: attacks }, () => 1));
+    // The threat is placed by stage 2B itself, 1 for the one attack on the player.
+    expect(types(sim.events, "attackResolved")).toHaveLength(1);
+    expect(placedBy(sim, sim.state.mainScheme.instanceId)).toEqual([1]);
   });
 
   it("completing stage 2B loses the game", () => {

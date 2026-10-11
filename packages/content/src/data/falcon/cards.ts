@@ -814,7 +814,7 @@ export const FALCON_CARDS: readonly AnyCard[] = [
     resourceIcons: { wild: 1 },
     aspect: "leadership",
     traits: [trait("ITEM")],
-    keywords: [{ name: "linked", cardTitle: "Captain America upgrade" }, { name: "restricted" }],
+    keywords: [{ name: "linked", cardTitle: "Captain America", cardType: "upgrade" }, { name: "restricted" }],
     deckLimit: 1,
     text: {
       printed: "Linked (Captain America upgrade). Restricted.\nYour hero gets +1 DEF and gains retaliate 1.",

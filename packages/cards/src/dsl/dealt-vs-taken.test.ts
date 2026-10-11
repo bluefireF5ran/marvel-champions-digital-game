@@ -63,6 +63,8 @@ describe("on.damage: damage dealt or damage taken", () => {
       "19028.challenge-accepted-forced-response",
       // Wave 9: Runaway Nuclear Reaction ("after Radioactive Man is dealt any amount of damage").
       "50154.runaway-nuclear-reaction-forced-response",
+      // Ulik ("after a player deals damage to Enchantress").
+      "55020.ulik-forced-response",
     ]);
     // 20 with wave 8 in the playable pool: Bishop's Energy Absorption (45001a, "After Bishop takes any amount of damage").
     // 22 with wave 9 in the playable pool (two more "takes damage" readers).

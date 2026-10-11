@@ -25,6 +25,7 @@ import type {
   TargetRef,
   TypedResource,
   ValueSpec,
+  GroupRef,
 } from "@mc/engine";
 
 /**
@@ -557,6 +558,19 @@ export type AttackKeyword = "piercing" | "ranged" | "overkill";
 
 /** "N [per_hero]" (plus an optional flat base). */
 export const perHero = (perPlayer: number, base = 0): ValueSpec => ({ kind: "perPlayer", base, perPlayer });
+/**
+ * The group whose game area this is; inside an `inGroup` block, the group the block is resolving in ("their Avatar of
+ * Loki villain", "their group"; docs/phase7-wave9.md §3.67).
+ */
+export const thisGroup: GroupRef = "self";
+/** The group `chooseGroup(bind)` bound: "Choose a group in your pod, then … **their** …". */
+export const chosenGroup = (bind = "group"): GroupRef => ({ var: bind });
+/**
+ * "The number of players in their group" (the Fading Figments, `tt` 55029b–55032b; docs/phase7-wave9.md §3.67). Write
+ * it inside the `inGroup` block with the default `thisGroup`, so it is read where the counters land:
+ * `inGroup(chosenGroup(), addCounters(…, "synergy", groupPlayerCount()))`.
+ */
+export const groupPlayerCount = (group: GroupRef = thisGroup): ValueSpec => ({ kind: "groupPlayerCount", group });
 /** A number bound by a cost or an earlier effect (`paid.energy`, `<bind>.amount`, `self.counters.energy`, …). */
 export const varOf = (name: string): ValueSpec => ({ kind: "var", name });
 /**

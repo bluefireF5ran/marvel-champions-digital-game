@@ -46,6 +46,10 @@ export interface Wave3Game {
   readonly scenarioRuleSpecs?: GameSetupConfig["scenarioRuleSpecs"];
   /** `PlayerSetup.outsideFacts` by seat (docs/phase7-wave7.md §3.83); a seat past the list supplies none. */
   readonly outsideFacts?: readonly (OutsideFacts | undefined)[];
+  /** `GameSetupConfig.pod` (docs/phase7-wave9.md §3.64). */
+  readonly pod?: GameSetupConfig["pod"];
+  /** `GameSetupConfig.difficulty`. */
+  readonly difficulty?: GameSetupConfig["difficulty"];
 }
 
 /** A game past setup, at the first player's first turn. */
@@ -69,6 +73,8 @@ export function gameAtFirstTurn(options: Wave3Game): GameState {
         };
       }),
       ...(options.scenarioRuleSpecs ? { scenarioRuleSpecs: options.scenarioRuleSpecs } : {}),
+      ...(options.pod ? { pod: options.pod } : {}),
+      ...(options.difficulty ? { difficulty: options.difficulty } : {}),
     },
     options.deps,
   );

@@ -28,7 +28,15 @@ import { EngineInvariantError, type EngineError } from "./errors.js";
 import { forcedActionOptionId, outstandingForcedActions } from "./legal.js";
 import { useLateForcedAction } from "./actions.js";
 import type { InstanceId, PlayerId } from "./ids.js";
-import { getPlayer, handSize, mustPlayer, playerOrder, scenarioPlayAreaOf, undefeatedVillains } from "./query.js";
+import {
+  getPlayer,
+  handSize,
+  mustInstance,
+  mustPlayer,
+  playerOrder,
+  scenarioPlayAreaOf,
+  undefeatedVillains,
+} from "./query.js";
 import {
   announce,
   announceStatusPlaced,
@@ -54,6 +62,7 @@ import { announceDeckDiscards, settleDeckDiscards } from "./resolve/deck-discard
 import { announceTuckedDiscards } from "./resolve/tuck.js";
 import { announceBoostCardsGiven } from "./resolve/enemy-activation.js";
 import { checkStateTriggers } from "./resolve/state-checks.js";
+import { settlePod } from "./resolve/pod.js";
 import { cannotChooseToDiscard, playerPhaseTurnOrder } from "./rules.js";
 import { cardsInPlay, controllerOf, handCountTowardHandSize } from "./select.js";
 import { describeFrame } from "./stack.js";
@@ -126,6 +135,9 @@ export function runFlow(ctx: Ctx): void {
       executeFrame(ctx);
       continue;
     }
+    // Nothing is resolving: what a shared event of the pod brought about is applied now (docs/phase7-wave9.md §3.66;
+    // MC55 p. 20: "first finishing any actions or abilities that are currently resolving"). No pod, nothing done.
+    if (settlePod(ctx)) continue;
     const step = ctx.state.step;
     if (step.phase === "gameOver") return;
     if (step.phase === "player" && step.kind === "turn") {
@@ -552,7 +564,8 @@ function executeEndPhaseReady(ctx: Ctx, readied: boolean): void {
 }
 
 /**
- * RRG 1.8 "End of Player Phase" (p. 18) step 4: every card readies. Returns true when that put something on the stack
+ * RRG 1.8 "End of Player Phase" (p. 18) step 3: every card readies ("Each player simultaneously readies all of their
+ * cards. Ready each exhausted encounter card."). Returns true when that put something on the stack
  * (an additional cost to ready, `RuleSpec readyCost`; a "would ready" interrupt), after marking the step `readied`, so
  * step 5 runs only once it has resolved (docs/phase7-wave4.md §3.19). With nothing pushed, step 5 follows at once, as
  * it always has.
@@ -581,6 +594,13 @@ function readyEveryCard(ctx: Ctx): boolean {
   if (ctx.state.scenarioPlayAreas)
     for (const id of cardsInPlay(ctx.state)) if (scenarioPlayAreaOf(ctx.state, id) !== null) ready(id);
   for (const villain of undefeatedVillains(ctx.state)) ready(villain.instanceId);
+  // "Ready each exhausted encounter card" (RRG 1.8 "End of Player Phase", step 3): whatever the lists above did not
+  // name, wherever it is in play. An encounter card attached to an identity, an ally or a minion is in its host's
+  // `attachments` and under no player's control (a Trance exhausted by its Forced Action, MC55 p. 22), and so is one
+  // attached to a card in the villain area. Last, so every card the lists name readies in the order it always has.
+  // An encounter card is a card no player owns: a player's card that nobody controls (a captive ally,
+  // docs/phase7-wave8.md §3.19) is neither "their card" nor an encounter card, and stays as it is.
+  for (const id of cardsInPlay(ctx.state)) if (mustInstance(ctx.state, id).ownerId === null) ready(id);
   const pushed = ctx.state.stack.length - depth;
   if (pushed === 0) return false;
   // Each push went on top of the last, so the last card readied would be asked first; put them back in ready order
