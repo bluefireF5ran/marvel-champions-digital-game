@@ -93,6 +93,7 @@ import {
   SILK_SUPPORT_UPGRADES_ALLIES,
   SILK_SUPPORT_UPGRADES_ALLIES_SKIPPED,
 } from "./silk/silk/support-upgrades-allies.js";
+import { ENCHANTRESS, ENCHANTRESS_SKIPPED } from "./tt/enchantress.js";
 import { TT_ABILITIES } from "./tt/index.js";
 import { WINTER_ASPECT_BASIC, WINTER_ASPECT_BASIC_SKIPPED } from "./winter/aspect-basic.js";
 import { WINTER_ABILITIES } from "./winter/index.js";
@@ -578,6 +579,25 @@ const SCRIPTED_MODULES: Readonly<
       cardIds: ["54034", "54035", "54036", "54037"],
       registry: WHITEOUT,
       skipped: WHITEOUT_SKIPPED,
+    },
+  ],
+  // Trickster Takeover is scripted module by module; the Enchantress module is in two halves (its second half is skipped).
+  tt: [
+    {
+      module: "enchantress",
+      cardIds: [
+        "55001",
+        "55004a",
+        "55006",
+        "55007a",
+        "55008a",
+        "55009a",
+        "55010a",
+        "55011a",
+        ...Array.from({ length: 15 }, (_, i) => String(55012 + i)),
+      ],
+      registry: ENCHANTRESS,
+      skipped: ENCHANTRESS_SKIPPED,
     },
   ],
 };
