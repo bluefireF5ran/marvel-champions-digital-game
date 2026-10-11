@@ -102,7 +102,8 @@ export function drawCharacter(
 ): void {
   const { scene, controller } = ctx;
   ctx.frame.hitRects.set(panel.instanceId, rect);
-  const dim = dimAlpha(controller.selection, panel.instanceId);
+  // A seat that is out of the game is greyed back, whatever the selection; its DEFEATED strip is drawn at full strength.
+  const dim = dimAlpha(controller.selection, panel.instanceId) * (panel.defeat ? 0.5 : 1);
   // Captured before the frame is painted, because on a card-shaped panel the
   // *frame* turns with the card — it is the card's border, not a box the card
   // sits in. See `turnSideways`.
@@ -177,6 +178,17 @@ export function drawCharacter(
 
   // The named tag is the design's default wherever there is room beside the
   // name; the corner pip is for the card-shaped panel that has none.
+  if (panel.defeat) {
+    // Words, in the hero-red strip, not a tint alone: nothing below this can act any more.
+    drawFootStrip(
+      scene,
+      { x: left, y: top, width: textWidth, height: 22 },
+      panel.defeat === "sittingOut" ? "SITTING OUT · this scenario" : "DEFEATED · out of the game",
+      "threat",
+      1,
+    );
+    top += 26;
+  }
   top = drawStatusTags(ctx, left, top, textWidth, panel, dim, compact);
   for (const effect of panel.effects) {
     // A counter or effect line that does not fit one row wraps and its strip grows ("2 POWER COUNT…" is never drawn).

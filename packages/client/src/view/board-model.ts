@@ -158,6 +158,12 @@ export interface CharacterPanel {
   /** The scan for the face in play, or null when the content has no reference. */
   readonly art: ArtSource | null;
   readonly hp: { readonly current: number; readonly max: number } | null;
+  /**
+   * Set on a seat's own identity panel once that seat is out of the game: "defeated" (eliminated) or "sittingOut"
+   * (sat the scenario out, decision 66B). The panel then carries no stat tiles, status chips, exhausted tag or HP
+   * plate, because nothing on it can act any more; the scene draws the word instead. Absent for every other card.
+   */
+  readonly defeat?: "defeated" | "sittingOut";
   readonly exhausted: boolean;
   /** Facedown boost cards waiting on this enemy, shown as "Boost ?? ×2". */
   readonly boostCount: number;
@@ -631,6 +637,8 @@ export interface BoardModel {
   readonly phase: "setup" | "player" | "villain" | "gameOver";
   /** "Your turn — Captain Marvel", "Villain phase · step 3 of 5". */
   readonly stepLabel: string;
+  /** Set when the seat shown is out of the game (eliminated, or sitting out), so the board can say so. */
+  readonly meOut: "defeated" | "sittingOut" | null;
   readonly firstPlayerId: PlayerId;
   /** Whose side of the table this is: whoever must act. */
   readonly perspectiveId: PlayerId;
@@ -868,6 +876,7 @@ export function boardModel(
     round: state.round,
     phase: phaseOf(state),
     stepLabel: stepLabel(state, perspectiveId),
+    meOut: outStatusOf(me),
     firstPlayerId: state.firstPlayerId,
     perspectiveId,
     villain: characterPanel(state, activeVillain(state).instanceId, deps),
@@ -959,7 +968,38 @@ const VILLAIN_STEPS = [
   "passFirstPlayer",
 ] as const;
 
+/** How a seat that is out of the game reads, or null for a live one. */
+function outStatusOf(player: {
+  readonly eliminated: boolean;
+  readonly sittingOut?: boolean;
+}): "defeated" | "sittingOut" | null {
+  if (player.sittingOut === true) return "sittingOut";
+  return player.eliminated ? "defeated" : null;
+}
+
+/** An identity's or villain's hit point dial stops at 0 (RRG 1.8 "Hit Points", p. 22); a token (ally, minion) is left as is. */
+function dialValue(state: GameState, id: InstanceId, current: number | undefined): number | undefined {
+  if (current === undefined || current >= 0) return current;
+  const isIdentity = state.players.some((player) => player.identity.instanceId === id);
+  return isIdentity || isVillain(state, id) ? 0 : current;
+}
+
 function stepLabel(state: GameState, perspectiveId: PlayerId): string {
+  const label = liveStepLabel(state, perspectiveId);
+  if (state.outcome) return label;
+  const out = outStatusOf(getPlayer(state, perspectiveId) ?? { eliminated: false });
+  if (out === null) return label;
+  const { step } = state;
+  const tag = out === "sittingOut" ? "you are sitting out" : "you are out";
+  // The turn can still sit on the dead seat for a moment (or the engine can keep it there): never "Your turn".
+  if (step.phase === "player" && step.kind === "turn" && step.activePlayerId === perspectiveId)
+    return out === "sittingOut"
+      ? `${playerName(state, perspectiveId)} is sitting out`
+      : `${playerName(state, perspectiveId)} is defeated`;
+  return `${label} · ${tag}`;
+}
+
+function liveStepLabel(state: GameState, perspectiveId: PlayerId): string {
   const { step } = state;
   // Three outcomes, not two: a conceded game is neither a win nor a defeat (see `GameOutcome`).
   if (state.outcome)
@@ -1007,10 +1047,12 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
   if (!instance) throw new Error(`no card instance ${id}`);
   const card = cardOf(state, id);
   const profile = characterProfile(state, id, deps);
-  const current = remainingHitPoints(state, id, deps);
+  const current = dialValue(state, id, remainingHitPoints(state, id, deps));
   const max = maxHitPoints(state, id, deps);
 
-  const statuses = statusPips(instance);
+  const seat = state.players.find((player) => player.identity.instanceId === id);
+  const defeat = seat ? outStatusOf(seat) : null;
+  const statuses = defeat ? [] : statusPips(instance);
   return {
     instanceId: id,
     name: displayName(state, instance, card),
@@ -1022,10 +1064,11 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
     keywords: keywordsOf(state, id, deps).map((keyword) => keyword.name),
     grantedKeywords: grantedKeywordLabels(state, id, deps),
     statuses,
-    stats: statTiles(state, id, profile, identityForm(state, instance), current, max),
+    stats: defeat ? [] : statTiles(state, id, profile, identityForm(state, instance), current, max),
     art: artFor(card, faceOf(state, id)),
-    hp: current !== undefined && max !== undefined ? { current, max } : null,
-    exhausted: instance.exhausted,
+    hp: !defeat && current !== undefined && max !== undefined ? { current, max } : null,
+    ...(defeat ? { defeat } : {}),
+    exhausted: defeat ? false : instance.exhausted,
     boostCount: instance.boostCards.length,
     engagedWith: instance.engagedWith,
     engagedName: engagedNameOf(state, instance.engagedWith),
@@ -1556,8 +1599,9 @@ function neutralCard(state: GameState, id: InstanceId, deps: EngineDeps): Scenar
   const scheme = sharedScheme(state);
   if (villain && villain.instanceId === id) {
     const base = characterPanel(state, id, deps);
-    const tiles: readonly StatTile[] = [{ label: "HP", value: hpFraction(villain.remaining, villain.hp), bonus: 0 }];
-    const panel: CharacterPanel = { ...base, hp: { current: villain.remaining, max: villain.hp }, stats: tiles };
+    const remaining = Math.max(0, villain.remaining);
+    const tiles: readonly StatTile[] = [{ label: "HP", value: hpFraction(remaining, villain.hp), bonus: 0 }];
+    const panel: CharacterPanel = { ...base, hp: { current: remaining, max: villain.hp }, stats: tiles };
     return {
       instanceId: id,
       name: panel.name,
@@ -1808,7 +1852,7 @@ export function seatRow(state: GameState, playerId: PlayerId, deps: EngineDeps):
   const player = getPlayer(state, playerId);
   if (!player) throw new Error(`no seat ${playerId}`);
   const identity = player.identity.instanceId;
-  const current = remainingHitPoints(state, identity, deps);
+  const current = dialValue(state, identity, remainingHitPoints(state, identity, deps));
   const max = maxHitPoints(state, identity, deps);
   const instance = getInstance(state, identity);
   const { step } = state;

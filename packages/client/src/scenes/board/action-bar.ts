@@ -55,6 +55,22 @@ export function drawActionBar(ctx: BoardDrawContext, rect: Rect, model: BoardMod
     return;
   }
 
+  // A seat that is out has no Actions and no turn to end: say so instead of a row of greyed controls.
+  if (model.meOut) {
+    scene.add
+      .text(
+        rect.x + 10,
+        rect.y + rect.height / 2,
+        model.meOut === "sittingOut"
+          ? `${model.me.name} is sitting out this scenario`
+          : `${model.me.name} is defeated · watching`,
+        textStyle(typeRole.barTitle, signal.caution.hex),
+      )
+      .setOrigin(0, 0.5)
+      .setMaxLines(1);
+    return;
+  }
+
   const stacked = rect.height >= hit.target + hit.primary;
   // Spectrum's energy/density/mass forms, Ant-Man/Wasp's Giant form: more than one destination is legal, so the
   // button can no longer say *which* way the flip goes — it opens the "Which form?" picker instead
