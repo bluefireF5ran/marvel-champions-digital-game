@@ -153,6 +153,10 @@ export function plainLogLine(line: LogLine): LogLine {
   return { ...line, text: `${line.text} ${words}.`, tags: [] };
 }
 
+/** True when an ability's effects hold a play the player must make (`playFromHand.mustPay`, owner rulings 62B and 63B). */
+const mustPlayCardIn = (definition: unknown): boolean =>
+  definition !== undefined && JSON.stringify(definition).includes('"mustPay":true');
+
 /** The card is revealed next, before any step change or other move: it was parked, not dealt. */
 function revealedAtOnce(burst: Burst, instanceId: InstanceId): boolean {
   for (let i = burst.at + 1; i < burst.events.length; i++) {
@@ -777,7 +781,17 @@ function describe(
       const short = abilityShortLabelOf(state, event.instanceId, event.abilityId, deps);
       // A Forced Action the player had to use (Trance, Temptation): always told, so the log shows it was paid.
       if (event.forced) {
-        return { text: `${card(event.instanceId)}: Forced Action used${short ? ` (${short})` : ""}.`, voice: "player" };
+        // A "must play it" Forced Action (Alluring Call, Trance of Greed; `playFromHand.mustPay`) that found no card
+        // legal to play and payable plays nothing and asks nothing: the log says so, or the outcome is invisible.
+        const unplayed =
+          mustPlayCardIn(deps.abilities[event.abilityId]) &&
+          !burst?.events
+            .slice(burst.at + 1)
+            .some((later) => later.type === "cardPlayed" || later.type === "choiceRequested");
+        return {
+          text: `${card(event.instanceId)}: Forced Action used${short ? ` (${short})` : ""}.${unplayed ? " No card could be played." : ""}`,
+          voice: "player",
+        };
       }
       if (!short) return null;
       // A Special that blanked a text box (Blizzard) names whose, from the lasting effect it just added.

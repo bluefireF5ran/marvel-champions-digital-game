@@ -150,4 +150,41 @@ test.describe("Enchantress", () => {
 
     expect(errors, `no page errors (${JSON.stringify(errors)})`).toEqual([]);
   });
+
+  // Owner ruling 63B (2026-10-11): the Trance of Greed must play the card it draws when it can be paid for, so the
+  // payment it asks for (`playFromHand.mustPay`) has no decline, and an empty or short answer is refused.
+  test("a required payment cannot be dismissed", async ({ page }) => {
+    test.setTimeout(180_000);
+    const errors = trackPageErrors(page);
+    await installPageHelpers(page);
+    await page.goto("/?screen=board&fixture=enchantress&at=greed-pay");
+    await waitForText(page, "must use", { sceneKey: "Board", timeoutMs: 90_000 });
+    expect(await useForced(page)).toBe(true);
+    await waitForText(page, "You must play Daredevil", { timeoutMs: 30_000 });
+    await settle(page);
+
+    // The sheet says why, offers Confirm only (waiting on the payment) and no way to skip.
+    expect(await hasText(page, "Spend 4 resources")).toBe(true);
+    expect(await hasText(page, "Pay 4 more")).toBe(true);
+    for (const skip of ["Decline", "Don't play it", "Cancel", "Pay nothing"]) {
+      expect(await hasText(page, skip, "ChoiceOverlay"), skip).toBe(false);
+    }
+    // Escape does not close it, and an empty answer is refused with the prompt still open.
+    await pressKey(page, "Escape");
+    await settle(page);
+    expect(await hasText(page, "You must play Daredevil")).toBe(true);
+    expect(await withStore<boolean>(page, `return await store.resolveChoice([]);`)).toBe(false);
+    expect(await withStore<string>(page, `return store.state.game.pendingChoice?.prompt.kind ?? "none";`)).toBe(
+      "spendResources",
+    );
+
+    // Paying in full is the way out: the cheapest payment, and Daredevil is played.
+    await withStore(
+      page,
+      `const c = store.state.game.pendingChoice; await store.resolveChoice(c.options.slice(0, c.minSelections).map((o) => o.optionId));`,
+    );
+    await settle(page);
+    expect(await withStore<string>(page, `return store.state.game.pendingChoice?.prompt.kind ?? "none";`)).toBe("none");
+    expect(errors, `no page errors (${JSON.stringify(errors)})`).toEqual([]);
+  });
 });

@@ -38,7 +38,13 @@ export function cardName(state: GameState, id: InstanceId, view?: ViewerContext)
     if (instance.facedownAs) return instance.facedownAs.traits.join(" ") || "facedown minion";
     return "a facedown card";
   }
-  return identityNameOf(state, id) ?? cardOf(state, id)?.name ?? "a card";
+  // A flipped card reads as the side now up: the Trance of Greed that was the Hypnotic Gaze (its name is public once it flips).
+  return (
+    identityNameOf(state, id) ??
+    (instance.flipped ? currentName(state, id) : undefined) ??
+    cardOf(state, id)?.name ??
+    "a card"
+  );
 }
 
 /**

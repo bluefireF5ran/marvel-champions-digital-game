@@ -250,15 +250,21 @@ function dividePromptTitleOf(
  * every spent resource must differ, else "Spend 3 resources, at least 2 different?". The count is the requirement's
  * total; a requirement of nothing keeps the bare title.
  */
-export function spendResourcesTitleOf(requirement: ResourceRequirement, distinctTypes?: number): string {
+export function spendResourcesTitleOf(
+  requirement: ResourceRequirement,
+  distinctTypes?: number,
+  required?: boolean,
+): string {
   const total =
     (requirement.generic ?? 0) +
     (requirement.physical ?? 0) +
     (requirement.mental ?? 0) +
     (requirement.energy ?? 0) +
     (requirement.wild ?? 0);
-  if (total <= 0) return "Spend resources?";
+  if (total <= 0) return required ? "Spend resources" : "Spend resources?";
   const noun = total === 1 ? "resource" : "resources";
+  // A payment nobody may skip is not a question (`playFromHand.mustPay`).
+  if (required) return `Spend ${total} ${noun}`;
   if (distinctTypes === undefined || distinctTypes <= 1) return `Spend ${total} ${noun}?`;
   if (distinctTypes >= total) return `Spend ${total} different ${noun}?`;
   return `Spend ${total} ${noun}, at least ${distinctTypes} different?`;
@@ -430,7 +436,7 @@ export function promptTitleOf(
   if (kind === "spendResources") {
     return prompt.formChangeCost
       ? formChangeCostTitleOf(prompt.requirement, prompt.formChangeCost)
-      : spendResourcesTitleOf(prompt.requirement, prompt.distinctTypes);
+      : spendResourcesTitleOf(prompt.requirement, prompt.distinctTypes, prompt.required === true);
   }
   // The player phase cannot end until one of these Forced Actions is used (RRG 1.8 "Action", p. 6; `forcedAction`).
   if (kind === "chooseOption" && prompt.forcedAction) return FORCED_ACTION_TITLE;

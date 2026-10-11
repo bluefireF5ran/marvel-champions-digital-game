@@ -258,7 +258,9 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
   if (screen === "board" && params.get("fixture") === "enchantress") {
     const { startEnchantressGame } = await import("../store/dev-enchantress-game.js");
     const { store } = appSession();
-    if (!gameRunning(store)) await startEnchantressGame(store);
+    const at = params.get("at");
+    const variant = at === "call-pay" || at === "call-none" || at === "greed-pay" || at === "greed-none" ? at : "start";
+    if (!gameRunning(store)) await startEnchantressGame(store, variant);
     return { key: SCENES.board, data: {} };
   }
 
