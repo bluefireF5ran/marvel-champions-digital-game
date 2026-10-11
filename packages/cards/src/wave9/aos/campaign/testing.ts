@@ -25,6 +25,7 @@ import {
   type GameEvent,
   type GameState,
 } from "@mc/engine";
+import { cardsOfComposedSets } from "../../../campaigns/composed-sets.js";
 import { seedHiddenPiles } from "../../../dsl/index.js";
 import { WAVE9_CARDS as CARDS } from "../../cards.js";
 import { WAVE9_DEPS } from "../../index.js";
@@ -55,13 +56,13 @@ const KINDS = {
 export const ALL_EVIDENCE: readonly string[] = Object.keys(EVIDENCE_SETUPS);
 
 const slot = (name: string) => ({ kind: "choice" as const, slot: name });
-const between = (id: string, ops: readonly CampaignOp[]): CampaignInstruction => ({
+export const between = (id: string, ops: readonly CampaignOp[]): CampaignInstruction => ({
   id,
   text: "test",
   citation: "test",
   step: { kind: "betweenGames", ops },
 });
-const inGame = (
+export const inGame = (
   id: string,
   window: "beforeStartingHands" | "afterMulligans",
   effects: readonly EffectSpec[],
@@ -140,7 +141,7 @@ const evidenceSetups: readonly CampaignInstruction[] = ALL_EVIDENCE.map((id) =>
 const boardOf = (id: string, source: BoardSource): CampaignInstruction =>
   inGame(id, "beforeStartingHands", [...prepareBoard(source)]);
 
-const node = (id: string, scenario: string, over: Partial<CampaignNode>): CampaignNode => ({
+export const node = (id: string, scenario: string, over: Partial<CampaignNode>): CampaignNode => ({
   id,
   label: id,
   scenario: { kind: "fixed", scenarioId: scenarioId(scenario) },
@@ -190,7 +191,7 @@ const fields = [
   },
 ];
 
-function definitionOf(nodes: readonly CampaignNode[]): CampaignDefinition {
+export function definitionOf(nodes: readonly CampaignNode[]): CampaignDefinition {
   return {
     campaignId: TEST_CAMPAIGN,
     version: "1",
@@ -274,7 +275,16 @@ export function buildGame(
     seed: start.input.seed,
     modes: start.modes,
   });
-  const created = createGame({ ...config, campaign: start.input }, WAVE9_DEPS);
+  // MC50 p. 19: the sets a composition added ride in with the scenario's own deck, as `composeEncounterSets` is documented.
+  const created = createGame(
+    {
+      ...config,
+      encounterDeck: [...config.encounterDeck, ...cardsOfComposedSets(CARDS, start.encounterSets.deck)],
+      setAside: [...(config.setAside ?? []), ...cardsOfComposedSets(CARDS, start.encounterSets.setAside)],
+      campaign: start.input,
+    },
+    WAVE9_DEPS,
+  );
   if (!created.ok) throw new Error(`${start.nodeId}: setup failed: ${created.error.message}`);
   return { state: created.state, events: created.events };
 }
