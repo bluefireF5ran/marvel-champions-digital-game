@@ -238,6 +238,17 @@ describe("boxPages", () => {
     expect(withLessons.lessons.map((l) => l.id)).toEqual(["storm"]);
   });
 
+  it("lists the Agents of S.H.I.E.L.D. Try-its on the cycle 9 page", () => {
+    expect(page("cycle9").lessons.map((l) => l.id)).toEqual([
+      "nickFury",
+      "mariaHill",
+      "silk",
+      "falcon",
+      "blackPanther",
+      "zemo",
+    ]);
+  });
+
   it("lists every Try-it lesson under a box that has a page", () => {
     for (const lesson of MECHANIC_TRYITS) {
       expect(boxPages(allOpen).some((p) => p.id === lesson.box && p.lessons.some((l) => l.id === lesson.id))).toBe(

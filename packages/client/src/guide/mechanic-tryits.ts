@@ -26,7 +26,13 @@ export type MechanicTryItId =
   | "magneto"
   | "jubilee"
   | "bishop"
-  | "nightcrawler";
+  | "nightcrawler"
+  | "nickFury"
+  | "mariaHill"
+  | "silk"
+  | "falcon"
+  | "blackPanther"
+  | "zemo";
 
 export interface MechanicTryIt {
   readonly id: MechanicTryItId;
@@ -135,6 +141,42 @@ export const MECHANIC_TRYITS: readonly MechanicTryIt[] = [
     box: "cycle8",
     title: "Magneto: Magnetic Pull",
     tagline: "Discard until a MAGNETIC card and add it to your hand.",
+  },
+  {
+    id: "nickFury",
+    box: "cycle9",
+    title: "Nick Fury: Stealth and Assault",
+    tagline: "Bank threat in Stealth, then spend it on an attack.",
+  },
+  {
+    id: "mariaHill",
+    box: "cycle9",
+    title: "Maria Hill: Reassignment",
+    tagline: "Move an all-purpose counter between two S.H.I.E.L.D. supports.",
+  },
+  {
+    id: "silk",
+    box: "cycle9",
+    title: "Silk: tucked cards",
+    tagline: "Tuck a treachery, then trade it for two cards.",
+  },
+  {
+    id: "falcon",
+    box: "cycle9",
+    title: "Falcon: the faceup top card",
+    tagline: "See the top encounter card, then send Redwing after its icons.",
+  },
+  {
+    id: "blackPanther",
+    box: "cycle9",
+    title: "Black Panther: Inventor and Specials",
+    tagline: "Find an upgrade as Shuri, then resolve its Special after an attack.",
+  },
+  {
+    id: "zemo",
+    box: "cycle9",
+    title: "Baron Zemo: the accusation",
+    tagline: "Gain evidence, read the grid, then name the mole.",
   },
 ];
 
