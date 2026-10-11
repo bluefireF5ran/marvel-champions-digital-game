@@ -257,7 +257,13 @@ export async function answerChoiceSheet(page: Page): Promise<void> {
   if (confirm) await click(confirm);
   else {
     // A card-style sheet whose rects are not in this map (defend options): fall back to the lone Confirm button text.
-    await clickText(page, "Confirm", { sceneKey: "ChoiceOverlay", timeoutMs: 3000 });
+    try {
+      await clickText(page, "Confirm", { sceneKey: "ChoiceOverlay", timeoutMs: 3000 });
+    } catch (error) {
+      // The sheet can close between the read above and this press (its answer came from an earlier press); the caller
+      // loops on what is on screen, so only a sheet that is still open with no Confirm is a failure.
+      if ((await screens(page)).includes("ChoiceOverlay")) throw error;
+    }
   }
 }
 
