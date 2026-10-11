@@ -189,8 +189,10 @@ export function setupOptionQuestionFor(
 ): string | null {
   if (instruction.kind !== "campaign" || prompt.kind !== "chooseOption") return null;
   const first = options[0]?.label ?? "";
-  if (first.startsWith("Rejoin at full")) return "Rejoin your team?";
+  if (first.startsWith("Rejoin at full") || first.startsWith("Rejoin and heal REC")) return "Rejoin your team?";
   if (first.startsWith("Heal to full")) return "Heal your identity to full?";
+  // Agents of S.H.I.E.L.D.'s expert heal (`healRecForSecret`): healing by REC for a secret counter on a Board Member.
+  if (first.startsWith("Heal REC")) return "Heal your identity?";
   return null;
 }
 

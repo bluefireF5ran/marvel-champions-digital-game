@@ -1,7 +1,7 @@
 /**
  * Wave 9 (cycle 9, Agents of S.H.I.E.L.D.) in the playable pool (docs/wave-definition-of-done.md step 5, cards half):
  * its six heroes and six scenarios are chosen through `playableScenario` like every earlier wave's. What is not
- * scripted yet (Trickster Takeover's God of Lies) is in the card data but not offered anywhere (`./unscripted.ts`).
+ * scripted yet is in the card data but not offered anywhere (`./unscripted.ts`); today that list is empty.
  */
 import {
   CORE_STARTER_DECKS,
@@ -12,7 +12,6 @@ import {
 } from "@mc/content";
 import { createGame, replay, validateDeck } from "@mc/engine";
 import { describe, expect, it } from "vitest";
-import { abilityRefIds } from "../ability-refs.js";
 import { PLAYABLE_ENCOUNTER_SETS, PLAYABLE_SCENARIO_RECORDS } from "../modular-pool.js";
 import { MODULAR_SETS } from "../testing/modular-matrix.js";
 import { playToOutcome } from "../testing/driver.js";
@@ -28,9 +27,7 @@ const NEW_HEROES = [
   "falcon-leadership",
   "winter-aggression",
 ];
-const NEW_SCENARIOS = ["black-widow", "batroc", "modok", "thunderbolts", "baron-zemo", "enchantress"];
-const NOT_PLAYABLE_SCENARIOS = ["god-of-lies"];
-const NOT_PLAYABLE_SETS = ["god_of_lies"];
+const NEW_SCENARIOS = ["black-widow", "batroc", "modok", "thunderbolts", "baron-zemo", "enchantress", "god-of-lies"];
 const EXECUTIVE_BOARD = "s.h.i.e.l.d._executive_board";
 
 const everyCardOf = (config: ReturnType<typeof playableScenario>): string[] => {
@@ -60,14 +57,10 @@ describe("wave 9 in the playable pool", () => {
     for (const [id, ability] of Object.entries(WAVE9_ABILITIES)) expect(PLAYABLE_ABILITIES[id], id).toBe(ability);
   });
 
-  it("the six scripted scenarios are the playable ones; God of Lies is not", () => {
+  it("the seven scripted scenarios are the playable ones, God of Lies among them", () => {
     expect(WAVE9_SCENARIOS.filter(scenarioIsScripted).map((s) => s.id as string)).toEqual(NEW_SCENARIOS);
     const playable = new Set(PLAYABLE_SCENARIO_RECORDS.map((s) => s.id as string));
     for (const id of NEW_SCENARIOS) expect(playable.has(id), id).toBe(true);
-    for (const id of NOT_PLAYABLE_SCENARIOS) {
-      expect(playable.has(id), id).toBe(false);
-      expect(WAVE9_SCENARIOS.some((s) => s.id === id)).toBe(true);
-    }
   });
 
   it.each(NEW_SCENARIOS)("%s builds and starts a game through playableScenario, in both modes", (scenarioId) => {
@@ -119,27 +112,13 @@ describe("wave 9 in the playable pool", () => {
 });
 
 describe("wave 9 modular sets", () => {
-  it("the gated sets are not playable encounter sets or modular choices; their ids are still unscripted", () => {
-    expect([...UNSCRIPTED_ENCOUNTER_SET_IDS].sort()).toEqual([...NOT_PLAYABLE_SETS].sort());
+  it("no set is gated any more: every wave 9 encounter set is a playable one", () => {
+    expect([...UNSCRIPTED_ENCOUNTER_SET_IDS]).toEqual([]);
+    expect(Object.keys(GATED_THOUGH_SCRIPTED)).toEqual([]);
     const playable = new Set(PLAYABLE_ENCOUNTER_SETS.map((s) => s.id as string));
-    const modular = new Set(MODULAR_SETS.map((s) => s.id as string));
-    for (const id of NOT_PLAYABLE_SETS) {
-      expect(
-        WAVE9_ENCOUNTER_SETS.some((s) => s.id === id),
-        id,
-      ).toBe(true);
-      expect(playable.has(id), id).toBe(false);
-      expect(modular.has(id), id).toBe(false);
-      // Un-gate the day it is scripted: this test says so.
-      if (id in GATED_THOUGH_SCRIPTED) continue; // held back for a written reason (unscripted.ts)
-      const refs = PLAYABLE_CARDS.filter(
-        (card) => "encounterSetIds" in card && (card.encounterSetIds as readonly string[]).includes(id),
-      ).flatMap(abilityRefIds);
-      expect(
-        refs.some((ref) => !(ref in PLAYABLE_ABILITIES)),
-        `${id} is fully scripted: remove it from UNSCRIPTED_ENCOUNTER_SET_IDS`,
-      ).toBe(true);
-    }
+    const own = new Set(WAVE9_SCENARIOS.flatMap((s) => s.encounterSetIds as readonly string[]));
+    for (const id of own) expect(playable.has(id), id).toBe(true);
+    expect(WAVE9_ENCOUNTER_SETS.some((s) => s.id === "god_of_lies")).toBe(true);
   });
 
   it("the scripted wave 9 modular sets are offered", () => {

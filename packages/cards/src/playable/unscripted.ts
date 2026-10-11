@@ -13,19 +13,13 @@
  */
 import type { Scenario } from "@mc/content";
 
-export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
-  // Trickster Takeover (`tt`): God of Lies' own set (the Enchantress scenario and Trickster Magic are playable).
-  "god_of_lies",
-]);
+export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([]);
 
 /**
  * Gated sets whose every ability is scripted but which are held back for another reason, each with that reason. The
  * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
  */
-export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
-  god_of_lies:
-    "Scripted in full; waits on the client: the board does not yet draw the neutral play area, the shared villain dial or the Synergy environments' counters. Un-gate once those are in and the scenario game (spec 8.4 item 71) passes.",
-};
+export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {};
 
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */
 export function scenarioIsScripted(scenario: Pick<Scenario, "encounterSetIds" | "multipleVillains">): boolean {

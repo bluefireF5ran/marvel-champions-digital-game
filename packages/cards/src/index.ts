@@ -86,6 +86,7 @@ export {
   AOA_NOT_DEFEATED,
   AOA_OVERSEERS,
   AOA_PROTECT_THE_PROFESSOR,
+  AOS_CAMPAIGN_DEFINITION,
   CAMPAIGNS,
   campaignDefinitionOf,
   cardsOfComposedSets,

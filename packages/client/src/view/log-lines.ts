@@ -662,6 +662,9 @@ function describe(
     // panel alone. A flip between two ordinary faces that *keeps* its damage (Risky Business's Norman Osborn) has
     // nothing extra to say.
     case "villainFlipped":
+      // An Avatar of Loki that would be defeated flips to its Fading Figment (the pod's neutral cards are in play).
+      if (state.pod?.neutral && event.from === "A" && event.to === "B")
+        return { text: "An Avatar of Loki would be defeated: it flips to a Fading Figment.", voice: "villain" };
       return {
         text: `${card(event.instanceId)} flips${event.hitPointsReset ? ", hit points reset," : ""} to side ${event.to}.`,
         voice: "villain",
@@ -777,6 +780,40 @@ function describe(
       const names = [...new Set(event.instanceIds.map((id) => card(id)))];
       return { text: `${names.join(", ")}: other side hidden until it flips.`, voice: "scenario" };
     }
+    // The pod's shared record (docs/phase7-wave9.md section 3.66; God of Lies): Loki's hit points and Worlds Collide's
+    // threat live in the pod, not on their cards, so these two events are the only trace of a change to either. A
+    // `sharedStateChanged` carries the same change as the event before it and stays silent.
+    case "sharedEventEmitted": {
+      const neutral = state.pod?.neutral;
+      if (event.event.type === "sharedVillainDamaged") {
+        const loki = neutral ? card(neutral.villainInstanceId) : "The shared villain";
+        return {
+          text: `${loki} takes ${event.event.amount} damage.`,
+          voice: "villain",
+        };
+      }
+      const worlds = neutral ? card(neutral.mainSchemeInstanceId) : "The shared scheme";
+      const n = event.event.amount;
+      return {
+        text:
+          event.event.cause === "identityDefeated"
+            ? `${worlds} gets ${n} threat instead of a hero's defeat.`
+            : `${worlds} gets ${n} threat instead of the scheme completing.`,
+        voice: "villain",
+      };
+    }
+    case "sharedResultApplied": {
+      const neutral = state.pod?.neutral;
+      const loki = neutral ? card(neutral.villainInstanceId) : "The shared villain";
+      const worlds = neutral ? card(neutral.mainSchemeInstanceId) : "The shared scheme";
+      if (event.result === "sharedVillainFlipped")
+        return { text: `${loki} flips: defeat him to win the game.`, voice: "scenario" };
+      if (event.result === "sharedVillainDefeated") return { text: `${loki} is defeated.`, voice: "scenario" };
+      return { text: `${worlds} is complete: defeat ${loki} or the players lose.`, voice: "loss" };
+    }
+    // A dial set rather than damaged or healed: an Avatar swapped in starts at its printed hit points.
+    case "hitPointsSet":
+      return { text: `${card(event.instanceId)}'s hit points are set to ${event.remaining}.`, voice: "villain" };
     // A counter limit ("Max 1 synergy counter here"): the counters that did not fit are not placed.
     case "countersNotPlaced":
       return {

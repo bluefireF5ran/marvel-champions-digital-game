@@ -99,7 +99,8 @@ import {
   type TeamUpWatch,
 } from "../view/team-up-model.js";
 import { drawEncounter, drawEnemies, drawPlayArea, drawScenarioPlayAreas, drawTeam } from "./board/zones.js";
-import { splitMissionArea } from "../view/mission-area-layout.js";
+import { splitMissionArea, splitNeutralTab } from "../view/mission-area-layout.js";
+import { referenceCardViews, type ReferenceCardView } from "../view/reference-cards.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { campaignBeatFor } from "../view/campaign-beat-model.js";
 import type { CampaignBeatData } from "./campaign/routes.js";
@@ -1003,6 +1004,7 @@ export class BoardScene extends Phaser.Scene {
       teamUpRoles: this.#teamUpRoles(model),
       makeTapTarget: (rect, id, onTap, drag) => this.#makeTapTarget(rect, id, onTap, drag),
       inspect: (id, siblings) => this.#inspect(id, siblings),
+      inspectReference: (reference) => this.scene.launch(SCENES.inspect, { reference }),
     };
 
     // The table felt, and nothing else.
@@ -1017,13 +1019,22 @@ export class BoardScene extends Phaser.Scene {
       motion: this.#motion,
     });
     if (zones.tabs) this.#drawTabs(zones.tabs, model);
-    if (zones.threat) drawSchemes(ctx, zones.threat, model);
-    // A scenario play area (the mission area) takes the foot of the enemies zone; with none, the zone is whole.
+    // A scenario play area (the mission area) takes the foot of the enemies zone; with none, the zone is whole. The
+    // pod's neutral area (God of Lies) is the pod's shared threat: on a phone it takes the foot of the Threat tab, where
+    // there is room for it, and elsewhere it shares the enemies zone's foot strip with any other area.
+    const neutralAreas = model.scenarioPlayAreas.filter((area) => area.neutral);
+    const neutralOnTab = ctx.tabbed && neutralAreas.length > 0;
+    const stripAreas = neutralOnTab ? model.scenarioPlayAreas.filter((area) => !area.neutral) : model.scenarioPlayAreas;
+    const references = this.#referenceCards();
+    const neutralTab = neutralOnTab && zones.threat ? splitNeutralTab(zones.threat) : null;
+    if (zones.threat) drawSchemes(ctx, neutralTab ? neutralTab.schemes : zones.threat, model);
+    if (neutralTab && neutralTab.area.height > 0)
+      drawScenarioPlayAreas(ctx, neutralTab.area, neutralAreas, references, "stack");
     const missionSplit = zones.enemies
-      ? splitMissionArea(zones.enemies, model.scenarioPlayAreas.length > 0)
+      ? splitMissionArea(zones.enemies, stripAreas.length > 0)
       : { enemies: null, area: null };
     if (missionSplit.enemies) drawEnemies(ctx, missionSplit.enemies, model);
-    if (missionSplit.area) drawScenarioPlayAreas(ctx, missionSplit.area, model.scenarioPlayAreas);
+    if (missionSplit.area) drawScenarioPlayAreas(ctx, missionSplit.area, stripAreas, references);
     // The set-aside footer's line comes out of the log's space, never the deck and discard's.
     const setAside =
       model.setAside && zones.encounter
@@ -1325,6 +1336,19 @@ export class BoardScene extends Phaser.Scene {
       onDragEnd: drag?.onDragEnd,
       key: id as string,
     });
+  }
+
+  /** The scenario's printed rules cards (God of Lies' Shatter the Illusion), looked up once per game. */
+  #referenceCardList: { readonly scenarioId: string | undefined; readonly cards: readonly ReferenceCardView[] } | null =
+    null;
+
+  #referenceCards(): readonly ReferenceCardView[] {
+    const scenarioId = appSession().store.state.config?.scenarioId;
+    const known = this.#referenceCardList;
+    if (known && known.scenarioId === scenarioId) return known.cards;
+    const cards = referenceCardViews(POOL_SCENARIOS.find((scenario) => scenario.id === scenarioId));
+    this.#referenceCardList = { scenarioId, cards };
+    return cards;
   }
 
   /**

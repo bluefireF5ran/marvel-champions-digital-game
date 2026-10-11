@@ -8,6 +8,9 @@ describe("cardTextDisplay", () => {
     );
     expect(cardTextDisplay("an (Alter_Ego) hero")).toBe("an (Alter Ego) hero");
     expect(cardTextDisplay("Place 2[per_hero] threat.")).toBe("Place 2 per hero threat.");
+    expect(cardTextDisplay("Each [per_group] icon on this scheme counts the groups.")).toBe(
+      "Each per group icon on this scheme counts the groups.",
+    );
     expect(cardTextDisplay("[unknown] stays")).toBe("[unknown] stays");
   });
 });

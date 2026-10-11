@@ -21,7 +21,7 @@ list to edit. Formats: `png`, `jpg`, `jpeg`, `webp`, `avif`.
 | `campaigns/<campaignId>/`     | `cover.<ext>`           | The campaign's key art: the Saga tile and the Cover screen (`campaignCoverFor`); no file, the villain picture                                                                                                        |
 | `campaigns/<campaignId>/`     | `artboards/<name>.*`    | A story panel's picture, where the story file names it (`{ kind: "artboard", name }`); else its note                                                                                                                 |
 | `campaigns/<campaignId>/`     | `pages/NN-<slug>.*`     | Full comic pages, read panel by panel in the comic reader; `NN` is the page order. Built in step 5a                                                                                                                  |
-| `campaigns/<campaignId>/`     | `rulebook/page_NNN.jpg` | The box's official, lettered rulebook comic pages (see its `SOURCE.md`); a one-off scenario's own intro reuses one (`scenario-intros.ts`), for `trors`/`gmw`/`mts`/`sm`/`mut_gen`/`next_evol`/`aoa` only — see below |
+| `campaigns/<campaignId>/`     | `rulebook/page_NNN.jpg` | The box's official, lettered rulebook comic pages (see its `SOURCE.md`); a one-off scenario's own intro reuses one (`scenario-intros.ts`), for `trors`/`gmw`/`mts`/`sm`/`mut_gen`/`next_evol`/`aoa`/`aos` only — see below |
 
 `<scenarioId>` is the content package's `Scenario.id`, so the folder name is the
 lookup: `rhino`, `klaw`, `ultron`, `risky-business`, `mutagen-formula`,

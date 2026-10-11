@@ -330,6 +330,7 @@ describe("the lists, derived from content data", () => {
           "m.o.d.o.k.",
           "thunderbolts",
           "enchantress_villain",
+          "god_of_lies",
         ],
         "standard set": [
           "standard",
@@ -395,6 +396,7 @@ describe("the lists, derived from content data", () => {
         "thunderbolts",
         "baron-zemo",
         "enchantress",
+        "god-of-lies",
       ]
     `);
   });
@@ -547,10 +549,10 @@ describe("modular set x scenario: every pairing builds", () => {
     }
     expect({ sets: MODULAR_SETS.length, scenarios: PLAYABLE_SCENARIOS.length, ...kinds }).toMatchInlineSnapshot(`
       {
-        "build": 4961,
+        "build": 5069,
         "required": 28,
         "restricted": 627,
-        "scenarios": 52,
+        "scenarios": 53,
         "sets": 108,
       }
     `);

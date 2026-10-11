@@ -13,6 +13,8 @@
 
 import { attackBarNote, attackRefusalWording } from "./attack-bar.js";
 import { counterGoalsOf } from "./counter-goal.js";
+import { counterLimitsOf } from "./counter-limit.js";
+import { neutralNotes } from "./neutral-notes.js";
 import { forcedAbilitiesOf, owedForcedActions } from "./forced-actions.js";
 import { otherFaceVisible, reverseHiddenNote } from "./hidden-reverse.js";
 import { breakPointOf } from "./break-point.js";
@@ -444,9 +446,15 @@ export function inspectModel(
     timing: timingEntriesFor(state, instanceId, deps),
     keywordDefinitions: keywordDefinitionsFor(state, instanceId, deps),
     history: cardHistoryOf(history, instanceId, state, perspectiveId, deps),
-    damageNote: current === undefined ? damageNote(instance.damage, breakPointOf(state, instanceId, deps)) : null,
-    threatNote: threatNote(threatOnCard(state, instanceId)),
-    counterNote: counterNote(countersOf(state, instanceId), counterGoalsOf(state, instanceId, deps)),
+    damageNote:
+      neutralNotes(state, instanceId)?.damage ??
+      (current === undefined ? damageNote(instance.damage, breakPointOf(state, instanceId, deps)) : null),
+    threatNote: neutralNotes(state, instanceId)?.threat ?? threatNote(threatOnCard(state, instanceId)),
+    counterNote: counterNote(
+      countersOf(state, instanceId),
+      counterGoalsOf(state, instanceId, deps),
+      counterLimitsOf(state, instanceId, deps),
+    ),
     reverseNote: reverseHiddenNote(state, instanceId),
     forcedNote: forcedNoteOf(state, instanceId, legal, deps),
     hitPointFloorNote: hitPointFloorNote(state, instanceId, deps),
@@ -719,6 +727,26 @@ function printedTraitsOf(card: AnyCard, face: CardFace): readonly string[] {
  * scan prints them, and inventing a number for a card that isn't in play would
  * be the client stating a rule.
  */
+/**
+ * The sheet for a printed rules card with no card record (`Scenario.referenceCards`: Shatter the Illusion): its title,
+ * its printed text and its scan, and nothing a card in a game would say.
+ */
+export function referenceInspectModel(reference: {
+  readonly title: string;
+  readonly text: string;
+  readonly art: ArtSource | null;
+}): InspectModel {
+  return {
+    ...cardInspectModel(undefined, { kind: "front" }),
+    name: reference.title,
+    typeLine: "Rules card",
+    rulesText: reference.text,
+    art: reference.art,
+    footerLeft: "Trickster Takeover",
+    footerRight: "Reference",
+  };
+}
+
 export function cardInspectModel(card: AnyCard | undefined, face: CardFace): InspectModel {
   if (!card) {
     return {

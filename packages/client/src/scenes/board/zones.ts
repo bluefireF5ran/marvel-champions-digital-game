@@ -34,7 +34,8 @@ import {
 } from "../../view/layout.js";
 import { drawCharacter, drawFootStrip, type DrawCharacterOptions } from "./character-panel.js";
 import { drawScheme } from "./schemes.js";
-import { missionSlots } from "../../view/mission-area-layout.js";
+import { missionSlots, neutralRow, neutralStack } from "../../view/mission-area-layout.js";
+import type { ReferenceCardView } from "../../view/reference-cards.js";
 import { compactVillainNote, counterNote, type ScenarioPlayAreaPanel } from "../../view/board-model.js";
 import { FOOT_STRIP_HEIGHT, footStripLayout } from "../../view/foot-strip-layout.js";
 import { inactiveKeywordNote } from "../../view/keyword-tags.js";
@@ -456,6 +457,10 @@ function drawDefeatedVillainSlot(scene: Phaser.Scene, rect: Rect, name: string):
   fitText(stamp, rect.width - 8, 10);
 }
 
+/** "0/1" for a counter its card caps, else the bare count. */
+const counterFraction = (counter: { readonly count: number; readonly limit?: number }): string =>
+  counter.limit === undefined ? String(counter.count) : `${counter.count}/${counter.limit}`;
+
 /**
  * One environment card: its scan, its name, and its counters.
  *
@@ -549,10 +554,13 @@ function drawEnvironment(ctx: BoardDrawContext, rect: Rect, environment: Environ
       .text(
         chip.x + 9,
         chip.y + chip.height / 2,
-        String(counter.count),
+        counterFraction(counter),
         textStyle(typeRole.stat, signal.caution.hex, dim),
       )
       .setOrigin(0, 0.5);
+    // "0/1" is three glyphs: a step smaller keeps the kind's name beside it whole.
+    if (counter.limit !== undefined)
+      count.setFontSize(Math.round(Number.parseFloat(String(count.style.fontSize)) * 0.7));
     fitText(
       label(
         scene,
@@ -679,10 +687,13 @@ function drawCompactEnvironmentText(
       .text(
         chip.x + 8,
         chip.y + chip.height / 2,
-        String(counter.count),
+        counterFraction(counter),
         textStyle(typeRole.statSmall, signal.caution.hex, dim),
       )
       .setOrigin(0, 0.5);
+    // "0/1" is three glyphs: a step smaller keeps the kind's name beside it whole on a short tile.
+    if (counter.limit !== undefined)
+      count.setFontSize(Math.round(Number.parseFloat(String(count.style.fontSize)) * 0.7));
     fitText(
       label(
         scene,
@@ -921,6 +932,37 @@ function drawSetAside(scene: Phaser.Scene, box: Rect, setAside: SetAsidePanel): 
   text.y = box.y + Math.max(3, (box.height - text.height) / 2);
 }
 
+/**
+ * A printed rules card (Shatter the Illusion) as a tile: its scan's thumbnail beside its title. Tap or hold opens its
+ * Inspect sheet, where the scan and the printed text are read in full.
+ */
+function drawReferenceTile(ctx: BoardDrawContext, rect: Rect, reference: ReferenceCardView): void {
+  if (rect.height <= 0 || rect.width <= 0) return;
+  const { scene } = ctx;
+  const g = scene.add.graphics();
+  paintPanel(g, rect, "quiet", "rest");
+  const thumb: Rect = {
+    x: rect.x + 4,
+    y: rect.y + 3,
+    width: Math.round((rect.height - 6) * 0.69),
+    height: rect.height - 6,
+  };
+  drawArt(scene, ctx.art.request(scene, reference.art), thumb, { fit: "cover" });
+  const text = label(
+    scene,
+    thumb.x + thumb.width + 6,
+    rect.y + rect.height / 2,
+    reference.title,
+    typeRole.label,
+    surface.ink.hex,
+    ink.label,
+  );
+  text.setOrigin(0, 0.5).setWordWrapWidth(rect.x + rect.width - text.x - 4, true);
+  fitWrapped(text, rect.x + rect.width - text.x - 4, 2, typeRole.label.size);
+  const open = (): void => ctx.inspectReference(reference);
+  addTapTarget(scene, rect, { onTap: open, onInspect: open });
+}
+
 /** The room under a scheme's panel for its counters and attachments, which the scheme panel has no line for. */
 const AREA_NOTE_HEIGHT = 22;
 
@@ -934,6 +976,10 @@ export function drawScenarioPlayAreas(
   ctx: BoardDrawContext,
   rect: Rect,
   areas: readonly ScenarioPlayAreaPanel[],
+  /** The scenario's printed rules cards, drawn as tiles in a neutral area (Inspect opens each). */
+  references: readonly ReferenceCardView[] = [],
+  /** `"stack"`: the neutral cards one above the other (a phone's tab), else side by side. */
+  layout: "row" | "stack" = "row",
 ): void {
   const { scene } = ctx;
   const g = scene.add.graphics();
@@ -945,7 +991,7 @@ export function drawScenarioPlayAreas(
       scene,
       box.x + 8,
       box.y + 6,
-      `${area.name} area · no player controls it`,
+      area.neutral ? `${area.name} area · shared by the pod` : `${area.name} area · no player controls it`,
       typeRole.label,
       surface.ink.hex,
       ink.label,
@@ -962,6 +1008,34 @@ export function drawScenarioPlayAreas(
           textStyle(typeRole.body, surface.ink.hex, ink.meta),
         )
         .setOrigin(0.5);
+      return;
+    }
+    // A neutral card says what its shared number does in a line under it, whichever kind of card it is. Its cards
+    // are drawn wide (art column, name and numbers beside it), the way the villain's own panel is, so Loki's hit
+    // points and Worlds Collide's threat read at the same size as the Avatar's; the rules cards sit beside them.
+    const neutralLayout = area.neutral
+      ? (layout === "stack" ? neutralStack : neutralRow)(inner, area.cards.length, references.length)
+      : null;
+    if (neutralLayout) {
+      area.cards.forEach((card, at) => {
+        const slot = neutralLayout.slots[at]!;
+        if (slot.height <= 0) return;
+        if (card.scheme) drawScheme(ctx, slot, card.scheme);
+        else drawCharacter(ctx, slot, card.panel, { shape: "wide" });
+        if (card.note) {
+          const note = label(
+            scene,
+            slot.x + 2,
+            slot.y + slot.height + 5,
+            card.note,
+            typeRole.label,
+            surface.ink.hex,
+            ink.label,
+          );
+          fitText(note, slot.width - 4, typeRole.label.size);
+        }
+      });
+      references.forEach((reference, at) => drawReferenceTile(ctx, neutralLayout.refs[at]!, reference));
       return;
     }
     const slots = missionSlots(

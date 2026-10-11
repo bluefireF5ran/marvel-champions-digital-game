@@ -42,6 +42,8 @@ import {
   scale,
   scenarioPlayAreaOf,
   schemesInPlay,
+  sharedScheme,
+  sharedVillain,
   type CardInstance,
   type EngineDeps,
   type Form,
@@ -60,6 +62,7 @@ import { artFor, type ArtSource, type CardBack, type CardFace } from "../art/art
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { breakPointOf } from "./break-point.js";
 import { counterGoalsOf } from "./counter-goal.js";
+import { counterLimitsOf } from "./counter-limit.js";
 import { otherFaceVisible } from "./hidden-reverse.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
@@ -438,8 +441,12 @@ export interface EnvironmentPanel {
   /** The face in play: "Criminal Enterprise", or "State of Madness" once it has flipped. */
   readonly name: string;
   readonly subtitle: string;
-  /** Every counter kind on the card, with its count: `[{ name: "infamy", count: 4 }]`. */
-  readonly counters: readonly { readonly name: string; readonly count: number }[];
+  /**
+   * Every counter kind on the card, with its count: `[{ name: "infamy", count: 4 }]`. A kind the card's own text caps
+   * (`counterLimitsOf`: "Max 1 [per player] synergy counters here") is listed at 0 too and carries its `limit`, so
+   * the table reads "0/1" rather than nothing.
+   */
+  readonly counters: readonly { readonly name: string; readonly count: number; readonly limit?: number }[];
   readonly art: ArtSource | null;
   /**
    * Damage placed on this environment (Avengers Tower, Tower Defense's own "Forced Response: After damage is
@@ -486,6 +493,11 @@ export interface ScenarioPlayAreaCard {
   readonly scheme: SchemePanel | null;
   /** Threat on the card: a scheme's meter, or threat a character holds. 0 draws nothing. */
   readonly threat: number;
+  /**
+   * A few words under the card, or null: the pod's neutral cards say what their shared numbers do ("Flips at 10 left",
+   * "Lose at 2 threat"); every other card in an area has none.
+   */
+  readonly note: string | null;
 }
 
 /** An in-play scenario area: its name and its unattached cards in the order they entered it. */
@@ -493,6 +505,8 @@ export interface ScenarioPlayAreaPanel {
   readonly name: string;
   /** A closed area is not reached by an ability that does not name it (MC45 p. 5). */
   readonly closed: boolean;
+  /** The pod's neutral area (Loki, God of Lies and Worlds Collide): shared by the whole pod, so the board names it so. */
+  readonly neutral: boolean;
   readonly cards: readonly ScenarioPlayAreaCard[];
   readonly count: number;
 }
@@ -780,27 +794,32 @@ function villainPanels(state: GameState, deps: EngineDeps): readonly VillainPane
     return at < 0 ? (row?.length ?? 0) : at;
   };
   const ordered = row ? [...state.villains].sort((a, b) => rank(a.instanceId) - rank(b.instanceId)) : state.villains;
-  return ordered
-    .filter((villain) => !tucked.has(villain.instanceId))
-    .map((villain) => ({
-      panel: characterPanel(state, villain.instanceId, deps),
-      active: villain.instanceId === state.activeVillainId,
-      defeated: villain.defeated,
-      signatureScheme: villain.signatureSideSchemeId
-        ? {
-            scheme: schemePanel(state, villain.signatureSideSchemeId, deps, false),
-            status: state.removedFromGame.includes(villain.signatureSideSchemeId)
-              ? "removed"
-              : state.villainArea.includes(villain.signatureSideSchemeId)
-                ? "inPlay"
-                : "setAside",
-          }
-        : null,
-      deck: {
-        deck: state.encounterDecks[villain.encounterDeckId]?.deck.length ?? 0,
-        discard: state.encounterDecks[villain.encounterDeckId]?.discard.length ?? 0,
-      },
-    }));
+  return (
+    ordered
+      .filter((villain) => !tucked.has(villain.instanceId))
+      // A `bySetup` scenario (God of Lies, On the Run) starts with a placeholder villain its main scheme's Setup then
+      // replaces: defeated and never turned faceup, it was never on the table, so it gets no tile in the row.
+      .filter((villain) => !(villain.defeated && getInstance(state, villain.instanceId)?.faceup === false))
+      .map((villain) => ({
+        panel: characterPanel(state, villain.instanceId, deps),
+        active: villain.instanceId === state.activeVillainId,
+        defeated: villain.defeated,
+        signatureScheme: villain.signatureSideSchemeId
+          ? {
+              scheme: schemePanel(state, villain.signatureSideSchemeId, deps, false),
+              status: state.removedFromGame.includes(villain.signatureSideSchemeId)
+                ? "removed"
+                : state.villainArea.includes(villain.signatureSideSchemeId)
+                  ? "inPlay"
+                  : "setAside",
+            }
+          : null,
+        deck: {
+          deck: state.encounterDecks[villain.encounterDeckId]?.deck.length ?? 0,
+          discard: state.encounterDecks[villain.encounterDeckId]?.discard.length ?? 0,
+        },
+      }))
+  );
 }
 
 export function boardModel(
@@ -1194,6 +1213,8 @@ function subtitleOf(state: GameState, instance: CardInstance, card: AnyCard | un
   if (!card) return "";
   switch (card.type) {
     case "villain": {
+      // The pod's neutral villain (Loki, God of Lies) is no `VillainState`: it has no stage of its own to number.
+      if (state.pod?.neutral?.villainInstanceId === instance.instanceId) return "Neutral villain";
       const villain = villainOf(state, instance.instanceId) ?? activeVillain(state);
       // Loki's own victory count (docs/phase7-wave4.md §3.7): defeating one stage only ever advances to another
       // random set-aside Loki, never wins by itself, so the running count toward ScenarioRules.victoryCondition is
@@ -1481,8 +1502,11 @@ export function scenarioAreaPanels(state: GameState): readonly ScenarioAreaPanel
  * Built from `state.scenarioPlayAreas` alone; empty when the game has none.
  */
 export function scenarioPlayAreaPanels(state: GameState, deps: EngineDeps): readonly ScenarioPlayAreaPanel[] {
+  const neutralName = state.pod?.neutral?.area ?? null;
   return Object.entries(state.scenarioPlayAreas ?? {}).map(([name, area]) => {
     const cards = area.cards.map((id): ScenarioPlayAreaCard => {
+      const neutral = name === neutralName ? neutralCard(state, id, deps) : null;
+      if (neutral) return neutral;
       const panel = characterPanel(state, id, deps);
       const isScheme = cardOf(state, id)?.type === "side_scheme" || cardOf(state, id)?.type === "player_side_scheme";
       const scheme = isScheme ? schemePanel(state, id, deps, false) : null;
@@ -1493,10 +1517,75 @@ export function scenarioPlayAreaPanels(state: GameState, deps: EngineDeps): read
         panel,
         scheme,
         threat: scheme?.threat ?? panel.threat,
+        note: null,
       };
     });
-    return { name, closed: area.closed, cards, count: cards.length };
+    return { name, closed: area.closed, neutral: name === neutralName, cards, count: cards.length };
   });
+}
+
+/**
+ * One of the pod's two neutral cards (docs/phase7-wave9.md §3.59, §3.66): Loki, God of Lies or Worlds Collide. Neither
+ * is a `VillainState` or a `MainSchemeState`, and neither keeps its numbers on its own instance: the hit points and
+ * the threat are the pod's shared record (`sharedVillain`, `sharedScheme`), so those are what the panels read. Null
+ * for any other card.
+ */
+function neutralCard(state: GameState, id: InstanceId, deps: EngineDeps): ScenarioPlayAreaCard | null {
+  const villain = sharedVillain(state);
+  const scheme = sharedScheme(state);
+  if (villain && villain.instanceId === id) {
+    const base = characterPanel(state, id, deps);
+    const tiles: readonly StatTile[] = [{ label: "HP", value: hpFraction(villain.remaining, villain.hp), bonus: 0 }];
+    const panel: CharacterPanel = { ...base, hp: { current: villain.remaining, max: villain.hp }, stats: tiles };
+    return {
+      instanceId: id,
+      name: panel.name,
+      subtitle: panel.subtitle,
+      panel,
+      scheme: null,
+      threat: 0,
+      note: villain.flipped
+        ? "Flipped · defeat him to win"
+        : villain.flipAtRemaining === null
+          ? null
+          : `Flips at ${villain.flipAtRemaining} left`,
+    };
+  }
+  if (scheme && scheme.instanceId === id) {
+    const card = cardOf(state, id);
+    const instance = getInstance(state, id);
+    const name = currentName(state, id) ?? card?.name ?? "Worlds Collide";
+    const panel: SchemePanel = {
+      instanceId: id,
+      name,
+      subtitle: "Neutral scheme",
+      threat: scheme.threat,
+      target: scheme.target,
+      meterMax: scheme.target,
+      isMain: true,
+      crisis: false,
+      accelerationTokens: 0,
+      tuckedCount: instance?.tucked.length ?? 0,
+      art: artFor(card, faceOf(state, id)),
+      attachments: instance ? attachmentChipsOf(state, instance, deps) : [],
+      counters: countersOf(state, id),
+    };
+    return {
+      instanceId: id,
+      name,
+      subtitle: panel.subtitle,
+      panel: characterPanel(state, id, deps),
+      scheme: panel,
+      threat: scheme.threat,
+      note:
+        scheme.status === "schemeCompleted"
+          ? "Complete · defeat Loki or lose"
+          : scheme.status === "lost"
+            ? "Complete · you lose"
+            : `Lose at ${scheme.target} threat`,
+    };
+  }
+  return null;
 }
 
 export function environmentPanel(state: GameState, id: InstanceId, deps: EngineDeps): EnvironmentPanel {
@@ -1504,13 +1593,21 @@ export function environmentPanel(state: GameState, id: InstanceId, deps: EngineD
   const damage = getInstance(state, id)?.damage ?? 0;
   const note = damageNote(damage, breakPointOf(state, id, deps));
   const tucked = tuckedCardsUnder(state, id);
+  const limits = counterLimitsOf(state, id, deps);
+  const held = countersOf(state, id);
+  const counters = [
+    ...held.map((counter) => (counter.name in limits ? { ...counter, limit: limits[counter.name]! } : counter)),
+    ...Object.entries(limits)
+      .filter(([name]) => !held.some((counter) => counter.name === name))
+      .map(([name, limit]) => ({ name, count: 0, limit })),
+  ];
   return {
     instanceId: id,
     // `currentName`, not `card.name`: a flipped card is a different card as far as the table is concerned.
     name: currentName(state, id) ?? card?.name ?? "Environment",
     // "Environment · 4/9 damage": Avengers Tower flips at 9[per_hero], and the table should see how close it is.
     subtitle: note ? `Environment · ${note}` : "Environment",
-    counters: countersOf(state, id),
+    counters,
     art: artFor(card, faceOf(state, id)),
     damage,
     tucked,
@@ -1552,10 +1649,12 @@ export function counterNote(
   counters: readonly { readonly name: string; readonly count: number }[],
   /** The count the card's own text waits for per kind (`counterGoalsOf`): "3 of 5 charm counters". */
   goals: Readonly<Record<string, number>> = {},
+  /** The most the card may hold per kind (`counterLimitsOf`): "0/1 synergy counters (max)". */
+  limits: Readonly<Record<string, number>> = {},
 ): string | null {
   const shown = [
     ...counters,
-    ...Object.keys(goals)
+    ...Object.keys({ ...goals, ...limits })
       .filter((name) => !counters.some((counter) => counter.name === name))
       .map((name) => ({ name, count: 0 })),
   ];
@@ -1563,6 +1662,8 @@ export function counterNote(
   return shown
     .map((counter) => {
       const goal = goals[counter.name];
+      const limit = limits[counter.name];
+      if (limit !== undefined && goal === undefined) return `${counter.count}/${limit} ${counter.name} counters (max)`;
       const noun = `${counter.name} counter${counter.count === 1 && goal === undefined ? "" : "s"}`;
       return goal === undefined ? `${counter.count} ${noun}` : `${counter.count} of ${goal} ${noun}`;
     })

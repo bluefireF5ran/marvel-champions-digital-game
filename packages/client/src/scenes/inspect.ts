@@ -90,10 +90,12 @@ import {
   type CardFaceContent,
   type InspectLayout,
 } from "../view/inspect-layout.js";
+import type { ArtSource } from "../art/art-source.js";
 import { OverlayMotion } from "../ui/transitions.js";
 import { emptyCardHistoryLog } from "../view/card-history.js";
 import {
   cardInspectModel,
+  referenceInspectModel,
   inspectModel,
   type CampaignNotice,
   type InspectModel,
@@ -122,6 +124,8 @@ export interface InspectData {
    * hero's on its hero side.
    */
   readonly card?: { readonly cardId: CardId; readonly face: CardFace };
+  /** A scenario's printed rules card (`Scenario.referenceCards`): no card record, no game behind the sheet. */
+  readonly reference?: { readonly title: string; readonly text: string; readonly art: ArtSource | null };
   /** Cards the ◂ ▸ keys step through — the hand, when inspect was opened from it. */
   readonly siblings?: readonly InstanceId[];
   /**
@@ -253,6 +257,7 @@ export class InspectOverlay extends Phaser.Scene {
   #siblings: readonly InstanceId[] = [];
   #choice: InspectData["choice"] = undefined;
   #card: InspectData["card"] = undefined;
+  #reference: InspectData["reference"] = undefined;
   #note: string | undefined = undefined;
   #buttons: McButton[] = [];
   #scrollPanels: McScrollPanel[] = [];
@@ -308,6 +313,7 @@ export class InspectOverlay extends Phaser.Scene {
       (game && data.instanceId && !data.choice && !data.card ? [...tuckedSiblings(game, data.instanceId)] : []);
     this.#choice = data.choice;
     this.#card = data.card;
+    this.#reference = data.reference;
     this.#note = data.note;
     this.#expanded = false;
     this.#sheetScroll = new VariableListScroll();
@@ -315,7 +321,7 @@ export class InspectOverlay extends Phaser.Scene {
 
     const { store } = appSession();
     // Only a card in a game can change underneath the sheet.
-    if (!this.#card) this.#unsubscribe = store.subscribe(() => this.#rebuild());
+    if (!this.#card && !this.#reference) this.#unsubscribe = store.subscribe(() => this.#rebuild());
     const onResize = (): void => this.#rebuild();
     /**
      * The resize listener MUST be removed on shutdown.
@@ -578,6 +584,7 @@ export class InspectOverlay extends Phaser.Scene {
    * Null when there is neither, which is the one case worth drawing nothing for.
    */
   #model(): InspectModel | null {
+    if (this.#reference) return referenceInspectModel(this.#reference);
     if (this.#card) return cardInspectModel(CARDS_BY_ID.get(this.#card.cardId as string), this.#card.face);
     const { store } = appSession();
     const state = store.state;

@@ -105,6 +105,7 @@ import {
 import { drawModularCall } from "./briefing-modular-call.js";
 import { drawEasierStart } from "./briefing-easier-start.js";
 import { drawMissionBriefing } from "./briefing-mission.js";
+import { drawShieldBriefing } from "./briefing-shield.js";
 import { drawSideSchemeCall, drawSideSchemeSettled, type SideSchemeDrawContext } from "./briefing-side-scheme.js";
 import { drawPickCardArt } from "./briefing-pick-cards.js";
 import {
@@ -574,6 +575,16 @@ export class CampaignBriefingScene extends Phaser.Scene {
       };
       leftBottom = drawMissionBriefing(this.#schemeContext(missionRect, phone, stops), missionRect.y, missionBrief);
     }
+    const shieldBrief = !seatCall ? (view?.shield ?? null) : null;
+    if (shieldBrief && !schemeBeside) {
+      const shieldRect: Rect = {
+        x: leftRect.x,
+        y: leftBottom + 20,
+        width: leftRect.width,
+        height: Math.max(0, contentBottom - leftBottom - 20),
+      };
+      leftBottom = drawShieldBriefing(this.#schemeContext(shieldRect, phone, stops), shieldRect.y, shieldBrief);
+    }
     // Apocalypse's easier start (issue #3, standard mode): beside the decks on a wide screen, else under the section above.
     if (easierStart && !schemeBeside) {
       leftBottom = drawEasierStart(
@@ -656,6 +667,9 @@ export class CampaignBriefingScene extends Phaser.Scene {
             scheme,
             (id) => ENCOUNTER_SET_NAMES.get(id) ?? id,
           );
+        }
+        if (shieldBrief) {
+          rightBottom = drawShieldBriefing(this.#schemeContext(rightRect, phone, stops), rightBottom + 24, shieldBrief);
         }
         if (easierStart) {
           drawEasierStart(

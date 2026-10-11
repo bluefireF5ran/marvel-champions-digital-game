@@ -30,6 +30,7 @@ import { campaignStepRows, type CampaignStepRow } from "./campaign-step-model.js
 import { idWords } from "./campaign-option-labels.js";
 import { hiddenEvidenceEnvelope, type HiddenEvidenceEnvelope } from "./campaign-hidden-evidence-model.js";
 import { missionBriefingOf, type MissionBriefing } from "./campaign-mission-model.js";
+import { shieldBriefingOf, type ShieldBriefing } from "./campaign-shield-model.js";
 import { sideSchemeBriefingOf, type SideSchemeBriefing } from "./campaign-side-scheme-model.js";
 import { aspectName } from "./aspect-stamp.js";
 import { seatDeckSizeSplit } from "./campaign-deck-edit-model.js";
@@ -111,6 +112,8 @@ export interface BriefingView {
   readonly sideScheme: SideSchemeBriefing | null;
   /** This scenario's drawn mission and Overseer, the absent Prelate and a retry's earlier draws (MC45). Null for a box without missions. */
   readonly missions: MissionBriefing | null;
+  /** The evidence held, the Executive Board's secrets and the numbers the next Setups read (MC50). Null for a box without them. */
+  readonly shield: ShieldBriefing | null;
 }
 
 const ASPECT_ABBREVIATION: Readonly<Record<string, string>> = {
@@ -677,6 +680,7 @@ export function briefingViewOf(
     hiddenEvidence: definition ? hiddenEvidenceEnvelope(record, definition, cardName) : null,
     sideScheme: definition ? sideSchemeBriefingOf({ definition, record, cardName }) : null,
     missions: definition ? missionBriefingOf(record, definition) : null,
+    shield: definition ? shieldBriefingOf(record, definition, cardName) : null,
   };
 }
 

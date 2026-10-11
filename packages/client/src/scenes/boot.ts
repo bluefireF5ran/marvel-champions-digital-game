@@ -262,6 +262,16 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
     return { key: SCENES.board, data: {} };
   }
 
+  // `&fixture=god-of-lies`: a real God of Lies game at round 1's turn; `&at=ready` is the Avatar one hit from
+  // falling, `&at=swap` plays on until it is shattered and swapped (`store/dev-god-of-lies-game.ts`).
+  if (screen === "board" && params.get("fixture") === "god-of-lies") {
+    const { startGodOfLiesGame } = await import("../store/dev-god-of-lies-game.js");
+    const { store } = appSession();
+    const at = params.get("at");
+    if (!gameRunning(store)) await startGodOfLiesGame(store, at === "swap" || at === "ready" ? at : "start");
+    return { key: SCENES.board, data: {} };
+  }
+
   // `&fixture=grounded`: Jubilee on round 2 with Grounded in play, for Flip to hero's additional cost.
   if (screen === "board" && params.get("fixture") === "grounded") {
     const { startDevGroundedGame } = await import("../store/dev-mission-game.js");

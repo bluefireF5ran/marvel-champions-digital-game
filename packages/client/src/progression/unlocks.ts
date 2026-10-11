@@ -212,8 +212,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     cycleId: "cycle9",
     name: "Agents of S.H.I.E.L.D.",
     gate: { kind: "campaignWin", campaignId: "aoa", hint: "Complete the Age of Apocalypse campaign" },
-    // `campaignId: "aos"` is added with the box's campaign (wave definition of done, section 6): until then there is no
-    // campaign to list.
+    campaignId: "aos",
     starterHeroIds: ["50001a", "50034a"], // Maria Hill, Nick Fury: MC50's own cast
     heroRewards: [
       { scenarioId: "black-widow", identityCardId: "51001a" }, // Black Panther (Shuri)

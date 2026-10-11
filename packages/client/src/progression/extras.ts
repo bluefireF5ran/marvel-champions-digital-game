@@ -464,6 +464,8 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/en-sabah-nur/villain-loses.mp3": "The End of Eternity",
   "campaigns/aoa/finale.mp3": "Dawn of a New Age",
   "campaigns/aoa/interlude.mp3": "Apocalypse on the Horizon",
+  "campaigns/aos/finale.mp3": "Agents Assembled",
+  "campaigns/aos/interlude.mp3": "Briefing on the Helicarrier",
   "scenarios/black-widow/battle.mp3": "Red Room Protocol",
   "scenarios/black-widow/villain-loses.mp3": "Cover Blown",
   "scenarios/black-widow/villain-wins.mp3": "The Widow's Bite",
@@ -482,6 +484,9 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/enchantress/battle.mp3": "The Hypnotic Gaze",
   "scenarios/enchantress/villain-loses.mp3": "The Spell Is Broken",
   "scenarios/enchantress/villain-wins.mp3": "All Hearts Are Hers",
+  "scenarios/god-of-lies/battle.mp3": "A Thousand Lokis",
+  "scenarios/god-of-lies/villain-loses.mp3": "The Last Illusion Fades",
+  "scenarios/god-of-lies/villain-wins.mp3": "Mischief Managed the World",
 };
 
 /** "music:scenarios/rhino/battle.mp3" → "scenarios/rhino/battle.mp3". */

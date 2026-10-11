@@ -60,12 +60,18 @@ const BOARD_MEMBER_ATTACHMENTS = query("attachment", { trait: BOARD_MEMBER });
  */
 const flipAtSecrets = () =>
   stateCheck(
-    valueAtLeast(countersOn(self, "secret"), ifElse(inMode("expert"), 3, 4)),
+    valueAtLeast(
+      countersOn(self, "secret"),
+      ifElse(inMode("expert"), AOS_BOARD_MEMBER_LOG.flipAtSecrets.expert, AOS_BOARD_MEMBER_LOG.flipAtSecrets.standard),
+    ),
     flipCard(self, { keepCounters: AOS_BOARD_MEMBER_LOG.secretsStayOnFlip ? [AOS_BOARD_MEMBER_LOG.counter] : [] }),
   );
 /** "If there are 3 Board Member attachments in play, the players lose the game." */
 const lossAtThree = () =>
-  stateCheck(valueAtLeast(countOf(BOARD_MEMBER_ATTACHMENTS), 3), endGame("loss", "cardAbility"));
+  stateCheck(
+    valueAtLeast(countOf(BOARD_MEMBER_ATTACHMENTS), AOS_BOARD_MEMBER_LOG.attachmentsToLose),
+    endGame("loss", "cardAbility"),
+  );
 /** "After a secret counter is placed here": a forced response answering the placing once (RRG 1.8 "Forced Response"). */
 const afterSecretPlacedHere = on.countersPlaced("secret", "self");
 

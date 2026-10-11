@@ -291,6 +291,12 @@ if (import.meta.env.DEV) {
         stop?: Parameters<typeof fixtures.seedAoaRun>[1],
         options?: Parameters<typeof fixtures.seedAoaRun>[2],
       ) => fixtures.seedAoaRun(session.campaignService(), stop, options),
+      seedAos: (
+        stop?: Parameters<typeof fixtures.seedAosRun>[1],
+        options?: Parameters<typeof fixtures.seedAosRun>[2],
+      ) => fixtures.seedAosRun(session.campaignService(), stop, options),
+      seedAosWon: (stop?: Parameters<typeof fixtures.seedAosWonGame>[1]) =>
+        seedWon(() => fixtures.seedAosWonGame(session.campaignService(), stop)),
       seedNextEvolWon: (stop?: Parameters<typeof fixtures.seedNextEvolWonGame>[1]) =>
         seedWon(() => fixtures.seedNextEvolWonGame(session.campaignService(), stop)),
       seedAoaWon: (stop?: Parameters<typeof fixtures.seedAoaWonGame>[1]) =>

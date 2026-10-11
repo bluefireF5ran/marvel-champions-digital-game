@@ -59,6 +59,7 @@ import {
   stripReserve,
 } from "../view/choice-source-panel-layout.js";
 import { drawInstructionSourcePanel, drawSourceCardPanel } from "../ui/source-card-panel.js";
+import { aosOptionLabelOf, secretTargetNotesOf, wrapOptionLabel } from "../view/board-secret-notes.js";
 import { optionLabelOf, seatIdentityName } from "../view/names.js";
 import { defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
 import {
@@ -700,8 +701,32 @@ export class ChoiceOverlay extends Phaser.Scene {
     }
 
     const rowHeight = hit.target;
-    const capacity = Math.max(1, Math.floor(listHeight / (rowHeight + 4)));
+    // An option can carry a second line (Agents of S.H.I.E.L.D.'s "Flips a Board Member"), so rows are not all one height.
+    const optionText = (option: (typeof choice.options)[number]): string =>
+      aosOptionLabelOf(
+        state.game,
+        // The engine labels a seat by its id; the table knows it by its hero.
+        option.ref.kind === "player" && state.game
+          ? playerOptionLabel(state.game, option.ref.playerId, state.perspectiveId)
+          : optionLabelOf(state.game, option),
+      );
+    // A long option (an evidence card's Setup runs to 140 characters) wraps over several lines instead of being cut off.
+    const maxChars = Math.floor((sheet.width - 48) / (typeRole.rowTitle.size * 0.62));
+    const texts = choice.options.map((option) => wrapOptionLabel(optionText(option), maxChars));
+    const heights = texts.map(
+      (text) =>
+        rowHeight +
+        (text.split("\n").length > 2 ? text.split("\n").length - 2 : 0) * 15 +
+        (text.includes("\n") ? 8 : 0),
+    );
+    let capacity = 0;
+    for (let used = 0; capacity < heights.length; capacity++) {
+      used += heights[capacity]! + 4;
+      if (used > listHeight && capacity > 0) break;
+    }
+    capacity = Math.max(1, capacity);
     const shown = choice.options.slice(0, capacity);
+    const tops = heights.map((_, index) => listTop + heights.slice(0, index).reduce((sum, h) => sum + h + 4, 0));
     this.#route = choiceFocusOrder(
       shown.map((option) => option.optionId),
       canDeclineChoice(choice),
@@ -709,11 +734,7 @@ export class ChoiceOverlay extends Phaser.Scene {
 
     shown.forEach((option, index) => {
       const order = this.#selected.indexOf(option.optionId);
-      // The engine labels a seat by its id; the table knows it by its hero.
-      const text =
-        option.ref.kind === "player" && state.game
-          ? playerOptionLabel(state.game, option.ref.playerId, state.perspectiveId)
-          : optionLabelOf(state.game, option);
+      const text = texts[index]!;
       const rowLabel = choice.ordered && order >= 0 ? `${order + 1}. ${text}` : text;
       this.#buttons.push(
         new McButton(this, {
@@ -722,9 +743,9 @@ export class ChoiceOverlay extends Phaser.Scene {
           type: typeRole.rowTitle,
           rect: {
             x: sheet.x + 12,
-            y: listTop + index * (rowHeight + 4),
+            y: tops[index]!,
             width: sheet.width - 24,
-            height: rowHeight,
+            height: heights[index]!,
           },
           selected: order >= 0,
           onClick: () => this.#toggle(option.optionId, choice.maxSelections),
@@ -732,9 +753,9 @@ export class ChoiceOverlay extends Phaser.Scene {
       );
       this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: option.optionId }), {
         x: sheet.x + 12,
-        y: listTop + index * (rowHeight + 4),
+        y: tops[index]!,
         width: sheet.width - 24,
-        height: rowHeight,
+        height: heights[index]!,
       });
     });
     if (choice.options.length > capacity) {
@@ -2024,6 +2045,28 @@ export class ChoiceOverlay extends Phaser.Scene {
         })
         .setOrigin(0.5);
       fitWrapped(caption, inner.width - 8, 4, 11);
+      const bandHeight = Math.max(20, Math.ceil(caption.height) + 8);
+      const band: Rect = {
+        x: inner.x,
+        y: inner.y + inner.height - bandHeight,
+        width: inner.width,
+        height: bandHeight,
+      };
+      this.add.graphics().fillStyle(surface.ink.hex, 0.88).fillRect(band.x, band.y, band.width, band.height);
+      caption.setPosition(band.x + band.width / 2, band.y + band.height / 2);
+      this.children.bringToTop(caption);
+    }
+
+    // Agents of S.H.I.E.L.D.: which Board Member gets a secret counter. Each card says how many it holds and whether
+    // one more flips it (and, for the third flip, that it loses the game): text, never color alone.
+    const secretNote = state?.pendingChoice
+      ? secretTargetNotesOf(state, state.pendingChoice).get(option.optionId)
+      : undefined;
+    if (secretNote) {
+      const caption = this.add
+        .text(0, 0, secretNote, { ...textStyle(typeRole.label, surface.paper.hex), fontSize: "11px", align: "center" })
+        .setOrigin(0.5);
+      fitWrapped(caption, inner.width - 8, 3, 11);
       const bandHeight = Math.max(20, Math.ceil(caption.height) + 8);
       const band: Rect = {
         x: inner.x,

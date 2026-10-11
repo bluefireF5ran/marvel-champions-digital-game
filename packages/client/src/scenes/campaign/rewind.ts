@@ -27,7 +27,7 @@ import { setMask } from "../../ui/rex.js";
 import { cssOf, textStyle } from "../../ui/theme.js";
 import { fadeScreenIn, goToScreen } from "../../ui/transitions.js";
 import { McButton, fitText, label, paintDotGrid } from "../../ui/widgets.js";
-import { rewindViewOf, type RewindView } from "../../view/campaign-rewind-model.js";
+import { rewindIntroOf, rewindViewOf, type RewindView } from "../../view/campaign-rewind-model.js";
 import type { Rect } from "../../view/layout.js";
 import { FocusRoute, type FocusStop } from "../focus-route.js";
 import { SCENES } from "../keys.js";
@@ -403,11 +403,9 @@ export class CampaignRewindScene extends Phaser.Scene {
       .setLineSpacing(-10);
     fitText(headline, rect.width, phone ? 40 : 60);
     y = headline.y + headline.height + 12;
-    // A page-based box (`ctx.panel`) reads the intro as "the page flips back" rather than MC10's plain "same
-    // villain, same log" line — MC10 keeps its exact prior wording.
-    const introText = ctx.panel
-      ? "The page flips back to the last panel you read. The log picks up exactly where it left off. Change decks or aspects first if you want."
-      : "Same villain, same log as when you opened it. Change decks or aspects first if you want.";
+    // A page-based box (`ctx.panel`) reads the intro as "the page flips back"; MC10 keeps its plain "same villain, same
+    // log" line; a defeat that changed the log says so instead (`rewindIntroOf`).
+    const introText = rewindIntroOf(view, !!ctx.panel);
     const body = this.add
       .text(rect.x, y, introText, textStyle(typeRole.body, surface.paper.hex, ink.secondary))
       .setWordWrapWidth(rect.width);

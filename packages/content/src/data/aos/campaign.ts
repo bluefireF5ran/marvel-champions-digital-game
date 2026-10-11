@@ -62,4 +62,13 @@ export const AOS_BOARD_MEMBER_LOG = {
   counter: "secret",
   recordFace: true,
   secretsStayOnFlip: true,
+  /**
+   * Secret counters at which a Board Member environment flips to its attachment (MC50 p. 6; each environment's state check
+   * in `@mc/cards` `wave9/aos/executive-board.ts`: "4 or more secret counters here (3 or more instead in expert mode)").
+   * The client reads this to say, on a choice that would place a secret counter, which Board Member that flips; the
+   * card text is the authority and a client test checks the two agree. `attachmentsToLose` is the third flipped member
+   * ("if there are 3 Board Member attachments in play, the players lose").
+   */
+  flipAtSecrets: { standard: 4, expert: 3 },
+  attachmentsToLose: 3,
 } as const;
