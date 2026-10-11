@@ -471,7 +471,8 @@ for (const vp of Object.keys(VIEWPORTS) as Vp[]) {
           missing.push(`${title} (${file})`);
           continue;
         }
-        await scrollStopIntoView(page, stop.key, "Extras");
+        // The tab bar ends near y 115: a row whose top sits above that is clipped and a click on it lands on the bar.
+        await scrollStopIntoView(page, stop.key, "Extras", 130);
         const listed = (await visibleTexts(page)).some((t) => t.scene === "Extras" && t.text.trim() === title);
         if (!listed) missing.push(`${title}: title not drawn`);
         await clickStop(page, stop.key, "Extras");

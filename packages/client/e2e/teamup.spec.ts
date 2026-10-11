@@ -347,6 +347,7 @@ test("every art/teamups folder has a splash and a badge that load, and is named 
         pairs: Map<string, { splash: { url: string } | null; badge: { url: string } | null }>;
         unrecognized: string[];
       };
+      BADGE_FOCUS: Record<string, { source?: string }>;
     };
     const load = (url: string): Promise<number> =>
       new Promise((resolve) => {
@@ -363,7 +364,12 @@ test("every art/teamups folder has a splash and a badge that load, and is named 
         folder,
         known: pairKeys.includes(folder),
         splash: entry?.splash ? await load(entry.splash.url) : 0,
-        badge: entry?.badge ? await load(entry.badge.url) : 0,
+        // A pair whose circle is cut from the full picture (`BADGE_FOCUS` source "splash") needs no closeup file.
+        badge: entry?.badge
+          ? await load(entry.badge.url)
+          : entry?.splash && art.BADGE_FOCUS[folder]?.source === "splash"
+            ? await load(entry.splash.url)
+            : 0,
       });
     }
     return { rows, pairKeys, unrecognized: art.TEAM_UP_ART.unrecognized };

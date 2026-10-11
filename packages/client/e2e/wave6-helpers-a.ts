@@ -365,17 +365,23 @@ export async function endTurnToNextRound(
  * shelf sits below the Recommended shelf (and may be off to the right of its rail), so clicking the centre of its
  * stop rect straight away hits nothing. Vertical first, then sideways.
  */
-export async function scrollStopIntoView(page: Page, key: string, sceneKey: string): Promise<void> {
+export async function scrollStopIntoView(
+  page: Page,
+  key: string,
+  sceneKey: string,
+  // The y a control's top must clear: a screen with a fixed bar under its header (the Extras tabs) clips rows above it.
+  top = 70,
+): Promise<void> {
   const size = page.viewportSize() ?? { width: 1440, height: 900 };
   for (let step = 0; step < 60; step++) {
     const stop = (await routeStops(page, sceneKey))?.stops.find((s) => s.key === key);
     if (!stop) throw new Error(`no "${key}" control on ${sceneKey}`);
     const { x, y, width, height } = stop.rect;
-    const inY = y >= 70 && y + height / 2 <= size.height - 90;
+    const inY = y >= top && y + height / 2 <= size.height - 90;
     const inX = x >= 0 && x + width / 2 <= size.width - 10;
     if (inY && inX) return;
     await page.mouse.move(size.width / 2, size.height / 2);
-    if (!inY) await page.mouse.wheel(0, y < 70 ? -250 : 250);
+    if (!inY) await page.mouse.wheel(0, y < top ? -250 : 250);
     else await page.mouse.wheel(x < 0 ? -250 : 250, 0);
     await settle(page);
   }
