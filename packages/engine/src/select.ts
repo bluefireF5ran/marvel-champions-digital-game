@@ -92,6 +92,7 @@ import { canUseBasicPower } from "./basic-power-uses.js";
 import { uniqueEntryBlocker } from "./unique.js";
 import { threatRemovalBlocked } from "./resolve/event.js";
 import { accusationWrongGuesses, accusedWrong, isAccusationBoardMember } from "./accusation.js";
+import { hiddenPileSize } from "./hidden-pile-state.js";
 import {
   canHaveAttached,
   cannotEnterPlay,
@@ -2675,7 +2676,7 @@ export function resolveValue(
       return (state.setAsideModularSets ?? []).length;
     case "hiddenPileCount":
       // A pile's size is open; its cards are not (docs/phase7-wave9.md §3.29 (a)).
-      return (state.hiddenPiles?.[value.pile] ?? []).length;
+      return hiddenPileSize(state, value.pile);
     case "accusationWrongGuesses":
       return accusationWrongGuesses(state);
     case "revealedPileCardCount":

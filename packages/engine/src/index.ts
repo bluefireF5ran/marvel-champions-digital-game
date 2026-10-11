@@ -485,6 +485,7 @@ export {
   type SealedGameState,
 } from "./visibility.js";
 export { placeHiddenPiles, revealedPileCardsOf } from "./resolve/hidden-piles.js";
+export { hiddenPilesSealed, hiddenPileSize, isSealedPileCard } from "./hidden-pile-state.js";
 export { evidenceRowId, evidenceRowsLeft, openEvidenceRows, wrongGuessesOf } from "./accusation.js";
 export type { TableContext, ViewerContext } from "./visibility.js";
 

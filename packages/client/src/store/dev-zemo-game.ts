@@ -8,9 +8,13 @@
  * The counters come off by state surgery on a game the app's own host built, as the Four Horsemen jump does
  * (`dev-mission-game.ts`); the game then goes on in a `DevStateHost`, so it keeps no storage and cannot be resumed.
  * `?bare=all` bares all three environments, `?bare=none` leaves Setup's counters as dealt.
+ *
+ * The state handed to the `DevStateHost` is that host's authority, so it must hold the evidence envelopes' cards. The
+ * store's own `game` does not (it is sealed for the table, `sealForTable`: a pile is its size there), so the full state
+ * is read where a save reads it: the first host's log, replayed.
  */
 
-import type { GameState } from "@mc/engine";
+import { applyCommands, type GameState } from "@mc/engine";
 import { POOL_DEPS } from "../content/pool.js";
 import { DevStateHost } from "../engine/dev-state-host.js";
 import type { SessionConfig } from "../engine/host.js";
@@ -38,8 +42,11 @@ export async function zemoFixtureState(
 ): Promise<{ readonly config: SessionConfig; readonly state: GameState }> {
   await store.start(CONFIG);
   await nextTurn(store);
-  const game = store.state.game;
-  if (!game) throw new Error("the Baron Zemo game did not start");
+  if (!store.state.game) throw new Error("the Baron Zemo game did not start");
+  const saved = await store.save();
+  const replayed = applyCommands(saved.initialState, saved.commands, POOL_DEPS);
+  if (!replayed.ok) throw new Error(`the Baron Zemo game does not replay: ${replayed.error.message}`);
+  const game = replayed.state;
   const wanted: readonly string[] = bare === "all" ? ENVIRONMENTS : bare === "tactical" ? ["50183a"] : [];
   const instances = Object.fromEntries(
     Object.entries(game.instances).map(([id, instance]) => {
@@ -48,7 +55,8 @@ export async function zemoFixtureState(
       return [id, { ...instance, counters }];
     }),
   );
-  return { config: CONFIG, state: { ...game, instances } as GameState };
+  const state: GameState = { ...game, instances };
+  return { config: CONFIG, state };
 }
 
 export async function startDevZemoGame(bare: "tactical" | "all" | "none" = "tactical"): Promise<void> {

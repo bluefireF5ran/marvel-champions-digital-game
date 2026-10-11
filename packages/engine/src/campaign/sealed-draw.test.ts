@@ -31,6 +31,8 @@ import {
 } from "@mc/content";
 import { DEFAULT_DEPS } from "../abilities.js";
 import { evidenceRowsLeft } from "../accusation.js";
+import { createCtx } from "../ctx.js";
+import { seedHiddenPiles } from "../resolve/hidden-piles.js";
 import type {
   CampaignDefinition,
   CampaignInstruction,
@@ -583,6 +585,28 @@ describe("the envelopes inside a campaign game (§3.75, task 54)", () => {
     expect(evaluate(state, { kind: "campaignLog", field: "envelope", has: state.hiddenPiles!.aim![0]! }, context)).toBe(
       false,
     );
+  });
+
+  it("seeding on a sealed copy, whose log holds the envelope's size and no card: the same 2 sizes, no card of either pile, and the copy stays sealed", () => {
+    const { log, state } = secondGame();
+    const inPiles = [...(state.hiddenPiles?.aim ?? []), ...(state.hiddenPiles?.shield ?? [])];
+    // A copy sealed before its piles were seeded: the campaign input emptied, and no pile yet.
+    const { hiddenPileSizes: _sizes, revealedPileCards: _revealed, ...unseeded } = sealHiddenPiles(state);
+    const ctx = createCtx(unseeded, DEFAULT_DEPS);
+    seedHiddenPiles(ctx, SEED_PILES as Extract<EffectSpec, { kind: "seedHiddenPiles" }>);
+    expect("hiddenPiles" in ctx.state).toBe(false);
+    // 9 cards, 3 sealed away and 2 gained and faceup: 4 are the rest (the game then gains 1 more, so its own pile holds 3).
+    expect(ctx.state.hiddenPileSizes).toEqual({ aim: 3, shield: 4 });
+    expect(ctx.state.revealedPileCards).toEqual({ shield: evidenceOf(log) });
+    const { cardPool: _pool, ...rest } = ctx.state;
+    expect(names(rest, inPiles)).toBe(false);
+    expect(names(ctx.events, inPiles)).toBe(false);
+    expect(ctx.events.map((event) => (event.type === "hiddenPilesDealt" ? event.piles : null))).toEqual([
+      [
+        { pile: "aim", size: 3 },
+        { pile: "shield", size: 4 },
+      ],
+    ]);
   });
 
   it("the game replays from its own input: the same piles, without the campaign log", () => {

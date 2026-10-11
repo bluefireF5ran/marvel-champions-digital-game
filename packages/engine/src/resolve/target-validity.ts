@@ -65,6 +65,7 @@ import type { CardSelector, EffectSpec, TargetRef } from "../spec.js";
 import type { GameState } from "../state.js";
 import { carriedByEvent, type TriggerEvent } from "../trigger-events.js";
 import { createCtx } from "../ctx.js";
+import { hiddenPileSize } from "../hidden-pile-state.js";
 import { selectCards } from "./cards.js";
 import { alreadyDefeated, anyAlreadyDefeated } from "./defeat.js";
 import { threatRemovalBlocked, thwartForbiddenOn } from "./event.js";
@@ -951,9 +952,7 @@ function tuckNamesNoCard(
  */
 function gainNamesEmptyPile(state: GameState, effects: readonly EffectSpec[]): boolean {
   if (effects.length === 0) return false;
-  return effects.every(
-    (effect) => effect.kind === "gainFromHiddenPile" && (state.hiddenPiles?.[effect.pile] ?? []).length === 0,
-  );
+  return effects.every((effect) => effect.kind === "gainFromHiddenPile" && hiddenPileSize(state, effect.pile) === 0);
 }
 
 /**

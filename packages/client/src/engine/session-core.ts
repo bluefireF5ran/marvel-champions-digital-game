@@ -44,17 +44,25 @@ import {
   type IllegalDeck,
   type LegalActions,
   type PlayerId,
+  type SealedGameState,
 } from "@mc/engine";
 import { sealForTable } from "../view/hidden-reverse.js";
 import { actingPlayer } from "./acting-player.js";
 import { emptyRecord, recordEvents, type GameRecord } from "./game-record.js";
 import { isCurrentSchema, SAVE_SCHEMA, type GameStorage, type SaveMeta, type SaveStatus } from "./game-storage.js";
-import type { CardPool, LegalActionsFor, SavedGame, SessionConfig, StateWithoutPool } from "./host.js";
+import type {
+  CardPool,
+  LegalActionsFor,
+  SavedGame,
+  SealedStateWithoutPool,
+  SessionConfig,
+  StateWithoutPool,
+} from "./host.js";
 
 /** An update as it crosses a thread boundary: no card pool, so it stays ~68 KB. */
 export interface Snapshot {
   readonly version: number;
-  readonly state: StateWithoutPool;
+  readonly state: SealedStateWithoutPool;
   readonly events: readonly GameEvent[];
   readonly legal: LegalActionsFor | null;
   /** What the game-over screen reports, folded from every command so far. */
@@ -103,6 +111,12 @@ export interface CoreOptions {
 
 /** Splits the card pool off a state; the host re-attaches it on the other side. */
 const stripPool = (state: GameState): StateWithoutPool => {
+  const { cardPool: _cardPool, ...rest } = state;
+  return rest;
+};
+
+/** The same for the sealed state a snapshot carries. */
+const stripSealedPool = (state: SealedGameState): SealedStateWithoutPool => {
   const { cardPool: _cardPool, ...rest } = state;
   return rest;
 };
@@ -499,9 +513,11 @@ export class EngineSessionCore {
     const toAct = actingPlayer(state);
     return {
       version: this.#version,
-      // What the table may read: a double-sided card whose other face no player may look at is named by its stand-in
-      // (`sealHiddenReverses`), so the real card id never leaves the engine session (docs/phase7-wave9.md §3.54).
-      state: stripPool(sealForTable(state)),
+      // What the table may read (`sealForTable`): a double-sided card whose other face no player may look at is named
+      // by its stand-in (docs/phase7-wave9.md §3.54), a hidden pile is its size (§3.29 (a)) and the campaign log's
+      // sealed values are emptied (§3.75), so none of it leaves the engine session. Legal actions are computed from
+      // the full state, here.
+      state: stripSealedPool(sealForTable(state)),
       events,
       legal: toAct ? { playerId: toAct, actions: queryLegalActions(state, toAct, POOL_DEPS) } : null,
       record: this.#record,

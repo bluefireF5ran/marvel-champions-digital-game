@@ -1209,6 +1209,15 @@ export interface GameState {
    */
   readonly hiddenPiles?: Readonly<Record<string, readonly CardId[]>>;
   /**
+   * **Only on a sealed copy** of the state (`sealHiddenPiles`, `visibility.ts`: what a client holds or a server
+   * sends), where it stands in for `hiddenPiles`: each prepared pile's size, and no card. The authority's state never
+   * has it, and no state has both. The engine reads a pile through `hidden-pile-state.ts`, which answers a pile's
+   * size from either field, so a query or a preview run on a sealed copy counts the piles right and stops at the
+   * first event that would name one of their cards. Written by `sealHiddenPiles`, and by `placeHiddenPiles` when the
+   * state it is given is already sealed.
+   */
+  readonly hiddenPileSizes?: Readonly<Record<string, number>>;
+  /**
    * The cards that have come out of a hidden pile faceup, by the pile each came out of, in the order they did
    * (docs/phase7-wave9.md §3.29 (a)). MC50 p. 18: "When the players gain an evidence card, they turn it faceup", and
    * the A.I.M. envelope's cards are taken out for the accusation (p. 19). Open information for every player from then

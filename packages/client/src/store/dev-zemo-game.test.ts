@@ -4,7 +4,7 @@
  * (`dev-zemo-game.ts`), played on the engine's own commands and prompts.
  */
 import { AOS_EVIDENCE_COMBINATIONS } from "@mc/content";
-import { evidenceRowId, type PendingChoice } from "@mc/engine";
+import { evidenceRowId, preview, type PendingChoice } from "@mc/engine";
 import { describe, expect, test } from "vitest";
 import { CARDS_BY_ID, POOL_DEPS } from "../content/pool.js";
 import { DevStateHost } from "../engine/dev-state-host.js";
@@ -16,11 +16,12 @@ import { SessionStore } from "./session-store.js";
 
 const lookup = (id: string) => CARDS_BY_ID.get(id);
 
-async function zemoStore(): Promise<SessionStore> {
+/** The fixture's store, and the A.I.M. envelope's cards as the fixture's own host holds them (the store does not). */
+async function zemoStore(): Promise<SessionStore & { readonly aim: readonly string[] }> {
   const { config, state } = await zemoFixtureState(new SessionStore(new LocalEngineHost()));
   const store = new SessionStore(new DevStateHost(state, POOL_DEPS));
   await store.start(config);
-  return store;
+  return Object.assign(store, { aim: (state.hiddenPiles?.aim ?? []).map(String) });
 }
 
 /** Answers the open choice with the first option whose label has `text`, or the minimum when none is named. */
@@ -45,23 +46,52 @@ describe("Baron Zemo: evidence and the accusation, end to end", () => {
     const before = evidenceInputOf(store.state.game!)!;
     // The input the screens read has no pile contents, only sizes, whatever the full state holds.
     expect(Object.keys(before)).not.toContain("hiddenPiles");
+    // The fixture's host holds the envelope (3 cards); the store's state has no pile, only sizes.
+    expect(store.aim).toHaveLength(3);
+    expect(store.state.game).not.toHaveProperty("hiddenPiles");
     expect(before.hiddenPileSizes).toEqual({ aim: 3, shield: 6 });
     expect(evidenceBoardOf(before, AOS_EVIDENCE_COMBINATIONS, lookup).grid.openCount).toBe(27);
 
     // Round 1: the Response gains two cards for two counters on the bare Tactical environment.
     await endTurn(store);
+    // What a preview of each answer says, run on the store's sealed state as the choice sheet's view models run it.
+    const stops: string[] = [];
+    const previewed = (text?: string): void => {
+      const game = store.state.game!;
+      const choice = game.pendingChoice!;
+      const picked = text
+        ? choice.options.filter((option) => option.label.includes(text)).slice(0, 1)
+        : choice.options.slice(0, Math.max(1, choice.minSelections));
+      const result = preview(
+        game,
+        {
+          type: "resolveChoice",
+          playerId: choice.playerId,
+          choiceId: choice.choiceId,
+          selectedOptionIds: picked.map((option) => option.optionId),
+        },
+        POOL_DEPS,
+      );
+      stops.push(result.stop.kind === "hiddenInformation" ? `hidden at ${result.stop.at}` : result.stop.kind);
+      // Neither a placeholder nor one of the nine evidence cards (50185 to 50193) is in what the preview reports.
+      expect(JSON.stringify(result)).not.toMatch(/sealed-pile-card|"5018[5-9]"|"5019[0-3]"/);
+    };
     for (let step = 0; step < 12 && store.state.game!.pendingChoice; step++) {
       const choice = store.state.game!.pendingChoice!;
+      const text = choice.options.some((option) => option.label.startsWith("Place 2 secret"))
+        ? "Place 2 secret"
+        : choice.options.some((option) => option.label === "Do not advance")
+          ? "Do not advance"
+          : undefined;
+      previewed(text);
       if (choice.prompt.kind === "chooseTriggers") await store.resolveChoice([choice.options[0]!.optionId]);
-      else if (choice.options.some((option) => option.label.startsWith("Place 2 secret")))
-        await answer(store, "Place 2 secret");
-      else if (choice.options.some((option) => option.label === "Do not advance"))
-        await answer(store, "Do not advance");
-      else await answer(store);
+      else await answer(store, text);
     }
     const gained = evidenceInputOf(store.state.game!)!;
     const board = evidenceBoardOf(gained, AOS_EVIDENCE_COMBINATIONS, lookup);
     expect(gained.hiddenPileSizes).toEqual({ aim: 3, shield: 4 });
+    // The Response's gain from the S.H.I.E.L.D. envelope previews as hidden information: no card, and not "nothing".
+    expect(stops).toContain("hidden at hiddenPileCardsGained");
     expect(board.gained).toHaveLength(2);
     expect(board.grid.openCount).toBeLessThan(27);
     expect(board.piles.find((pile) => pile.pile === "aim")).toMatchObject({ hiddenCount: 3, faceup: [] });
@@ -90,10 +120,10 @@ describe("Baron Zemo: evidence and the accusation, end to end", () => {
     expect(sheet.openCount).toBe(prompt.options.length);
     expect(sheet.grid.openCount).toBe(prompt.options.length);
     // Nothing of the "aim" pile is in what the sheet draws: its cards are all still unflagged as faceup.
-    const aim = store.state.game!.hiddenPiles!.aim!;
+    const aim = store.aim;
     for (const block of sheet.grid.blocks) {
       for (const card of [block.means, ...block.motives, ...block.opportunities]) {
-        if (aim.includes(card.cardId)) expect(card.faceup).toBe(false);
+        if (aim.includes(card.cardId as string)) expect(card.faceup).toBe(false);
       }
     }
 
@@ -103,6 +133,9 @@ describe("Baron Zemo: evidence and the accusation, end to end", () => {
     const made = store.state.game!;
     expect(made.accusation?.accused && evidenceRowId(made.accusation.accused)).toBe(first);
     expect(made.accusation?.mole).toBeDefined();
+    // The fixture's host is an authority with the real envelope: the mole is the row its three cards make.
+    const mole = made.accusation!.mole!;
+    expect([mole.means, mole.motive, mole.opportunity].map(String).sort()).toEqual([...aim].sort());
     const after = evidenceBoardOf(evidenceInputOf(made)!, AOS_EVIDENCE_COMBINATIONS, lookup);
     expect(after.solved).toBe(true);
     expect(after.answer?.moleLine).toBeTruthy();

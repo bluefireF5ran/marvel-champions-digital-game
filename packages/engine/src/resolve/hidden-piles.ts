@@ -21,11 +21,25 @@
  * outside it (campaign mode, where they were filled when the campaign began and some cards were gained in earlier
  * scenarios) places them through the same function, before the scenario's own "prepare the evidence" resolves, which
  * then deals nothing (`GameEvent hiddenPilesDealt.kept`).
+ *
+ * **On a sealed copy** of the state (`sealHiddenPiles`: a client's state, which the client previews commands on) the
+ * piles are sizes and their cards are placeholders (`hidden-pile-state.ts`). The three moves run unchanged over the
+ * placeholders, so the sizes and counts they leave are right; `placeHiddenPiles` keeps the copy sealed; and
+ * `preview()` stops at the first event that names a placeholder. A sealed copy's campaign log has its sealed values
+ * emptied, so seeding from it fills each such pile with placeholders by the size the value says it held.
  */
 
 import { EVIDENCE_KINDS, type CardId } from "@mc/content";
 import { campaignLogCardIds } from "../campaign-state.js";
 import { type Ctx, emit } from "../ctx.js";
+import {
+  hiddenPileExists,
+  hiddenPileOf,
+  hiddenPilesSealed,
+  hiddenPileSizesOf,
+  isSealedPileCard,
+  sealedPileCards,
+} from "../hidden-pile-state.js";
 import { nextInt, shuffle } from "../rng.js";
 import type { EffectSpec } from "../spec.js";
 import type { GameState } from "../state.js";
@@ -33,11 +47,7 @@ import type { GameState } from "../state.js";
 type DealHiddenPiles = Extract<EffectSpec, { kind: "dealHiddenPiles" }>;
 type SeedHiddenPiles = Extract<EffectSpec, { kind: "seedHiddenPiles" }>;
 
-/** The cards in a hidden pile, in the pile's order; none for a pile that was never prepared. Engine eyes only. */
-export const hiddenPileOf = (state: GameState, pile: string): readonly CardId[] => state.hiddenPiles?.[pile] ?? [];
-
-/** Whether a pile of this name has been prepared, empty or not. */
-export const hiddenPileExists = (state: GameState, pile: string): boolean => state.hiddenPiles?.[pile] !== undefined;
+export { hiddenPileExists, hiddenPileOf };
 
 /**
  * The cards that have come out of hidden piles faceup: out of `pile`, or out of every pile (in pile order, then the
@@ -53,13 +63,23 @@ export const revealedPileCardsOf = (state: GameState, pile?: string): readonly C
  *
  * The seam for piles that are not dealt by the game itself: a campaign's envelopes are handed over as plain card ids
  * (`piles`) with the evidence gained so far (`revealed`).
+ *
+ * A sealed copy stays sealed: when the state holds sizes and no cards, or a pile it is given holds a placeholder,
+ * the piles are written as sizes (`GameState.hiddenPileSizes`) and no card of any pile is kept.
  */
 export function placeHiddenPiles(
   ctx: Ctx,
   piles: Readonly<Record<string, readonly CardId[]>>,
   revealed: Readonly<Record<string, readonly CardId[]>> = {},
 ): void {
-  ctx.state = { ...ctx.state, hiddenPiles: { ...ctx.state.hiddenPiles, ...piles } };
+  const sealed = hiddenPilesSealed(ctx.state) || Object.values(piles).some((cardIds) => cardIds.some(isSealedPileCard));
+  if (sealed) {
+    const { hiddenPiles: _cards, ...rest } = ctx.state;
+    const sizes = Object.fromEntries(Object.entries(piles).map(([pile, cardIds]) => [pile, cardIds.length]));
+    ctx.state = { ...rest, hiddenPileSizes: { ...hiddenPileSizesOf(ctx.state), ...sizes } };
+  } else {
+    ctx.state = { ...ctx.state, hiddenPiles: { ...ctx.state.hiddenPiles, ...piles } };
+  }
   if (Object.keys(revealed).length > 0)
     ctx.state = { ...ctx.state, revealedPileCards: { ...ctx.state.revealedPileCards, ...revealed } };
 }
@@ -107,9 +127,18 @@ export function dealHiddenPiles(ctx: Ctx, effect: DealHiddenPiles): void {
 export function seedHiddenPiles(ctx: Ctx, effect: SeedHiddenPiles): void {
   const log = ctx.state.campaign?.log;
   if (!log) return;
-  const cardsOf = (field: string): readonly CardId[] => campaignLogCardIds(log.hidden?.[field] ?? log.shared[field]);
   const piles: Record<string, readonly CardId[]> = {};
-  for (const [pile, source] of Object.entries(effect.piles)) piles[pile] = cardsOf(source.campaignLogField);
+  // How many of the set's cards are in piles whose contents this state does not hold (a sealed copy's emptied value).
+  let unknown = 0;
+  for (const [pile, source] of Object.entries(effect.piles)) {
+    const value = log.hidden?.[source.campaignLogField] ?? log.shared[source.campaignLogField];
+    const cardIds = campaignLogCardIds(value);
+    const held = value?.sealed === true ? (value.sealedSize ?? cardIds.length) : cardIds.length;
+    if (held > cardIds.length) {
+      piles[pile] = sealedPileCards(pile, held);
+      unknown += held;
+    } else piles[pile] = cardIds;
+  }
   // Evidence already gained is open information, so it is read from the shared part only.
   const faceup = campaignLogCardIds(log.shared[effect.revealed.campaignLogField]);
   const taken = new Set<CardId>([...Object.values(piles).flat(), ...faceup]);
@@ -124,7 +153,8 @@ export function seedHiddenPiles(ctx: Ctx, effect: SeedHiddenPiles): void {
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const [rest, rng] = shuffle(left, ctx.state.rng);
   ctx.state = { ...ctx.state, rng };
-  piles[effect.rest.to] = rest;
+  // With `unknown` cards sealed away, which of the set's cards are the rest is not known either: only how many.
+  piles[effect.rest.to] = unknown > 0 ? sealedPileCards(effect.rest.to, Math.max(0, rest.length - unknown)) : rest;
   placeHiddenPiles(ctx, piles, faceup.length > 0 ? { [effect.rest.to]: faceup } : {});
   emit(ctx, {
     type: "hiddenPilesDealt",

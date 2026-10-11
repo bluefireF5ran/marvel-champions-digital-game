@@ -45,6 +45,7 @@ import { stubEvent, stubMainScheme, stubSupport } from "./testing/fixtures.js";
 import { DEFAULT_CARDS, DEFAULT_DECK, HERO, seatIdentities, TREACHERY, VILLAIN } from "./testing/scenario.js";
 import { copiesOf, P1, P2, playerCardIntoPlay, playFree } from "./testing/wave3.js";
 import { hiddenPileViews, sealHiddenPiles } from "./visibility.js";
+import { hiddenPilesSealed, hiddenPileSize, isSealedPileCard } from "./hidden-pile-state.js";
 
 const SEALED = "sealed";
 const OPEN = "open";
@@ -578,6 +579,107 @@ describe("§3.29 (a) piles that are already there, and a set with no evidence ca
       ],
       kept: false,
     });
+  });
+});
+
+describe("§3.29 (a) a sealed copy of the state answers the engine's questions and previews without a pile's card", () => {
+  /** What a client holds: the sealed copy, typed as the state the engine's entry points take. */
+  const sealedOf = (state: GameState): GameState => sealHiddenPiles(state);
+  const offered = (state: GameState, ability: { readonly ref: { readonly id: string } }) => {
+    const actions = legalActions(state, P1, deps);
+    return actions.kind === "turn" ? JSON.stringify(actions.legal).includes(ability.ref.id) : false;
+  };
+
+  it("the open answers are the same as the authority's: sizes (3 and 6), whether a pile was prepared, and which actions are legal", () => {
+    const t = table();
+    const sealed = sealedOf(t.state);
+    expect("hiddenPiles" in sealed).toBe(false);
+    expect(hiddenPileViews(sealed)).toEqual(hiddenPileViews(t.state));
+    expect([pileCount(sealed, SEALED), pileCount(sealed, OPEN), pileCount(sealed, "nowhere")]).toEqual([3, 6, 0]);
+    expect([hiddenPileSize(sealed, SEALED), hiddenPileSize(t.state, SEALED)]).toEqual([3, 3]);
+    expect(hiddenPilesSealed(sealed)).toBe(true);
+    expect(hiddenPilesSealed(t.state)).toBe(false);
+    // "Gain 2 from the open pile" is legal while the pile holds a card, on both.
+    expect(offered(sealed, GAIN_TWO)).toBe(true);
+    expect(JSON.stringify(legalActions(sealed, P1, deps))).toBe(JSON.stringify(legalActions(t.state, P1, deps)));
+    // Sealing twice is sealing once.
+    expect(sealHiddenPiles(sealed)).toBe(sealed);
+  });
+
+  it("an emptied pile is empty on the sealed copy too: the ability that only gains is not legal and is refused", () => {
+    const t = table();
+    let state = t.state;
+    for (let i = 0; i < 3; i++) state = use(t, GAIN_TWO, state).session.state;
+    const sealed = sealedOf(state);
+    expect(pileCount(sealed, OPEN)).toBe(0);
+    expect(offered(sealed, GAIN_TWO)).toBe(false);
+    expect(preview(sealed, useCommand(t, GAIN_TWO), deps).stop).toEqual(
+      preview(state, useCommand(t, GAIN_TWO), deps).stop,
+    );
+    expect(preview(sealed, useCommand(t, GAIN_TWO), deps).stop.kind).toBe("rejected");
+  });
+
+  it("a preview of a gain or a reveal stops at hidden information at the same event as the authority's, and names no card or placeholder", () => {
+    const t = table();
+    const sealed = sealedOf(t.state);
+    for (const ability of [GAIN_TWO, GAIN_ONE, GAIN_NINE, REVEAL]) {
+      const mine = preview(sealed, useCommand(t, ability), deps);
+      const real = preview(t.state, useCommand(t, ability), deps);
+      expect(mine.stop.kind, ability.ref.id).toBe("hiddenInformation");
+      expect(mine.stop, ability.ref.id).toEqual(real.stop);
+      expect(mine.events, ability.ref.id).toEqual(real.events);
+      expect(mine.outcome).toBeNull();
+      expect(idsIn(mine, CLUE_IDS)).toEqual([]);
+      expect(JSON.stringify(mine)).not.toContain("sealed-pile-card");
+    }
+    // A pile nobody prepared holds nothing on either: the gain is certain (0 cards) and the rest resolves.
+    const nowhere = preview(sealed, useCommand(t, GAIN_NOWHERE), deps);
+    expect(nowhere.stop).toEqual(preview(t.state, useCommand(t, GAIN_NOWHERE), deps).stop);
+    expect(nowhere.events).toEqual(preview(t.state, useCommand(t, GAIN_NOWHERE), deps).events);
+  });
+
+  it("a command applied to a sealed copy does not throw, leaves the copy sealed and keeps every count right (4 left, 2 out; then 0 left in the sealed pile, 3 out)", () => {
+    const t = table();
+    const sealed = sealedOf(t.state);
+    const gained = use(t, GAIN_TWO, sealed).session.state;
+    expect("hiddenPiles" in gained).toBe(false);
+    expect(gained.hiddenPileSizes).toEqual({ [SEALED]: 3, [OPEN]: 4 });
+    expect([pileCount(gained, OPEN), revealedCount(gained, OPEN)]).toEqual([4, 2]);
+    // What came out is a placeholder, not a card: no id of the 9, and nothing the card pool lists.
+    const { cardPool: _pool, ...withoutPool } = gained;
+    expect(idsIn(withoutPool, CLUE_IDS)).toEqual([]);
+    for (const id of revealedPileCardsOf(gained, OPEN)) {
+      expect(isSealedPileCard(id)).toBe(true);
+      expect(gained.cardPool[id]).toBeUndefined();
+    }
+    const shown = use(t, REVEAL, gained).session.state;
+    expect(shown.hiddenPileSizes).toEqual({ [SEALED]: 0, [OPEN]: 4 });
+    expect([revealedCount(shown, SEALED), counters(shown, t, "opened")]).toEqual([3, 1]);
+    // A bind's count is a size: "if you gained one" resolves as it would (found 1, tried 1).
+    const one = use(t, GAIN_ONE, sealed).session.state;
+    expect([counters(one, t, "found"), counters(one, t, "tried"), pileCount(one, OPEN)]).toEqual([1, 1, 5]);
+    // The authority's state was not touched by any of it.
+    expect(pile(t.state, OPEN)).toHaveLength(6);
+  });
+
+  it("preparing the piles again on a sealed copy keeps them (the piles exist), as on the authority's state", () => {
+    const t = table();
+    const sealed = sealedOf(t.state);
+    const ctx = createCtx(sealed, deps);
+    dealHiddenPiles(ctx, deal as Extract<EffectSpec, { kind: "dealHiddenPiles" }>);
+    expect(ctx.state.hiddenPileSizes).toEqual({ [SEALED]: 3, [OPEN]: 6 });
+    expect("hiddenPiles" in ctx.state).toBe(false);
+    expect(ctx.events).toEqual([
+      {
+        type: "hiddenPilesDealt",
+        from: CLUES,
+        piles: [
+          { pile: SEALED, size: 3 },
+          { pile: OPEN, size: 6 },
+        ],
+        kept: true,
+      },
+    ]);
   });
 });
 

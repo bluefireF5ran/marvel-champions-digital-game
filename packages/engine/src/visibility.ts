@@ -71,6 +71,7 @@
 
 import type { CardId } from "@mc/content";
 import { withoutSealedFields } from "./campaign/log.js";
+import { hiddenPileOf, hiddenPileSizesOf } from "./hidden-pile-state.js";
 import { otherFaceVisible, standInOf } from "./hidden-reverse.js";
 import type { EngineDeps } from "./abilities.js";
 import { activeEncounterDeck, cardOf, getInstance, getPlayer, locateCard } from "./query.js";
@@ -267,21 +268,27 @@ export interface HiddenPileView {
  * p. 5, "without looking at them"), so there is no viewer to name. Empty in a game with no pile.
  */
 export const hiddenPileViews = (state: GameState): readonly HiddenPileView[] =>
-  Object.entries(state.hiddenPiles ?? {}).map(([pile, cardIds]) => ({ pile, size: cardIds.length }));
+  Object.entries(hiddenPileSizesOf(state)).map(([pile, size]) => ({ pile, size }));
 
 /**
  * A game state with the contents of its hidden piles taken out: `hiddenPiles` is absent and `hiddenPileSizes` says how
  * many cards each one holds. Everything else is the state as it is, `revealedPileCards` included.
+ *
+ * It has no `hiddenPiles` key in its type, so code that holds one cannot read a pile's cards, and it is assignable to
+ * `GameState` (the key is optional there), so it can be handed to every engine query, to `preview()` and to
+ * `applyCommand` as it is: they read a pile through `hidden-pile-state.ts`, which answers from the sizes.
  */
-export type SealedGameState = Omit<GameState, "hiddenPiles"> & {
-  readonly hiddenPileSizes?: Readonly<Record<string, number>>;
-};
+export type SealedGameState = Omit<GameState, "hiddenPiles">;
 
 /**
  * The state a player's view is built from, or that is sent to a client: the same game with no hidden pile's card in
  * it (docs/phase7-wave9.md §3.29 (a)). Not a state the engine can resume or replay from (the piles are gone): a save
  * is the full `GameState`, held by whoever is the game's authority. Returns the state itself when it has no pile, so a
- * game without one costs nothing.
+ * game without one costs nothing, and when it is already sealed (sealing twice is sealing once).
+ *
+ * A sealed state can still be asked the engine's questions and have a command previewed on it, with the result thrown
+ * away: a pile's size and whether it was prepared read the same as on the authority's state, and anything that would
+ * take a card out of a pile moves placeholders, which is where `preview()` stops (`hidden-pile-state.ts`).
  *
  * It closes the piles, and the sealed values of the campaign log the game was built from (the cards a campaign's
  * piles were seeded with), and nothing else. The cards of a deck or a hand are instances with a zone, and which of
@@ -293,7 +300,7 @@ export function sealHiddenPiles(state: GameState): SealedGameState {
   const { hiddenPiles, ...rest } = sealed;
   return {
     ...rest,
-    hiddenPileSizes: Object.fromEntries(Object.entries(hiddenPiles).map(([pile, cardIds]) => [pile, cardIds.length])),
+    hiddenPileSizes: hiddenPileSizesOf({ hiddenPiles }),
   };
 }
 
@@ -301,15 +308,14 @@ export function sealHiddenPiles(state: GameState): SealedGameState {
  * The state with the sealed values of its frozen campaign log emptied (`CampaignLogView.hidden`,
  * docs/phase7-wave9.md §3.75): each keeps its kind and says how many entries it held, and names none. The piles a
  * campaign game was seeded with came from there, so closing the piles alone would leave their cards readable in the
- * game's own campaign input. The state itself when it carries no sealed value.
+ * game's own campaign input. The state itself when it carries no sealed value, or only emptied ones.
  */
 function withoutSealedCampaignLog(state: GameState): GameState {
   const campaign = state.campaign;
   if (campaign?.log.hidden === undefined) return state;
-  return {
-    ...state,
-    campaign: { ...campaign, log: { ...campaign.log, hidden: withoutSealedFields(campaign.log.hidden) } },
-  };
+  const hidden = withoutSealedFields(campaign.log.hidden);
+  if (hidden === campaign.log.hidden) return state;
+  return { ...state, campaign: { ...campaign, log: { ...campaign.log, hidden } } };
 }
 
 /**
@@ -426,9 +432,13 @@ function renameIn(value: unknown, names: readonly Rename[]): unknown {
 /** A game state as a client or a wire copy may hold it: `sealHiddenPiles`, then `sealHiddenReverses`. */
 export const sealHiddenInformation = (state: GameState): SealedGameState => sealHiddenReverses(sealHiddenPiles(state));
 
-/** Every card id that is in a hidden pile right now: what no event a player reads, and no preview, may name. */
+/**
+ * Every card id that is in a hidden pile right now: what no event a player reads, and no preview, may name. On a
+ * sealed copy of the state, the placeholders its piles are read as (`hidden-pile-state.ts`), so a preview run on a
+ * client's copy stops at the same event the authority's would.
+ */
 export const hiddenPileCardIds = (state: GameState): ReadonlySet<CardId> =>
-  new Set(Object.values(state.hiddenPiles ?? {}).flat());
+  new Set(Object.keys(hiddenPileSizesOf(state)).flatMap((pile) => hiddenPileOf(state, pile)));
 
 /** What a card in play facedown is called when it has no trait to be called by. */
 const FACEDOWN_MINION_NAME = "Facedown minion";

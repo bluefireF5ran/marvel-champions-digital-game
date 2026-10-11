@@ -225,10 +225,22 @@ export function withoutSealedContents(value: LogValue): LogValue {
   }
 }
 
-/** A record of fields with every sealed value's contents taken out; the same object when none is sealed. */
+/**
+ * A record of fields with every sealed value's contents taken out; the same object when none is sealed, or when each
+ * sealed value is already empty (taking the contents out twice is taking them out once).
+ */
 export function withoutSealedFields(fields: Readonly<Record<string, LogValue>>): Readonly<Record<string, LogValue>> {
   if (!Object.values(fields).some((value) => value.sealed === true)) return fields;
-  return Object.fromEntries(Object.entries(fields).map(([field, value]) => [field, withoutSealedContents(value)]));
+  let changed = false;
+  const emptied = Object.fromEntries(
+    Object.entries(fields).map(([field, value]) => {
+      const without = withoutSealedContents(value);
+      if (without === value || JSON.stringify(without) === JSON.stringify(value)) return [field, value];
+      changed = true;
+      return [field, without];
+    }),
+  );
+  return changed ? emptied : fields;
 }
 
 /** The option strings a value names, for `mode: "strike"` and for appending to a list of names. */

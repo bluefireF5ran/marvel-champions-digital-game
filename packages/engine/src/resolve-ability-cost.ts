@@ -180,6 +180,7 @@ export const PROBE_FIELDS: { readonly [K in keyof Required<GameState>]: "game" |
   scenarioAreas: "game",
   scenarioPlayAreas: "game",
   hiddenPiles: "game",
+  hiddenPileSizes: "game",
   revealedPileCards: "game",
   accusation: "game",
   pod: "game",
