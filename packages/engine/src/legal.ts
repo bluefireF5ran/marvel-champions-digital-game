@@ -83,6 +83,7 @@ import { attachmentReachOf, formChangeCostsFor, playDestinationsOf, type FormCha
 import { formChangeCostSources } from "./form-change-cost.js";
 import {
   activeAbilityRefs,
+  uncontrolledYouOf,
   attackableAsMinion,
   cardsInPlay,
   controllerOf,
@@ -1197,6 +1198,69 @@ function actionAbilities(
   return found;
 }
 
+/** A "Forced Action" its player could trigger right now, with a command that does (`outstandingForcedActions`). */
+export interface OutstandingForcedAction {
+  readonly playerId: PlayerId;
+  readonly instanceId: InstanceId;
+  readonly abilityId: AbilityId;
+  /** A complete `useAbility` command the engine accepts for it on that player's turn: the smallest payment found. */
+  readonly example: Command & { readonly type: "useAbility" };
+}
+
+/** The option id of one forced action in a `chooseOption { forcedAction }` prompt. */
+export const forcedActionOptionId = (instanceId: InstanceId, abilityId: AbilityId): string =>
+  `forcedAction:${instanceId}:${abilityId}`;
+
+/**
+ * The player a card's "Forced Action" is put to (docs/phase7-wave9.md §3.53): its controller, else the "you" of a
+ * card nobody controls (the player whose card an encounter attachment is on, RRG 1.8 "Attachment", p. 8; the holder of
+ * an obligation, p. 30). A card that is nobody's in that sense (an encounter card in the villain's play area) may be
+ * triggered by any player and is put to the first player.
+ */
+const forcedActionPlayer = (state: GameState, id: InstanceId): PlayerId =>
+  controllerOf(state, id) ?? uncontrolledYouOf(state, id) ?? state.firstPlayerId;
+
+/**
+ * The "Forced Action" abilities `playerId` must still resolve before the player phase can end (RRG 1.8 "Action", p. 6;
+ * "Forced Action", p. 20; docs/phase7-wave9.md §3.53): those on cards in play that are theirs to trigger and that the
+ * `useAbility` command would accept from them on their turn, so the card is in play and its text box is not blank,
+ * the cost can be paid now and each target the ability requires exists (the two outs the RRG gives). An ability whose
+ * effect would change nothing is still outstanding (MC55 p. 22).
+ *
+ * A pure query over a state at any moment: it asks about the cards as they stand, as if it were that player's moment
+ * to act, so what is on the stack or which step the game is in does not matter. An eliminated player has none.
+ */
+export function outstandingForcedActions(
+  state: GameState,
+  playerId: PlayerId,
+  deps: EngineDeps = DEFAULT_DEPS,
+): readonly OutstandingForcedAction[] {
+  const player = getPlayer(state, playerId);
+  if (!player || player.eliminated || state.outcome) return [];
+  const candidates: { instanceId: InstanceId; abilityId: AbilityId }[] = [];
+  for (const id of cardsInPlay(state)) {
+    for (const ref of activeAbilityRefs(state, id, deps)) {
+      const trigger = deps.abilities[ref.id]?.trigger;
+      if (trigger?.kind !== "action" || trigger.forced !== true) continue;
+      if (forcedActionPlayer(state, id) !== playerId) continue;
+      candidates.push({ instanceId: id, abilityId: ref.id });
+    }
+  }
+  if (candidates.length === 0) return [];
+  // That player's moment to act: their turn, with nothing resolving and nothing asked.
+  const asTheirTurn: GameState = {
+    ...state,
+    stack: [],
+    pendingChoice: null,
+    step: { phase: "player", kind: "turn", activePlayerId: playerId, remainingPlayerIds: [] },
+  };
+  return candidates.flatMap(({ instanceId, abilityId }) => {
+    const evaluated = evaluateAbility(asTheirTurn, deps, playerId, instanceId, abilityId);
+    if (!("legal" in evaluated) || evaluated.legal.example.type !== "useAbility") return [];
+    return [{ playerId, instanceId, abilityId, example: evaluated.legal.example }];
+  });
+}
+
 const NO_PAYMENT: readonly (readonly Payment[])[] = [[]];
 
 /**
@@ -1254,6 +1318,8 @@ export function legalActions(state: GameState, playerId: PlayerId, deps: EngineD
     illegal: [],
   });
   if (step.phase !== "player" || step.kind !== "turn") return waiting(null);
+  // The turn has ended and the phase waits on a forced action (`GameStep turn.ended`): nothing is anyone's to take.
+  if (step.ended) return waiting(null);
   const player = getPlayer(state, playerId);
   if (!player || player.eliminated) return waiting(step.activePlayerId);
   const ownTurn = step.activePlayerId === playerId;

@@ -25,6 +25,8 @@ import { canHaveAttached, cannotBeUnattached } from "../rules.js";
 import { cardsInPlay, controllerOf, isFacedownAttachment } from "../select.js";
 import type { GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
+import { shuffle } from "../rng.js";
+import { sameFront } from "../hidden-reverse.js";
 
 /**
  * Whether `id` can be attached to `host` now: the host is in play and is not the card itself, the card is not one that
@@ -87,6 +89,43 @@ export function attachCard(ctx: Ctx, id: InstanceId, host: InstanceId, facedown 
   settleUpgradeControl(ctx, id, heldByHost ? ownerId : mustInstance(ctx.state, id).controllerId);
   hold(before.engagedWith);
   return true;
+}
+
+/**
+ * "(Players cannot look at the reverse sides)" (`EffectSpec attach.hideReverse`; docs/phase7-wave9.md §3.54; MC55
+ * p. 7): hides the other face of `id` and of every set-aside card with the same front (`sameFront`), until each flips.
+ * Before they are marked, the cards of the group are shuffled among themselves: each instance takes the card id of a
+ * random one of them (one shuffle on the game's seeded RNG), which is what dealing look-alike cards unseen does at the
+ * table, and is why an instance's id or place says nothing of its other face. They are otherwise indistinguishable (set
+ * aside, with nothing on them), so exchanging what each one is changes nothing a player could have seen.
+ *
+ * No-op for a card with one face, one already hidden (dealt from a group hidden earlier), or one already flipped.
+ */
+export function hideReverses(ctx: Ctx, id: InstanceId): void {
+  const instance = getInstance(ctx.state, id);
+  const card = cardOf(ctx.state, id);
+  if (!instance || !card || instance.reverseHidden || instance.flipped) return;
+  if (!("flipSide" in card) || card.flipSide === undefined) return;
+  const alike = (other: InstanceId): boolean => {
+    const otherCard = cardOf(ctx.state, other);
+    const otherInstance = getInstance(ctx.state, other);
+    return (
+      otherCard !== undefined && otherInstance !== undefined && !otherInstance.flipped && sameFront(card, otherCard)
+    );
+  };
+  // The card itself, wherever it is (set aside still, or in play already), and its look-alikes set aside.
+  const group = [id, ...ctx.state.encounterSetAside.filter((other) => other !== id && alike(other))];
+  const [cardIds, rng] = shuffle(
+    group.map((member) => mustInstance(ctx.state, member).cardId),
+    ctx.state.rng,
+  );
+  ctx.state = { ...ctx.state, rng };
+  group.forEach((member, index) => {
+    const cardId = cardIds[index];
+    if (cardId === undefined) return;
+    updateInstance(ctx, member, (i) => ({ ...i, cardId, reverseHidden: true }));
+  });
+  emit(ctx, { type: "reversesHidden", instanceIds: group });
 }
 
 /**

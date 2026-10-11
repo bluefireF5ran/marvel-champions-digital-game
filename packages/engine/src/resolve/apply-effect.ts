@@ -1,6 +1,7 @@
 /** Applying one non-interactive effect from an effects frame. */
 
 import { imminentAttach, imminentAttachHeard, resolveImminentAttach } from "./imminent-attach.js";
+import { placeCountersOrAnnounce } from "./counters-being-placed.js";
 import { announceDeckTops } from "../deck-top.js";
 import { discardTopOfEncounterDeck, encounterTopDiscardVars } from "../encounter-discard-cost.js";
 import type { CardId } from "@mc/content";
@@ -18,7 +19,6 @@ import {
 } from "../ctx.js";
 import {
   addAccelerationToken,
-  addCounters,
   addLastingEffect,
   applyLeavePatch,
   defeatFromPlay,
@@ -140,6 +140,7 @@ import {
   announcesAttaching,
   attachCardBy,
   canAttachTo,
+  hideReverses,
   releaseControlOfCaptive,
   settleUpgradeControl,
 } from "./attach.js";
@@ -1520,21 +1521,19 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "addCounters": {
       const amount = value(effect.amount);
       const upTo = effect.upTo === undefined ? null : value(effect.upTo);
-      let placed = 0;
-      const events: TriggerEvent[] = [];
-      for (const id of targets(effect.target)) {
+      const placements = targets(effect.target).map((id) => {
         // "(to a maximum of X)" is local to this effect (ruling, Mar 30, 2026 (1); docs/phase7-wave3.md §3.10).
         // An all-purpose counter takes the type its new card defines (docs/phase7-wave9.md §3.6).
         const counterType = landingCounterType(ctx.state, id, effect.counterType, ctx.deps);
         const held = getInstance(ctx.state, id)?.counters[counterType] ?? 0;
         const count = upTo === null ? amount : Math.max(0, Math.min(amount, upTo - held));
-        addCounters(ctx, id, counterType, count);
-        placed += Math.max(0, count);
-        // One announcement per placement, with the number placed (docs/phase7-wave6.md §3.2, §4.1 Q8).
-        if (count > 0) events.push(countersPlaced(id, counterType, count, frame.controllerId));
-      }
+        return { instanceId: id, counterType, count };
+      });
+      // Each is placed at once and announced, or waits for its "would be placed" window (docs/phase7-wave9.md §3.55);
+      // a placement that waits raises `<bind>.amount` itself if it lands.
+      const countOn = effect.bind ? { frameId: frame.frameId, name: `${effect.bind}.amount` } : undefined;
+      const placed = placeCountersOrAnnounce(ctx, placements, frame.controllerId, countOn);
       if (effect.bind) addFrameVars(ctx, frame.frameId, { [`${effect.bind}.amount`]: placed });
-      pushHeard(events);
       return;
     }
     case "defeat": {
@@ -1640,6 +1639,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const waiting: TriggerEvent[] = [];
       const attached = targets(effect.card)
         .flatMap((id) => {
+          // "(Players cannot look at the reverse sides)" (docs/phase7-wave9.md §3.54): hidden before it is attached,
+          // so a "would be attached" window that makes this attach wait holds a card that is already hidden.
+          if (effect.hideReverse) hideReverses(ctx, id);
           if (plain && getInstance(ctx.state, id)?.attachedTo !== host && canAttachTo(ctx.state, ctx.deps, id, host)) {
             const imminent = imminentAttach(id, host, context.controllerId ?? null, "ability", frame.selfInstanceId);
             if (waiting.length > 0 || imminentAttachHeard(ctx, imminent)) {
@@ -2225,7 +2227,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         if (card && "flipSide" in card && card.flipSide && !instance.facedownAs) {
           // A double-sided form card (a mass form upgrade): the change is a flip, unless the named face already shows.
           if (effect.toName !== undefined && currentName(ctx.state, target) === effect.toName) continue;
-          updateInstance(ctx, target, (i) => ({ ...i, flipped: !i.flipped }));
+          // A flip shows the other face: nothing of the card stays hidden (docs/phase7-wave9.md §3.54).
+          updateInstance(ctx, target, ({ reverseHidden: _shown, ...i }) => ({ ...i, flipped: !i.flipped }));
           emit(ctx, { type: "cardFlipped", instanceId: target, flipped: !instance.flipped });
           events.push(cardFlippedEvent(target, playerId));
         } else {

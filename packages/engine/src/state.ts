@@ -249,6 +249,14 @@ export interface CardInstance {
    */
   readonly flipped: boolean;
   /**
+   * No player may look at this double-sided card's other face ("players cannot look at the reverse sides", Prime Real
+   * Estate 1A; MC55 p. 7; docs/phase7-wave9.md §3.54). Set by `EffectSpec attach.hideReverse` on the card it attaches
+   * and on each set-aside card with the same front (`hideReverses`, `resolve/attach.ts`), and cleared the first time
+   * the card flips (`turnToFlipSide`). While it is set `otherFaceVisible` is false for every viewer, a wire copy of the
+   * state names a stand-in for the card (`sealHiddenReverses`) and `preview()` stops at the flip.
+   */
+  readonly reverseHidden?: true;
+  /**
    * A copy of a main scheme fixed at one stage, out of play: "Add this card / this scheme to the victory display" (The
    * Brotherhood Strikes! 1B and its stage 2Bs, `mut_gen` 32125b–32129b; `EffectSpec addMainSchemeStageToVictoryDisplay`,
    * docs/phase7-wave6.md §3.19). Its name, traits and keywords are that stage's. Absent on every other instance,
@@ -769,6 +777,12 @@ export type GameStep =
       readonly kind: "turn";
       readonly activePlayerId: PlayerId;
       readonly remainingPlayerIds: readonly PlayerId[];
+      /**
+       * The last player's turn has ended (`turnEnded` is logged) and the phase waits on a Forced Action that became
+       * outstanding after its player's turn (docs/phase7-wave9.md §3.53; RRG 1.8 "Action", p. 6). No command but the
+       * answer to the open choice is accepted; once no forced action is outstanding the end-of-phase steps begin.
+       */
+      readonly ended?: true;
     }
   | { readonly phase: "player"; readonly kind: "endPhaseDiscard"; readonly remainingPlayerIds: readonly PlayerId[] }
   | { readonly phase: "player"; readonly kind: "endPhaseDraw" }

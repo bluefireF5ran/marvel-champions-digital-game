@@ -1388,11 +1388,32 @@ export type GameEvent =
       readonly carried?: Readonly<Record<string, readonly InstanceId[]>>;
       readonly carriedVars?: Readonly<Record<string, number>>;
     }
+  /**
+   * The last player's turn ended while these "Forced Action" abilities could still be triggered (they became
+   * outstanding after their player's turn), so the player phase waits: each is put to its player, in player order,
+   * before the end-of-phase steps (docs/phase7-wave9.md §3.53; RRG 1.8 "Action", p. 6).
+   */
+  /**
+   * The other faces of these double-sided cards are hidden from every player until each flips (`EffectSpec
+   * attach.hideReverse`, `CardInstance.reverseHidden`; docs/phase7-wave9.md §3.54). They share one front and were
+   * shuffled among themselves first; the event names the instances and nothing of what each one is.
+   */
+  | { readonly type: "reversesHidden"; readonly instanceIds: readonly InstanceId[] }
+  | {
+      readonly type: "forcedActionsRequired";
+      readonly actions: readonly {
+        readonly playerId: PlayerId;
+        readonly instanceId: InstanceId;
+        readonly abilityId: AbilityId;
+      }[];
+    }
   | {
       readonly type: "abilityResolved";
       readonly instanceId: InstanceId;
       readonly abilityId: AbilityId;
       readonly controllerId: PlayerId | null;
+      /** The ability is a "Forced Action" (`AbilityTriggerSpec action.forced`; docs/phase7-wave9.md §3.53). */
+      readonly forced?: true;
       /**
        * On an ability `instanceId` gained from another card's rule (`RuleSpec grantsLabeledAbility`;
        * docs/phase7-wave9.md §3.3): the granting card, whose text the ability is. Absent on a card's own ability.

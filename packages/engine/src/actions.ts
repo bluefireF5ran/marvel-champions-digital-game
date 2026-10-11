@@ -1,5 +1,6 @@
 import { abilityId as asAbilityId, requirementResources, type AbilityId, type AnyCard } from "@mc/content";
 import { displayNameOf } from "./visibility.js";
+import { outstandingForcedActions } from "./legal.js";
 import {
   DEFAULT_DEPS,
   type AbilityCost,
@@ -264,11 +265,15 @@ function requireActivePlayer(state: GameState, playerId: PlayerId, command: Comm
   if (step.phase !== "player" || step.kind !== "turn") {
     return engineError("wrong_phase", `cannot act during ${step.phase}/${step.kind}`, command);
   }
+  if (step.ended) return engineError("wrong_phase", TURNS_ENDED_MESSAGE, command);
   if (step.activePlayerId !== playerId) {
     return engineError("not_active_player", `it is ${step.activePlayerId}'s turn`, command);
   }
   return null;
 }
+
+/** The last turn has ended and the phase waits on a forced action (`GameStep turn.ended`, docs/phase7-wave9.md §3.53). */
+const TURNS_ENDED_MESSAGE = "the player turns have ended; a Forced Action must be resolved before the phase ends";
 
 /**
  * The timing gate of an Action ability, on a card in play or as an Action event played from hand: the player's own
@@ -289,6 +294,7 @@ function requireActionTiming(state: GameState, playerId: PlayerId, command: Comm
   if (step.phase !== "player" || step.kind !== "turn") {
     return engineError("wrong_phase", `cannot act during ${step.phase}/${step.kind}`, command);
   }
+  if (step.ended) return engineError("wrong_phase", TURNS_ENDED_MESSAGE, command);
   if (step.activePlayerId === playerId) return null;
   const player = getPlayer(state, playerId);
   if (!player) return engineError("unknown_player", `${playerId} is not at this table`, command);
@@ -5114,8 +5120,15 @@ export function playIgnoringCost(
  * RRG "Action": triggered on a card you control or an encounter card, during your own turn or another player's
  * (`requireActionTiming`). This command triggers Action abilities and nothing else.
  */
-export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }): EngineError | null {
-  const invalid = requireActionTiming(ctx.state, command.playerId, command);
+/**
+ * A "Forced Action" its player answered the phase end's prompt for (`flow.ts` `requestLateForcedAction`,
+ * docs/phase7-wave9.md §3.53): triggered as `useAbility` triggers it, the turns being over.
+ */
+export const useLateForcedAction = (ctx: Ctx, command: Command & { type: "useAbility" }): EngineError | null =>
+  useAbility(ctx, command, false);
+
+export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, timed = true): EngineError | null {
+  const invalid = timed ? requireActionTiming(ctx.state, command.playerId, command) : null;
   if (invalid) return invalid;
   const instance = getInstance(ctx.state, command.cardInstanceId);
   if (!instance) return engineError("unknown_instance", `no instance ${command.cardInstanceId}`, command);
@@ -6081,6 +6094,16 @@ export function endTurn(ctx: Ctx, command: Command & { type: "endTurn" }): Engin
   const step = ctx.state.step;
   if (step.phase !== "player" || step.kind !== "turn") {
     return engineError("wrong_phase", "not in a player turn", command);
+  }
+  // RRG 1.8 "Action" (p. 6): "Each 'Forced Action' ability must be resolved before the player phase can end." The
+  // ending player resolves theirs before their own turn ends (docs/phase7-wave9.md §3.53).
+  const outstanding = outstandingForcedActions(ctx.state, command.playerId, ctx.deps);
+  if (outstanding.length > 0) {
+    const names = outstanding.map(({ instanceId }) => displayNameOf(ctx.state, instanceId)).join(", ");
+    return {
+      ...engineError("forced_action_outstanding", `resolve the Forced Action first: ${names}`, command),
+      forcedActions: outstanding.map(({ instanceId, abilityId }) => ({ instanceId, abilityId })),
+    };
   }
   // "When your turn ends" abilities get their windows; the turn ends when the event applies.
   const ending: TriggerEvent = { kind: "turnEnding", playerId: command.playerId };

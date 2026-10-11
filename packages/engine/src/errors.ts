@@ -1,6 +1,7 @@
 import type { Command } from "./commands.js";
 import type { DeckProblem } from "./deck.js";
-import type { PlayerId } from "./ids.js";
+import type { AbilityId } from "@mc/content";
+import type { InstanceId, PlayerId } from "./ids.js";
 
 export type EngineErrorCode =
   | "invalid_setup"
@@ -45,12 +46,19 @@ export type EngineErrorCode =
   | "card_type_not_playable"
   | "unknown_ability"
   | "limit_reached"
+  /**
+   * `endTurn` while the ending player has a "Forced Action" they could trigger (RRG 1.8 "Action", p. 6: it "must be
+   * resolved before the player phase can end"; docs/phase7-wave9.md §3.53). `EngineError.forcedActions` names them.
+   */
+  | "forced_action_outstanding"
   | "internal_error";
 
 export interface EngineError {
   readonly code: EngineErrorCode;
   readonly message: string;
   readonly command: Command | null;
+  /** Present only on `forced_action_outstanding`: the abilities the player must trigger first. */
+  readonly forcedActions?: readonly { readonly instanceId: InstanceId; readonly abilityId: AbilityId }[];
   /** Present only on `illegal_deck`: each illegal seat's problems, to render verbatim. */
   readonly illegalDecks?: readonly IllegalDeck[];
 }

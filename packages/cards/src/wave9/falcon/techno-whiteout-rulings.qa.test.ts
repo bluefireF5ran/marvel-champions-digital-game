@@ -675,13 +675,14 @@ describe("Encased in Ice (54035) with two players (RRG 1.8 'Attach To' p. 8, 'Mo
     expect(encounterDiscard(out.state)).toContain(e.id);
   });
 
-  it("each encased identity can attack only its own copy: the first player cannot attack the second player's ice, nor Rhino", () => {
+  // Another copy is no enemy (RRG "Enemy" p. 18), wherever it is attached: see the two-copies finding below.
+  it("an encased identity can attack its own copy and another player's copy (no enemy other than this card), not Rhino", () => {
     const base = table([SPIDER, HULK]);
     const hero1 = identityOf(base);
     const mine = encase(base, hero1);
     const theirs = encase(mine.state, identityOf(base, P2));
     expect(canAttack(theirs.state, hero1, mine.id)).toBe(true);
-    expect(canAttack(theirs.state, hero1, theirs.id)).toBe(false);
+    expect(canAttack(theirs.state, hero1, theirs.id)).toBe(true);
     expect(canAttack(theirs.state, hero1, villainOf(theirs.state))).toBe(false);
   });
 
@@ -833,9 +834,10 @@ describe("Encased in Ice (54035): two copies on one character (card text: 'canno
   // Blizzard attacks the same character more than once (the set holds two copies). Each copy forbids attacks on "enemies
   // other than this card". RRG "Enemy" p. 18: an enemy is a minion or villain; the other copy is an attachment attackable
   // "as if it were a minion", not an enemy, so by the printed words neither copy forbids attacking the other and the
-  // host may break either. The engine reads the other copy as an enemy for the prohibition (select.ts: a card attackable
-  // as a minion is an enemy to "cannot attack enemies"), so the host is locked out of both.
-  // FINDING (Techno/Whiteout 1): the host with two copies can attack neither (and so can never break them itself).
+  // host may break either.
+  // FINDING (Techno/Whiteout 1), fixed: the host with two copies used to be locked out of both, the engine reading the
+  // other copy as an enemy for the prohibition. A `cannotAttack` target is now matched against what the card is
+  // (select.ts `attackForbidden`), so the host may attack either copy and still no enemy.
   function twoCopies() {
     const base = table([HULK]);
     const hero = identityOf(base);
@@ -843,14 +845,10 @@ describe("Encased in Ice (54035): two copies on one character (card text: 'canno
     const b = encase(a.state, hero);
     return { state: b.state, hero, a: a.id, b: b.id };
   }
-  it.fails("the character with two copies can attack at least one of them (expected: either)", () => {
+  it("the character with two copies can attack either of them, and not Rhino", () => {
     const t = twoCopies();
-    expect(canAttack(t.state, t.hero, t.a) || canAttack(t.state, t.hero, t.b)).toBe(true);
-  });
-  it("pinned today: the character with two copies cannot attack either copy, nor Rhino", () => {
-    const t = twoCopies();
-    expect(canAttack(t.state, t.hero, t.a)).toBe(false);
-    expect(canAttack(t.state, t.hero, t.b)).toBe(false);
+    expect(canAttack(t.state, t.hero, t.a)).toBe(true);
+    expect(canAttack(t.state, t.hero, t.b)).toBe(true);
     expect(canAttack(t.state, t.hero, villainOf(t.state))).toBe(false);
   });
   it("another player's hero can still attack both copies (any player can attack the card)", () => {

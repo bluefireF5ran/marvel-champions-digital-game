@@ -110,7 +110,13 @@ export type ChoicePrompt =
    * when the rules give a choice of place (`EffectSpec playFromHand`): its option ids are `PLAY_TO_OWN_AREA` and
    * `playToAreaOption(area)`, each option's `ref` is the card being played, and its label says the place in words.
    */
-  | { readonly kind: "chooseOption" }
+  /**
+   * `forcedAction`: the phase cannot end until `playerId` resolves a "Forced Action" that became outstanding after
+   * their turn (docs/phase7-wave9.md §3.53). Each option is one such ability (`ref.kind === "ability"`, option id
+   * `forcedActionOptionId`); exactly one is chosen and it is triggered at once, its cost paid as `legalActions` would
+   * pay it. There is no declining. Absent on every other `chooseOption`.
+   */
+  | { readonly kind: "chooseOption"; readonly forcedAction?: true }
   | { readonly kind: "choosePlayer"; readonly slot: string }
   /**
    * `EffectSpec basicPowerBy` (docs/phase7-wave8.md §3.64): a card's effect has `playerId` make a basic attack or
