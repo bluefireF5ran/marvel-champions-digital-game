@@ -63,6 +63,8 @@ export interface ShieldNumber {
   readonly value: string;
   /** Where the number is read, in a few words ("Scenario #2 Setup"). */
   readonly usedIn: string;
+  /** The scenario (1-based) whose Setup reads it: once that one has been played, the number is spent. */
+  readonly usedInIssue: number;
 }
 
 export interface ShieldSeat {
@@ -121,6 +123,8 @@ export function shieldBriefingOf(
   record: LogSource,
   definition: Pick<CampaignDefinition, "logFields">,
   cardName: CardNameOf,
+  /** The scenario about to be played (1-based). A carried number whose Setup is already behind it is left off. */
+  upcomingIssue?: number,
 ): ShieldBriefing | null {
   if (!hasShieldLog(definition)) return null;
   const gained = cardsOf(record.shared[FIELDS.evidence]);
@@ -152,6 +156,7 @@ export function shieldBriefingOf(
       label: "Alert Level",
       value: `${minions} threat`,
       usedIn: "Scenario #2 Setup",
+      usedInIssue: 2,
     });
   const captives = numberOf(record.shared[FIELDS.captives]);
   if (captives !== null)
@@ -160,6 +165,7 @@ export function shieldBriefingOf(
       label: "Rescued Captives",
       value: String(captives),
       usedIn: "Scenario #3 Setup",
+      usedInIssue: 3,
     });
   const adaptoids = cardsOf(record.shared[FIELDS.adaptoids]);
   const thunderbolts = cardsOf(record.shared[FIELDS.thunderbolts]);
@@ -169,6 +175,7 @@ export function shieldBriefingOf(
       label: "Adaptoid environments",
       value: adaptoids.map((id) => cardName(id)).join(", "),
       usedIn: "Scenario #5 Setup",
+      usedInIssue: 5,
     });
   if (thunderbolts.length > 0)
     numbers.push({
@@ -176,6 +183,7 @@ export function shieldBriefingOf(
       label: "Surviving Thunderbolts",
       value: thunderbolts.map((id) => cardName(id)).join(", "),
       usedIn: "Scenario #5 Setup",
+      usedInIssue: 5,
     });
 
   const seats: ShieldSeat[] = record.modes.campaign?.expertCampaign
@@ -205,7 +213,7 @@ export function shieldBriefingOf(
     members: grid.members.map((member) => ({ name: member.name, open: member.open })),
     boardAfter: latest?.after ?? null,
     board,
-    numbers,
+    numbers: upcomingIssue === undefined ? numbers : numbers.filter((row) => row.usedInIssue >= upcomingIssue),
     seats,
     flipNote: record.modes.campaign?.expertCampaign
       ? `A Board Member flips at ${flip.expert} secrets (expert) and stays flipped.`

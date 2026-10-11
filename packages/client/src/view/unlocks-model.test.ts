@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_UNLOCK_PREFS,
   NO_PROGRESS,
+  UNLOCK_CAMPAIGNS,
   UNLOCK_HEROES,
+  UNLOCK_WAVES,
   Unlocks,
   unlockByHand,
   type UnlockPrefs,
@@ -30,6 +32,25 @@ const make = (prefs: UnlockPrefs = DEFAULT_UNLOCK_PREFS, wonScenarioIds: string[
   new Unlocks({ progress: { ...NO_PROGRESS, wonScenarioIds }, prefs });
 type SwitchRow = Extract<UnlockListRow, { kind: "hero" | "campaign" | "scenario" }>;
 const rowOf = (rows: readonly UnlockListRow[], id: string) => rows.find((r) => r.id === id) as SwitchRow;
+
+describe("campaign row hints", () => {
+  it("each volume's hint names its own box and the campaign that gates it, so a copied hint fails", () => {
+    const rows = unlockListRowsOf(make()).filter(
+      (row): row is Extract<UnlockListRow, { kind: "campaign" | "scenario" | "hero" }> => row.kind === "campaign",
+    );
+    expect(rows).toHaveLength(UNLOCK_CAMPAIGNS.length);
+    for (const row of rows) {
+      const campaign = UNLOCK_CAMPAIGNS.find((c) => `campaign:${c.campaignId}` === row.id)!;
+      const wave = UNLOCK_WAVES.find((w) => w.cycleId === campaign.cycleId)!;
+      const gate = wave.gate!;
+      expect(row.detail.endsWith(wave.campaignId === campaign.campaignId ? wave.name : campaign.name)).toBe(true);
+      expect(row.detail.startsWith(gate.hint)).toBe(true);
+      expect(row.title).toBe(`Vol. ${campaign.volume} · ${campaign.name}`);
+    }
+    const mojo = rows.find((row) => row.id === "campaign:mojo");
+    expect(mojo?.detail).toBe("Complete the Sinister Motives campaign to unlock MojoMania");
+  });
+});
 
 describe("unlockListRowsOf", () => {
   it("lists campaigns, then each wave with what opens it and its heroes", () => {

@@ -54,7 +54,7 @@ import type { DefeatFlashState, ExhaustMotionState, HpTickState, StatusStampStat
 import { dimAlpha, targetState } from "./selection.js";
 import { drawTeamUpBlurb, drawTeamUpRing } from "./team-up-badge.js";
 import { drawTuckedRow, type TuckedRowDrawn } from "./tucked-row.js";
-import { columnRings, ringDiameterFor } from "../../view/team-up-layout.js";
+import { panelRings, ringDiameterFor } from "../../view/team-up-layout.js";
 
 export interface DrawCharacterOptions {
   /**
@@ -266,7 +266,7 @@ export function drawCharacter(
   const abilityLine = controller.abilityLine(panel.instanceId);
   if (abilityLine) {
     // An ability name that does not fit one row wraps to a second line and the strip grows (never "SKIN CONT…").
-    const height = footStripLayout(abilityLine, textWidth).height;
+    const height = measuredFootStripHeight(scene, abilityLine, textWidth);
     drawFootStrip(scene, { x: left, y: top, width: textWidth, height }, abilityLine, "ability", dim);
     top += height + 4;
   }
@@ -409,8 +409,9 @@ export function drawCharacter(
   // Rings after the panel's tap target, so a click on one opens the Team-Up panel rather than the character.
   if (rings && seatBadges.length > 0) {
     const free: Rect = { x: left, y: top, width: textWidth, height: statBlock.top - 4 - top };
-    const slots = columnRings(
+    const slots = panelRings(
       free,
+      artColumn,
       seatBadges.map((badge) => `${badge.key}@${panel.instanceId}`),
       ringDiameterFor(rings.tabbed),
     );
@@ -1072,6 +1073,25 @@ function drawStatusTags(
 }
 
 type FootTone = "ability" | "note" | "damage" | "threat";
+
+/**
+ * The height a strip needs for `text`, measured with the real font rather than `footStripLayout`'s estimate: the estimate
+ * reserved two lines for "▶ EXHAUST YOUR IDENTITY" in Maria Hill's 103px column, the words did not fit two at the caption
+ * floor, and the strip ended in "EXHAUST YOUR…". Starts at the estimate and adds a line (up to three) until the wrapped
+ * text is whole.
+ */
+export function measuredFootStripHeight(scene: Phaser.Scene, text: string, width: number, tagWidth = 0): number {
+  const estimate = footStripLayout(text, width, tagWidth);
+  if (estimate.lines === 1) return estimate.height;
+  for (let lines = estimate.lines; lines <= 3; lines += 1) {
+    const probe = label(scene, -2000, -2000, text, typeRole.label, surface.paper.hex, 1);
+    fitWrapped(probe, width - 10 - tagWidth, lines, typeRole.label.size);
+    const whole = !probe.text.includes("\u2026");
+    probe.destroy();
+    if (whole) return FOOT_STRIP_HEIGHT + 12 * (lines - 1);
+  }
+  return FOOT_STRIP_HEIGHT + 12 * 2;
+}
 
 /**
  * One solid ink strip carrying a line the table needs read over card art: the

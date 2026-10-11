@@ -116,7 +116,7 @@ export function unlockListRowsOf(
     const state = switchStateOf(unlocks, unlocks.campaignEarned(campaign.campaignId), (u) =>
       u.prefs.campaignIds.includes(campaign.campaignId),
     );
-    const lock = unlocks.waveLock(campaign.cycleId);
+    const lock = unlocks.campaignHint(campaign.campaignId);
     rows.push({
       kind: "campaign",
       id: `campaign:${campaign.campaignId}`,

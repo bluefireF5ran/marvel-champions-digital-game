@@ -19,6 +19,7 @@
  * `AbilityReference.label`, `faceUpName`, or a field on `AbilityCost`.
  */
 
+import { cardTextDisplay } from "./card-text-display.js";
 import type { AbilityId } from "@mc/content";
 import {
   activeAbilityRefs,
@@ -80,7 +81,8 @@ export function abilityShortLabelOf(
   deps: EngineDeps,
 ): string | null {
   const printed = activeAbilityRefs(state, instanceId).find((ref) => ref.id === abilityId)?.label;
-  if (printed) return printed;
+  // The data keeps icons as bracket tokens ("[star] Gather Intel"); every surface draws the label verbatim.
+  if (printed) return cardTextDisplay(printed);
   const keyword = keywordAbilityLabel(abilityId);
   if (keyword) return keyword;
   // RRG "Special": a card's own printed sub-heading is literally the word "Special" (Invocation cards, Wakanda

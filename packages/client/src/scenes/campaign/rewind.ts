@@ -11,7 +11,7 @@ import Phaser from "phaser";
 import { issueNumberOf, issueStoryFor, storyFor, type ComicBeatRef, type ComicPage } from "../../campaign/story.js";
 import { CARDS_BY_ID } from "../../content/pool.js";
 import type { CampaignRecord } from "../../engine/campaign-storage.js";
-import { campaignService } from "../../session.js";
+import { appSession, campaignService } from "../../session.js";
 import { accent, dotGrid, ink, signal, surface, typeRole } from "../../tokens.js";
 import {
   campaignFrame,
@@ -138,6 +138,7 @@ export class CampaignRewindScene extends Phaser.Scene {
       goToScreen(this, SCENES.campaignSaga);
       return;
     }
+    appSession().music?.playInterlude(record.campaignId as string);
     this.#record = record;
     const definition = service.definitionFor(record);
     const nodeIds = definition.graph.nodes.map((node) => node.id);

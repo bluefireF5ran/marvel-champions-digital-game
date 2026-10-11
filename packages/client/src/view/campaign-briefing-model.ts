@@ -680,7 +680,7 @@ export function briefingViewOf(
     hiddenEvidence: definition ? hiddenEvidenceEnvelope(record, definition, cardName) : null,
     sideScheme: definition ? sideSchemeBriefingOf({ definition, record, cardName }) : null,
     missions: definition ? missionBriefingOf(record, definition) : null,
-    shield: definition ? shieldBriefingOf(record, definition, cardName) : null,
+    shield: definition ? shieldBriefingOf(record, definition, cardName, issueNumber) : null,
   };
 }
 

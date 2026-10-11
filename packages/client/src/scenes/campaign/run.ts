@@ -21,7 +21,7 @@ import { CARDS_BY_ID } from "../../content/pool.js";
 import { storyFor } from "../../campaign/story.js";
 import { ensurePictureLoaded } from "../../art/pictures.js";
 import { coverCropFavoringBeats } from "../../view/comic-crop.js";
-import { campaignService } from "../../session.js";
+import { appSession, campaignService } from "../../session.js";
 import { accent, hit, surface, typeRole } from "../../tokens.js";
 import { cssOf, textStyle } from "../../ui/theme.js";
 import {
@@ -127,6 +127,7 @@ export class CampaignRunScene extends Phaser.Scene {
       this.#draw();
       return;
     }
+    appSession().music?.playInterlude(record.campaignId as string);
     const definition = service.definitionFor(record);
     this.#campaignId = record.campaignId as string;
     this.#model = campaignRunModel(record, definition, storyFor(this.#campaignId), cardName);

@@ -104,7 +104,7 @@ import {
   addCommunityDeck,
   communityCredit,
   communityEntryOf,
-  communityMetaLine,
+  communityMetaCandidates,
   communityNotesOf,
   communityOfferMatches,
   communityOffers,
@@ -123,7 +123,7 @@ import {
   type CostCurveBar,
 } from "../view/deck-stats.js";
 import { deckStatusOf } from "../view/deck-status.js";
-import { cardTitleOf, deckAspectsText, deckMetaLine, SOURCE_LABEL } from "../view/deck-title.js";
+import { cardTitleOf, deckAspectsText, deckMetaCandidates, SOURCE_LABEL } from "../view/deck-title.js";
 import { decksLayout, type DecksTab } from "../view/decks-layout.js";
 import { poolCellRect, poolColumnAt, poolGridGeometry, type PoolGridGeometry } from "../view/deck-pool-grid.js";
 import {
@@ -1075,12 +1075,20 @@ export class DecksScene extends Phaser.Scene {
       caseOf(CARD_TITLE_TYPE, cardTitleOf(option)),
       textStyle(CARD_TITLE_TYPE, titleColor),
     );
-    // A long deck name wraps to a second line rather than shrinking to an ellipsis; a third line is cut (the full
-    // name is the detail header's). A short group-starting row drops one size step so two lines and the meta fit.
+    // A long deck name wraps to a second line rather than shrinking to an ellipsis; one that needs a third steps
+    // its type down. A short group-starting row drops one size step so two lines and the meta fit.
     name.setWordWrapWidth(textWidth, true);
     if (name.getWrappedText().length > 1 && card.height < 76) name.setFontSize(CARD_TITLE_TYPE.size - 4);
     const twoLineTitle = name.getWrappedText().length > 1;
-    clampLines(name, 2);
+    // A name that still needs a third line steps the type down until it fits two: never cut, never an ellipsis.
+    for (
+      let size = name.style.fontSize ? Number.parseFloat(String(name.style.fontSize)) : CARD_TITLE_TYPE.size;
+      size > 11;
+    ) {
+      if (name.getWrappedText().length <= 2) break;
+      size -= 1;
+      name.setFontSize(size);
+    }
     if (dim < 1) name.setAlpha(dim);
     objects.push(name);
     // A selected row's "Last played" record line gives way to a two-line title in a row too short for both: the
@@ -1089,17 +1097,17 @@ export class DecksScene extends Phaser.Scene {
     const showRecord = selected && !row.offer && !(twoLineTitle && card.height < 84);
     const metaTop = card.y + 8 + name.height + 3;
     const metaRoom = card.y + card.height - 6 - (showRecord ? 16 : 0) - metaTop;
+    // The fullest line that wraps into the room this row has; a long one gives up its tail, never mid-word letters.
+    const candidates = row.offer ? communityMetaCandidates(row.offer) : deckMetaCandidates(option, POOL_CARDS);
     const meta = this.add
-      .text(
-        textX,
-        metaTop,
-        row.offer ? communityMetaLine(row.offer) : deckMetaLine(option, POOL_CARDS),
-        textStyle(typeRole.emphasis, metaColor, metaAlpha),
-      )
+      .text(textX, metaTop, candidates[0]!, textStyle(typeRole.emphasis, metaColor, metaAlpha))
       .setWordWrapWidth(textWidth, true);
-    // Wrapped to two lines at a readable size; one on the selected card, whose record line sits below it.
     const lineHeight = Math.max(1, meta.height / Math.max(1, meta.getWrappedText().length));
-    clampLines(meta, Math.max(1, Math.min(showRecord ? 1 : 2, Math.floor(metaRoom / lineHeight))));
+    const allowed = Math.max(1, Math.min(showRecord ? 1 : 2, Math.floor(metaRoom / lineHeight)));
+    for (const candidate of candidates) {
+      meta.setText(candidate);
+      if (meta.getWrappedText().length <= allowed) break;
+    }
     objects.push(meta);
 
     // Only the *selected* row shows its record (D14's own placement, `#s14`: the "Last played · record" line sits
@@ -1872,6 +1880,7 @@ export class DecksScene extends Phaser.Scene {
 
     // The author's own write-up: how they play the deck. Long ones scroll.
     label(this, left, y, "From the author · how it plays", typeRole.label, surface.paper.hex, ink.label);
+    const notesHeadingY = y;
     y += 18;
     const notesBottom = linkRowY - 22 - 10;
     // Whole lines only, so the last one shown is never cut through.
@@ -1898,6 +1907,13 @@ export class DecksScene extends Phaser.Scene {
       lines.push(...probe.getWrappedText());
     }
     probe.destroy();
+    // A write-up longer than its pane scrolls; the cue sits at the heading's right edge so nothing reads as cut.
+    if (lines.length * NOTES_LINE_HEIGHT > notesHeight) {
+      label(this, left + column, notesHeadingY, "Scroll ▾", typeRole.label, surface.paper.hex, ink.body).setOrigin(
+        1,
+        0,
+      );
+    }
     this.#notesList = new McVirtualList(this, {
       rect: { x: left, y, width: column, height: notesHeight },
       rowHeight: NOTES_LINE_HEIGHT,

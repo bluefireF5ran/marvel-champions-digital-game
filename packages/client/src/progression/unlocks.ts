@@ -485,6 +485,19 @@ export class Unlocks {
     return this.#waves.get(cycleId)?.lockReason ?? null;
   }
 
+  /**
+   * Why a campaign box is closed, naming the box itself: a wave's second box (MojoMania, in Mutant Genesis' wave)
+   * opens with its wave, and says so in its own name rather than the wave's.
+   */
+  campaignHint(campaignId: string): string | null {
+    const wave = waveOfCampaign(campaignId);
+    if (!wave) return null;
+    const lock = this.waveLock(wave.cycleId);
+    if (!lock || !wave.gate) return lock;
+    const name = wave.campaignId === campaignId ? wave.name : campaignNameOf(campaignId);
+    return `${wave.gate.hint} to unlock ${name}`;
+  }
+
   /** Null when the scenario may be played: its wave is open, or it was opened on its own. */
   scenarioLock(scenario: Pick<Scenario, "id" | "packCode">): string | null {
     if (this.prefs.scenarioIds.includes(scenario.id as string)) return null;

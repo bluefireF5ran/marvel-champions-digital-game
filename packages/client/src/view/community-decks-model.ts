@@ -149,11 +149,21 @@ export function communityStatusText(offer: CommunityOffer): string {
  * row shows two lines at most and the hero is already the row's picture. A locked deck says what opens it instead.
  */
 export function communityMetaLine(offer: CommunityOffer): string {
+  return communityMetaCandidates(offer)[0]!;
+}
+
+/** `communityMetaLine` from fullest to shortest, for a row that takes the first that fits (see `deckMetaCandidates`). */
+export function communityMetaCandidates(offer: CommunityOffer): readonly string[] {
   const { entry } = offer;
   const aspects = entry.aspects.map(aspectName).join(" + ");
   const who = [entry.heroName, ...(aspects ? [aspects] : [])].join(" · ");
-  if (offer.lock) return `${communityCredit(entry)} · ${offer.lock}`;
-  return `${communityCredit(entry)} · ${communityStatusText(offer)}${offer.added ? " · in your decks" : ""} · ${who}`;
+  if (offer.lock) return [`${communityCredit(entry)} · ${offer.lock}`, offer.lock];
+  const status = communityStatusText(offer);
+  return [
+    `${communityCredit(entry)} · ${status}${offer.added ? " · in your decks" : ""} · ${who}`,
+    `${communityCredit(entry)} · ${status}`,
+    status,
+  ];
 }
 
 /**

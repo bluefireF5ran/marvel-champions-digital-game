@@ -181,3 +181,9 @@ export function splitSetAside(
   const piles = { ...encounter, height: Math.max(0, encounter.height - h - FOOTER_GAP) };
   return { encounter: piles, log, footer: { ...encounter, y: encounter.y + piles.height + FOOTER_GAP, height: h } };
 }
+
+/** A faceup top card's name with a leading article dropped when the full one does not fit the pile's strip ("The Trickster Tango" -> "Trickster Tango"). */
+export function shortPileName(name: string): string {
+  const trimmed = name.replace(/^(the|a|an)\s+/i, "");
+  return trimmed.length > 0 ? trimmed : name;
+}

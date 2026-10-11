@@ -89,12 +89,14 @@ export function compactCounterWidth(name: string): number {
  * A short tile: the name on a band across the top and, under it, the counters (`counters` are their names, at most
  * two are ever printed). The subtitle ("ENVIRONMENT" — the tile's shape already says so) and the "no counters"
  * caption are left out, so a 60px tile never overprints one line on another. Two counters sit side by side when
- * both names fit in half the tile, else one above the other, so a name is never cut short ("MADN...").
+ * both names fit in half the tile, else one above the other, so a name is never cut short ("MADN..."). A name that
+ * wraps to two lines asks for a taller band (`wantedTitleHeight`) and gets what the counters leave.
  */
 export function environmentCompactLayout(
   tile: Rect,
   counters: readonly string[],
   hasAbility: boolean,
+  wantedTitleHeight = 0,
 ): CompactEnvironmentLayout {
   const inner: Rect = {
     x: tile.x + COMPACT_PAD,
@@ -107,10 +109,14 @@ export function environmentCompactLayout(
   const stacked =
     names.length === 2 && names.some((name) => compactCounterWidth(name) > (inner.width - COMPACT_GAP) / 2);
   const rowsOfChips = stacked ? 2 : names.length > 0 ? 1 : 0;
-  const titleHeight =
-    rowsOfChips === 0
-      ? COMPACT_BAND
-      : Math.min(COMPACT_BAND, Math.max(COMPACT_TITLE_MIN, inner.height - rowsOfChips * (COMPACT_BAND + COMPACT_GAP)));
+  const chipsRoom = inner.height - rowsOfChips * (COMPACT_BAND + COMPACT_GAP);
+  const baseTitleHeight =
+    rowsOfChips === 0 ? COMPACT_BAND : Math.min(COMPACT_BAND, Math.max(COMPACT_TITLE_MIN, chipsRoom));
+  // A name that needs a second line ("Chief Surveillance Officer" on a 150px tile) takes the room the chips leave over.
+  const titleHeight = Math.max(
+    baseTitleHeight,
+    Math.min(wantedTitleHeight, rowsOfChips === 0 ? inner.height : chipsRoom),
+  );
   const title: Rect = { x: inner.x, y: inner.y, width: inner.width - tag, height: titleHeight };
   const ability: Rect | null = hasAbility
     ? { x: inner.x + inner.width - tag, y: inner.y, width: tag, height: titleHeight }

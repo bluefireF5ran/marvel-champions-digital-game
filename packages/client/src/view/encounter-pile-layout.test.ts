@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { PILE_MIN_HEIGHT, encounterPileSlots, pileChipsOf, shownTopChipsOf } from "./encounter-pile-layout.js";
+import {
+  PILE_MIN_HEIGHT,
+  encounterPileSlots,
+  pileChipsOf,
+  shortPileName,
+  shownTopChipsOf,
+} from "./encounter-pile-layout.js";
 
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a): boolean =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -78,5 +84,14 @@ describe("shownTopChipsOf", () => {
 
   test("a short tile has no room: it keeps the one strip", () => {
     expect(shownTopChipsOf({ ...box, height: 40 })).toBeNull();
+  });
+});
+
+describe("shortPileName", () => {
+  it("drops a leading article and nothing else", () => {
+    expect(shortPileName("The Trickster Tango")).toBe("Trickster Tango");
+    expect(shortPileName("A Hard Choice")).toBe("Hard Choice");
+    expect(shortPileName("Theft in Progress")).toBe("Theft in Progress");
+    expect(shortPileName("The")).toBe("The");
   });
 });

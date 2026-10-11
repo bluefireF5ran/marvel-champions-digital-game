@@ -13,6 +13,7 @@ import { SessionStore } from "../store/session-store.js";
 import type { SessionConfig } from "../engine/host.js";
 import { abilityLabelOf, abilityShortLabelOf, keywordAbilityLabel } from "./ability-label.js";
 import { faceUpName } from "./names.js";
+import { POOL_DEPS } from "../content/pool.js";
 
 const RHINO_SOLO: SessionConfig = {
   scenarioId: "rhino",
@@ -174,5 +175,28 @@ describe("keywordAbilityLabel", () => {
     expect(abilityShortLabelOf(state, identityId, abilityId("keyword:temporary"), CORE_DEPS)).toBe(
       "Temporary — discard at the end of the round",
     );
+  });
+});
+
+describe("an icon token in a printed label", () => {
+  test('Nick Fury\'s "[star] Gather Intel" reads with the star glyph, never the raw bracket token', async () => {
+    const furyStore = new SessionStore(new LocalEngineHost());
+    await furyStore.start({
+      scenarioId: "rhino",
+      difficulty: "standard",
+      players: [{ starterDeckId: "nick-fury-justice" }],
+      seed: 3,
+    });
+    const started = furyStore.state.game!;
+    // The label is a hero-side one: put the identity on that face so the lookup reads it.
+    const furyState: GameState = {
+      ...started,
+      players: started.players.map((p) => ({ ...p, identity: { ...p.identity, form: "hero" as const } })),
+    };
+    const player = furyState.players[0]!;
+    const ref = abilityId("50034a.star-gather-intel");
+    const label = abilityShortLabelOf(furyState, player.identity.instanceId, ref, POOL_DEPS);
+    expect(label).toBe("★ Gather Intel");
+    expect(abilityLabelOf(furyState, player.identity.instanceId, ref, POOL_DEPS)).not.toContain("[star]");
   });
 });

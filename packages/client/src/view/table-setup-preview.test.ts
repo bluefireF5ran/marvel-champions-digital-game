@@ -366,6 +366,13 @@ describe("the game you'll get: added sets and a random villain", () => {
     },
   );
 
+  test("God of Lies names a random Avatar of Loki, not the one card its data lists first", () => {
+    const { preview, rows } = summaryFor("god-of-lies", ["core-spider-man-justice"]);
+    expect(preview.villainIsRandom).toBe(true);
+    expect(rows[0]).toEqual({ label: "Villain", value: "Avatar of Loki · random" });
+    expect(JSON.stringify(rows)).not.toContain("Rascal");
+  });
+
   test("a fixed villain is unchanged", () => {
     const { preview } = summaryFor("rhino", ["core-spider-man-justice"]);
     expect(preview.villainIsRandom).toBe(false);

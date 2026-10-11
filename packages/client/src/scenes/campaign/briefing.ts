@@ -255,6 +255,7 @@ export class CampaignBriefingScene extends Phaser.Scene {
       goToScreen(this, SCENES.campaignDossier, { runId: record.id });
       return;
     }
+    appSession().music?.playInterlude(record.campaignId as string);
     this.#record = record;
     this.#story = issueStoryFor(record.campaignId, nodeId);
     const definition = service.definitionFor(record);

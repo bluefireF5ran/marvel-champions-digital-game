@@ -209,3 +209,17 @@ export function shelfSubtitleOf(detail: ScenarioDetail): string {
   if (detail.villainIsRandom) return `${detail.villainName} · random`;
   return detail.titledByScenario ? `${detail.villainName} · ${line}` : line;
 }
+
+/**
+ * A locked scenario tile's caption: the gate in few words, then the champion-point way in. "Complete the Age of
+ * Apocalypse campaign to unlock Agents of S.H.I.E.L.D." (the footer's full sentence) becomes "Finish Age of Apocalypse
+ * · or 100 pts"; it wraps on the tile, never cut.
+ */
+export function lockCaptionOf(lock: string, cost: number): string {
+  const gate = lock.split(" to unlock ")[0] ?? lock;
+  const short = gate
+    .replace(/^Complete (?:the |The )?/, "Finish ")
+    .replace(/ campaign$/, "")
+    .replace(/^Finish The /, "Finish ");
+  return `${short} · or ${cost} pts`;
+}

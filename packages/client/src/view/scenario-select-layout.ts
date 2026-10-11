@@ -66,6 +66,11 @@ export interface ScenarioSelectLayoutInput {
    * where the field is always drawn above the chips.
    */
   readonly searchOpen?: boolean;
+  /**
+   * The footer caption's height when it wraps (a lock reason is a sentence, longer than the 18px line). The CTA block
+   * and the shelves give up exactly that much. Defaults to one line (`FOOTER_HEIGHT`).
+   */
+  readonly footerHeight?: number;
 }
 
 export interface ScenarioSelectLayout {
@@ -159,7 +164,8 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
 
   const statStripRows: 1 | 2 = wide ? 1 : 2;
   const statStripHeight = STAT_STRIP_HEIGHT * statStripRows;
-  const ctaBlockHeight = hit.primary + 4 + FOOTER_HEIGHT;
+  const footerHeight = Math.max(FOOTER_HEIGHT, input.footerHeight ?? FOOTER_HEIGHT);
+  const ctaBlockHeight = hit.primary + 4 + footerHeight;
 
   if (wide) {
     const search: Rect = { x: left, y: bodyTop, width: shelvesWidth, height: hit.target };
@@ -183,7 +189,7 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
       width: detail.width - 32,
       height: hit.primary,
     };
-    const footer: Rect = { x: next.x, y: next.y + next.height + 4, width: next.width, height: FOOTER_HEIGHT };
+    const footer: Rect = { x: next.x, y: next.y + next.height + 4, width: next.width, height: footerHeight };
     return {
       formFactor,
       wide,
@@ -225,7 +231,7 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
   // of one scenario card. Open, the panel instead rises *over* the chips and shelves from that same bar, which
   // stays where it was at the sheet's foot, so opening and closing never moves the thing you tapped.
   const next: Rect = { x: left, y: bodyBottom - hit.primary, width: detailWidth, height: hit.primary };
-  const footer: Rect = { x: left, y: next.y - FOOTER_HEIGHT - 4, width: detailWidth, height: FOOTER_HEIGHT };
+  const footer: Rect = { x: left, y: next.y - footerHeight - 4, width: detailWidth, height: footerHeight };
   const bar: Rect = {
     x: left,
     y: footer.y - gap - DETAIL_COLLAPSED_HEIGHT,

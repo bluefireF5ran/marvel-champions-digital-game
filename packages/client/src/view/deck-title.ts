@@ -54,17 +54,28 @@ export function deckAspectsText(deck: Pick<Deck, "aspects">): string {
  * constant, so this stays testable against any pool.
  */
 export function deckMetaLine(option: DeckOption, pool: CardPool): string {
+  return deckMetaCandidates(option, pool)[0]!;
+}
+
+/**
+ * The meta line from fullest to shortest, each a whole sentence of its own: a row on a narrow screen takes the first
+ * that wraps into the room it has, so a long line gives up its tail (source, status, product) instead of being cut
+ * mid-word. The last is always short enough for any row ("43 cards").
+ */
+export function deckMetaCandidates(option: DeckOption, pool: CardPool): readonly string[] {
   const stats = deckStatsOf(option.deck, pool);
   const status = deckStatusOf(option).text.toLowerCase();
   const deck: Deck = option.deck;
+  const count = deckCountText(stats);
   if (deck.source.kind === "precon") {
     // The title already says hero and aspect; keep only what the printed name adds ("Core Set Starter Deck"),
     // so the count and legality always fit on the one line this reads on.
     const product = deck.name.includes("—") ? deck.name.slice(deck.name.indexOf("—") + 1).trim() : deck.name;
-    return `${product} · ${deckCountText(stats)} · ${status}`;
+    return [`${product} · ${count} · ${status}`, `${count} · ${status}`, count];
   }
   // A saved deck's own name never says its aspect (a precon's title does), so the line names hero and aspect(s).
   const aspects = deck.aspects.map(aspectName).join(" + ");
   const who = [option.identityName ?? "unknown identity", ...(aspects ? [aspects] : [])].join(" · ");
-  return `${who} · ${deckCountText(stats)} · ${status} · ${SOURCE_LABEL[deck.source.kind].toLowerCase()}`;
+  const source = SOURCE_LABEL[deck.source.kind].toLowerCase();
+  return [`${who} · ${count} · ${status} · ${source}`, `${who} · ${count} · ${status}`, `${who} · ${count}`, count];
 }

@@ -176,7 +176,7 @@ export const EXTRAS_TABS: readonly { readonly id: ExtrasTab; readonly label: str
   { id: "stories", label: "Stories", short: "Stories" },
   { id: "books", label: "Rulebooks", short: "Rules" },
   { id: "heroes", label: "Heroes", short: "Heroes" },
-  { id: "villains", label: "Villains", short: "Villains" },
+  { id: "villains", label: "Villains", short: "Foes" },
   { id: "art", label: "Artwork", short: "Art" },
   { id: "music", label: "Music", short: "Music" },
 ];

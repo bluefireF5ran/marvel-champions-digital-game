@@ -58,7 +58,7 @@ import {
   sourceStripPlacement,
   stripReserve,
 } from "../view/choice-source-panel-layout.js";
-import { drawInstructionSourcePanel, drawSourceCardPanel } from "../ui/source-card-panel.js";
+import { drawInstructionSourcePanel, drawSourceCardPanel, instructionStripHeight } from "../ui/source-card-panel.js";
 import { aosOptionLabelOf, secretTargetNotesOf, wrapOptionLabel } from "../view/board-secret-notes.js";
 import { optionLabelOf, seatIdentityName } from "../view/names.js";
 import { defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
@@ -420,7 +420,14 @@ export class ChoiceOverlay extends Phaser.Scene {
     const instruction = sourcePanel ? null : choiceInstructionOf(state.game, choice);
     const panelMode = sourcePanel || instruction ? sourcePanelModeFor(formFactor) : null;
     const railWidth = panelMode === "rail" ? railReserve(formFactor) : 0;
-    const extraHeight = panelMode === "strip" ? stripReserve(formFactor) : 0;
+    // The strip holds a setup instruction's whole rule, so it grows to the wrapped text (a card's stays the fixed strip).
+    const stripWidthGuess = Math.max(280, Math.min(width - guideRailWidth - 16, asCards ? 1040 : 560));
+    const extraHeight =
+      panelMode === "strip"
+        ? instruction
+          ? instructionStripHeight(this, instruction, stripWidthGuess, stripReserve(formFactor) - 10) + 10
+          : stripReserve(formFactor)
+        : 0;
 
     // The 70%-ink scrim — clear of the guide rail's own reserved width and the bottom guide strip's own height,
     // same reasoning as `#drawDefendChoice`'s own scrim.

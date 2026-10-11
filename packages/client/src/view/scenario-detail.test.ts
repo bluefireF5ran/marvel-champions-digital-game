@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { scenarioDetailLines, scenarioDetailOf, shelfSubtitleOf } from "./scenario-detail.js";
+import { scenarioDetailLines, scenarioDetailOf, shelfSubtitleOf, lockCaptionOf } from "./scenario-detail.js";
 import { CARDS_BY_ID, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
 
 const rhino = POOL_SCENARIOS.find((s) => (s.id as string) === "rhino")!;
@@ -157,5 +157,17 @@ describe("a scenario that opens against a random villain", () => {
 
   test("a fixed villain is not marked random", () => {
     expect(detail("rhino").villainIsRandom).toBe(false);
+  });
+});
+
+describe("lockCaptionOf", () => {
+  test("shortens a campaign gate and a scenario gate, keeping the points way in", () => {
+    expect(lockCaptionOf("Complete the Age of Apocalypse campaign to unlock Agents of S.H.I.E.L.D.", 100)).toBe(
+      "Finish Age of Apocalypse · or 100 pts",
+    );
+    expect(lockCaptionOf("Complete The Rise of Red Skull campaign to unlock The Galaxy's Most Wanted", 50)).toBe(
+      "Finish Rise of Red Skull · or 50 pts",
+    );
+    expect(lockCaptionOf("Beat Rhino to unlock The Rise of Red Skull", 30)).toBe("Beat Rhino · or 30 pts");
   });
 });

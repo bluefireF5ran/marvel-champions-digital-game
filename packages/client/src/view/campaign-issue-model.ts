@@ -10,7 +10,7 @@
 import type { CampaignDefinition, CampaignHistoryEntry, CampaignLog } from "@mc/engine";
 import { issueNumberOf, issueStoryFor, type CampaignStory } from "../campaign/story.js";
 import { renderLogValue, type CardNameOf } from "./campaign-log-model.js";
-import { FIELD_SHORT_LABEL, fieldIdWords, pluralizeFieldWord, signedCount } from "./campaign-run-model.js";
+import { FIELD_SHORT_LABEL, deltaWords, fieldIdWords, pluralizeFieldWord } from "./campaign-run-model.js";
 import { plainWriteRows } from "./campaign-write-words.js";
 import { resolvedWritesOf, unlistedFieldIds } from "./campaign-log-deltas.js";
 
@@ -131,7 +131,7 @@ function writeRowsOf(
       value.kind === "flag"
         ? fieldLabel(field)
         : value.kind === "number"
-          ? `${signedCount(value.value)} ${pluralizeFieldWord(fieldLabel(field), field, value.value)}`
+          ? deltaWords(field, value.value, pluralizeFieldWord(fieldLabel(field), field, value.value))
           : value.kind === "cardList"
             ? `+ ${value.cardIds.map((id) => cardName(id)).join(", ")}`
             : `${renderLogValue(value, cardName)} ${fieldLabel(field)}`;

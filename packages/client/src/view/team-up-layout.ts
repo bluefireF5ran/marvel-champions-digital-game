@@ -77,6 +77,32 @@ export function columnRings(free: Rect, keys: readonly string[], diameter: numbe
 }
 
 /**
+ * Where an identity panel's rings go: `columnRings` when the text column's free gap is tall enough for one, else (an
+ * identity with three chips, whose gap is closed) over the card's own picture, at the art column's right edge just above
+ * the printed text box (the scan's lower body, clear of the face). That part of a scan is illustration; the printed text box starts lower and the live stat badges, HP
+ * plate and attachment chips are all in the text column, so nothing a player reads is covered at any chip count.
+ */
+export function panelRings(
+  free: Rect,
+  art: Rect | null,
+  keys: readonly string[],
+  diameter: number,
+): readonly BadgeSlot[] {
+  if (free.height >= MIN_RING || !art) return columnRings(free, keys, diameter);
+  const d = Math.max(MIN_RING, Math.min(diameter, 44, Math.floor(art.width * 0.4)));
+  const radius = d / 2;
+  // Side by side, leftward from the right edge, and never into the printed stat badges down the scan's left side.
+  const fit = Math.max(1, Math.floor((art.width * 0.7) / (d + RING_GAP)));
+  const shown = keys.slice(0, Math.min(MAX_RINGS_PER_PANEL, fit));
+  return shown.map((key, index) => ({
+    key,
+    cx: art.x + art.width - radius - 6 - index * (d + RING_GAP),
+    cy: art.y + art.height * 0.57 - radius,
+    radius,
+  }));
+}
+
+/**
  * A row under "Other heroes" with rings beside it: the row gives up the width to its right, one ring slot per key,
  * each centered vertically on the row and never larger than the row is tall.
  */

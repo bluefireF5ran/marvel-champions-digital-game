@@ -16,11 +16,12 @@ import { artFor } from "../art/art-source.js";
 import { cardArt } from "../art/card-art.js";
 import { dotGrid, ink, surface, typeRole } from "../tokens.js";
 import { cssOf, textStyle } from "../ui/theme.js";
-import { McButton, McTextInput, fitText, label, paintDotGrid } from "../ui/widgets.js";
+import { CAPTION_FLOOR, McButton, McTextInput, fitText, label, paintDotGrid } from "../ui/widgets.js";
 import { McShelfRoster } from "../ui/shelf-roster.js";
 import { McVirtualList } from "../ui/virtual-list.js";
 import {
   encounterSetsCellText,
+  lockCaptionOf,
   scenarioDetailOf,
   shelfSubtitleOf,
   type ScenarioDetail,
@@ -33,7 +34,12 @@ import { ALL_PACKS, drillIntoPack, drillOut, type ShelfDrillState } from "../vie
 import { resultsHistoryOf, type ScenarioRecord } from "../view/results-history.js";
 import { setScenario, setScenarioFilter, clearScenarioFilter, type SetupDraft } from "../view/setup-draft.js";
 import { scenarioSelectFocusOrder } from "../view/screen-focus.js";
-import { DETAIL_COLLAPSED_HEIGHT, scenarioSelectLayout, detailPanelWidthFor } from "../view/scenario-select-layout.js";
+import {
+  DETAIL_COLLAPSED_HEIGHT,
+  FOOTER_HEIGHT,
+  scenarioSelectLayout,
+  detailPanelWidthFor,
+} from "../view/scenario-select-layout.js";
 import { estimateWrappedLines, type Rect } from "../view/layout.js";
 import { ListScroll } from "../view/list-scroll.js";
 import { appSession } from "../session.js";
@@ -231,8 +237,12 @@ export class ScenarioSelectScene extends Phaser.Scene {
     // against the full viewport width for the first estimate under-counted the rows (the column is at least two
     // gutters narrower, 300px+ on wide) and drew the extra row straight through the first shelf's header
     // (2026-09-19 phone check: "The Wrecking Crew" sat on top of "CORE SET").
+    // A lock reason is a sentence: it wraps in the footer, and the layout gives the footer the height it measures.
+    const lock = unlocks().scenarioLock(currentScenario);
+    let footerHeight = FOOTER_HEIGHT;
     const layoutFor = (chipRowCount: number): ReturnType<typeof scenarioSelectLayout> =>
       scenarioSelectLayout({
+        footerHeight,
         width,
         height,
         chipRows: chipRowCount,
@@ -243,7 +253,14 @@ export class ScenarioSelectScene extends Phaser.Scene {
     const estimatedRows = packCompactChipsToRows(chipDefs, width).length;
     const firstPass = layoutFor(estimatedRows);
     const chipRows = packCompactChipsToRows(chipDefs, firstPass.chips.width);
-    const layout = chipRows.length === estimatedRows ? firstPass : layoutFor(chipRows.length);
+    let layout = chipRows.length === estimatedRows ? firstPass : layoutFor(chipRows.length);
+    if (lock) {
+      const probe = label(this, 0, 0, lock, typeRole.label, surface.paper.hex, 1);
+      probe.setWordWrapWidth(layout.footer.width);
+      footerHeight = Math.ceil(probe.height);
+      probe.destroy();
+      if (footerHeight > FOOTER_HEIGHT) layout = layoutFor(chipRows.length);
+    }
 
     // Ground: paper body under a full-width ink header bar (docs/design-renders/ScreensDesktop_01-02.png).
     this.add.rectangle(0, 0, width, height, surface.paper.hex).setOrigin(0, 0);
@@ -395,7 +412,6 @@ export class ScenarioSelectScene extends Phaser.Scene {
     // the draft's current difficulty, dim otherwise), the played record, and the CTA pinned at the foot.
     this.#drawSidePanel(layout, detail, detailTextWidth);
 
-    const lock = unlocks().scenarioLock(currentScenario);
     // Locked, the CTA becomes the door to unlocking this one scenario with champion points, right here.
     const unlockTarget = { kind: "scenario", scenarioId: currentScenario.id as string } as const;
     const next = (): void => {
@@ -423,10 +439,11 @@ export class ScenarioSelectScene extends Phaser.Scene {
       layout.footer.y,
       lock ?? "Step 1 of 4 · scenario",
       typeRole.label,
-      surface.paper.hex,
+      // On the dark detail panel (wide) the caption is paper; on a phone it sits on the page's own ground.
+      layout.wide ? surface.paper.hex : surface.ink.hex,
       lock ? 1 : ink.label,
     );
-    if (lock) fitText(footer, layout.footer.width, typeRole.label.size);
+    if (lock) footer.setWordWrapWidth(layout.footer.width);
 
     this.#route?.set(
       scenarioSelectFocusOrder({
@@ -553,7 +570,8 @@ export class ScenarioSelectScene extends Phaser.Scene {
       title: cardDetail.tileTitle,
       subtitle,
       blockedBy: lock,
-      warning: lock ? `${lock} · or ${unlockCostOf({ kind: "scenario", scenarioId: s.id as string })} pts` : null,
+      warning: lock ? lockCaptionOf(lock, unlockCostOf({ kind: "scenario", scenarioId: s.id as string })) : null,
+      subtitleLines: 2,
       tag: lock ? "LOCKED" : selected ? "SELECTED" : null,
       selected,
     });
@@ -611,8 +629,14 @@ export class ScenarioSelectScene extends Phaser.Scene {
       if (row > 0) g.lineStyle(2, surface.ink.hex, 1).lineBetween(x, y, x + cellWidth, y);
       label(this, x + 12, y + 8, cell.label, typeRole.label, surface.ink.hex, ink.label);
       const value = this.add.text(x + 12, y + 22, cell.value, textStyle(typeRole.sectionHeader, surface.ink.hex));
-      value.setFontSize(Math.min(typeRole.sectionHeader.size, 16));
-      fitText(value, cellWidth - 20, Math.min(typeRole.sectionHeader.size, 16));
+      // One line at full size when it fits; else it wraps to the lines the cell has room for, stepping the type down
+      // until it does. Never cut with an ellipsis.
+      const room = rect.y + (row + 1) * rowHeight - 4 - value.y;
+      value.setWordWrapWidth(cellWidth - 20);
+      for (let size = Math.min(typeRole.sectionHeader.size, 16); size >= CAPTION_FLOOR; size--) {
+        value.setFontSize(size);
+        if (value.getWrappedText().length === 1 || value.height <= room) break;
+      }
     });
   }
 

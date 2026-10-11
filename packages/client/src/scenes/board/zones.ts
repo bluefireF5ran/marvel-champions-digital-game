@@ -38,7 +38,14 @@ import { missionSlots, neutralRow, neutralStack } from "../../view/mission-area-
 import type { ReferenceCardView } from "../../view/reference-cards.js";
 import { compactVillainNote, counterNote, type ScenarioPlayAreaPanel } from "../../view/board-model.js";
 import { FOOT_STRIP_HEIGHT, footStripLayout } from "../../view/foot-strip-layout.js";
-import { inactiveKeywordNote } from "../../view/keyword-tags.js";
+import {
+  CHIP_GAP,
+  CHIP_MAX_LINES,
+  CHIP_PAD,
+  CHIP_TEXT_PAD,
+  settleChipRoom,
+  engagedChipRows,
+} from "../../view/engaged-chips.js";
 import {
   ENVIRONMENT_MIN_WIDTH,
   type CompactEnvironmentLayout,
@@ -51,7 +58,13 @@ import {
 import { POOL_DEPS } from "../../content/pool.js";
 import { otherSeatAbilityCards, type OtherSeatAbilityCard } from "../../view/other-seat-abilities.js";
 import { seatLineOffsets, teamLayout, type TeamLayout } from "../../view/team-layout.js";
-import { encounterPileSlots, pileChipsOf, setAsideLines, shownTopChipsOf } from "../../view/encounter-pile-layout.js";
+import {
+  encounterPileSlots,
+  pileChipsOf,
+  setAsideLines,
+  shortPileName,
+  shownTopChipsOf,
+} from "../../view/encounter-pile-layout.js";
 import { bandHeightWithMinions, MINION_ROW_MIN_HEIGHT } from "../../view/enemies-band.js";
 import { pileKey, type BoardDrawContext } from "./context.js";
 import { drawPile } from "./piles.js";
@@ -83,13 +96,28 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
   const minionOptions = (minion: CharacterPanel): DrawCharacterOptions => ({
     onTagDropped: (tag) => dropped.set(minion.instanceId, tag),
   });
-  const minionTop = villainAreaBottom + 8;
+  // Chips hang above their tiles ("held", "guard off", "vs Spider-Man"), so a row that carries any reserves the room
+  // for the tallest stack: it is measured on the tile width the row would have without it, then laid out below it.
+  const roughArea: Rect = {
+    x: rect.x + 10,
+    y: villainAreaBottom + 8,
+    width: rect.width - 20,
+    height: Math.max(0, rect.y + rect.height - villainAreaBottom - 18),
+  };
+  const tileWidthAt = (rowHeight: number): number =>
+    model.minions.length > 0 && rowHeight > 40
+      ? (cardRow({ ...roughArea, height: rowHeight }, model.minions.length, { gap: 8, maxHeight: rowHeight })[0]
+          ?.width ?? 80)
+      : 80;
+  const { room: chipRoom, maxRows: chipRows } = settleChipRoom(model.minions, roughArea.height, tileWidthAt);
+  const minionTop = villainAreaBottom + Math.max(8, chipRoom);
   const minionArea: Rect = {
     x: rect.x + 10,
     y: minionTop,
     width: rect.width - 20,
     height: Math.max(0, rect.y + rect.height - minionTop - 10),
   };
+  if (beside) beside = { ...beside, y: beside.y + chipRoom, height: Math.max(0, beside.height - chipRoom) };
   if (beside && model.minions.length > 0) {
     // Beside the villain only when that gives bigger cards than the sliver under it (many minions crowd the narrow
     // space beside it, and the row under the villain is the full width).
@@ -100,7 +128,7 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
       model.minions.forEach((minion, index) => drawCharacter(ctx, sideSlots[index]!, minion, minionOptions(minion)));
       // After every tile, so a chip wider than its own tile is never covered by the next one.
       model.minions.forEach((minion, index) =>
-        drawEngagedChip(ctx, sideSlots[index]!, minion, dropped.get(minion.instanceId)),
+        drawEngagedChip(ctx, sideSlots[index]!, minion, dropped.get(minion.instanceId), chipRows),
       );
       return;
     }
@@ -109,7 +137,7 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
     const slots = cardRow(minionArea, model.minions.length, { gap: 8, maxHeight: minionArea.height });
     model.minions.forEach((minion, index) => drawCharacter(ctx, slots[index]!, minion, minionOptions(minion)));
     model.minions.forEach((minion, index) =>
-      drawEngagedChip(ctx, slots[index]!, minion, dropped.get(minion.instanceId)),
+      drawEngagedChip(ctx, slots[index]!, minion, dropped.get(minion.instanceId), chipRows),
     );
   }
 }
@@ -118,41 +146,62 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
  * "VS SPIDER-MAN": who a minion is engaged with, hung over its top edge, drawn only when more than one seat plays
  * (`CharacterPanel.engagedName` is null otherwise). Words on ink, never a seat color alone.
  */
-function drawEngagedChip(ctx: BoardDrawContext, rect: Rect, minion: CharacterPanel, tag?: string): void {
+function drawEngagedChip(
+  ctx: BoardDrawContext,
+  rect: Rect,
+  minion: CharacterPanel,
+  tag?: string,
+  maxRows = Infinity,
+): void {
   // A character a card holds (Thunderbolt Backup's minion, M.O.D.O.K.'s hostage) is engaged with nobody. Its chip says
-  // "held" or "captive" and stays inside its own tile, so it is never mistaken for the neighbor's; the holder's name is
-  // in Inspect. The caution bar the board uses for "something is under or on this" marks it, never color alone.
-  const held = minion.heldBy;
-  const words = held ? held.kind : minion.engagedName;
+  // "held" or "captive" and stays inside its own tile's width, so it is never mistaken for the neighbor's; the holder's
+  // name is in Inspect. The caution bar the board uses for "something is under or on this" marks it, never color alone.
   // More rows when a tile has no room for them under its art: a keyword that is off while held ("guard off", dimmed),
-  // and the keyword tag the stat badges left no strip for ("villainous", on a hero in play as a minion).
-  const offNote = held ? inactiveKeywordNote(minion.inactiveKeywords) : null;
-  const rows: { readonly words: string; readonly alpha: number; readonly bounded: boolean; readonly bar: number }[] = [
-    ...(words ? [{ words: held ? words : `vs ${words}`, alpha: 1, bounded: held !== null, bar: held ? 4 : 0 }] : []),
-    ...(offNote ? [{ words: offNote, alpha: ink.meta + 0.3, bounded: true, bar: 4 }] : []),
-    ...(tag ? [{ words: tag, alpha: 1, bounded: true, bar: 0 }] : []),
+  // and the keyword tag the stat badges left no strip for ("villainous", on a hero in play as a minion). The whole stack
+  // sits above the tile (`view/engaged-chips.ts`: the row reserved the headroom), and a bounded row wraps, never cut.
+  // The keyword tag is one word or two ("villainous"): it may be wider than a small tile, centered over it, rather
+  // than broken or cut.
+  // With the stack held to its primary chip (a short zone), the keyword tag only rides on a tile that has no chip of its
+  // own: a second row would run past the headroom the row reserved.
+  const own = engagedChipRows(minion, maxRows);
+  const keepsTag = maxRows === Infinity || own.length < maxRows;
+  const rows = [
+    ...own.map((row, index) => ({ ...row, alpha: index === 0 ? 1 : ink.meta + 0.3 })),
+    ...(tag && keepsTag ? [{ words: tag, bounded: false, bar: 0, alpha: 1 }] : []),
   ];
   const { scene } = ctx;
-  rows.forEach((row, index) => {
+  let bottom = rect.y - CHIP_GAP;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
     const text = label(scene, 0, 0, row.words, typeRole.label, surface.paper.hex, row.alpha);
     // A small tile gets an engaged chip wider than itself (centered over it) rather than a clipped name; the rows that
     // say something about this tile never leave it.
-    fitTight(text, row.bounded ? rect.width - 12 - row.bar : Math.max(88, rect.width - 14), typeRole.label.size);
-    const width = Math.ceil(text.width) + (row.bounded ? 8 : 10) + row.bar;
+    const room = row.bounded ? rect.width - 4 - row.bar - CHIP_TEXT_PAD : Math.max(88, rect.width - 14);
+    // A bounded row stays on one line when it fits whole once the font has stepped down and the tracking is off; only
+    // then does it wrap onto a second line (`chipLinesFor` reserved the same).
+    const whole = text.text;
+    fitTight(text, room, typeRole.label.size);
+    if (row.bounded && text.text !== whole) {
+      text.setText(whole).setLetterSpacing(typeRole.label.letterSpacing).setFontSize(typeRole.label.size);
+      fitWrapped(text, room, CHIP_MAX_LINES, typeRole.label.size);
+    }
+    const height = Math.ceil(text.height) + CHIP_PAD;
+    const width = row.bounded ? rect.width - 4 : Math.ceil(text.width) + 10;
     const chip: Rect = {
       x: rect.x + (row.bounded ? 2 : Math.min(2, (rect.width - width) / 2)),
-      y: rect.y - 9 - (rows.length - 1 - index) * 15,
+      y: bottom - height,
       width,
-      height: 15,
+      height,
     };
+    bottom = chip.y - CHIP_GAP;
     const g = scene.add.graphics();
     g.fillStyle(surface.ink.hex, 1).fillRect(chip.x, chip.y, chip.width, chip.height);
     g.lineStyle(1, surface.paper.hex, 0.6).strokeRect(chip.x, chip.y, chip.width, chip.height);
     if (row.bar > 0) g.fillStyle(signal.caution.hex, row.alpha).fillRect(chip.x, chip.y, row.bar, chip.height);
     // The chip's own fill goes under its text: the text was created first, so it is raised above the fill.
     scene.children.bringToTop(text);
-    text.setPosition(chip.x + (row.bounded ? 4 : 5) + row.bar, chip.y + (chip.height - text.height) / 2);
-  });
+    text.setPosition(chip.x + CHIP_TEXT_PAD / 2 + row.bar, chip.y + (chip.height - text.height) / 2);
+  }
 }
 
 /** The room a minion row needs under the villain band before the band is allowed to grow into it. */
@@ -501,7 +550,7 @@ function drawEnvironment(ctx: BoardDrawContext, rect: Rect, environment: Environ
   };
   if (drawn) {
     const wash = scene.add.graphics();
-    wash.fillStyle(surface.ink.hex, 0.78 * dim).fillRect(titleBox.x, titleBox.y, titleBox.width, titleBox.height);
+    wash.fillStyle(surface.ink.hex, dim).fillRect(titleBox.x, titleBox.y, titleBox.width, titleBox.height);
     scene.children.bringToTop(nameText);
   }
   label(
@@ -639,29 +688,28 @@ function drawCompactEnvironmentText(
 ): CompactEnvironmentLayout {
   const { scene } = ctx;
   const hasAbility = ctx.controller.abilityLine(environment.instanceId) !== null;
-  const layout = environmentCompactLayout(
-    rect,
-    environment.counters.map((counter) => counter.name),
-    hasAbility,
-  );
+  const counterNames = environment.counters.map((counter) => counter.name);
+  let layout = environmentCompactLayout(rect, counterNames, hasAbility);
   const onArt = drawn ? surface.paper.hex : surface.ink.hex;
+  // The name wraps onto a second line (the font stepping down first) and the band grows to hold it, never "Chief
+  // Surveillance Of…"; only what the counters leave is available to it.
+  const name = scene.add
+    .text(layout.title.x + 6, layout.title.y, environment.name, textStyle(typeRole.rowTitle, onArt, dim))
+    .setOrigin(0, 0);
+  fitWrapped(name, layout.title.width - 12, 2, typeRole.rowTitle.size);
+  const wanted = Math.ceil(name.height) + 4;
+  if (wanted > layout.title.height) layout = environmentCompactLayout(rect, counterNames, hasAbility, wanted);
+  if (name.height + 4 > layout.title.height) fitWrapped(name, layout.title.width - 12, 1, typeRole.rowTitle.size);
+  name.setPosition(layout.title.x + 6, layout.title.y + Math.max(0, (layout.title.height - name.height) / 2));
   const bg = scene.add.graphics();
   if (drawn)
-    bg.fillStyle(surface.ink.hex, 0.85 * dim).fillRect(
+    bg.fillStyle(surface.ink.hex, dim).fillRect(
       layout.title.x,
       layout.title.y,
       layout.title.width,
       layout.title.height,
     );
-  const name = scene.add
-    .text(
-      layout.title.x + 6,
-      layout.title.y + layout.title.height / 2,
-      environment.name,
-      textStyle(typeRole.rowTitle, onArt, dim),
-    )
-    .setOrigin(0, 0.5);
-  fitText(name, layout.title.width - 12, typeRole.rowTitle.size);
+  scene.children.bringToTop(name);
   if (layout.ability) {
     bg.fillStyle(surface.ink.hex, 0.92 * dim).fillRect(
       layout.ability.x,
@@ -879,17 +927,23 @@ export function drawEncounter(
     fitText(countText, chips.count.width - 4, countRole.size);
     if (shown && shownChips) {
       const { card } = shownChips;
-      // The name wraps onto a second line rather than being cut; the boost line sits on the strip's foot.
+      // One line for the name and one for the boost, so neither runs into the header chips or the other: the strip
+      // is only 40px tall. The font steps down first, then a leading article goes ("The Trickster Tango" reads fine
+      // as "Trickster Tango"); the full card is one tap away in Inspect.
       const cardName = label(
         scene,
         card.x + 8,
-        card.y + 3,
+        card.y + 4,
         shown.name,
         { ...typeRole.label, size: 9 },
         surface.paper.hex,
         1,
       );
-      fitWrapped(cardName, card.width - 12, 2, 9);
+      fitWrapped(cardName, card.width - 12, 1, 9);
+      if (cardName.text !== shown.name) {
+        cardName.setText(shortPileName(shown.name)).setFontSize(9);
+        fitWrapped(cardName, card.width - 12, 1, 9);
+      }
       const boost = label(
         scene,
         card.x + 8,

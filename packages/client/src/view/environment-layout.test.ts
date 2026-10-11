@@ -61,6 +61,23 @@ describe("environmentSlots", () => {
   });
 });
 
+describe("environmentCompactLayout, a two-line name", () => {
+  const tile = { x: 0, y: 0, width: 150, height: 80 };
+
+  it("grows the title band into what the counters leave, and the chips stay clear of it", () => {
+    const one = environmentCompactLayout(tile, ["secret"], false);
+    const two = environmentCompactLayout(tile, ["secret"], false, 30);
+    expect(two.title.height).toBeGreaterThan(one.title.height);
+    expect(two.title.height).toBe(30);
+    expect(rectsOverlap(two.title, two.counters[0]!)).toBe(false);
+  });
+
+  it("never takes more than the counters leave", () => {
+    const layout = environmentCompactLayout({ ...tile, height: 56 }, ["secret"], false, 60);
+    expect(rectsOverlap(layout.title, layout.counters[0]!)).toBe(false);
+  });
+});
+
 describe("environmentCompactLayout", () => {
   const tile: Rect = { x: 10, y: 20, width: 170, height: 60 };
 

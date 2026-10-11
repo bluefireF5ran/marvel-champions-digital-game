@@ -267,6 +267,23 @@ function villainHpText(preview: TableSetupPreview): string {
   return `${preview.villainTotalHp} HP across ${span === 2 ? "both" : span} stages`;
 }
 
+/** The family the random villain is drawn from: the shared trait of the villain and its set-aside siblings ("AVATAR OF LOKI" -> "Avatar of Loki"). */
+function bySetupVillainLabel(scenario: Scenario, cardsById: ReadonlyMap<string, AnyCard>): string | undefined {
+  const ids = [scenario.villainCardId, ...(scenario.setAsideVillainCardIds ?? [])];
+  const traitSets = ids.map((id) => {
+    const card = cardsById.get(id as string);
+    const stage = card?.type === "villain" ? card.sides[0]?.stages[0] : undefined;
+    return new Set((stage?.traits ?? []).map((t) => t as string));
+  });
+  const shared = [...(traitSets[0] ?? [])].find((t) => traitSets.every((set) => set.has(t)));
+  if (!shared) return undefined;
+  return shared
+    .toLowerCase()
+    .split(" ")
+    .map((word, i) => (i > 0 && ["of", "the"].includes(word) ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(" ");
+}
+
 /** "Horror, Crime, Western" for up to three sets, then "+N": the sidebar's row is one short line, the chips above hold the whole list. */
 function setAsideValue(names: readonly string[]): string {
   return names.length <= 3 ? names.join(", ") : `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
@@ -386,7 +403,10 @@ export function tableSetupPreviewOf(
     villainCard?.type === "villain"
       ? (villainCard.sides.find((s) => s.side === (villainCard.startingSide ?? "A")) ?? villainCard.sides[0])
       : undefined;
-  const villainIsRandom = scenario.randomVillainName !== undefined;
+  // `startingVillain: "bySetup"` (God of Lies): the main scheme's Setup puts a random villain into play, so naming
+  // `villainCardId` here would promise a villain the board may not show.
+  const bySetupVillain = scenario.startingVillain === "bySetup";
+  const villainIsRandom = scenario.randomVillainName !== undefined || bySetupVillain;
   const addedSets: AddedSetPreview[] = added.map((setup) => ({
     name:
       encounterSets.find((candidate) => (candidate.id as string) === setup.encounterSetId)?.name ??
@@ -396,7 +416,12 @@ export function tableSetupPreviewOf(
   }));
   return {
     playerCount,
-    villainName: scenario.randomVillainName ?? villainSide?.name ?? villainCard?.name ?? scenario.name,
+    villainName:
+      scenario.randomVillainName ??
+      (bySetupVillain ? bySetupVillainLabel(scenario, cardsById) : undefined) ??
+      villainSide?.name ??
+      villainCard?.name ??
+      scenario.name,
     villainIsRandom,
     addedSets,
     villainCount: scenario.multipleVillains ? scenario.multipleVillains.villains.length : 1,

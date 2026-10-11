@@ -10,7 +10,7 @@ import { heroFaceDisplayName } from "../../view/hero-names.js";
 import { artFor } from "../../art/art-source.js";
 import { cardArt, drawArt } from "../../art/card-art.js";
 import { storyFor } from "../../campaign/story.js";
-import { campaignService } from "../../session.js";
+import { appSession, campaignService } from "../../session.js";
 import { accent, hit, signal, surface, typeRole } from "../../tokens.js";
 import { cssOf, textStyle } from "../../ui/theme.js";
 import {
@@ -151,6 +151,7 @@ export class CampaignDossierScene extends Phaser.Scene {
       this.#draw();
       return;
     }
+    appSession().music?.playInterlude(record.campaignId as string);
     const definition = service.definitionFor(record);
     this.#record = record;
     this.#definition = definition;

@@ -367,13 +367,13 @@ export class UnlocksOverlay extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setFontSize(10);
     if (detail.width > textWidth) detail.setFontSize(9);
-    // Still too long on a phone: the full reason is in the confirm panel, so the row can cut it short.
+    // Still too long on a phone: wrap to a second line under a title lifted a little, never cut.
     if (detail.width > textWidth) {
-      let text = row.detail;
-      while (text.length > 1 && detail.width > textWidth) {
-        text = text.slice(0, -1);
-        detail.setText(`${text.trimEnd()}…`);
-      }
+      title.setY(midY - 13);
+      detail
+        .setOrigin(0, 0)
+        .setY(midY - 1)
+        .setWordWrapWidth(textWidth);
     }
     const toggleable = switchToggleable(row.state);
     const on = row.state === "on";

@@ -40,7 +40,7 @@ import {
   lostAtNodeIdOf,
   PLURALIZED_FIELDS,
   pluralizeFieldWord,
-  signedCount,
+  deltaWords,
   fieldIdWords,
 } from "./campaign-run-model.js";
 import { seatDeckSizeSplit } from "./campaign-deck-edit-model.js";
@@ -980,7 +980,7 @@ export function campaignDossierLog(
           value.kind === "flag"
             ? fieldLabel(field)
             : value.kind === "number"
-              ? `${signedCount(value.value)} ${pluralizeFieldWord(fieldLabel(field), field, value.value)}`
+              ? deltaWords(field, value.value, pluralizeFieldWord(fieldLabel(field), field, value.value))
               : value.kind === "cardList"
                 ? `+ ${value.cardIds.map((id) => cardName(id)).join(", ")}`
                 : value.kind === "choice"

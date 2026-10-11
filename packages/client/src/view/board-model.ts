@@ -416,8 +416,30 @@ function encounterSetName(id: string): string {
   return SET_NAMES.get(id) ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
 
-export function setAsidePanel(state: GameState): SetAsidePanel | null {
+/**
+ * Whether a card in the villain area reads the set-aside modular sets while the game runs (MojoMania's Wheel of
+ * Genres loses the game when the deck resets with none left). Thunderbolts also sets sets aside, but shuffles them
+ * all in during Setup: an empty list there is not a countdown, and "SET ASIDE 0 · NONE LEFT" would be a false alarm.
+ */
+function villainAreaReadsSetAside(state: GameState, deps: EngineDeps): boolean {
+  return state.villainArea.some((id) => {
+    const code = (state.instances[id]?.cardId as string | undefined)?.replace(/[ab]$/, "");
+    if (!code) return false;
+    return Object.entries(deps.abilities).some(
+      ([abilityKey, definition]) =>
+        abilityKey.startsWith(`${code}`) &&
+        /"(setAsideModularSetCount|placeSetAsideModularSet)"/.test(JSON.stringify(definition)),
+    );
+  });
+}
+
+/**
+ * The set-aside footer's numbers. Null when the scenario set none aside, and when it set some aside but has none left
+ * and nothing in play counts them (Thunderbolts, after Setup shuffled its sets in).
+ */
+export function setAsidePanel(state: GameState, deps?: EngineDeps): SetAsidePanel | null {
   if (state.setAsideModularSets === undefined) return null;
+  if (state.setAsideModularSets.length === 0 && deps && !villainAreaReadsSetAside(state, deps)) return null;
   return {
     count: state.setAsideModularSets.length,
     names: state.setAsideModularSets.map((set) => encounterSetName(set.encounterSetId)),
@@ -857,7 +879,7 @@ export function boardModel(
       .map((id) => environmentPanel(state, id, deps)),
     scenarioAreas: scenarioAreaPanels(state),
     scenarioPlayAreas: scenarioPlayAreaPanels(state, deps),
-    setAside: setAsidePanel(state),
+    setAside: setAsidePanel(state, deps),
     scenarioDecks: scenarioDeckPanels(state),
     me: characterPanel(state, me.identity.instanceId, deps),
     myForm: me.identity.form,

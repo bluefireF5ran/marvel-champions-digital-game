@@ -9,6 +9,7 @@ import { CARDS_BY_ID, POOL_CARDS, POOL_DEPS } from "../content/pool.js";
 import { MemoryCampaignStorage } from "../engine/campaign-storage.js";
 import { CampaignService } from "./campaign-service.js";
 import { seedAosRun } from "./dev-fixtures.js";
+import { campaignRunModel, deltaWords } from "../view/campaign-run-model.js";
 import { shieldBriefingOf } from "../view/campaign-shield-model.js";
 import { campaignDossierOverview } from "../view/campaign-dossier-model.js";
 
@@ -67,6 +68,34 @@ describe("an Agents of S.H.I.E.L.D. run seeded for the client", () => {
       secrets: 4,
     });
     expect(brief.flipNote).toContain("3 secrets (expert)");
+  });
+
+  test("a carried number is listed only until the scenario that reads it has been played", async () => {
+    const record = await seedAosRun(service(), "afterIssue3");
+    const keys = (upcoming?: number): string[] =>
+      shieldBriefingOf(record, AOS_CAMPAIGN_DEFINITION, (id) => nameOf(id as string), upcoming)!.numbers.map(
+        (row) => row.key,
+      );
+    const all = keys();
+    // Before scenario 4: Alert Level (read in #2) and Rescued Captives (read in #3) are spent.
+    expect(all).toContain("alert");
+    expect(all).toContain("captives");
+    expect(keys(2)).toContain("alert");
+    expect(keys(3)).not.toContain("alert");
+    expect(keys(3)).toContain("captives");
+    expect(keys(4)).not.toContain("alert");
+    expect(keys(4)).not.toContain("captives");
+    expect(keys(5)).toEqual(all.filter((key) => key !== "alert" && key !== "captives"));
+  });
+
+  test("remaining hit points read as what is left, never as a signed gain", async () => {
+    expect(deltaWords("remainingHp", 6)).toBe("6 HP left");
+    expect(deltaWords("units", 3)).toBe("+3 units");
+    const record = await seedAosRun(service(), "afterIssue3", { expertCampaign: true });
+    const model = campaignRunModel(record, AOS_CAMPAIGN_DEFINITION, undefined, nameOf);
+    const lines = model.issues.map((issue) => issue.resultLine ?? "");
+    expect(lines.some((line) => line.includes("HP left"))).toBe(true);
+    for (const line of lines) expect(line).not.toMatch(/\+\d+ HP/);
   });
 
   test("a standard campaign's case file has no seats and words the 4-secret flip", async () => {
