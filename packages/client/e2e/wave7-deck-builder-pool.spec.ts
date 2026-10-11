@@ -187,11 +187,7 @@ test.describe("Deadpool, 'Pool aspect: flows 1, 7 and 8", () => {
     expect(back).toMatchObject({ status: "Legal", legal: true, cardCount: 40, problems: [] });
     await press(page, "Decks", `deck:${back.id}`);
     await press(page, "Decks", "ie-export");
-    await waitFor(
-      async () => ((await clipboardText()) !== exported ? null : true),
-      "re-export",
-      10000,
-    );
+    await waitFor(async () => ((await clipboardText()) !== exported ? null : true), "re-export", 10000);
     expect(await clipboardText(), "the round trip is identical").toBe(exported);
     await shot(page, "7-roundtrip");
 
