@@ -368,13 +368,20 @@ describe("refusal codes: deck_size and linked_card", () => {
     expect(codes(small)).toEqual(["deck_size", "linked_card"]);
   });
 
-  test("a MarvelCDB decklist whose slots list the linked card imports (it names a real card) and is refused by validateDeck, never altered", () => {
+  // Owner decision 61B (2026-10-11): the importer leaves a listed linked card out and says so, and the rest imports.
+  test("a MarvelCDB decklist whose slots list the linked card imports without it, with a note naming the card", () => {
     const base = fixture("falcon-leadership");
+    const plain = parseMarvelCdbDeckJson(base, PLAYABLE_CARDS);
     const result = parseMarvelCdbDeckJson({ ...base, slots: { ...base.slots, "53034": 1 } }, PLAYABLE_CARDS);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.contents.cards.find((l) => l.cardId === "53034")).toEqual({ cardId: "53034", quantity: 1 });
-    expect(codes(result.contents)).toEqual(["linked_card"]);
+    expect(result.ok && plain.ok).toBe(true);
+    if (!result.ok || !plain.ok) return;
+    expect(result.contents).toEqual(plain.contents);
+    expect(codes(result.contents)).toEqual([]);
+    const dropped = (result.notes ?? []).filter((note) => note.code === "linked_card_dropped");
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]!.cardIds).toEqual(["53034"]);
+    expect(dropped[0]!.message).toMatch(/Captain America's Shield.*Linked.*left out/);
+    expect((plain.notes ?? []).some((note) => note.code === "linked_card_dropped")).toBe(false);
   });
 
   test("the linked refusal names the card and the reason", () => {

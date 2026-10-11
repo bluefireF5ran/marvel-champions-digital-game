@@ -52,6 +52,9 @@ import {
   type ImportResult,
 } from "./types.js";
 
+const isLinked = (card: AnyCard): boolean =>
+  ((card as { keywords?: readonly { name: string }[] }).keywords ?? []).some((keyword) => keyword.name === "linked");
+
 export interface MarvelCdbDeckJson {
   readonly id: number;
   readonly name: string;
@@ -230,6 +233,14 @@ export function parseMarvelCdbDeckJson(raw: unknown, pool: readonly AnyCard[]): 
     }
     if (!card) {
       problems.push(problem("unknown_card", `Card code "${code}" is not in the card pool.`, [code as CardId]));
+      continue;
+    }
+    if (isLinked(card)) {
+      notes.push({
+        code: "linked_card_dropped",
+        message: `${card.name} has the Linked keyword, so it is not part of a deck: it was left out. The card that names it brings it into the game.`,
+        cardIds: [card.id],
+      });
       continue;
     }
     quantitiesById.set(card.id, (quantitiesById.get(card.id) ?? 0) + (rawQuantity as number));

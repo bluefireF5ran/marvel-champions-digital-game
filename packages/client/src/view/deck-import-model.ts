@@ -62,7 +62,10 @@ function nameFor(
 
 const warningsOf = (result: { readonly notes?: readonly { readonly code: string; readonly message: string }[] }) =>
   (result.notes ?? [])
-    .filter((note) => note.code === "unreadable_line" || note.code === "identity_set_filled")
+    .filter(
+      (note) =>
+        note.code === "unreadable_line" || note.code === "identity_set_filled" || note.code === "linked_card_dropped",
+    )
     .map((note) => note.message);
 
 /** Import-by-paste: works with no network, per PLAN.md Phase 9's "build it first; it is also the easiest to test". */

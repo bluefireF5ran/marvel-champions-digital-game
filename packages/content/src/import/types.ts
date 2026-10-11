@@ -60,7 +60,13 @@ export type ImportNoteCode =
    * separate set, e.g. Iceman's Frostbite, so no public decklist's `slots` carries them); the importer added each
    * at its set quantity. Only cards absent from the decklist are added; a quantity the decklist states is never changed.
    */
-  | "identity_set_filled";
+  | "identity_set_filled"
+  /**
+   * A MarvelCDB decklist listed a card with the Linked keyword (RRG "Linked", p. 27: linked cards cannot be in a deck
+   * and do not count toward its size; the card that names one sets it aside at setup). The importer leaves it out and
+   * says so, rather than handing over a deck the legality check must refuse (owner decision 61B, 2026-10-11).
+   */
+  | "linked_card_dropped";
 
 export interface ImportNote {
   readonly code: ImportNoteCode;
