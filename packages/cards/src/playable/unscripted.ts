@@ -20,6 +20,15 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
   "trickster_magic",
 ]);
 
+/**
+ * Gated sets whose every ability is scripted but which are held back for another reason, each with that reason. The
+ * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
+ */
+export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
+  enchantress_villain:
+    "The Enchantress scenario needs Trickster Magic (one ref still skipped: Zzzax 55059's When Defeated, a unique-rule conflict with its linked ally), and an exhausted encounter attachment on an identity is never readied, so a used Trance's Forced Action never comes back. Un-gate with trickster_magic once both are fixed.",
+};
+
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */
 export function scenarioIsScripted(scenario: Pick<Scenario, "encounterSetIds" | "multipleVillains">): boolean {
   return ![

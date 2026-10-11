@@ -1,8 +1,33 @@
 import { trait } from "@mc/content";
-import type { AbilityRegistry, EffectSpec } from "@mc/engine";
+import type { AbilityRegistry, EffectSpec, PlayerRef } from "@mc/engine";
 import {
   addCounters,
   after,
+  alterEgoAction,
+  boost,
+  cannotMakeBasicAttacks,
+  chooseOne,
+  chooseOptions,
+  controllerOf,
+  defeatingPlayer,
+  discardEncounterUntil,
+  eachPlayerCost,
+  engagedPlayerOf,
+  enemyActivates,
+  enemyAttack,
+  enemyScheme,
+  eventSource,
+  gets,
+  giveStatus,
+  hasTrait,
+  heroAction,
+  option,
+  playFromHandReducingCost,
+  refMatches,
+  setVar,
+  spend,
+  type ChoiceOption,
+  whenDefeated,
   anyOf,
   attachCard,
   canTakeStatus,
@@ -87,6 +112,36 @@ const CARD_YOU_CONTROL = query(["ally", "support", "upgrade"], { controller: "yo
 const YOUR_IDENTITY_CAN_BE = (status: "stunned" | "confused"): ReturnType<typeof query> =>
   query("identity", { controller: "you", ...canTakeStatus(status) });
 
+/** "The Enchantment card in their play area": the Enchantment attached to that player's identity. */
+const ENCHANTMENT_OF = (player: PlayerRef) =>
+  each(query("attachment", { trait: ENCHANTMENT, host: identityOf(player) }));
+/** "Place 1 charm counter on the Enchantment card in your play area." */
+const placeCharm = () => addCounters("charm", 1, YOUR_ENCHANTMENT);
+/** "[Enchantress] schemes against you" (a scheme only: `on.enemyActivates` would hear her attacks too). */
+const schemesAgainstYou = (by: "host") => ({ ...on.enemySchemes(by), playerIs: "controller" as const });
+
+/**
+ * "When Revealed: If your identity has the Defiant trait, choose one. If your identity has the Enthralled trait, do both
+ * in any order" ("Do My Bidding", Magical Restraints, Spell Blast; docs/phase7-wave9.md section 3.56). Ruling February
+ * 28, 2026 (5): each sentence chooses its options, and only then are the chosen options resolved. Both traits are read
+ * first (`setVar`), so an option that flips the Hypnotic Gaze while it resolves (the fifth charm counter turns a Defiant
+ * identity Enthralled) does not add the second sentence's options. `chooseOptions(2, ...)` is "both, in the order
+ * chosen". Options are offered whether or not they would change anything (a confused Enchantress may be chosen to
+ * scheme, which removes the status card: ruling February 28, 2026 (5), question 2).
+ */
+const defiantChoosesOneEnthralledDoesBoth = (...options: readonly ChoiceOption[]): EffectSpec[] => [
+  ifThen(hasTrait(identityOf(you), ENTHRALLED), setVar("enthralled", 1)),
+  ifThen(hasTrait(identityOf(you), DEFIANT), chooseOne(...options)),
+  ifThen(varAtLeast("enthralled"), chooseOptions(2, options)),
+];
+
+/** "Search the encounter deck and discard pile for [a card of this kind] and reveal it. (Shuffle.)" */
+const searchFor = (slot: string, kind: "minion" | "sideScheme"): EffectSpec[] => [
+  chooseCards(slot, encounterCards(["deck", "discard"], query(kind)), { min: 1, max: 1 }),
+  revealCard(chosen(slot), you),
+  shuffleEncounterDeck(),
+];
+
 /** "Forced Response: After Enchantress attacks you, place 1 charm counter on the Enchantment card in your play area." */
 const enchantressForcedResponse = () =>
   forcedResponse(after.enemyAttacks("self", { againstYou: true }), addCounters("charm", 1, YOUR_ENCHANTMENT));
@@ -146,7 +201,8 @@ const playDrawnCard: EffectSpec = {
 /**
  * Enchantress, the Trickster Takeover scenario frame (docs/phase7-wave9.md sections 2.8, 3.53 to 3.56 and 8.4 item
  * 66; MC55 pp. 6 to 7). First half: the villain, both main schemes, Future of Despair, the five Hypnotic Gazes and their
- * Trance reverse sides. The encounter cards 55012 to 55026 are the second half.
+ * Trance reverse sides. Second half: the encounter cards 55012 to 55026 (the Temptation attachments, Seduced, the Crown, the
+ * four minions, the two side schemes and the four treacheries), scripted in one registry with the first half.
  *
  * **The villain (55001 to 55003)**: each stage's Forced Response puts a charm counter on the Enchantment card in the
  * attacked player's play area. Stage II (standard mode only) and stage III put the set-aside Future of Despair into
@@ -169,7 +225,7 @@ const playDrawnCard: EffectSpec = {
  * (exhaust this card) the player must take before the player phase ends. Each When Revealed is "X. Otherwise, Y": Y
  * resolves when X cannot (a card to discard, a status card that can be given, an identity that can be exhausted).
  *
- * Cards (23 of the module's group; the first 11 ids are scripted here):
+ * Cards (23 listed by representative id, each with every ability of its card scripted; nothing is skipped):
  * - 55001 Enchantress (villain)
  * - 55004a Prime Real Estate (main_scheme)
  * - 55006 Future of Despair (side_scheme)
@@ -308,41 +364,149 @@ export const ENCHANTRESS: AbilityRegistry = defineAbilities({
     chooseTarget("minion", query("minion")),
     dealDamage(2, chosen("minion")),
   ),
+
+  // Alluring Call, Kiss of Temptation, Love Concoction: the sentence that needs no target (the counter) comes first, so
+  // a missing target in the rest is not a way out (MC55 p. 22 FAQ: the counter may be the only outcome). The star
+  // boost reveals the attachment, which attaches to the revealing player's identity.
+  "55012.alluring-call-forced-action": forcedAction({ cost: exhaustThis }, placeCharm(), playFromHandReducingCost(1)),
+  "55012.alluring-call-action": alterEgoAction({ cost: exhaustThis }, discard(self)),
+  "55012.boost": boost(revealCard(self, you)),
+  "55013.kiss-of-temptation-forced-action": forcedAction(
+    { cost: exhaustThis },
+    placeCharm(),
+    draw(1),
+    discardFromHand(1),
+  ),
+  "55013.kiss-of-temptation-action": alterEgoAction({ cost: exhaustThis }, discard(self)),
+  "55013.boost": boost(revealCard(self, you)),
+  "55014.love-concoction-forced-action": forcedAction({ cost: exhaustThis }, placeCharm(), ready(identityOf(you))),
+  "55014.love-concoction-action": alterEgoAction({ cost: exhaustThis }, discard(self)),
+  "55014.boost": boost(revealCard(self, you)),
+
+  // Seduced: no basic attacks (the identity's own; allies and attack abilities are untouched) and no Attack events.
+  "55015.seduced-constant": constant(
+    cannotMakeBasicAttacks(),
+    rule({ kind: "cannotPlay", player: you, cards: query("event", { trait: trait("ATTACK") }) }),
+  ),
+  "55015.seduced-action": alterEgoAction({ cost: spend({ energy: 1, mental: 1 }) }, discard(self)),
+
+  // Crown of the Enchantress (attached to Enchantress). The star in its SCH box is a reminder of the star Forced Response
+  // (no SCH modifier). Hero Action: each player pays; with a tough status card among them the cost cannot be paid (RRG
+  // p. 14; owner question 57, open, built on that).
+  "55016.crown-of-the-enchantress-constant": constant(
+    gainsKeyword({ name: "stalwart" }, { hostOfSelf: true }, { while: inMode("expert") }),
+  ),
+  "55016.crown-of-the-enchantress-forced-response": forcedResponse(schemesAgainstYou("host"), placeCharm()),
+  "55016.crown-of-the-enchantress-action": heroAction(
+    { cost: eachPlayerCost({ exhaustIdentity: true, damage: 1 }) },
+    discard(self),
+  ),
+
+  // Enthralled Lackey (Quickstrike is data).
+  "55017.enthralled-lackey-forced-response": forcedResponse(
+    after.enemyAttacks("self", { againstYou: true }),
+    placeCharm(),
+  ),
+  "55017.boost": boost(
+    chooseOne(
+      option("Place 1 charm counter on your Enchantment card", placeCharm()),
+      option("Confuse your identity", confuse(identityOf(you))),
+    ),
+  ),
+
+  // Enthralled Brute (Guard is data).
+  "55018.enthralled-brute-constant": constant(
+    gets("hp", 3, { self: true }, { while: hasTrait(identityOf(engagedPlayerOf(self)), ENTHRALLED) }),
+  ),
+  "55018.boost": boost(
+    chooseOne(
+      option("Place 1 charm counter on your Enchantment card", placeCharm()),
+      option("Exhaust your identity", exhaust(identityOf(you))),
+    ),
+  ),
+
+  // Sindr: the two traits are read in separate sentences, in order (an activation that flips the Gaze changes the answer
+  // to the second).
+  "55019.sindr-constant": constant(rule({ kind: "attacksDealIndirectDamage", attacker: { self: true } })),
+  "55019.when-revealed": whenRevealed(
+    ifThen(hasTrait(identityOf(you), DEFIANT), enemyActivates(self, { against: you })),
+    ifThen(hasTrait(identityOf(you), ENTHRALLED), giveStatus(self, "tough")),
+  ),
+
+  // Ulik. "That player" is the controller of the card that dealt the damage (an ally's or event's damage counts: "a
+  // player deals"); damage "dealt" counts even when Future of Despair stops all of it.
+  "55020.ulik-constant": constant(gainsKeyword({ name: "toughness" }, { self: true }, { while: inMode("expert") })),
+  "55020.ulik-forced-response": forcedResponse(
+    on.damage(ENCHANTRESS_VILLAIN, { dealt: true }),
+    enemyAttack(self, { against: controllerOf(eventSource) }),
+  ),
+  "55020.when-defeated": whenDefeated(enemyAttack(theVillain, { against: defeatingPlayer, atkBonus: 1 })),
+
+  // Law of Attraction.
+  "55021.when-revealed": whenRevealed(
+    discardEncounterUntil(query("minion", { trait: ENTHRALLED }), "found"),
+    revealCard(chosen("found"), you),
+  ),
+  "55021.boost": boost(placeCharm()),
+
+  // Spellbound: two sentences, so every Defiant player's counter first, then every Enthralled player's discard.
+  "55022.when-defeated": whenDefeated(
+    forEachPlayer(
+      eachPlayer,
+      ifThen(hasTrait(identityOf(thatPlayer), DEFIANT), addCounters("charm", 1, ENCHANTMENT_OF(thatPlayer))),
+    ),
+    forEachPlayer(
+      eachPlayer,
+      ifThen(hasTrait(identityOf(thatPlayer), ENTHRALLED), [
+        chooseTarget("card", query(["ally", "support", "upgrade"], { controlledBy: thatPlayer }), {
+          chooser: thatPlayer,
+        }),
+        discard(chosen("card")),
+      ]),
+    ),
+  ),
+
+  // "Do My Bidding", Magical Restraints, Spell Blast.
+  "55023.when-revealed": whenRevealed(
+    defiantChoosesOneEnthralledDoesBoth(
+      option("Search for a minion and reveal it", searchFor("minion", "minion")),
+      option("Search for a side scheme and reveal it", searchFor("scheme", "sideScheme")),
+    ),
+  ),
+  "55024.when-revealed": whenRevealed(
+    defiantChoosesOneEnthralledDoesBoth(
+      option("You are stunned; place 1 charm counter", stun(identityOf(you)), placeCharm()),
+      option("You are confused; place 1 charm counter", confuse(identityOf(you)), placeCharm()),
+    ),
+  ),
+  "55025.when-revealed": whenRevealed(
+    defiantChoosesOneEnthralledDoesBoth(
+      option(
+        "Enchantress schemes",
+        ifThen(
+          inMode("expert"),
+          enemyScheme(theVillain, { against: you, schBonus: 1 }),
+          enemyScheme(theVillain, { against: you }),
+        ),
+      ),
+      option(
+        "Enchantress attacks you",
+        ifThen(
+          inMode("expert"),
+          enemyAttack(theVillain, { against: you, atkBonus: 1 }),
+          enemyAttack(theVillain, { against: you }),
+        ),
+      ),
+    ),
+  ),
+
+  // Spell Shards: "if your identity took any amount of damage this way" reads the characters that took indirect damage.
+  "55026.when-revealed": whenRevealed(
+    dealIndirectDamage(you, 3, { bind: "shards" }),
+    ifThen(refMatches(chosen("shards.damaged"), query("identity", { controller: "you" })), placeCharm()),
+  ),
+  "55026.boost": boost(placeCharm()),
 });
 
-const SECOND_HALF = "second half, not scripted yet";
-
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const ENCHANTRESS_SKIPPED: Readonly<Record<string, string>> = {
-  "55012.alluring-call-action": SECOND_HALF,
-  "55012.alluring-call-forced-action": SECOND_HALF,
-  "55012.boost": SECOND_HALF,
-  "55013.boost": SECOND_HALF,
-  "55013.kiss-of-temptation-action": SECOND_HALF,
-  "55013.kiss-of-temptation-forced-action": SECOND_HALF,
-  "55014.boost": SECOND_HALF,
-  "55014.love-concoction-action": SECOND_HALF,
-  "55014.love-concoction-forced-action": SECOND_HALF,
-  "55015.seduced-action": `${SECOND_HALF}; waits on engine task 50 (cannotAttack basicOnly)`,
-  "55015.seduced-constant": `${SECOND_HALF}; waits on engine task 50 (cannotAttack basicOnly)`,
-  "55016.crown-of-the-enchantress-action": `${SECOND_HALF}; waits on engine task 41 (AbilityCost eachPlayer)`,
-  "55016.crown-of-the-enchantress-constant": `${SECOND_HALF}; waits on engine task 41 (AbilityCost eachPlayer)`,
-  "55016.crown-of-the-enchantress-forced-response": `${SECOND_HALF}; waits on engine task 41 (AbilityCost eachPlayer)`,
-  "55017.boost": SECOND_HALF,
-  "55017.enthralled-lackey-forced-response": SECOND_HALF,
-  "55018.boost": SECOND_HALF,
-  "55018.enthralled-brute-constant": SECOND_HALF,
-  "55019.sindr-constant": SECOND_HALF,
-  "55019.when-revealed": SECOND_HALF,
-  "55020.ulik-constant": SECOND_HALF,
-  "55020.ulik-forced-response": SECOND_HALF,
-  "55020.when-defeated": SECOND_HALF,
-  "55021.boost": SECOND_HALF,
-  "55021.when-revealed": SECOND_HALF,
-  "55022.when-defeated": SECOND_HALF,
-  "55023.when-revealed": SECOND_HALF,
-  "55024.when-revealed": SECOND_HALF,
-  "55025.when-revealed": SECOND_HALF,
-  "55026.boost": SECOND_HALF,
-  "55026.when-revealed": SECOND_HALF,
-};
+export const ENCHANTRESS_SKIPPED: Readonly<Record<string, string>> = {};

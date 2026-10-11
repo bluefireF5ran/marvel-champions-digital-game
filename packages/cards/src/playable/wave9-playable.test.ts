@@ -19,7 +19,7 @@ import { MODULAR_SETS } from "../testing/modular-matrix.js";
 import { playToOutcome } from "../testing/driver.js";
 import { WAVE9_ABILITIES } from "../wave9/index.js";
 import { PLAYABLE_ABILITIES, PLAYABLE_DEPS, playableScenario, playableStarterDeckSetup } from "./index.js";
-import { UNSCRIPTED_ENCOUNTER_SET_IDS, scenarioIsScripted } from "./unscripted.js";
+import { GATED_THOUGH_SCRIPTED, UNSCRIPTED_ENCOUNTER_SET_IDS, scenarioIsScripted } from "./unscripted.js";
 
 const NEW_HEROES = [
   "maria-hill-leadership",
@@ -131,6 +131,7 @@ describe("wave 9 modular sets", () => {
       expect(playable.has(id), id).toBe(false);
       expect(modular.has(id), id).toBe(false);
       // Un-gate the day it is scripted: this test says so.
+      if (id in GATED_THOUGH_SCRIPTED) continue; // held back for a written reason (unscripted.ts)
       const refs = PLAYABLE_CARDS.filter(
         (card) => "encounterSetIds" in card && (card.encounterSetIds as readonly string[]).includes(id),
       ).flatMap(abilityRefIds);

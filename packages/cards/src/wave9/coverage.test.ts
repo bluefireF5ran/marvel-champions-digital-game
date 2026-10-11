@@ -93,7 +93,9 @@ import {
   SILK_SUPPORT_UPGRADES_ALLIES,
   SILK_SUPPORT_UPGRADES_ALLIES_SKIPPED,
 } from "./silk/silk/support-upgrades-allies.js";
+import { TT_ASPECT_BASIC, TT_ASPECT_BASIC_SKIPPED } from "./tt/aspect-basic.js";
 import { ENCHANTRESS, ENCHANTRESS_SKIPPED } from "./tt/enchantress.js";
+import { TRICKSTER_MAGIC, TRICKSTER_MAGIC_SKIPPED } from "./tt/trickster-magic.js";
 import { TT_ABILITIES } from "./tt/index.js";
 import { WINTER_ASPECT_BASIC, WINTER_ASPECT_BASIC_SKIPPED } from "./winter/aspect-basic.js";
 import { WINTER_ABILITIES } from "./winter/index.js";
@@ -598,6 +600,18 @@ const SCRIPTED_MODULES: Readonly<
       ],
       registry: ENCHANTRESS,
       skipped: ENCHANTRESS_SKIPPED,
+    },
+    {
+      module: "trickster-magic",
+      cardIds: ["55056", "55057", "55058", "55059", "55060", "55061", "55062"],
+      registry: TRICKSTER_MAGIC,
+      skipped: TRICKSTER_MAGIC_SKIPPED,
+    },
+    {
+      module: "aspect-basic",
+      cardIds: ["55063", "55064", "55065", "55066"],
+      registry: TT_ASPECT_BASIC,
+      skipped: TT_ASPECT_BASIC_SKIPPED,
     },
   ],
 };
