@@ -292,7 +292,7 @@ describe("parseMarvelCdbDeckJsonText", () => {
   });
 
   test("oversized input is refused before JSON.parse ever runs", () => {
-    const result = parseMarvelCdbDeckJsonText("x".repeat(50_000), CORE_CARDS);
+    const result = parseMarvelCdbDeckJsonText("x".repeat(600_000), CORE_CARDS);
     expect(result).toEqual({ ok: false, problems: [expect.objectContaining({ code: "oversized_input" })] });
   });
 

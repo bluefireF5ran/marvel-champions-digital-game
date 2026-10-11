@@ -45,7 +45,7 @@ import { CATALOG_REPRINTS } from "../data/catalog.js";
 import { indexById } from "./pool-index.js";
 import {
   MAX_IMPORT_LINES,
-  MAX_IMPORT_TEXT_LENGTH,
+  MAX_MARVELCDB_RESPONSE_LENGTH,
   MAX_LINE_QUANTITY,
   type ImportNote,
   type ImportProblem,
@@ -308,13 +308,13 @@ export function parseMarvelCdbDeckJsonText(text: string, pool: readonly AnyCard[
   if (text.length === 0) {
     return { ok: false, problems: [{ code: "invalid_input", message: "MarvelCDB has no deck at that URL or id." }] };
   }
-  if (text.length > MAX_IMPORT_TEXT_LENGTH) {
+  if (text.length > MAX_MARVELCDB_RESPONSE_LENGTH) {
     return {
       ok: false,
       problems: [
         {
           code: "oversized_input",
-          message: `This response is ${text.length} characters, more than the ${MAX_IMPORT_TEXT_LENGTH} this importer accepts.`,
+          message: `This response is ${text.length} characters, more than the ${MAX_MARVELCDB_RESPONSE_LENGTH} this importer accepts.`,
         },
       ],
     };
