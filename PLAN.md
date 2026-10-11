@@ -1314,6 +1314,23 @@ Today a game can only be seated from the six hardcoded `CORE_STARTER_DECKS`. Thr
     identity says otherwise; Spider-Woman 2, Adam Warlock 4) and checks the deck's chosen aspects against it
     (`packages/engine/src/deck.ts`; `deck.test.ts`, "aspect_choice").
 
+### Community decks (2026-10-10, PR 112)
+
+The saved, tested public MarvelCDB decklists (`docs/custom-deck-testing.md`, "Community decks") are recommended on
+the Decks screen: credited to their authors, previewed, and added as an editable copy. Owner decisions (2026-10-10):
+no like counts; the copy keeps the decklist's own name, with the author's credit in its details; authors are found
+through search, with no filter chip; a deck is locked while its hero or any card's wave is locked, and says what
+opens it; the published date and version are shown, not MarvelCDB's update date.
+
+**After the Fear No Evil wave (MC60) is in place**, as a follow-up PR:
+
+- [ ] **More decks by Brian-V and Web-Warrior Fanatic**: save further decklists of theirs as fixtures (each one
+      proved by `playable/marvelcdb-decklists.test.ts`), once the pool covers the cards their newer decks use.
+- [ ] **Community decks on Take your seats**: offer a hero's community decks beside its precon when a seat is taken,
+      under the same "community deck" label and the same progression gate.
+- [ ] **Community decks inside the deck builder**: list the chosen hero's community decks as a starting point when a
+      new deck is begun.
+
 ### Decisions to settle before building
 
 **Resolved (2026-09-25):** all four are settled. Illegal decks, the taboo list and the card-pool version are answered by

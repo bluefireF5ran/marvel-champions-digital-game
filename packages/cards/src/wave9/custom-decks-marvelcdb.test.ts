@@ -6,7 +6,8 @@
  *
  * Fixtures: `fixtures/decklists/<hero>-<aspect>.json`, each FETCHED (not composed) on 2026-10-10 from
  * `GET https://marvelcdb.com/api/public/decklist/<id>.json` (re-serialized with two-space indent; the only field changed
- * is `description_md`, emptied to keep third-party prose out of the repo, exactly as wave 8's fixtures do).
+ * is `description_md`: emptied at first, exactly as wave 8's fixtures were, and restored later the same day because the
+ * Decks screen shows it as the author's notes).
  *
  * Selection rule (owner, 2026-10-10): decks by the preferred MarvelCDB authors "andyr", "Brian-V" and "Web-Warrior
  * Fanatic" first where they fit (every card in the playable pool, legal under `validateDeck`), up to two per hero of
@@ -100,11 +101,13 @@ describe.each(DECKS.map((d, i) => ({ ...d, seed: 91 + i })))("$name: MarvelCDB d
   };
   const playable = (): DeckContents => parse().contents;
 
-  test("the fixture is the served decklist, with the description emptied", () => {
+  test("the fixture is the served decklist", () => {
     const raw = JSON.parse(fixtureText(entry.file)) as { id: number; description_md: string; hero_code: string };
     expect(raw.id).toBe(entry.decklist);
     expect(raw.hero_code).toBe(entry.identity);
-    expect(raw.description_md).toBe("");
+    // The author's write-up is kept (the Decks screen shows it as the deck's notes) or left empty where the whole
+    // file would pass the importer's 20,000-character cap.
+    expect(typeof raw.description_md).toBe("string");
   });
 
   test("imports against the playable pool, every code resolved to a card of the pool (reprints included)", () => {

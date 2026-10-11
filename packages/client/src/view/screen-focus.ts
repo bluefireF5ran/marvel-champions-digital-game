@@ -82,6 +82,8 @@ export interface DecksFocusInput {
   readonly hasSelection: boolean;
   /** Whether the *selected* deck can be edited/deleted (a saved deck, not a precon). */
   readonly editable: boolean;
+  /** The selected deck is a community deck (`view/community-decks-model.ts`): its rail has the link buttons, Check and Add instead. */
+  readonly community?: boolean;
   /** The quick-filter chip strip is collapsed behind a "Filters" toggle by default (2026-09-18 fidelity pass, point 2) — `chipIds` only contributes stops while this is true. */
   readonly filtersExpanded: boolean;
   /** The Import/Export box's own accordion: which field (if either) is open — `paste-field`/`paste-import` or `marvelcdb-field`/`marvelcdb-import` only contribute stops while their own button opened them. */
@@ -113,9 +115,11 @@ export function decksFocusOrder(input: DecksFocusInput): readonly string[] {
   const poolGroup = input.hasSelection
     ? [...input.poolChipIds.map((id) => `pool-chip:${id}`), ...input.poolCardIds.map((id) => `pool-card:${id}`)]
     : [];
-  const statsGroup = input.hasSelection
-    ? ["stats-check", ...(input.editable ? ["stats-edit", "stats-delete"] : []), "stats-duplicate", "stats-play"]
-    : [];
+  const statsGroup = !input.hasSelection
+    ? []
+    : input.community
+      ? [...(input.wide ? [] : ["stats-preview"]), "stats-copy-link", "stats-open-link", "stats-check", "stats-add"]
+      : ["stats-check", ...(input.editable ? ["stats-edit", "stats-delete"] : []), "stats-duplicate", "stats-play"];
   if (input.wide) return ["back", ...listGroup, ...poolGroup, ...statsGroup];
   const tabs = ["tab:decks", "tab:cards", "tab:stats"];
   const activeGroup = input.activeTab === "decks" ? listGroup : input.activeTab === "cards" ? poolGroup : statsGroup;

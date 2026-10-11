@@ -6,7 +6,8 @@
  *
  * Fixtures: `fixtures/decklists/<hero>.json`, each FETCHED (not composed) on 2026-10-08 from
  * `GET https://marvelcdb.com/api/public/decklist/<id>.json` (re-serialized with two-space indent; the only field changed
- * is `description_md`, emptied to keep third-party prose out of the repo and under the importer's 20,000-character cap).
+ * is `description_md`: emptied at first, restored on 2026-10-10 because the Decks screen shows it as the author's notes,
+ * and still empty for Magik's 37117, whose write-up would put the file past the importer's 20,000-character cap).
  * Each is the first (most-liked) public decklist in that list for its hero, and each imports in full against the
  * playable pool with every card scripted (no decklist had to be skipped). The decks draw on earlier packs too (Core and
  * waves 1 to 7), which is why the game below widens the card pool.
@@ -122,11 +123,13 @@ describe.each(HEROES)("$name: MarvelCDB decklist $decklist", (entry) => {
   /** The imported deck (Iceman's six Frostbite, which a real MarvelCDB list never carries, are added by the importer). */
   const playable = (): DeckContents => parse().contents;
 
-  test("the fixture is the served decklist, with the description emptied", () => {
+  test("the fixture is the served decklist", () => {
     const raw = JSON.parse(fixtureText(entry.hero)) as { id: number; description_md: string; hero_code: string };
     expect(raw.id).toBe(entry.decklist);
     expect(raw.hero_code).toBe(entry.identity);
-    expect(raw.description_md).toBe("");
+    // The author's write-up is kept (the Decks screen shows it as the deck's notes) or left empty where the whole
+    // file would pass the importer's 20,000-character cap.
+    expect(typeof raw.description_md).toBe("string");
   });
 
   test("imports against the playable pool, every code resolved to a card of the pool (reprints included)", () => {
