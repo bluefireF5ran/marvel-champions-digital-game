@@ -2578,11 +2578,18 @@ export const playFromHandReducingCost = (
      * playFromHand.ownAreaOnly`; Colossus 45031, owner answer Q32).
      */
     readonly ownAreaOnly?: boolean;
+    /**
+     * "Play a card from your hand, reducing its cost by N" with no "may" (Alluring Call 55012; owner decision 63B,
+     * 2026-10-11): a legal, payable card must be played and its payment cannot be declined or short (`EffectSpec
+     * playFromHand.mustPay`).
+     */
+    readonly mustPay?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "playFromHand",
   player,
   costReduction: amount(n),
+  ...(opts.mustPay ? { mustPay: true as const } : {}),
   ...(opts.filter ? { filter: opts.filter } : {}),
   ...(opts.optional ? { optional: true } : {}),
   ...(opts.ignoreActionTiming ? { ignoreActionTiming: true as const } : {}),

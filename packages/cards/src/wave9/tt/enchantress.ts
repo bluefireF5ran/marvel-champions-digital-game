@@ -188,14 +188,18 @@ const tranceEnthralled = () => constant(gainsTrait(ENTHRALLED, query("identity",
 /**
  * Trance of Greed: "Draw 1 card, then play that card (paying its cost). If you cannot, take 1 damage." The DSL has no
  * builder for a paid play of a named card (`playFromHandIgnoringCost` takes `card`; the paid builder does not), so the
- * engine's `playFromHand { card, costReduction: 0 }` is written out. "If you cannot": nothing was drawn, or the drawn
- * card is still in the hand (a resource card, a card whose cost or play restriction blocks it, a payment declined).
+ * engine's `playFromHand { card, costReduction: 0, mustPay }` is written out. "If you cannot": nothing was drawn, or the
+ * drawn card is still in the hand because it cannot be played or paid for (a resource card, a wrong form, no valid
+ * target, a unique already in play, a cost the player cannot meet). Owner decision 62B (2026-10-11): "play" has no
+ * "may", so a card that can be played and paid for must be; the payment cannot be declined to keep the card and take
+ * the damage (`mustPay`).
  */
 const playDrawnCard: EffectSpec = {
   kind: "playFromHand",
   player: you,
   card: chosen("drawn"),
   costReduction: { kind: "const", value: 0 },
+  mustPay: true,
 };
 
 /**
@@ -368,7 +372,11 @@ export const ENCHANTRESS: AbilityRegistry = defineAbilities({
   // Alluring Call, Kiss of Temptation, Love Concoction: the sentence that needs no target (the counter) comes first, so
   // a missing target in the rest is not a way out (MC55 p. 22 FAQ: the counter may be the only outcome). The star
   // boost reveals the attachment, which attaches to the revealing player's identity.
-  "55012.alluring-call-forced-action": forcedAction({ cost: exhaustThis }, placeCharm(), playFromHandReducingCost(1)),
+  "55012.alluring-call-forced-action": forcedAction(
+    { cost: exhaustThis },
+    placeCharm(),
+    playFromHandReducingCost(1, you, { mustPay: true }),
+  ),
   "55012.alluring-call-action": alterEgoAction({ cost: exhaustThis }, discard(self)),
   "55012.boost": boost(revealCard(self, you)),
   "55013.kiss-of-temptation-forced-action": forcedAction(

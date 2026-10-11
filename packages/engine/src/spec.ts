@@ -3330,6 +3330,14 @@ export type EffectSpec =
       readonly entersExhausted?: true;
       readonly ignoreCost?: true;
       readonly costReduction?: ValueSpec;
+      /**
+       * "Play that card (paying its cost)" with no "may" (Trance of Greed 55008b, Alluring Call 55012; owner decisions
+       * 62B and 63B, 2026-10-11, docs/phase7-wave9.md section 4.1): a card the player can legally play and pay for must
+       * be played, so the payment prompt is a `required` `spendResources` (no declining, no under-paying; the player
+       * still chooses which cards pay) instead of one whose empty or short answer plays nothing. The cards offered are
+       * unchanged: only ones legal to play and payable after the reduction. Ignored with `ignoreCost`.
+       */
+      readonly mustPay?: true;
       readonly filter?: TargetQuery;
       readonly optional?: boolean;
       /**

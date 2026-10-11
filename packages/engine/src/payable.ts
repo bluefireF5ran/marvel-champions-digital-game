@@ -104,12 +104,14 @@ export function fewestSpend(
   playerId: PlayerId,
   resources: ResourceRequirement,
   distinctTypes = 0,
+  /** The card being played with this payment, which cannot pay for itself (`mustPay` plays). */
+  excludeInstanceId: InstanceId | null = null,
 ): readonly string[] | null {
   const ctx = createCtx(state, deps);
   const requirement = combineRequirements(resources, 0);
   const needed = Math.max(requirementTotal(requirement), distinctTypes);
   if (needed === 0) return [];
-  const options = paymentOptions(ctx, playerId, null).map((option) => option.optionId);
+  const options = paymentOptions(ctx, playerId, excludeInstanceId).map((option) => option.optionId);
   for (let size = 1; size <= Math.min(needed, options.length); size++) {
     let tried = 0;
     for (const ids of subsets(options, size)) {

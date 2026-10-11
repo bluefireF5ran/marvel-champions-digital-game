@@ -165,10 +165,19 @@ const planner =
       }
       case "spendResources":
       case "payForAbility":
-        return offered
-          .map((o) => o.optionId)
-          .filter((id) => id.startsWith("hand:"))
-          .slice(0, plan.pay ?? 0);
+        return (
+          offered
+            .map((o) => o.optionId)
+            .filter((id) => id.startsWith("hand:"))
+            // A required payment (a mandatory play, owner decisions 62B / 63B, 2026-10-11) cannot be declined or short.
+            .slice(
+              0,
+              Math.max(
+                plan.pay ?? 0,
+                choice.prompt.kind === "spendResources" && choice.prompt.required ? choice.minSelections : 0,
+              ),
+            )
+        );
       default:
         return firstLegal(s);
     }

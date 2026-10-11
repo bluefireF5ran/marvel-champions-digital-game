@@ -48,6 +48,16 @@ const charmOn = (s: GameState, player: typeof P1): number => {
 /** Two players, p1 holding Alluring Call (55012), in round 2 with p1 first; Spider-Man in hero form with Haymaker in hand. */
 const putOnTop = (s: GameState, code: string): GameState => putOnTopOfDeck(s, P1, code).state;
 
+/** The player's hand replaced by exactly `ids`. */
+const handOnly = (s: GameState, ids: readonly InstanceId[]): GameState => ({
+  ...s,
+  players: s.players.map((p) => (p.playerId === P1 ? { ...p, hand: [...ids] } : p)),
+});
+const inForm = (s: GameState, form: "alter_ego" | "hero"): GameState => ({
+  ...s,
+  players: s.players.map((p) => (p.playerId === P1 ? { ...p, identity: { ...p.identity, form } } : p)),
+});
+
 function withAlluringCall(): { s: GameState; call: InstanceId; haymaker: InstanceId } {
   let s = openScenario("enchantress", 2, { seats: [SPIDER_MAN, IRON_MAN], firstPlayerIndex: 1 });
   // p2 is first in round 1, so the second card goes to p1.
@@ -80,16 +90,82 @@ describe("Alluring Call (55012): 'place 1 charm counter ... Play a card from you
     expect(applyCommand(r.state, endTurn(P1), DEPS).ok).toBe(true);
   });
 
-  it("pins: a card may be chosen and its payment declined; the card stays in hand and the forced action still counts as performed", () => {
-    // MC55 p. 7 does not say whether declining the play is allowed once a card is playable ("Play a card from your hand" has
-    // no 'may'). Today's script lets the player pick a card and then pay nothing. Report: rules question for the owner.
+  it("owner decision 62B / 63B (2026-10-11), case (a): a legal, payable card must be played; its payment cannot be declined or short", () => {
     const { s, call, haymaker } = withAlluringCall();
+    const [e1, e2] = moveToHand(handOnly(s, [haymaker]), P1, "01088", "01090").ids as [InstanceId, InstanceId];
+    const staged = handOnly(s, [haymaker, e1, e2]);
+    const used = applyCommand(staged, use(P1, call, "55012.alluring-call-forced-action"), DEPS);
+    expect(used.ok).toBe(true);
+    if (!used.ok) return;
+    const which = resolveWith(used.state, (st) => [
+      st.pendingChoice!.options.find((o) => o.label.includes("Haymaker"))!.optionId,
+    ]).state;
+    const ask = which.pendingChoice!;
+    expect(ask.prompt).toMatchObject({ kind: "spendResources", required: true });
+    expect(ask.minSelections, "Haymaker costs 2, reduced by 1: one card pays").toBe(1);
+    const answer = (ids: readonly string[]) =>
+      applyCommand(
+        which,
+        { type: "resolveChoice", playerId: P1, choiceId: ask.choiceId, selectedOptionIds: ids },
+        DEPS,
+      );
+    expect(answer([]).ok, "declining the payment is refused").toBe(false);
+    // The card is still in hand and the choice still open: the Forced Action is not performed by a declined play.
+    expect(playerOf(which, P1).hand).toContain(haymaker);
+    expect(outstandingForcedActions(which, P1, DEPS).length + (which.pendingChoice ? 1 : 0)).toBeGreaterThan(0);
+    const paid = answer([`hand:${e2}`]);
+    expect(paid.ok).toBe(true);
+    if (!paid.ok) return;
+    const done = act(paid.state, {}).state;
+    expect(playerOf(done, P1).hand, "Haymaker left the hand").not.toContain(haymaker);
+    expect(playerOf(done, P1).discard, "the chosen card paid").toContain(e2);
+    expect(playerOf(done, P1).hand, "and only that one").toContain(e1);
+    expect(charmOn(done, P1)).toBe(1);
+  });
+
+  it("owner decision 63B, case (b): a card affordable but not legally playable (a Hero Action in alter-ego form) is not offered; the others are", () => {
+    const { s, call, haymaker } = withAlluringCall();
+    const may = moveToHand(s, P1, "01006").ids[0]!;
+    const e1 = moveToHand(s, P1, "01088").ids[0]!;
+    const staged = inForm(handOnly(s, [haymaker, may, e1]), "alter_ego");
     const seen: string[] = [];
-    const r = act(s, { cards: ["Haymaker"], payWith: [], seen }, use(P1, call, "55012.alluring-call-forced-action"));
-    expect(seen.map((l) => l.split(":")[0])).toEqual(["chooseCards", "spendResources"]);
-    expect(playerOf(r.state, P1).hand, "not played, not discarded").toContain(haymaker);
-    expect(outstandingForcedActions(r.state, P1, DEPS)).toHaveLength(0);
-    expect(charmOn(r.state, P1)).toBe(1);
+    const r = act(staged, { cards: ["Aunt May"], seen }, use(P1, call, "55012.alluring-call-forced-action"));
+    expect(seen[0], "Haymaker (a Hero Action) is not offered in alter-ego form").toMatch(/^chooseCards: Aunt May$/);
+    expect(inPlayAll(r.state, "01006")).toHaveLength(1);
+    expect(playerOf(r.state, P1).hand).toContain(haymaker);
+  });
+
+  it("owner decision 63B, case (b/c): with no card legal and payable the instruction cannot be completed (MC55 p. 7, 'if able'): the counter is placed, nothing is played, the Forced Action counts as performed", () => {
+    const { s, call, haymaker } = withAlluringCall();
+    const e1 = moveToHand(s, P1, "01088").ids[0]!;
+    // Alter-ego form: Haymaker cannot be played at all.
+    const wrongForm = act(
+      inForm(handOnly(s, [haymaker, e1]), "alter_ego"),
+      {},
+      use(P1, call, "55012.alluring-call-forced-action"),
+    );
+    expect(wrongForm.state.pendingChoice).toBeNull();
+    expect(playerOf(wrongForm.state, P1).hand).toContain(haymaker);
+    expect(outstandingForcedActions(wrongForm.state, P1, DEPS)).toHaveLength(0);
+    expect(charmOn(wrongForm.state, P1)).toBe(1);
+    // Hero form, but nothing to pay with: Haymaker costs 2, 1 after the reduction, and the hand holds only Haymaker.
+    const unpayable = act(handOnly(s, [haymaker]), {}, use(P1, call, "55012.alluring-call-forced-action"));
+    expect(unpayable.state.pendingChoice).toBeNull();
+    expect(playerOf(unpayable.state, P1).hand).toContain(haymaker);
+    expect(outstandingForcedActions(unpayable.state, P1, DEPS)).toHaveLength(0);
+    expect(charmOn(unpayable.state, P1)).toBe(1);
+  });
+
+  it("owner decision 63B, case (d): the reduction makes a card payable that otherwise is not (Haymaker, cost 2, with one other card in hand)", () => {
+    const { s, call, haymaker } = withAlluringCall();
+    const e1 = moveToHand(s, P1, "01088").ids[0]!;
+    const r = act(
+      handOnly(s, [haymaker, e1]),
+      { cards: ["Haymaker"], payWith: [e1] },
+      use(P1, call, "55012.alluring-call-forced-action"),
+    );
+    expect(playerOf(r.state, P1).hand).toHaveLength(0);
+    expect(playerOf(r.state, P1).discard).toContain(e1);
   });
 
   it("pins: the 'which card' prompt requires one card while a playable card is in hand (no opting out of the play itself)", () => {
@@ -111,14 +187,18 @@ describe("Alluring Call (55012): 'place 1 charm counter ... Play a card from you
     expect(r.state.outcome).toBeNull();
   });
 
-  it("the late path (its card readied after its player's turn ended): the engine asks 'which', then asks what to play and how to pay; nothing is paid for the player", () => {
+  it("the late path (its card readied after its player's turn ended): the engine asks 'which', then what to play and how to pay, and the play cannot be declined", () => {
     // RRG p. 6 and docs section 3.53: a forced action that became outstanding after its controller's turn is put to that
     // controller before the phase ends, "as a prompt that has only 'resolve it'". Here p1 used the Call in turn, ended the
     // turn, and p2's action readies it again (staged: no scripted card readies an attachment).
-    const { s, call } = withAlluringCall();
-    const used = act(s, { cards: [], payWith: [] }, use(P1, call, "55012.alluring-call-forced-action"), endTurn(P1));
+    const { s: opened, call, haymaker } = withAlluringCall();
+    const energy = moveToHand(opened, P1, "01088", "01090").ids;
+    // First use with nothing playable and payable in hand (a lone Energy), so the in-turn use plays nothing.
+    const s = handOnly(opened, [energy[0]!]);
+    const used = act(s, {}, use(P1, call, "55012.alluring-call-forced-action"), endTurn(P1));
     expect(used.state.step).toMatchObject({ phase: "player", kind: "turn", activePlayerId: P2 });
-    const readied = patchInstance(used.state, call, { exhausted: false });
+    // Owner decision 62B / 63B (2026-10-11), case (e): the late path plays the same way. Now Haymaker and two Energy.
+    const readied = handOnly(patchInstance(used.state, call, { exhausted: false }), [haymaker, ...energy]);
     // p2's own turn ends: p1 is asked to resolve its outstanding forced action.
     const ending = applyCommand(readied, endTurn(P2), DEPS);
     expect(ending.ok).toBe(true);
@@ -128,7 +208,6 @@ describe("Alluring Call (55012): 'place 1 charm counter ... Play a card from you
     expect(ask.prompt).toMatchObject({ kind: "chooseOption", forcedAction: true });
     expect(ask.options).toHaveLength(1);
     // Resolve it: the cost has no resource part, so the example command carries an empty payment; the card play inside it is asked.
-    const handBefore = playerOf(ending.state, P1).hand;
     const kinds: string[] = [];
     let cur = ending.state;
     for (let guard = 0; cur.pendingChoice && guard < 6; guard++) {
@@ -137,16 +216,27 @@ describe("Alluring Call (55012): 'place 1 charm counter ... Play a card from you
         const choice = st.pendingChoice!;
         if (choice.prompt.kind === "chooseCards")
           return [choice.options.find((o) => o.label.includes("Haymaker"))?.optionId ?? choice.options[0]!.optionId];
-        if (choice.prompt.kind === "spendResources") return [];
+        if (choice.prompt.kind === "spendResources") {
+          expect(choice.prompt).toMatchObject({ required: true });
+          const declined = applyCommand(
+            cur,
+            { type: "resolveChoice", playerId: P1, choiceId: choice.choiceId, selectedOptionIds: [] },
+            DEPS,
+          );
+          expect(declined.ok, "the late path cannot decline the payment either").toBe(false);
+          return [choice.options[0]!.optionId];
+        }
         return [choice.options[0]!.optionId];
       };
       cur = resolveWith(cur, pickHaymaker).state;
       if (kinds.at(-1)?.endsWith("discardDownToHandSize") || cur.step.phase !== "player") break;
     }
     expect(kinds.slice(0, 3)).toEqual(["p1:chooseOption", "p1:chooseCards", "p1:spendResources"]);
-    expect(playerOf(cur, P1).hand.length, "declined: no card left the hand because of the play").toBeGreaterThanOrEqual(
-      handBefore.length - 1,
-    );
+    expect(playerOf(cur, P1).hand, "Haymaker was played, paid for by an Energy").not.toContain(haymaker);
+    expect(
+      playerOf(cur, P1).discard.some((id) => energy.includes(id)),
+      "an Energy paid",
+    ).toBe(true);
   });
 });
 
@@ -166,26 +256,73 @@ describe("Trance of Greed (55008b): 'Draw 1 card, then play that card (paying it
     throw new Error("no seed deals Trance of Greed");
   }
 
-  it("pays for the drawn card when the player pays; takes 1 damage when the payment is declined (and the card stays in hand)", () => {
+  /** The player's hand replaced, the top of the deck set, form optionally changed. */
+  function staged(s: GameState, top: string, hand: readonly string[], form?: "alter_ego" | "hero") {
+    const topped = putOnTop(s, top);
+    const ids = moveToHand(topped, P1, ...hand);
+    const only = handOnly(ids.state, ids.ids);
+    return form ? inForm(only, form) : only;
+  }
+
+  it("owner decision 62B (2026-10-11), case (a): a drawn card that can be played and paid for must be; the payment cannot be declined or short, and the player chooses the cards", () => {
     const { s, gaze } = greed();
-    // The top of the deck is Black Cat (ally, cost 2); the hand supplies the payment.
-    const top = putOnTop(s, "01002");
+    const top = staged(s, "01058", ["01088", "01089", "01090"]); // Daredevil, cost 4; each resource card pays 2
     const hand = playerOf(top, P1).hand;
-    const paying = hand.slice(0, 2);
     const damageBefore = inst(top, identityOf(top, P1)).damage;
-    const paid = act(top, { payWith: paying }, use(P1, gaze, "55008b.trance-of-greed-forced-action"));
-    expect(inPlayAll(paid.state, "01002"), "Black Cat was played").toHaveLength(1);
-    expect(inst(paid.state, identityOf(paid.state, P1)).damage).toBe(damageBefore);
-    // Declined: the same Forced Action, nothing paid.
+    const used = applyCommand(top, use(P1, gaze, "55008b.trance-of-greed-forced-action"), DEPS);
+    expect(used.ok).toBe(true);
+    if (!used.ok) return;
+    const ask = used.state.pendingChoice!;
+    expect(ask.prompt).toMatchObject({ kind: "spendResources", required: true });
+    const answer = (ids: readonly string[]) =>
+      applyCommand(
+        used.state,
+        { type: "resolveChoice", playerId: P1, choiceId: ask.choiceId, selectedOptionIds: ids },
+        DEPS,
+      );
+    expect(answer([]).ok, "declining to keep the card and take the damage is refused").toBe(false);
+    expect(answer([`hand:${hand[2]}`]).ok, "one resource card (2) does not pay cost 4").toBe(false);
+    const paid = answer([`hand:${hand[0]}`, `hand:${hand[1]}`]);
+    expect(paid.ok).toBe(true);
+    if (!paid.ok) return;
+    const done = act(paid.state, {}).state;
+    expect(inPlayAll(done, "01058"), "Daredevil was played").toHaveLength(1);
+    expect(playerOf(done, P1).hand, "the card the player left out is still in hand").toContain(hand[2]);
+    expect(playerOf(done, P1).discard).toEqual(expect.arrayContaining([hand[0]!, hand[1]!]));
+    expect(inst(done, identityOf(done, P1)).damage).toBe(damageBefore);
+  });
+
+  it("owner decision 62B, case (b): affordable but not legally playable (a Hero Action in alter-ego form; a resource card): 1 damage, no payment asked, the card stays in hand", () => {
+    const { s, gaze } = greed();
+    for (const [code, form] of [
+      ["01087", "alter_ego"],
+      ["01088", "hero"],
+    ] as const) {
+      const top = staged(s, code, ["01089", "01090", "01058"], form);
+      const damageBefore = inst(top, identityOf(top, P1)).damage;
+      const seen: string[] = [];
+      const r = act(top, { seen }, use(P1, gaze, "55008b.trance-of-greed-forced-action"));
+      expect(
+        seen.some((l) => l.startsWith("spendResources")),
+        code,
+      ).toBe(false);
+      expect(
+        playerOf(r.state, P1).hand.some((id) => codeOf(r.state, id) === code),
+        code,
+      ).toBe(true);
+      expect(inst(r.state, identityOf(r.state, P1)).damage, code).toBe(damageBefore + 1);
+    }
+  });
+
+  it("owner decision 62B, case (c): not payable (Daredevil, cost 4, one Energy, worth 2, in hand): 1 damage, no payment asked, the card stays in hand", () => {
+    const { s, gaze } = greed();
+    const top = staged(s, "01058", ["01088"]);
+    const damageBefore = inst(top, identityOf(top, P1)).damage;
     const seen: string[] = [];
-    const declined = act(top, { payWith: [], seen }, use(P1, gaze, "55008b.trance-of-greed-forced-action"));
-    expect(
-      seen.some((l) => l.startsWith("spendResources")),
-      "the payment is asked, not made for the player",
-    ).toBe(true);
-    expect(inPlayAll(declined.state, "01002"), "not played").toHaveLength(0);
-    expect(playerOf(declined.state, P1).hand.some((id) => codeOf(declined.state, id) === "01002")).toBe(true);
-    // The script treats a declined payment as "cannot" and charges 1 damage instead: a rules question (report), pinned here.
-    expect(inst(declined.state, identityOf(declined.state, P1)).damage).toBe(damageBefore + 1);
+    const r = act(top, { seen }, use(P1, gaze, "55008b.trance-of-greed-forced-action"));
+    expect(seen.some((l) => l.startsWith("spendResources"))).toBe(false);
+    expect(inPlayAll(r.state, "01058")).toHaveLength(0);
+    expect(playerOf(r.state, P1).hand.some((id) => codeOf(r.state, id) === "01058")).toBe(true);
+    expect(inst(r.state, identityOf(r.state, P1)).damage).toBe(damageBefore + 1);
   });
 });

@@ -751,11 +751,23 @@ function executePlayFromHand(
       requirement.generic + requirement.physical + requirement.mental + requirement.energy + (requirement.wild ?? 0);
     const options = needed > 0 ? paymentOptions(ctx, playerId, card) : [];
     if (options.length > 0) {
+      // `mustPay`: no declining and no under-paying (owner decisions 62B and 63B, 2026-10-11). The cheapest payment in
+      // full goes first and sets the minimum, so the first `minSelections` options are a legal answer.
+      const fewest = effect.mustPay === true ? fewestSpend(ctx.state, ctx.deps, playerId, requirement, 0, card) : null;
       requestChoice(ctx, {
         playerId,
-        prompt: { kind: "spendResources", requirement },
-        options,
-        minSelections: 0,
+        prompt: {
+          kind: "spendResources",
+          requirement,
+          ...(effect.mustPay === true ? { required: true as const } : {}),
+        },
+        options: fewest
+          ? [
+              ...options.filter((option) => fewest.includes(option.optionId)),
+              ...options.filter((option) => !fewest.includes(option.optionId)),
+            ]
+          : options,
+        minSelections: effect.mustPay === true ? (fewest?.length ?? 1) : 0,
         maxSelections: options.length,
         frameId: frame.frameId,
       });
