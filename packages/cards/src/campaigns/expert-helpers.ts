@@ -9,24 +9,31 @@
  * First used by `next_evol.ts`. `mut_gen.ts`, `mts.ts` and `mojo.ts` still carry their own copies of the same shapes
  * and are not touched here.
  */
+import { trait } from "@mc/content";
 import type { CampaignInstruction, TargetRef } from "@mc/engine";
 import { DEFAULT_CAMPAIGN_WINDOW } from "@mc/engine";
 import {
   addAccelerationToken,
+  addCounters,
   campaignLogAtLeast,
   campaignLogValue,
   chooseOneBy,
+  chooseTarget,
+  chosen,
   damageOn,
   dealEncounterCard,
   defeat,
   eachPlayer,
+  exists,
   forEachPlayer,
   heal,
   identityOf,
   ifThen,
   option,
   placeThreat,
+  query,
   setRemainingHitPoints,
+  statOf,
   thatPlayer,
 } from "../dsl/index.js";
 
@@ -210,6 +217,60 @@ export function healForThreat(
     },
   };
 }
+
+/**
+ * "Expert Campaign Only: Each player may place one secret counter on a Board Member environment to heal damage from their
+ * identity equal to their REC." (MC50 pp. 11, 13, 15, 19; docs/phase7-wave9.md section 3.78.) The price is one secret
+ * counter on a Board Member environment the player chooses, and the heal is the REC of the face their identity has in
+ * play (the alter-ego at Setup), not the full hit points of the other helpers: so a player at full is not offered a
+ * pointless price, but one who is damaged is. The counter can flip the environment at its threshold (3 in expert
+ * mode); the heal then still resolves unless that third flip lost the game.
+ *
+ * A seat recorded at 0 or with no record (defeated in a scenario its teammates won) is asked whether to rejoin or sit
+ * the scenario out, as `healForThreat` asks (owner decision 2026-10-08 for MC45; docs/phase7-wave9.md section 4.1 Q14 =
+ * A, provisional). Rejoining pays the same counter and heals the same REC, so the seat starts at its REC. With no Board
+ * Member environment in play there is nothing to pay on, so the rejoin is not offered and the seat sits out.
+ *
+ * The caller chooses the window (Q13 = B: after mulligans, in printed order); the instruction is the default one here,
+ * as the other helpers are.
+ */
+export function healRecForSecret(id: string, citation: string): CampaignInstruction {
+  const boardMembers = query("environment", { trait: trait("BOARD MEMBER") });
+  const identity = identityOf(thatPlayer);
+  const rec = statOf(identity, "rec");
+  const pay = (label: string) =>
+    option(
+      label,
+      { when: exists(boardMembers) },
+      chooseTarget("secretOn", boardMembers, { chooser: thatPlayer }),
+      addCounters("secret", 1, chosen("secretOn")),
+      heal(rec, identity),
+    );
+  return {
+    id,
+    text: "Expert Campaign Only: Each player may place one secret counter on a Board Member environment to heal damage from their identity equal to their REC.",
+    citation,
+    whenModes: { expertCampaign: true },
+    step: {
+      kind: "inGame",
+      window: DEFAULT_CAMPAIGN_WINDOW,
+      effects: [
+        forEachPlayer(
+          eachPlayer,
+          ifThen(
+            campaignLogAtLeast("remainingHp", 1, { seat: thatPlayer }),
+            chooseOneBy(thatPlayer, pay(HEAL_REC_LABEL), option("Decline", [])),
+            chooseOneBy(thatPlayer, pay(REJOIN_REC_LABEL), option(SIT_OUT_LABEL, defeat(identity))),
+          ),
+        ),
+      ],
+    },
+  };
+}
+
+/** The labels of `healRecForSecret`'s offers (a defeated player's second answer is `SIT_OUT_LABEL`). */
+export const HEAL_REC_LABEL = "Heal REC · +1 secret counter";
+export const REJOIN_REC_LABEL = "Rejoin and heal REC · +1 secret counter";
 
 /** The two answers of a defeated player at the next scenario's Setup (`healForThreat`). */
 export const REJOIN_LABEL = "Rejoin at full";

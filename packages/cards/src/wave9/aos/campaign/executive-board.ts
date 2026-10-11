@@ -117,7 +117,24 @@ export const recordedBoard = (field: string): BoardSource => ({ kind: "recorded"
  * attachment loses the game during setup, as the card says.
  */
 export function prepareBoard(source: BoardSource): readonly EffectSpec[] {
-  const members = BOARD_MEMBER_FRONTS.flatMap((front): readonly EffectSpec[] => {
+  const members = boardMembersFor(source);
+  const treacheries = A_I_M_INTERFERENCE_IDS.map((id): EffectSpec =>
+    moveCards(encounterSetAside({ printedId: cardId(id) }), "encounterDeckShuffle"),
+  );
+  return [...members, ...treacheries];
+}
+
+/**
+ * Only the counters and faces of `field` on Board Member environments already in play, with no treachery shuffled in:
+ * scenario 5's "Place secret counters on each Board Member environment equal to the number of secret counters recorded
+ * for that environment in scenario #4" (MC50 p. 19). Baron Zemo's own Setup puts the three environments into play
+ * (`BOARD_MEMBER_FRONTS` are on the table) and its A.I.M. Interference cards are the scenario's own, so this is
+ * `prepareBoard`'s member half and nothing else.
+ */
+export const restoreBoardSecrets = (field: string): readonly EffectSpec[] => boardMembersFor(recordedBoard(field));
+
+function boardMembersFor(source: BoardSource): readonly EffectSpec[] {
+  return BOARD_MEMBER_FRONTS.flatMap((front): readonly EffectSpec[] => {
     // The environments are already in play: each has the Setup keyword, and Appendix II step 11 puts a card with it into
     // play from the set-aside area as well as from the encounter deck. "Put the three Board Member environments into
     // play" (MC50 p. 9) is therefore that keyword, and this resolves on them where they stand.
@@ -134,8 +151,4 @@ export function prepareBoard(source: BoardSource): readonly EffectSpec[] {
         : []),
     ];
   });
-  const treacheries = A_I_M_INTERFERENCE_IDS.map((id): EffectSpec =>
-    moveCards(encounterSetAside({ printedId: cardId(id) }), "encounterDeckShuffle"),
-  );
-  return [...members, ...treacheries];
 }

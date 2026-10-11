@@ -25,6 +25,7 @@ import {
   type GameEvent,
   type GameState,
 } from "@mc/engine";
+import { GAIN_EVIDENCE as GAIN, PREPARE_EVIDENCE as PREPARE } from "../../../campaigns/aos.js";
 import { cardsOfComposedSets } from "../../../campaigns/composed-sets.js";
 import { seedHiddenPiles } from "../../../dsl/index.js";
 import { WAVE9_CARDS as CARDS } from "../../cards.js";
@@ -48,14 +49,8 @@ export const STANDARD: PlayModes = { campaign: { campaignId: TEST_CAMPAIGN } };
 export const EXPERT: PlayModes = { campaign: { campaignId: TEST_CAMPAIGN, expertCampaign: true }, expert: true };
 export const DEPS: CampaignDeps = { pool: CARDS };
 
-const KINDS = {
-  means: ["50185", "50186", "50187"],
-  motive: ["50188", "50189", "50190"],
-  opportunity: ["50191", "50192", "50193"],
-} as const;
 export const ALL_EVIDENCE: readonly string[] = Object.keys(EVIDENCE_SETUPS);
 
-const slot = (name: string) => ({ kind: "choice" as const, slot: name });
 export const between = (id: string, ops: readonly CampaignOp[]): CampaignInstruction => ({
   id,
   text: "test",
@@ -74,38 +69,6 @@ export const inGame = (
   ...(when ? { when } : {}),
   step: { kind: "inGame", window, effects },
 });
-
-/** "Prepare the evidence": one sealed draw from each kind's three cards into the hidden envelope; evidence cleared. */
-const PREPARE: readonly CampaignOp[] = [
-  ...(Object.keys(KINDS) as (keyof typeof KINDS)[]).map((kind): CampaignOp => ({
-    kind: "random",
-    slot: kind,
-    from: { kind: "cards", cardIds: KINDS[kind].map(cardId) },
-    sealed: true,
-  })),
-  { kind: "setField", field: "aimEnvelope", value: slot("means") },
-  { kind: "appendToList", field: "aimEnvelope", value: slot("motive") },
-  { kind: "appendToList", field: "aimEnvelope", value: slot("opportunity") },
-  { kind: "clearField", field: "evidence" },
-];
-
-/** "Gain one evidence card": one of the cards in neither the envelope nor the evidence gained (open draw). */
-const GAIN: readonly CampaignOp[] = [
-  {
-    kind: "random",
-    slot: "gained",
-    from: {
-      kind: "excludingTitles",
-      from: {
-        kind: "excludingTitles",
-        from: { kind: "cards", cardIds: ALL_EVIDENCE.map(cardId) },
-        titlesIn: { kind: "field", field: "aimEnvelope" },
-      },
-      titlesIn: { kind: "field", field: "evidence" },
-    },
-  },
-  { kind: "appendToList", field: "evidence", value: slot("gained") },
-];
 
 const composition: readonly CampaignInstruction[] = [between("test.compose.board", BOARD_SET_ASIDE_OPS)];
 
