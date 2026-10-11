@@ -35,17 +35,22 @@ const FIXTURES = (import.meta as unknown as ImportMetaGlob).glob(
 /**
  * MarvelCDB user id → the author's name as MarvelCDB shows it. Recorded by hand when a decklist is saved (the public
  * decklist JSON has only `user_id`). Brian-V and Web-Warrior Fanatic are authors the owner named as good sources
- * (2026-10-10, marvelcdb.com/user/profile/2326 and /34979); the other six are the names the wave 5 custom-deck tests
- * recorded at fetch time.
+ * (2026-10-10, marvelcdb.com/user/profile/2326 and /34979); the rest are the names the wave 5 custom-deck tests and
+ * the wave 9 decklist table (`../wave9/custom-decks-marvelcdb.test.ts`) recorded at fetch time.
  */
 export const COMMUNITY_DECK_AUTHORS: Readonly<Record<number, string>> = {
+  5: "dr00",
   720: "jamjams32",
   2326: "Brian-V",
   10006: "CVdantespeak",
+  14578: "SoloMarvelChampion",
+  16053: "VillainTheory",
   18564: "Raftman",
   19903: "LeahLorenna",
+  28541: "andyr",
   34979: "Web-Warrior Fanatic",
   37731: "Tzars",
+  38537: "Daring Lime",
   47191: "JuanMC",
 };
 

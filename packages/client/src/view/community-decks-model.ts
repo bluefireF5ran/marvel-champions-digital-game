@@ -144,13 +144,16 @@ export function communityStatusText(offer: CommunityOffer): string {
   return offer.option.legal ? "Tested" : "Not legal";
 }
 
-/** A list row's second line: "Spider-Man · Leadership · by andyr · Tested". A locked deck says what opens it instead. */
+/**
+ * A list row's second line: "by andyr · Tested · Spider-Man · Leadership". The credit and the status lead, because the
+ * row shows two lines at most and the hero is already the row's picture. A locked deck says what opens it instead.
+ */
 export function communityMetaLine(offer: CommunityOffer): string {
   const { entry } = offer;
   const aspects = entry.aspects.map(aspectName).join(" + ");
-  const who = [offer.option.identityName ?? entry.heroName, ...(aspects ? [aspects] : [])].join(" · ");
-  if (offer.lock) return `${who} · ${communityCredit(entry)} · ${offer.lock}`;
-  return `${who} · ${communityCredit(entry)} · ${communityStatusText(offer)}${offer.added ? " · in your decks" : ""}`;
+  const who = [entry.heroName, ...(aspects ? [aspects] : [])].join(" · ");
+  if (offer.lock) return `${communityCredit(entry)} · ${offer.lock}`;
+  return `${communityCredit(entry)} · ${communityStatusText(offer)}${offer.added ? " · in your decks" : ""} · ${who}`;
 }
 
 /** "Sep 30, 2026" for the decklist's last update on MarvelCDB as of the day it was saved, or null when unknown. */
@@ -179,6 +182,8 @@ export function communityNotesOf(description: string): readonly string[] {
     .replace(/<[^>\n]+>/g, "")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    // A link an author left half-written ("Aragorn](/card/25007)") keeps its words.
+    .replace(/\]\([^)\s]*\)/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")

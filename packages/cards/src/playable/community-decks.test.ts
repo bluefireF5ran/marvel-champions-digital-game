@@ -15,7 +15,7 @@ describe("community decks", () => {
     expect(
       skippedCommunityDecks().filter((skipped) => skipped.heroCode !== null && HEROES.has(skipped.heroCode)),
     ).toEqual([]);
-    expect(decks.length).toBeGreaterThanOrEqual(56);
+    expect(decks.length).toBeGreaterThanOrEqual(68);
   });
 
   test("each deck is listed once, by hero and then MarvelCDB id", () => {

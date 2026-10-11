@@ -51,6 +51,9 @@ export function progressionGuideOf(): readonly GuideSection[] {
         "The Core Set: all five heroes and all three villains, from the first launch.",
         "Your own decks: a deck you import from MarvelCDB or build in the deck builder plays whatever hero it's " +
           "for. The locks are on the preconstructed decks only.",
+        "Community decks: public MarvelCDB decks by named authors that this game has imported, checked and played " +
+          "through. They are recommendations on the Decks screen, not official precons. One is offered once its " +
+          "hero and its cards' waves are open; add it to your decks to get a copy you can edit.",
       ],
     },
     {

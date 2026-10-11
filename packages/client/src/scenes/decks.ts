@@ -56,6 +56,13 @@
  * pointer-move-driven highlight would need a lighter-weight redraw path than
  * that; left as a follow-up rather than added under this pass's time budget.
  *
+ * **Community decks** (2026-10-10, `view/community-decks-model.ts`): the tested public MarvelCDB decklists
+ * (`@mc/cards`'s `communityDecks`) are a third list group, after the player's own decks. They are recommendations,
+ * labeled as community decks from MarvelCDB and never as precons. Selecting one shows its own card list in the
+ * middle pane (cards open in Inspect) and, in the stats rail's place, the author's credit, a Tested stamp, the
+ * decklist's last-updated date, the author's notes, the MarvelCDB link and one action: add an editable copy. A deck
+ * whose hero or cards the player has not unlocked is shown dimmed with what opens it, and cannot be added.
+ *
  * A deck row's tap **selects** it (updates the pool and stats panes) rather
  * than navigating away; a pool card's tap opens Inspect (this screen never
  * edits a deck's contents — that's `scenes/deck-builder.ts`, reached from
@@ -186,7 +193,7 @@ const TOUCH_ROW = hit.target;
 const CARD_TITLE_TYPE = { ...typeRole.barTitle, size: 18, letterSpacing: 0.6 };
 
 /** The community group's label, on its first row: says where the decks come from and that they are not precons. */
-const COMMUNITY_GROUP_LABEL = "Community decks · from MarvelCDB · tested";
+const COMMUNITY_GROUP_LABEL = "Community decks · MarvelCDB";
 /** One line of the author's notes in the detail rail. */
 const NOTES_LINE_HEIGHT = 17;
 
@@ -1078,7 +1085,8 @@ export class DecksScene extends Phaser.Scene {
     objects.push(name);
     // A selected row's "Last played" record line gives way to a two-line title in a row too short for both: the
     // name and the card count matter more, and the detail pane still has the history.
-    const showRecord = selected && !(twoLineTitle && card.height < 84);
+    // A community deck has no record either: it is never played itself, only its copy is.
+    const showRecord = selected && !row.offer && !(twoLineTitle && card.height < 84);
     const metaTop = card.y + 8 + name.height + 3;
     const metaRoom = card.y + card.height - 6 - (showRecord ? 16 : 0) - metaTop;
     const meta = this.add
@@ -1866,7 +1874,8 @@ export class DecksScene extends Phaser.Scene {
     label(this, left, y, "From the author · how it plays", typeRole.label, surface.paper.hex, ink.label);
     y += 18;
     const notesBottom = linkRowY - 22 - 10;
-    const notesHeight = notesBottom - y;
+    // Whole lines only, so the last one shown is never cut through.
+    const notesHeight = Math.floor((notesBottom - y) / NOTES_LINE_HEIGHT) * NOTES_LINE_HEIGHT;
     const paragraphs = communityNotesOf(entry.description);
     if (paragraphs.length === 0) {
       this.add
