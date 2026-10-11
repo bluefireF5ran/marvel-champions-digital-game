@@ -163,6 +163,23 @@ function revealedAtOnce(burst: Burst, instanceId: InstanceId): boolean {
   return false;
 }
 
+/**
+ * The name a villain went by when `event` happened, when the same command swaps it for another card of its title
+ * afterward (`villainReplaced`, reason `swap`: God of Lies's Avatars). The log is written from the state after the whole
+ * command, where the instance already holds the new card, so without this "Loki the Wretch gets 5 shatter counters"
+ * reads "Loki the Knave gets ..." (the counters were on the Wretch). A reveal is left alone: it names the card now up.
+ */
+function swappedOutName(state: GameState, id: InstanceId, event: GameEvent, burst: Burst | undefined): string | null {
+  if (!burst || event.type === "encounterCardRevealed" || event.type === "villainReplaced") return null;
+  for (let i = burst.at + 1; i < burst.events.length; i++) {
+    const later = burst.events[i]!;
+    if (later.type === "villainReplaced" && later.instanceId === id && later.reason === "swap") {
+      return getCard(state, later.fromCardId)?.name ?? null;
+    }
+  }
+  return null;
+}
+
 /** The command's whole event list and where `event` sits in it: a few lines read the events around them. */
 export interface Burst {
   readonly events: readonly GameEvent[];
@@ -183,7 +200,8 @@ function describe(
   const verb = (id: PlayerId, plural: string, singular: string): string => (id === viewer ? plural : singular);
   /** "Your deck" vs "Spider-Man's deck": "you" possessive isn't "you's". */
   const possessive = (id: PlayerId): string => (id === viewer ? "Your" : `${who(id)}'s`);
-  const card = (id: Parameters<typeof cardName>[1]): string => faceNames?.get(id) ?? cardName(state, id);
+  const card = (id: Parameters<typeof cardName>[1]): string =>
+    faceNames?.get(id) ?? swappedOutName(state, id, event, burst) ?? cardName(state, id);
 
   switch (event.type) {
     case "roundStarted":

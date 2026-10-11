@@ -39,7 +39,7 @@ import {
   printedProfile,
   handCardResources,
   remainingHitPoints,
-  scale,
+  scaleIn,
   scenarioPlayAreaOf,
   schemesInPlay,
   sharedScheme,
@@ -1402,10 +1402,7 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
     threat: instance.threat,
     // A side scheme has no threshold: it is defeated when thwarted to 0.
     target: null,
-    meterMax:
-      card?.type === "side_scheme"
-        ? Math.max(scale(card.startingThreat, state.startingPlayerCount), instance.threat)
-        : null,
+    meterMax: card?.type === "side_scheme" ? Math.max(scaleIn(state, card.startingThreat), instance.threat) : null,
     isMain: false,
     crisis,
     accelerationTokens: 0,

@@ -14,6 +14,9 @@ import { CARD_ASPECT, type Rect } from "./layout.js";
 const AREA_SHARE = 0.46;
 const AREA_MIN_HEIGHT = 150;
 const AREA_MAX_HEIGHT = 230;
+const NEUTRAL_AREA_MIN_HEIGHT = 104;
+/** What the villain panel with a two-row environment grid beside it needs above a neutral strip. */
+export const VILLAIN_BAND_NEED = 136;
 /** The zone's gap between the enemies and the area. */
 const AREA_GAP = 8;
 /** A scheme's panel is wider than a card: art column, name and the threat meter beside it. */
@@ -28,9 +31,19 @@ export interface MissionSplit {
 }
 
 /** The enemies zone cut into the enemies and the mission area under them. With no area, the zone is returned whole. */
-export function splitMissionArea(enemies: Rect, hasArea: boolean): MissionSplit {
+export function splitMissionArea(
+  enemies: Rect,
+  hasArea: boolean,
+  options: { readonly neutral?: boolean } = {},
+): MissionSplit {
   if (!hasArea) return { enemies, area: null };
-  const height = Math.round(Math.min(AREA_MAX_HEIGHT, Math.max(AREA_MIN_HEIGHT, enemies.height * AREA_SHARE)));
+  // A neutral strip (God of Lies: label, a wide card, the line under it) reads at 104 where a mission area's cards
+  // want 150, so on a tablet's short zone it gives the villain and its environments the rest (the villain panel and
+  // two rows of environment tiles need about 136 above the strip); on a tall zone it keeps the 150 it always had.
+  const floor = options.neutral
+    ? Math.min(AREA_MIN_HEIGHT, Math.max(NEUTRAL_AREA_MIN_HEIGHT, enemies.height - VILLAIN_BAND_NEED - AREA_GAP))
+    : AREA_MIN_HEIGHT;
+  const height = Math.round(Math.min(AREA_MAX_HEIGHT, Math.max(floor, enemies.height * AREA_SHARE)));
   // Never the whole zone: the enemies keep at least a card's worth, and the area gives way past that.
   // A zone too short for both gives the area what is left past the gap, and the enemies zero, never a negative height.
   const taken = Math.min(height, Math.max(80, enemies.height - 120), Math.max(0, enemies.height - AREA_GAP));

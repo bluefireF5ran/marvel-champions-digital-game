@@ -7,6 +7,7 @@ import {
   NEUTRAL_NOTE_HEIGHT,
   splitMissionArea,
   splitNeutralTab,
+  VILLAIN_BAND_NEED,
 } from "./mission-area-layout.js";
 
 const zone = { x: 10, y: 50, width: 700, height: 400 };
@@ -117,5 +118,22 @@ describe("the neutral area's layouts", () => {
     expect(schemes.y + schemes.height).toBeLessThanOrEqual(area.y);
     const small = splitNeutralTab({ ...tab, height: 120 });
     expect(small.area.height).toBe(0);
+  });
+});
+
+describe("splitMissionArea with a neutral strip", () => {
+  test("a tablet's short zone leaves the villain and its two rows of environments their room", () => {
+    for (const height of [270, 287]) {
+      const { enemies, area } = splitMissionArea({ ...zone, height }, true, { neutral: true });
+      expect(enemies.height).toBeGreaterThanOrEqual(VILLAIN_BAND_NEED);
+      // The strip still holds its label, a wide card and the line under it.
+      expect(area!.height).toBeGreaterThanOrEqual(104);
+    }
+  });
+
+  test("a tall zone is cut exactly as a mission area is", () => {
+    expect(splitMissionArea(zone, true, { neutral: true })).toEqual(splitMissionArea(zone, true));
+    const desktop = { ...zone, height: 300 };
+    expect(splitMissionArea(desktop, true, { neutral: true })).toEqual(splitMissionArea(desktop, true));
   });
 });

@@ -99,6 +99,7 @@ import {
   type TeamUpWatch,
 } from "../view/team-up-model.js";
 import { drawEncounter, drawEnemies, drawPlayArea, drawScenarioPlayAreas, drawTeam } from "./board/zones.js";
+import { avatarSwapAnnouncements } from "../view/avatar-swap-banner.js";
 import { splitMissionArea, splitNeutralTab } from "../view/mission-area-layout.js";
 import { referenceCardViews, type ReferenceCardView } from "../view/reference-cards.js";
 import { destroyChildren } from "../ui/destroy-children.js";
@@ -510,6 +511,10 @@ export class BoardScene extends Phaser.Scene {
             "Defeated — out of the game. The rest of the team fights on",
           );
         }
+      }
+      // An Avatar of Loki shattering and another taking the villain slot: the panel would change its name unexplained.
+      for (const swap of avatarSwapAnnouncements(state.lastEvents, state.game)) {
+        this.#motion.announce(swap.title, swap.detail);
       }
       // Saving failing is silent otherwise — the game plays on — and a refresh
       // would then lose it. Said once, loudly; the chrome chip keeps saying it.
@@ -983,6 +988,7 @@ export class BoardScene extends Phaser.Scene {
     const guideRail = this.#guide?.railOptionFor(viewport) ?? undefined;
     const layout = boardLayout(viewport, {
       playerCount: model.team.length + 1,
+      neutralArea: model.scenarioPlayAreas.some((area) => area.neutral),
       activeTab: this.#activeTab,
       ...(guideRail ? { guideRail } : {}),
     });
@@ -1031,7 +1037,7 @@ export class BoardScene extends Phaser.Scene {
     if (neutralTab && neutralTab.area.height > 0)
       drawScenarioPlayAreas(ctx, neutralTab.area, neutralAreas, references, "stack");
     const missionSplit = zones.enemies
-      ? splitMissionArea(zones.enemies, stripAreas.length > 0)
+      ? splitMissionArea(zones.enemies, stripAreas.length > 0, { neutral: stripAreas.some((area) => area.neutral) })
       : { enemies: null, area: null };
     if (missionSplit.enemies) drawEnemies(ctx, missionSplit.enemies, model);
     if (missionSplit.area) drawScenarioPlayAreas(ctx, missionSplit.area, stripAreas, references);

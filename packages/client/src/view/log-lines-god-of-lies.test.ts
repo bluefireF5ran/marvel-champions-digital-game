@@ -62,6 +62,21 @@ describe("the shatter, read as a log", () => {
   });
 });
 
+describe("the Avatar's name on the lines before its swap", () => {
+  test("the counters, the damage and the loss are the Avatar that held them, the swap names both", async () => {
+    const { store, events } = await shatterGame();
+    const log = appendEvents(emptyLog(), events, store.state.game!, store.state.perspectiveId!, POOL_DEPS);
+    const text = log.lines.map((line) => line.text);
+    const swap = text.find((line) => / swaps to /.test(line))!;
+    const [from, to] = swap.replace(/\.$/, "").split(" swaps to ") as [string, string];
+    expect(from).not.toBe(to);
+    // The state after the command holds the new Avatar: the old name comes from the command's own villainReplaced.
+    expect(text).toContain(`${from} gets 5 shatter counters.`);
+    expect(text).toContain(`${from} loses 7 shatter counters.`);
+    expect(text.some((line) => line.startsWith(`${to} gets`) || line.startsWith(`${to} loses`))).toBe(false);
+  });
+});
+
 describe("shared results", () => {
   test("a dial set to a number says so", async () => {
     const { store } = await shatterGame();
