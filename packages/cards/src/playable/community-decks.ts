@@ -22,15 +22,24 @@ import {
   type ImportProblem,
 } from "@mc/content";
 
-// `import.meta.glob` is Vite's static-file loader (the client build and vitest both run it); `@mc/cards`'s tsconfig
-// carries no Vite types, hence the cast (the same pattern as the tests that read these fixtures).
+// `import.meta.glob` is Vite's static-file loader (the client build and vitest both run it): Vite replaces the call
+// below with the files themselves, so there is nothing to feature-test at run time. `@mc/cards`'s tsconfig carries no
+// Vite types, hence the cast (the same pattern as the tests that read these fixtures). Outside Vite (the Playwright
+// runner loads `@mc/cards` in plain Node for its helpers) the call throws, and the catalog is empty there.
 interface ImportMetaGlob {
   readonly glob: (patterns: readonly string[], opts: object) => unknown;
 }
-const FIXTURES = (import.meta as unknown as ImportMetaGlob).glob(
-  ["./fixtures/*.json", "../wave*/**/fixtures/**/*.json"],
-  { import: "default", eager: true },
-) as Record<string, unknown>;
+function loadFixtures(): Record<string, unknown> {
+  try {
+    return (import.meta as unknown as ImportMetaGlob).glob(["./fixtures/*.json", "../wave*/**/fixtures/**/*.json"], {
+      import: "default",
+      eager: true,
+    }) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+const FIXTURES = loadFixtures();
 
 /**
  * MarvelCDB user id → the author's name as MarvelCDB shows it. Recorded by hand when a decklist is saved (the public
