@@ -17,6 +17,7 @@ import { engineError, type EngineError, type IllegalDeck } from "./errors.js";
 import { runFlow } from "./flow.js";
 import type { OutsideFacts } from "./outside-facts.js";
 import { encounterDeckId, instanceId, playerId, type EncounterDeckId, type InstanceId, type PlayerId } from "./ids.js";
+import { linkedKeywordNames, linkedKeywordsOf, linkedNameKey } from "./linked.js";
 import { createRng, nextInt } from "./rng.js";
 import {
   FIRST_CAMPAIGN_STEP,
@@ -637,19 +638,24 @@ export function illegalDecksOf(
 }
 
 /**
- * The pool's linked cards under the title each names (`KeywordInstance linked { cardTitle }`; RRG 1.8 "Linked (Card
- * Title)", p. 27), in pool order. A linked keyword with no title names nothing, so its card is never set aside.
+ * The pool's linked cards grouped by what each names (`KeywordInstance linked`; RRG 1.8 "Linked (Card Title)", p. 27),
+ * in pool order. A linked keyword with no title names nothing, so its card is never set aside. `names` asks whether a
+ * card is the one a group's parentheses name (`linked.ts`: a title, or a title and a card type).
  */
-function linkedCardsByTitle(cards: readonly AnyCard[]): ReadonlyMap<string, readonly AnyCard[]> {
-  const byTitle = new Map<string, AnyCard[]>();
+function linkedCardGroups(
+  cards: readonly AnyCard[],
+): readonly { readonly names: (card: AnyCard) => boolean; readonly cards: readonly AnyCard[] }[] {
+  const groups = new Map<string, { readonly names: (card: AnyCard) => boolean; readonly cards: AnyCard[] }>();
   for (const card of cards) {
-    if (!("keywords" in card)) continue;
-    for (const keyword of card.keywords) {
-      if (keyword.name !== "linked" || keyword.cardTitle === undefined) continue;
-      byTitle.set(keyword.cardTitle, [...(byTitle.get(keyword.cardTitle) ?? []), card]);
+    for (const keyword of linkedKeywordsOf(card)) {
+      const key = linkedNameKey(keyword);
+      if (key === undefined) continue;
+      const group = groups.get(key) ?? { names: (named: AnyCard) => linkedKeywordNames(keyword, named), cards: [] };
+      group.cards.push(card);
+      groups.set(key, group);
     }
   }
-  return byTitle;
+  return [...groups.values()];
 }
 
 /** `GameSetupConfig.setAsideUntilCalled` as `ScenarioRules` keeps it: only the lists that name something, or nothing. */
@@ -1096,40 +1102,73 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
   // with no owner: "When a player takes control of a card with the linked keyword, that player becomes the owner of
   // that card" (`enterPlayOnReveal`). Appendix II (p. 51) names no step for them; they are created here, last, before
   // any deck is shuffled, so no other instance's id depends on whether the pool holds them.
+  //
+  // The encounter side is one more "deck" (docs/phase7-wave9.md §3.57; MC55 p. 2: a linked card "is set aside at the
+  // start of the game if any encounter card or card in a player's deck includes the card that brings the linked card
+  // into play"): one set for the game when an encounter card of the scenario, of the linked card's own product, is the
+  // named card, logged with no player, after the players' sets. Copies the scenario already set aside
+  // (`GameSetupConfig.setAside`) count toward that set, so a builder that lists them itself does not double it.
   const linkedSetAside: {
-    readonly forPlayer: PlayerId;
+    readonly forPlayer: PlayerId | null;
     readonly cardIds: readonly CardId[];
     readonly instanceIds: readonly InstanceId[];
   }[] = [];
-  const linkedCards = linkedCardsByTitle(config.cards);
-  if (linkedCards.size > 0) {
+  const linkedGroups = linkedCardGroups(config.cards);
+  if (linkedGroups.length > 0) {
+    const setAsideLinked = (card: AnyCard, cardIds: CardId[], instanceIds: InstanceId[]): void => {
+      const id = nextId();
+      instances[id] = {
+        ...blankInstance(
+          id,
+          card.id,
+          null,
+          "deckLimit" in card ? PLAYER_HOME : { kind: "encounterDeck", deckId: deckIds[0] as EncounterDeckId },
+        ),
+        faceup: true,
+      };
+      encounterSetAside.push(id);
+      cardIds.push(card.id);
+      instanceIds.push(id);
+    };
+    // Read before any linked card is created: the scenario's own cards, in a deck, in play or set aside, and the
+    // cards a separate scenario deck will be built from. A player card among them (a campaign's set-aside card, a
+    // linked card a builder listed) is not an encounter card.
+    const encounterCards = [
+      ...Object.values(instances).flatMap((instance) => (instance.ownerId === null ? [pool[instance.cardId]] : [])),
+      ...(config.scenarioDecks ?? []).flatMap((deck) => (deck.contents.cardIds ?? []).map((cardId) => pool[cardId])),
+    ].filter((card): card is AnyCard => card !== undefined && !("deckLimit" in card) && card.type !== "hero_identity");
+    const alreadyAside = new Map<CardId, number>();
+    for (const id of encounterSetAside) {
+      const cardId = instances[id]?.cardId;
+      if (cardId !== undefined) alreadyAside.set(cardId, (alreadyAside.get(cardId) ?? 0) + 1);
+    }
     for (const [seatIndex, setup] of config.players.entries()) {
-      const titles = new Set(setup.deck.map((cardId) => pool[cardId]?.name));
+      const deckCards = setup.deck.flatMap((cardId) => (pool[cardId] ? [pool[cardId]] : []));
       const cardIds: CardId[] = [];
       const instanceIds: InstanceId[] = [];
-      for (const [title, cards] of linkedCards) {
-        if (!titles.has(title)) continue;
-        for (const card of cards) {
-          for (let copy = 0; copy < Math.max(1, card.quantityInSet); copy++) {
-            const id = nextId();
-            instances[id] = {
-              ...blankInstance(
-                id,
-                card.id,
-                null,
-                "deckLimit" in card ? PLAYER_HOME : { kind: "encounterDeck", deckId: deckIds[0] as EncounterDeckId },
-              ),
-              faceup: true,
-            };
-            encounterSetAside.push(id);
-            cardIds.push(card.id);
-            instanceIds.push(id);
-          }
+      for (const group of linkedGroups) {
+        if (!deckCards.some(group.names)) continue;
+        for (const card of group.cards) {
+          for (let copy = 0; copy < Math.max(1, card.quantityInSet); copy++) setAsideLinked(card, cardIds, instanceIds);
         }
       }
       const player = players[seatIndex];
       if (player && instanceIds.length > 0) linkedSetAside.push({ forPlayer: player.playerId, cardIds, instanceIds });
     }
+    const cardIds: CardId[] = [];
+    const instanceIds: InstanceId[] = [];
+    for (const group of linkedGroups) {
+      const named = encounterCards.filter(group.names);
+      for (const card of group.cards) {
+        // The encounter card "that brings the linked card into play" is the one of the linked card's own product
+        // (MC55 p. 2: set aside "for any scenario using Trickster Magic as a modular set"). Another product's
+        // encounter card of the same title and type (a nemesis minion of that name) brings nothing into play.
+        if (!named.some((encounter) => encounter.setCode === card.setCode)) continue;
+        const missing = Math.max(1, card.quantityInSet) - (alreadyAside.get(card.id) ?? 0);
+        for (let copy = 0; copy < missing; copy++) setAsideLinked(card, cardIds, instanceIds);
+      }
+    }
+    if (instanceIds.length > 0) linkedSetAside.push({ forPlayer: null, cardIds, instanceIds });
   }
 
   const setupStack = stackedDecksOf(config, players, encounterDecks[deckIds[0] as string]?.deck ?? [], instances);

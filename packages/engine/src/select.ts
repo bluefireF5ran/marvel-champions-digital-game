@@ -2031,11 +2031,13 @@ export function canAttack(
   attackerId: InstanceId,
   targetId: InstanceId,
   deps: EngineDeps = DEFAULT_DEPS,
+  /** The attack is the attacker's basic attack, so a `cannotAttack` rule with `basicOnly` binds it (§3.72). */
+  basic = false,
 ): boolean {
   const controller = controllerOf(state, attackerId);
   // An attack by an enemy is nobody's attack: neither guard nor a player-scoped `cannotAttack` (an `attacker`-scoped
   // one still can, and does apply to an enemy attacker — see `attackForbidden`).
-  if (attackForbidden(state, attackerId, controller, targetId, deps)) return false;
+  if (attackForbidden(state, attackerId, controller, targetId, deps, basic) !== null) return false;
   if (controller === null) return true;
   if (!isVillain(state, targetId)) return true;
   if (hasKeyword(state, targetId, "guard", deps)) return true;
@@ -2062,9 +2064,12 @@ function attackForbidden(
   attackerPlayerId: PlayerId | null,
   targetId: InstanceId,
   deps: EngineDeps,
-): boolean {
-  return activeRules(state, deps, "cannotAttack").some((active) => {
+  basic: boolean,
+): { readonly byInstanceId: InstanceId | null; readonly basicOnly: boolean } | null {
+  const forbidding = activeRules(state, deps, "cannotAttack").find((active) => {
     const { player, target, attacker } = active.rule;
+    // "You cannot make basic attacks" (`basicOnly`, docs/phase7-wave9.md §3.72): only a basic attack is asked.
+    if (active.rule.basicOnly === true && !basic) return false;
     if (attacker && !matchesQuery(state, attackerId, attacker, active.context)) return false;
     if (player) {
       if (attackerPlayerId === null || !rulePlayers(state, { player }, active).includes(attackerPlayerId)) {
@@ -2081,6 +2086,25 @@ function attackForbidden(
     if (forbidsEveryAttack(target) && isAttackTarget(state, targetId, deps)) return true;
     return matchesQuery(state, targetId, target, { ...active.context, prohibitingAttack: true });
   });
+  return forbidding
+    ? { byInstanceId: forbidding.context.selfInstanceId, basicOnly: forbidding.rule.basicOnly === true }
+    : null;
+}
+
+/**
+ * The first `cannotAttack` rule in force that forbids this attack, for a refusal that names its card: the card
+ * (`byInstanceId`, null for a rule with no card of its own, such as a scenario rule) and whether the rule forbids basic
+ * attacks only. Null when no such rule does: guard is not a `cannotAttack` rule and is not reported here. `basic` as
+ * `canAttack`'s.
+ */
+export function attackForbiddenBy(
+  state: GameState,
+  attackerId: InstanceId,
+  targetId: InstanceId,
+  deps: EngineDeps = DEFAULT_DEPS,
+  basic = false,
+): { readonly byInstanceId: InstanceId | null; readonly basicOnly: boolean } | null {
+  return attackForbidden(state, attackerId, controllerOf(state, attackerId), targetId, deps, basic);
 }
 
 /**

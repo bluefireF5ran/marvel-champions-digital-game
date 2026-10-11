@@ -326,10 +326,14 @@ export type GameEvent =
    * `forPlayer`'s deck holds a card whose title these cards name, so their product's copies wait in the shared
    * set-aside area (`GameState.encounterSetAside`), owned by nobody until a player takes control of one. One entry per
    * deck that names any, after the `cardsSetAside` entries; `cardIds` and `instanceIds` run in step, one per copy.
+   *
+   * `forPlayer: null` (docs/phase7-wave9.md §3.57): the named card is an encounter card of the scenario, so there is
+   * one set for the game, logged once after the players' entries. Only the copies the scenario had not already set
+   * aside itself are listed.
    */
   | {
       readonly type: "linkedCardsSetAside";
-      readonly forPlayer: PlayerId;
+      readonly forPlayer: PlayerId | null;
       readonly cardIds: readonly CardId[];
       readonly instanceIds: readonly InstanceId[];
     }
@@ -1469,6 +1473,20 @@ export type GameEvent =
       readonly instanceId: InstanceId;
       readonly counterType: string;
       readonly amount: number;
+    }
+  /**
+   * Counters that were to be placed on a card and were not, because the card may hold no more of them (`RuleSpec
+   * counterLimit`, "Max 1 [per player] synergy counters here"; docs/phase7-wave9.md §3.61). `amount` is the number not
+   * placed; the ones that were placed have their own `counterAdded` (or `countersMoved`). `fromInstanceId`: they were
+   * being moved from that card, and stay on it (RRG 1.8 "Move", p. 30).
+   */
+  | {
+      readonly type: "countersNotPlaced";
+      readonly instanceId: InstanceId;
+      readonly counterType: string;
+      readonly amount: number;
+      readonly reason: "limit";
+      readonly fromInstanceId?: InstanceId;
     }
   | {
       readonly type: "counterRemoved";

@@ -68,15 +68,19 @@ export const aspectHero = (opts: Parameters<typeof aspectGame>[0] = {}): GameSta
   withForm(aspectGame(opts), { heroForm: 0 });
 
 /**
- * Test surgery: Captain America's Shield 53034 set aside the way the linked keyword asks (RRG 1.8 "Linked", p. 27): a
- * faceup copy owned and controlled by nobody in the encounter set-aside area. Setup does not do this for the Falcon
- * precon today (its keyword names the title "Captain America upgrade", which no card is named), so a game stages it.
+ * Captain America's Shield 53034 set aside the way the linked keyword asks (RRG 1.8 "Linked", p. 27): a faceup copy
+ * owned and controlled by nobody in the encounter set-aside area. Setup does this for a deck that holds Captain America
+ * 53023 (docs/phase7-wave9.md §3.57: "Linked (Captain America upgrade)" names the upgrade), and that copy is the one
+ * returned; a game whose deck does not hold it gets one by test surgery. With a `name`, one more copy is always staged
+ * under that id (a second shield beside the set-aside one).
  */
 export function withLinkedShield(
   state: GameState,
-  name = "linked-shield",
+  name?: string,
 ): { readonly state: GameState; readonly id: InstanceId } {
-  const id = name as InstanceId;
+  const setAside = state.encounterSetAside.find((aside) => state.instances[aside]?.cardId === cardId("53034"));
+  if (setAside && name === undefined) return { state, id: setAside };
+  const id = (name ?? "linked-shield") as InstanceId;
   const donor = state.instances[state.players[0]!.deck[0]!]!;
   return {
     id,
@@ -89,4 +93,13 @@ export function withLinkedShield(
       },
     },
   };
+}
+
+/** Test surgery: no copy of Captain America's Shield 53034 set aside (the one setup set aside is removed from the game). */
+export function withoutLinkedShield(state: GameState): GameState {
+  const gone = state.encounterSetAside.filter((aside) => state.instances[aside]?.cardId === cardId("53034"));
+  if (gone.length === 0) return state;
+  const instances = { ...state.instances };
+  for (const id of gone) delete instances[id];
+  return { ...state, encounterSetAside: state.encounterSetAside.filter((aside) => !gone.includes(aside)), instances };
 }

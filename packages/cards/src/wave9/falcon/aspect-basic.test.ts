@@ -45,7 +45,13 @@ import {
   FLIGHT_SQUADRON_GRANTED_RESPONSE as GRANTED,
   SPECTRUM_GRANTED_RESPONSE as SPECTRUM_GRANTED,
 } from "./aspect-basic.js";
-import { ASPECT_DEPS as DEPS, aspectGame, aspectHero, withLinkedShield } from "./aspect-basic.testing.js";
+import {
+  ASPECT_DEPS as DEPS,
+  aspectGame,
+  aspectHero,
+  withLinkedShield,
+  withoutLinkedShield,
+} from "./aspect-basic.testing.js";
 import { engageMinion, stagedInPlay } from "./testing.js";
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -1107,7 +1113,8 @@ describe("53023.captain-america-action: exhaust and spend a [physical] resource 
     expect(refusal(tired, use(P1, g.cap, ID, [{ fromHand: g.strength }]))).toBeDefined();
   });
   it("without a shield anywhere (none set aside) there is nothing to find: the ability cannot be used and no cost is paid", () => {
-    const cap = stagedInPlay(aspectHero(), CAPTAIN, { attach: true });
+    // Setup set the linked shield aside for this deck (it holds Captain America 53023); it is taken out of the game.
+    const cap = stagedInPlay(withoutLinkedShield(aspectHero()), CAPTAIN, { attach: true });
     const given = withHand(cap.state, [STRENGTH]);
     expect(refusal(given.state, use(P1, cap.id, ID, [{ fromHand: given.ids[0]! }]))).toBeDefined();
   });

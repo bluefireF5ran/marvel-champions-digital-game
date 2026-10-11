@@ -755,6 +755,38 @@ export const attackableAsMinion = (
   opts: { readonly while?: Predicate } = {},
 ): ConstantPart => rule({ kind: "attackableAsMinion", card, ...(opts.while ? { while: opts.while } : {}) });
 /**
+ * "Max 1 [per player] synergy counters here." (the Synergy environments, `tt` 55052 to 55055; docs/phase7-wave9.md
+ * §3.61) → `constant(counterLimit("synergy", perHero(1)))`. The card (default: this card) holds at most `max` counters
+ * of that type, whoever places them: a placement past it places what there is room for, logs the rest as not placed
+ * and announces only the counters placed; counters moved onto it that do not fit stay where they were. Not the "(to a
+ * maximum of X)" of one placing ability, which is `addCounters`' `upTo`.
+ */
+export const counterLimit = (
+  counterType: string,
+  max: Amount,
+  card: TargetQuery = { self: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart =>
+  rule({ kind: "counterLimit", card, counterType, max: amount(max), ...(opts.while ? { while: opts.while } : {}) });
+/**
+ * "You cannot make basic attacks" on a card attached to your identity (Seduced, `tt` 55015; docs/phase7-wave9.md
+ * §3.72) → `constant(cannotMakeBasicAttacks())`. `attacker` (default: the card this one is attached to) may not make a
+ * basic attack against anything; an attack made by a card's ability, "(attack)"-labeled or not, is untouched, and so
+ * are the basic attacks of the player's other characters (RRG 1.8 "You, Your", p. 49). The sentence's other half, "or
+ * play Attack events", is `cannotPlay`.
+ */
+export const cannotMakeBasicAttacks = (
+  attacker: TargetQuery = { hostOfSelf: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart =>
+  rule({
+    kind: "cannotAttack",
+    attacker,
+    target: { categories: ["enemy"] },
+    basicOnly: true,
+    ...(opts.while ? { while: opts.while } : {}),
+  });
+/**
  * "Attached villain … is considered to have at least 1 hit point" (Golden Horse, `aoa` 45090; Metal Wings 45091;
  * docs/phase7-wave8.md §3.10) → `constant(consideredToHaveHitPoints(query("villain", { hostOfSelf: true })))`. Every
  * reading of a matching character's remaining hit points is at least `atLeast` (default 1), and with 1 or more it is not
@@ -2190,6 +2222,22 @@ export const discardStatusCost = (status: StatusName, from: TargetRef): AbilityC
 export const giveBoostCardsCost = (to: TargetRef, n = 1): AbilityCost => ({ giveBoostCards: { count: n, to } });
 /** "Exhaust your hero →" */
 export const exhaustYourHero: AbilityCost = { exhaustIdentity: true };
+/**
+ * "Each player exhausts their identity and takes 1 damage →" (Crown of the Enchantress, `tt` 55016;
+ * docs/phase7-wave9.md §3.58): `eachPlayerCost({ exhaustIdentity: true, damage: 1 })`. Every player still in the game
+ * pays it, the one using the ability included, and one player who cannot (an exhausted identity; one holding a tough
+ * status card or unable to take the damage: RRG 1.8 "Cost", p. 14) makes the whole cost unpayable
+ * (`AbilityCost.eachPlayer`).
+ */
+export const eachPlayerCost = (each: {
+  readonly exhaustIdentity?: boolean;
+  readonly damage?: number;
+}): AbilityCost => ({
+  eachPlayer: {
+    ...(each.exhaustIdentity ? { exhaustIdentity: true } : {}),
+    ...(each.damage !== undefined ? { damageSelf: each.damage } : {}),
+  },
+});
 /**
  * "Choose and discard N (up to M) cards from your hand →" — the cards are bound to slot `discard`, their count to
  * `bind`. Omit `max` for "Discard X cards from your hand" with no printed cap (Shield Toss, `cap` pack): bounded

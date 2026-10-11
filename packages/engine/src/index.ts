@@ -239,6 +239,8 @@ export {
 } from "./rules.js";
 export type { ConsequentialDamage, DamageSourceInfo, FormChangeCost, GrantedAbility } from "./rules.js";
 export { hasKeyword, isPermanent, keywordsOf, keywordTotal, printedKeywordsOf, statusActive } from "./keywords.js";
+export { linkedKeywordNames, linkedKeywordsOf } from "./linked.js";
+export { counterRoom } from "./counter-limit.js";
 export { printedResources } from "./resources.js";
 export { pairOfOptionId, pairOptionId, pairSelectionFault, resourceIconsMatch } from "./resolve/pair-cards.js";
 export { characterTitledAs, identityCardTitledAs } from "./titles.js";
@@ -460,6 +462,7 @@ export {
   activeAbilityRefs,
   gainedAbilities,
   attackableAsMinion,
+  attackForbiddenBy,
   canAttack,
   cardsInPlay,
   facedownAttachments,

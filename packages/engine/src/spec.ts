@@ -4461,8 +4461,29 @@ export type EffectSpec =
    * at the same value." MC21 p. 24: the swapped-out Loki "should be set-aside with the other remaining set-aside versions".
    * Announces `villainSwapped`. With no set-aside villain of that title, nothing happens (RRG: "A swap cannot be completed
    * if there is not a component in both locations"). docs/phase7-wave4.md §3.7.
+   *
+   * docs/phase7-wave9.md §3.60, the Avatars of Loki ("Swap the Fading Figment in play with a random set-aside villain,
+   * Avatar of Loki side faceup, then set the hit point dial of that Avatar of Loki villain to its printed hit point
+   * value"; "Swap the Avatar of Loki villain in play with a random set-aside Avatar of Loki villain"):
+   *
+   * - `with.setAsideTrait`: the pool is every set-aside villain card whose **starting face** has the trait, whatever
+   *   its title and whatever the title or face of the villain in play. The outgoing card is set aside showing its
+   *   starting face, so it is in the pool for a later swap and never for this one. One draw of the game's RNG. The
+   *   transfer is the same: one instance, nothing leaves or enters play, no When Revealed (RRG 1.8 erratum, p. 70;
+   *   ruling February 28, 2026 – Ruling 3).
+   * - `face: "starting"`: the incoming card's starting side is the one up. This is what every swap does (a set-aside
+   *   villain card has no other state), so the field only states the card's "[X] side faceup".
+   * - `dial`: `"keep"` (the default) leaves the dial at its value, RRG "'Swap'"; `"printed"` sets it to the new
+   *   card's hit points, with no damage left on it, so modifiers in force on the villain count (owner decision,
+   *   docs/phase7-wave9.md §4.1 Q8 = A).
    */
-  | { readonly kind: "swapVillain"; readonly villain: TargetRef }
+  | {
+      readonly kind: "swapVillain";
+      readonly villain: TargetRef;
+      readonly with?: { readonly setAsideTrait: Trait };
+      readonly face?: "starting";
+      readonly dial?: "keep" | "printed";
+    }
   /**
    * A named moment this script raises for other cards to answer (docs/phase7-wave8.md §3.39): "After you resolve a
    * mission attempt", "After you resolve Bishop's 'Energy Absorption' ability". The engine attaches no meaning to
