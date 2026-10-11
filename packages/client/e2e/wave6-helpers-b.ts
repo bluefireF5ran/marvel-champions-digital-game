@@ -441,7 +441,13 @@ export async function answerChoice(page: Page, index = 0): Promise<void> {
     await pressAt(page, target.x + target.width / 2, target.y + target.height / 2);
     await settle(page);
   }
-  await clickText(page, "Confirm", { sceneKey: "ChoiceOverlay" });
+  try {
+    await clickText(page, "Confirm", { sceneKey: "ChoiceOverlay" });
+  } catch (error) {
+    // The sheet can close between the pick above and this press (a pick that is its own answer); only a sheet still
+    // open with no Confirm is a failure.
+    if ((await activeScenes(page)).includes("ChoiceOverlay")) throw error;
+  }
   await settle(page);
 }
 
