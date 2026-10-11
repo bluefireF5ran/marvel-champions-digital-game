@@ -764,3 +764,120 @@ excepted).
 - **Heroes in alter-ego form during the Unmasked stage** were staged only for a confused Zemo. Stunned Zemo against an alter-ego player is a scheme,
   which a stun does not cancel; not tested.
 - **Expert campaign and campaign-only branches** (1 card gained, no setup counters, the heal bullet) are the campaign pass's and are not scripted.
+
+## Techno, Whiteout and Strength in Diversity (falcon, winter)
+
+Scope: the Techno set (Falcon, `falcon/techno.ts`: Fixer 53038, Jet Pack 53039, Tech-Pac 53040, Technological Innovation 53041, Techno 53042), the Whiteout
+set (Winter Soldier, `winter/whiteout.ts`: Blizzard 54034, Encased in Ice 54035, Slippery Conditions 54036, Whiteout 54037) and Strength in Diversity 53019
+(`falcon/aspect-basic.ts`). Data: `packages/content/src/data/{falcon,winter}/cards.ts`. Every script was read against the printed text in the data, RRG
+1.8, the rulings file, the box rulebook (MC50 p. 15, where the Thunderbolts scenario uses both sets) and the owner decisions of `docs/phase7-wave9.md`
+sections 3.48 to 3.50 and 4.1 (none reopened; section 4.1 has no question on these cards, so the engine agent's flagged defaults are the decisions
+under test). Regression tests: `packages/cards/src/wave9/falcon/techno-whiteout-rulings.qa.test.ts` (42 tests; 1 `it.fails` pinning the one finding below,
+with a passing companion that pins today's behavior). `techno.test.ts`, `whiteout.test.ts`, `aspect-basic.test.ts` and
+`thunderbolts-new-sets-scenario.test.ts` cover every script and a play-through of each set; this file holds only interactions they do not assert: Fixer
+held by Thunderbolt Backup and after the swap, Fixer defeated with attachments, two redirected reveals, Jet Pack against overkill and small hits, Tech-Pac's
+cost with statuses and with two players, Encased in Ice with two players and against stun, tough, retaliate, a leaving ally, "after you attack", attack
+events and divided damage, a host with two copies, Blizzard when the ally dies, Whiteout's boost with a defender, Slippery Conditions with an effect-made
+ally, and Strength in Diversity with Alliance and a tough enemy.
+
+### Findings
+
+| Card id                                                       | Expected (source)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Actual                                                                                                                                                                                                                                                                               | Fix                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Whiteout 1: 54035 Encased in Ice, two copies on one character | Card text: "Attached character cannot attack enemies other than this card." Each copy forbids attacks on enemies other than itself. RRG "Enemy" p. 18: "An enemy is a minion or villain"; the other copy is an attachment that is only attackable "as if it were a minion", so it is not an enemy and neither copy forbids attacking the other. The host can attack and break either copy (Blizzard's set holds two copies and he attacks every round, so two on one hero is ordinary). Intent (Q50): the ice is meant to be breakable by its host. | The host with two copies can attack neither (nor Rhino): `attackForbidden` (`select.ts`) reads the target with `choosingAttackTarget`, so the other copy counts as an enemy to each copy's prohibition. Only other players can break them. Pinned by one `it.fails` and a companion. | Small engine change, or a script change if the query can name an exclusion: the "cannot attack enemies other than this card" prohibition (not "cannot attack minions" rules such as Drax's) should read its target without the "as a minion" category, or the card's `target` query should also exclude a card named Encased in Ice (`54035.encased-in-ice-constant`). Not a one-word edit unless the query has a name exclusion. |
+
+Only the one finding is pinned. Whiteout 1 is a strong finding on intent and on the RRG definition of "enemy"; the contrary reading (as if it were a minion
+extends to the prohibition) produces a deadlock that no reading of the card's purpose wants.
+
+### Checked, no findings
+
+- **Fixer's redirect with two Tech attachments in one phase (RRG "Attach To" p. 8).** Energy Truncheon (first player) and High-Tech Armament (second
+  player) both end on Fixer and Rhino keeps nothing. Tech-Pac counts a redirected attachment from the next activation (1 + 1 before, 1 + 1 + 1 + 1 after,
+  with the Truncheon's own +1 ATK).
+- **Fixer defeated with attachments (RRG "Attach To" p. 8, "Victory X" p. 46).** Jet Pack, Tech-Pac and a redirected Energy Truncheon go to the encounter
+  discard pile with him, Fixer goes to the victory display, and nothing moves on to the villain.
+- **Only "would be attached".** A Tech attachment already on the villain stays there when Fixer arrives later. With Fixer engaged, a Tech attachment bound
+  for the villain (Armament) goes to him.
+- **Fixer held by Thunderbolt Backup (MC50 p. 15; Q26 = B).** A held Fixer is in play, so his Forced Interrupt is live: an Armament bound for Citizen V goes to
+  him, not to the villain. Techno revealed while he is held finds him in play: he leaves the environment, engages the revealer and attacks. After the
+  end-of-round swap he keeps Jet Pack and Tech-Pac and their effects (Aerial, +ATK) while held, and the next Tech reveal still goes to him.
+- **A redirected reveal is one entering play (RRG "Enters Play" p. 18).** One reveal, one move onto Fixer, one `cardEntersPlay`, and no "an ability attached
+  it" announcement (`cardAttached` without `imminent`) for the new host. See the open point on the second reading.
+- **Jet Pack (RRG "Prevent" p. 35, "Overkill" p. 31; ruling January 26, 2026 - Ruling 3).** Relentless Assault (5, overkill) at a Fixer with one hit point
+  left: all 5 is prevented, Jet Pack is discarded, Fixer survives and the villain takes nothing; without Jet Pack the same attack defeats Fixer and 4 excess
+  goes to the villain. Two 2-damage attacks are both taken (the interrupt reads one instance, not a total) and a later 3-damage attack is prevented.
+- **Tech-Pac's cost.** A stunned and confused identity still pays (the statuses only replace attacks and thwarts, RRG "Stun" p. 41, "Confuse" p. 13) and keeps
+  both status cards. With two players the first player cannot exhaust the second player's identity or ally, and cannot reach 3 with their own two; the
+  second player may use the Hero Action with their own Captain Marvel and Mockingbird (2 + 1 > 2) and the first player's characters stay ready (December
+  17, 2025 - Ruling 1: any player can trigger an Action ability on an encounter card).
+- **Technological Innovation counts any card type (default confirmed).** Arc Reactor (first player) and Web-Shooter (second player), two Tech upgrades, plus
+  the Jet Pack it just revealed: 4 + 3 = 7. Arc Reactor in a hand is not in play (4 + 1). A redirected Jet Pack on Fixer counts; Fixer himself (not Tech) does not.
+- **Encased in Ice with two players (RRG "Move" p. 30).** The second player's hero breaks the first player's ice: the surplus is moved to the first player
+  (the host), not to the attacker. Each encased identity attacks only its own copy. The first player's Mockingbird attacking the second player's ice puts her
+  ATK on the card and she takes her own consequential damage (RRG "Consequential Damage" p. 13: the ally's own icons, whatever it attacked).
+- **Encased in Ice against host states.** A stunned encased hero attacking the ice discards the stun, exhausts and puts nothing on the ice (RRG "Stun" p. 41).
+  A tough host absorbs the moved surplus (moved damage "is considered to be dealt", RRG "Move" p. 30; "Tough" p. 44). An attack on the ice of a Retaliate host
+  (Black Panther) does not retaliate, and neither does the moved surplus. An encased ally defeated as a defender takes the ice and its damage to the
+  encounter discard pile; nothing reaches the hero (RRG "Attach To" p. 8).
+- **Encased in Ice against attack events.** Spray Fire (50039, a group-named attack) from an unencased player hits the villain and not another player's
+  ice; from an encased hero it deals nothing (the card names no target but enemies other than the ice). Wasp Sting's Giant ability divides its 4 among the
+  villain and the minion only: the ice is not offered (see open point).
+- **Blizzard when the ally dies (RRG "Otherwise" p. 31, "Search" p. 39).** The defending ally is defeated: nothing is encased, nobody is stunned, the copies
+  searched for in the discard pile are still in the discard pile ("cards being searched are not considered to leave the searched area"), and the deck was
+  shuffled. Two players: Blizzard engaged with the first player encases only the first player.
+- **Whiteout's boost.** "You are stunned" stuns the identity of the player the activation is against, not the defending ally; with two players the boost on
+  the activation against the second player stuns only the second player.
+- **Slippery Conditions (RRG "Enters Play" p. 18).** An ally put into play by an effect (Make the Call from the discard pile) enters exhausted, and ready
+  without the scheme. An ally the second player plays is exhausted too.
+- **Strength in Diversity (RRG "Alliance" p. 6, "Tough" p. 44).** At two players the second player pays half of the 2-per-player cost from their hand, all
+  three choices (Aerial, Avenger, Soldier) are the first player's, and 3 damage is dealt. With Falcon alone against a tough enemy the first damage discards the
+  tough card and the second is dealt. The alter-ego identity's traits count is confirmed by `aspect-basic.test.ts` (a second player in alter-ego form adds
+  Genius, in hero form adds nothing new) and by RRG "Traits" p. 45: both forms are characters in play.
+
+### Verdict on the defaults the engine agent flagged
+
+| Default                                                                       | Verdict                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fixer: "attached to the villain" means any villain                            | Supported. The card says "the villain" with no "main" or "current"; held in play (MC50 p. 15) and with Citizen V as the villain. No source limits it.                                                                                                                                                                                                                            |
+| A redirected reveal is the card entering play, not an "after you attach"      | Consistent with the engine's own reading of RRG "Attach To" p. 8 (last bullet) and "Enters Play" p. 18, but not decided by a source: the bullet could also be read as "another ability causes the attach, so it is an attach". No printed card can tell the readings apart yet (every "after you attach" names a player and Fixer's ability has none). Open, see below.          |
+| "Each Tech card in play" counts any card type with the trait                  | Supported: the card says "Tech card" (the search clause above it says "Tech attachment"), RRG "Traits" p. 45 limits nothing; the test counts upgrades of two players.                                                                                                                                                                                                            |
+| An encased character cannot attack another character's copy                   | Supported by the card text ("this card") and already asserted by `whiteout.test.ts`. The two-copies case on one character is the finding above.                                                                                                                                                                                                                                  |
+| "After you attack an enemy/minion" responses do not hear an attack on the ice | Neither reading is decided by a source. Against: RRG "Enemy" p. 18 (a minion or villain), "Attack (Player Ability Type)" p. 10 ("an enemy that can be attacked"), and "as if it were a minion" sits in the targeting sentence. For: "as if it were a minion" has no stated limit and could carry through the attack procedure. No ruling names the card or phrase. Open (owner). |
+| Divided damage does not offer the ice                                         | Same: consistent with the RRG definition of "enemy", but each recipient of divided damage is also an attack's target (p. 10), where "as if it were a minion" applies. No ruling. Open (owner). Pinned with Wasp Sting.                                                                                                                                                           |
+| Blizzard shuffles whether or not a copy was found                             | Supported: RRG "Search" p. 39 shuffles the deck once any portion has been searched; checked with a copy attached, none left and the ally dead.                                                                                                                                                                                                                                   |
+| No stun when a copy was found but could not be attached                       | Consistent but not decidable in play. RRG "Otherwise" p. 31 would let the second sentence resolve (an effect that "cannot at least partially resolve"), but the only way to find a copy and not attach it is a defender that left play, which cannot be stunned. No observable difference; the test pins the defeated ally.                                                      |
+| Strength in Diversity: an alter-ego identity's traits count                   | Supported (RRG "Traits" p. 45; an identity in either form is a character in play); covered by `aspect-basic.test.ts` and not repeated.                                                                                                                                                                                                                                           |
+
+### Source conflicts (flagged, not picked)
+
+- **"As if it were a minion" for "after you attack an enemy" and for divided damage.** See the two rows above: RRG "Enemy" p. 18 and "Attack (Player Ability
+  Type)" p. 10 point one way, the unqualified "as if it were a minion" can point the other. No ruling in `marvel-champions-rulings-post-rrg-1-7.md` names Encased
+  in Ice or the phrase (the nearest, December 17, 2025 - Ruling 1 question 3 on Beguiled, is about an ally becoming a minion by a status change).
+- **Fixer's redirect and RRG "Attach To" p. 8.** The last bullet keeps "attach to" and "another ability causes the attach" apart; it does not say whether the
+  second is an attach for a response. The engine does not announce it as one.
+- **Blizzard's "Otherwise" and the owner default** (above): the RRG reads one way, the observable result is the same.
+
+### Read against the card text, not covered by a new test
+
+Script reads correct against the printed text, and the module tests and the scenario games assert them: Fixer's interrupt and its `villainAlias`, Jet Pack's
+Aerial and 3-damage prevention, Tech-Pac's +1 ATK per other Tech attachment and its combined-THW cost, Technological Innovation's search, shuffle and threat,
+Techno's find, activation, surge and piercing boost, Blizzard's response on the hero and on a defending ally, Encased in Ice's target restriction, state
+check (3 or more, all but 3 moved) and "discarded, not defeated", Slippery Conditions' exhaust, Whiteout's find and boost, and Strength in Diversity's
+choices per trait.
+
+### Thin coverage and open points
+
+- **Tough and Jet Pack on the same 3 damage.** Both are "would take damage" interrupts; the tough card answers first today and Jet Pack stays. The RRG orders
+  simultaneous effects by the first player (p. 19) and no ruling decides it. Pinned, not a finding.
+- **Piercing and indirect damage against Jet Pack** were not staged: no player card gives a hero's attack piercing in this pool, and indirect damage is dealt to
+  players' characters (RRG "Indirect Damage" p. 24), never to an enemy.
+- **Team-Up ally with Slippery Conditions.** No ally in the data prints Team-Up (only events and upgrades do), and RRG "Team-Up" p. 43 is a deckbuilding and
+  play restriction, so an ally enters play like any other. Not staged.
+- **A stunned, encased hero attacking something other than the ice** was not staged (the stun lets the attempt be made with no valid target, RRG "Stun"
+  p. 41; whether the attempt may name Rhino against Encased in Ice's prohibition is unanswered).
+- **"Choose an enemy" attack events** that choose several enemies one at a time (the Winter Soldier event that chooses an enemy per exhausted Weapon upgrade, Hulk's three-enemy Hero Action) were not staged;
+  whether the ice is offered in each choice follows the same open reading as "after you attack".
+- **Staging notes for the next author.** A search shuffles the encounter deck, so a card stacked behind a find may be dealt: keep the copies searched for in the
+  discard pile and the deck long (an emptied deck reshuffles its discard pile into it). Core's Assault 01187 makes the villain attack in hero form; the file's
+  filler is Advance 01186, with a dozen extra copies added to the table's deck.
+- **Four players:** only the two-player cases above were staged.

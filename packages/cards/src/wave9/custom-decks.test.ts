@@ -1,7 +1,7 @@
 /**
  * Wave 9 definition-of-done 4b, pieces 1 to 3 (docs/wave-definition-of-done.md, docs/custom-deck-testing.md "The
  * pieces") for the six new heroes: Maria Hill and Nick Fury (`aos`), Black Panther / Shuri (`bp`), Silk, Falcon and
- * Winter Soldier. Piece 4 (a real MarvelCDB decklist per hero) needs a download that is not approved: an `it.todo`.
+ * Winter Soldier. Piece 4 (a real MarvelCDB decklist per hero) is in `custom-decks-marvelcdb.test.ts`.
  *
  * 1. Cards in another hero's deck: every scripted new aspect and basic player card of `aos`, `bp`, `silk`, `falcon` and
  *    `winter` (`aspect-basic` modules; `aos/shield` is the S.H.I.E.L.D. Trooper encounter set, no player card; `tt` is
@@ -290,9 +290,9 @@ describe("wave 9 precons: legal, and nothing in them is unscripted", () => {
       expect(validateDeck(deckOf(deck), PLAYABLE_CARDS)).toEqual({ ok: true });
     });
   });
-  // `unscriptedCards` also counts the hero's obligation and nemesis set. Falcon's two are the known gaps (Aerial Recon
-  // 53009's action; Strength in Diversity 53019 is unscripted), listed so the day they are scripted this test says so.
-  const KNOWN_GAPS: Readonly<Record<string, readonly string[]>> = { "falcon-leadership": ["53009", "53019"] };
+  // `unscriptedCards` also counts the hero's obligation and nemesis set. No precon has a known gap; one would be
+  // listed here by deck id, so the day it is scripted this test says so.
+  const KNOWN_GAPS: Readonly<Record<string, readonly string[]>> = {};
   it.each(HEROES.filter((h) => h.identity !== "50001a"))(
     "$name: unscripted cards are only the known gaps",
     ({ deck }) => {
@@ -952,8 +952,4 @@ describe("wave 9 aspect and basic cards, from a Core hero's deck", () => {
   });
 });
 
-describe("a real MarvelCDB decklist per new hero (DoD 4b piece 4)", () => {
-  it.todo(
-    "needs a download of one public decklist per hero, which is not approved yet; see docs/custom-deck-testing.md",
-  );
-});
+// DoD 4b piece 4 (a real MarvelCDB decklist per new hero) lives in custom-decks-marvelcdb.test.ts.

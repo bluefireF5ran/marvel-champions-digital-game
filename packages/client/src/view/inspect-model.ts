@@ -11,6 +11,8 @@
  * legality: the message and the target list come from the engine.
  */
 
+import { attackBarNote, attackRefusalWording } from "./attack-bar.js";
+import { breakPointOf } from "./break-point.js";
 import { perPlayerCostOf, type PerPlayerCost } from "./per-player-cost.js";
 import type { AbilityId, AnyCard, KeywordInstance, ResourceIconType } from "@mc/content";
 import { keywordLabel } from "./keyword-label.js";
@@ -32,7 +34,6 @@ import {
   printedCostOf,
   printedResources,
   remainingHitPoints,
-  selfDamageThreshold,
   traitsOf,
   type AbilityTriggerSpec,
   type EngineDeps,
@@ -55,7 +56,14 @@ import { howThisWorksFor } from "./how-this-works.js";
 import { citeLabelOf, everyGlossaryEntry } from "./rules-reference.js";
 import { faceVisible } from "./visibility.js";
 import { poolTeamUpPairs, teamUpNoticeFor, teamUpWhyNot, type TeamUpNotice } from "./team-up-model.js";
-import { hitPointFloorNote, placementNotes, resourceIconNote, scenarioAreaNotes } from "./inspect-notes.js";
+import {
+  attachedLinks,
+  hitPointFloorNote,
+  placementNotes,
+  resourceIconNote,
+  scenarioAreaNotes,
+  type AttachedLinks,
+} from "./inspect-notes.js";
 import {
   damageNote,
   counterNote,
@@ -257,6 +265,10 @@ export interface InspectModel {
   readonly resourceIconNote: string | null;
   /** For a card in a scenario play area (the mission area, §3.33): no controller, closed area, blank ally text. */
   readonly areaNotes: readonly string[];
+  /** "Limited by Encased in Ice": what limits this character from attacking, when something does (`view/attack-bar.ts`). */
+  readonly attackBarNote: string | null;
+  /** The cards attached to this one and the one it is attached to, each a link that opens it (`view/inspect-notes.ts`). */
+  readonly attached: AttachedLinks | null;
   /** True when an open payment (threaded in as `InspectPayment`) could still spend this exact card. */
   readonly canPayAsResource: boolean;
   /**
@@ -344,6 +356,8 @@ export function inspectModel(
       hitPointFloorNote: null,
       resourceIconNote: null,
       areaNotes: [],
+      attackBarNote: null,
+      attached: null,
       canPayAsResource: false,
       howItWorks: null,
       campaignNotice: null,
@@ -415,19 +429,20 @@ export function inspectModel(
     art: artFor(card, face),
     footerLeft: `${card.setCode as string} · ${card.collectorNumber}`,
     footerRight: [card.unique ? "Unique" : null, `×${card.quantityInSet} in set`].filter(Boolean).join(" · "),
-    status: statusOf(state, instanceId, legal, perspectiveId, payment),
+    status: statusOf(state, instanceId, legal, perspectiveId, payment, deps),
     abilities: usableAbilitiesOf(state, instanceId, legal, deps),
     hidden: false,
     timing: timingEntriesFor(state, instanceId, deps),
     keywordDefinitions: keywordDefinitionsFor(state, instanceId, deps),
     history: cardHistoryOf(history, instanceId, state, perspectiveId, deps),
-    damageNote:
-      current === undefined ? damageNote(instance.damage, selfDamageThreshold(state, instanceId, deps)) : null,
+    damageNote: current === undefined ? damageNote(instance.damage, breakPointOf(state, instanceId, deps)) : null,
     threatNote: threatNote(threatOnCard(state, instanceId)),
     counterNote: counterNote(countersOf(state, instanceId)),
     hitPointFloorNote: hitPointFloorNote(state, instanceId, deps),
     resourceIconNote: resourceIconNote(state, deps, instanceId),
     areaNotes: [...scenarioAreaNotes(state, deps, instanceId), ...placementNotes(state, instanceId)],
+    attackBarNote: attackBarNote(state, deps, instanceId),
+    attached: attachedLinks(state, instanceId),
     canPayAsResource: payment !== null && payment.spendableInstanceIds.has(instanceId),
     howItWorks: howThisWorksFor(card),
     campaignNotice: campaignNoticeFor(textOf(card, face).current),
@@ -710,6 +725,8 @@ export function cardInspectModel(card: AnyCard | undefined, face: CardFace): Ins
       hitPointFloorNote: null,
       resourceIconNote: null,
       areaNotes: [],
+      attackBarNote: null,
+      attached: null,
       canPayAsResource: false,
       howItWorks: null,
       campaignNotice: null,
@@ -760,6 +777,8 @@ export function cardInspectModel(card: AnyCard | undefined, face: CardFace): Ins
     hitPointFloorNote: null,
     resourceIconNote: null,
     areaNotes: [],
+    attackBarNote: null,
+    attached: null,
     canPayAsResource: false,
     howItWorks: howThisWorksFor(card),
     campaignNotice: campaignNoticeFor(text.current),
@@ -857,6 +876,7 @@ function statusOf(
   legal: LegalActions | null,
   perspectiveId: PlayerId,
   payment: InspectPayment | null,
+  deps: EngineDeps,
 ): InspectStatus {
   // A non-active seat's off-turn Actions (`notYourTurn`) carry the same legal and illegal lists as a turn.
   if (!legal || (legal.kind !== "turn" && legal.kind !== "notYourTurn")) {
@@ -898,20 +918,35 @@ function statusOf(
   if (aimedAt.length > 0) {
     return {
       playable: null,
-      message: `A legal target for: ${aimedAt.map((entry) => entry.action.kind).join(", ")}.`,
+      message: `A legal target for: ${[...new Set(aimedAt.map((entry) => TARGET_FOR_WORD[entry.action.kind] ?? entry.action.kind))].join(", ")}.`,
       targets: [],
     };
   }
-  const blocked = legal.legal
-    .flatMap((entry) => entry.blockedTargets)
-    .concat(legal.illegal.flatMap((entry) => entry.blockedTargets))
-    .find((target) => target.instanceId === instanceId);
-  if (blocked) return { playable: false, message: blocked.message, targets: [] };
+  // Which attacker the engine refused is on the entry, so a barred one (Encased in Ice) is named, not "a guard minion".
+  const refused = [...legal.legal, ...legal.illegal]
+    .flatMap((entry) => entry.blockedTargets.map((target) => ({ entry, target })))
+    .find(({ target }) => target.instanceId === instanceId);
+  if (refused) {
+    const { entry, target } = refused;
+    const message =
+      entry.action.kind === "basicAttack"
+        ? attackRefusalWording(state, deps, entry.action.instanceId, target.message)
+        : target.message;
+    return { playable: false, message, targets: [] };
+  }
 
   // In hand and named by no action at all: the engine had nothing to say, and
   // neither does this panel.
   return { playable: owned ? false : null, message: "", targets: [] };
 }
+
+/** The engine's action kinds that take a target, as the table says them. */
+const TARGET_FOR_WORD: Readonly<Record<string, string>> = {
+  basicAttack: "an attack",
+  basicThwart: "a thwart",
+  playCard: "a card you can play",
+  useAbility: "an ability",
+};
 
 /** "Cost 3 — you have 2 resources committed, 1 short." — null unless `payment` is open for this exact instance. */
 function paymentMessage(payment: InspectPayment | null, instanceId: InstanceId): string | null {

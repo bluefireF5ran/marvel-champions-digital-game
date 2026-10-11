@@ -1,7 +1,7 @@
 /**
  * Wave 9 (cycle 9, Agents of S.H.I.E.L.D.) in the playable pool (docs/wave-definition-of-done.md step 5, cards half):
  * its six heroes and five scenarios are chosen through `playableScenario` like every earlier wave's. What is not
- * scripted yet (Trickster Takeover's two scenarios and modular set, the Techno and Whiteout Thunderbolt sets) is in the
+ * scripted yet (Trickster Takeover's two scenarios and modular set) is in the
  * card data but not offered anywhere (`./unscripted.ts`).
  */
 import {
@@ -31,7 +31,7 @@ const NEW_HEROES = [
 ];
 const NEW_SCENARIOS = ["black-widow", "batroc", "modok", "thunderbolts", "baron-zemo"];
 const NOT_PLAYABLE_SCENARIOS = ["enchantress", "god-of-lies"];
-const NOT_PLAYABLE_SETS = ["enchantress_villain", "god_of_lies", "trickster_magic", "techno", "whiteout"];
+const NOT_PLAYABLE_SETS = ["enchantress_villain", "god_of_lies", "trickster_magic"];
 const EXECUTIVE_BOARD = "s.h.i.e.l.d._executive_board";
 
 const everyCardOf = (config: ReturnType<typeof playableScenario>): string[] => {
@@ -176,23 +176,21 @@ describe("wave 9 modular sets", () => {
     },
   );
 
-  it("the Thunderbolts pool never draws Techno or Whiteout, for any seed, player count or explicit pick", () => {
+  it("the Thunderbolts pool holds Techno (Falcon, scripted) and draws it: its cards are in the game, set aside with the other sets", () => {
     const thunderbolts = PLAYABLE_SCENARIO_RECORDS.find((s) => s.id === "thunderbolts")!;
-    expect(thunderbolts.modularSetPool?.setIds).toHaveLength(8);
-    const banned = cardsOfSets(["techno", "whiteout"]);
+    expect(thunderbolts.modularSetPool?.setIds).toContain("techno");
+    const techno = cardsOfSets(["techno"]);
+    expect(techno.size).toBe(5);
+    const drawing: number[] = [];
     for (let seed = 1; seed <= 25; seed++) {
-      for (const heroes of [NEW_HEROES.slice(0, 1), NEW_HEROES.slice(0, 3), NEW_HEROES.slice(0, 4)]) {
-        const config = playableScenario("thunderbolts", {
-          seed,
-          players: heroes.map((starterDeckId) => ({ starterDeckId })),
-        });
-        const aside = (config.setAsideModularSets ?? []).map((set) => set.encounterSetId as string);
-        expect(aside).toHaveLength(1 + heroes.length);
-        expect(aside).not.toContain("techno");
-        expect(aside).not.toContain("whiteout");
-        expect(everyCardOf(config).filter((id) => banned.has(id))).toEqual([]);
+      const config = playableScenario("thunderbolts", { seed, players: [{ starterDeckId: NEW_HEROES[0]! }] });
+      const aside = (config.setAsideModularSets ?? []).map((set) => set.encounterSetId as string);
+      if (aside.includes("techno")) {
+        drawing.push(seed);
+        expect(everyCardOf(config).filter((id) => techno.has(id)).length).toBeGreaterThan(0);
       }
     }
+    expect(drawing.length).toBeGreaterThan(0);
   });
 
   it("the Executive Board, an extra modular set, joins any scenario once and Baron Zemo already requires it", () => {

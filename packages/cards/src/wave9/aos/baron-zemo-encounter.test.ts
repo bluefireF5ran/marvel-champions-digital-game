@@ -4,6 +4,7 @@ import {
   characterProfile,
   createGame,
   keywordsOf,
+  legalActions,
   locateCard,
   minionsEngagedWith,
   traitsOf,
@@ -481,11 +482,13 @@ describe("Divided Loyalties (50173): an ally's attack, thwart and defense cost 1
     expect(attackBy(state, cat).ok).toBe(true);
   });
 
-  // Owner answer 48 = B: the cost also reaches an ally's own "(attack)" / "(thwart)" ability and an ally a card effect
-  // declares the defender. Black Cat carries test-local text for it (no ally of these decks prints such an ability):
-  // "Action (attack): Exhaust Black Cat → deal 2 damage to the villain.", "Action (thwart): Remove 1 threat from each
-  // side scheme." and "Forced Interrupt: When an enemy attacks you, exhaust Black Cat and declare her the defender."
-  describe("an ally's own labeled ability, and an ally an effect declares the defender (Q48 = B)", () => {
+  // Owner answer 53 = B (revising 48 = B for labeled abilities): an ally's own "(attack)" / "(thwart)" ability is an
+  // attack or thwart her controller's identity makes (RRG 1.8 "Labeled Ability", p. 26), so it costs nothing extra.
+  // Answer 48 = B still holds for an ally a card effect declares the defender. Black Cat carries test-local text for
+  // both (no ally of these decks prints such an ability): "Action (attack): Exhaust Black Cat → deal 2 damage to the
+  // villain.", "Action (thwart): Remove 1 threat from each side scheme." and "Forced Interrupt: When an enemy attacks
+  // you, exhaust Black Cat and declare her the defender."
+  describe("an ally's own labeled ability (Q53 = B), and an ally an effect declares the defender (Q48 = B)", () => {
     const two = { kind: "const", value: 2 } as const;
     const one = { kind: "const", value: 1 } as const;
     const CLAW = "01002.claw";
@@ -537,44 +540,43 @@ describe("Divided Loyalties (50173): an ally's attack, thwart and defense cost 1
     const paidFor = (events: readonly GameEvent[], power: string, cat: InstanceId): boolean =>
       events.some((e) => e.type === "additionalPowerCostPaid" && e.power === power && e.characterInstanceId === cat);
 
-    it('her "(attack)" action pays 1 resource with its exhaust; unpaid it is refused and she stays ready', () => {
+    it('her "(attack)" action costs its exhaust alone, while her basic attack still costs the resource', () => {
       const { state, cat } = clawed([CLAW]);
-      const unpaid = useBy(state, cat, CLAW);
-      expect(unpaid.ok).toBe(false);
-      if (!unpaid.ok) expect(unpaid.error.code).toBe("insufficient_resources");
-      expect(inst(state, cat).exhausted).toBe(false);
-
-      const [card] = handOf(state);
-      const paid = useBy(state, cat, CLAW, [{ fromHand: card! }]);
-      expect(paid.ok).toBe(true);
-      if (!paid.ok) return;
-      const end = settle(paid.state, firstLegal, (s) => s.pendingChoice === null, CLAWED);
-      expect(handOf(end)).toHaveLength(handOf(state).length - 1);
+      const used = useBy(state, cat, CLAW);
+      expect(used.ok).toBe(true);
+      if (!used.ok) return;
+      const end = settle(used.state, firstLegal, (s) => s.pendingChoice === null, CLAWED);
+      expect(handOf(end)).toEqual(handOf(state));
       expect(inst(end, cat).exhausted).toBe(true);
       expect(inst(end, villainOf(state)).damage).toBe(inst(state, villainOf(state)).damage + 2);
-      expect(paidFor(paid.events, "attack", cat)).toBe(true);
+      expect(used.events.some((e) => e.type === "additionalPowerCostPaid")).toBe(false);
+      expect(attackBy(state, cat).ok).toBe(false);
     });
 
-    it('her "(thwart)" action, with no cost of its own, costs the resource', () => {
+    it('her "(thwart)" action, with no cost of its own, stays free', () => {
       const { state, cat, scheme } = clawed([PRY]);
-      expect(useBy(state, cat, PRY).ok).toBe(false);
-      const [card] = handOf(state);
-      const paid = useBy(state, cat, PRY, [{ fromHand: card! }]);
-      expect(paid.ok).toBe(true);
-      if (!paid.ok) return;
-      const end = settle(paid.state, firstLegal, (s) => s.pendingChoice === null, CLAWED);
-      expect(handOf(end)).toHaveLength(handOf(state).length - 1);
+      const used = useBy(state, cat, PRY);
+      expect(used.ok).toBe(true);
+      if (!used.ok) return;
+      const end = settle(used.state, firstLegal, (s) => s.pendingChoice === null, CLAWED);
+      expect(handOf(end)).toEqual(handOf(state));
       expect(inst(end, scheme).threat).toBe(2);
-      expect(paidFor(paid.events, "thwart", cat)).toBe(true);
+      expect(used.events.some((e) => e.type === "additionalPowerCostPaid")).toBe(false);
     });
 
-    it("without the side scheme both abilities cost nothing more", () => {
-      const { state, cat } = clawed([CLAW, PRY], false);
-      const hand = handOf(state);
-      const claw = useBy(state, cat, CLAW);
-      expect(claw.ok).toBe(true);
-      if (claw.ok) expect(handOf(claw.state)).toEqual(hand);
-      expect(useBy(state, cat, PRY).ok).toBe(true);
+    it("with an empty hand both labeled actions are still offered", () => {
+      const { state, cat } = clawed([CLAW, PRY]);
+      const player = playerOf(state, P1);
+      const broke = {
+        ...state,
+        players: state.players.map((p) => (p === player ? { ...p, hand: [] } : p)),
+      } as GameState;
+      const actions = legalActions(broke, P1, CLAWED);
+      if (actions.kind !== "turn") throw new Error("not P1's turn");
+      const offered = actions.legal.flatMap((entry) =>
+        entry.action.kind === "useAbility" && entry.action.instanceId === cat ? [entry.action.abilityId] : [],
+      );
+      expect(offered).toEqual(expect.arrayContaining([CLAW, PRY]));
     });
 
     it("declared the defender by an effect: her controller pays 1 resource, or she does not defend", () => {
@@ -644,6 +646,8 @@ describe("Battle of Wits (50175)", () => {
   const ASSAULT = "01187";
   const MENTAL_CARDS = ["01004", "01004", "01061"];
   const PHYSICAL_CARDS = ["01003", "01003", "01008"];
+  /** Genius: a resource card that generates two [mental] resources. */
+  const GENIUS = "01089";
 
   /** The player's hand is exactly these cards (the rest of it goes to the discard pile). */
   const handOf = (state: GameState, player: typeof P1, ...codes: string[]): GameState => {
@@ -673,26 +677,23 @@ describe("Battle of Wits (50175)", () => {
     }),
   });
 
-  /** Spends `spend` [mental] resources one at a time (paying from the hand), then declines; records each prompt. */
-  const spending = (spend: number, asked: string[][] = [], payer?: string): Picker => {
-    let spent = 0;
+  /**
+   * Answers the "choose X" prompt with `spend` and pays with the payment the engine lists first (the fewest options
+   * that pay in full); records the numbers each X prompt offered and the cards each payment spent.
+   */
+  const spending = (spend: number, asked: string[][] = [], payer?: string, payments: string[][] = []): Picker => {
     return (s) => {
       const choice = s.pendingChoice!;
-      if (choice.prompt.kind === "chooseOption") {
+      if (choice.prompt.kind === "chooseNumber") {
         asked.push(choice.options.map((o) => o.label));
-        const wanted = spent < spend ? "Spend 1 [mental]" : "Spend no more";
-        const hit = choice.options.find((o) => o.label.includes(wanted));
-        if (hit) {
-          if (wanted !== "Spend no more") spent++;
-          return [hit.optionId];
-        }
+        if (payer) expect(choice.playerId).toBe(payer);
+        return [String(spend)];
       }
-      if (payer && choice.prompt.kind === "spendResources") expect(choice.playerId).toBe(payer);
-      if (choice.prompt.kind === "spendResources" || choice.prompt.kind === "payForAbility") {
-        return choice.options
-          .map((o) => o.optionId)
-          .filter((id) => id.startsWith("hand:"))
-          .slice(0, 1);
+      if (choice.prompt.kind === "spendResources") {
+        if (payer) expect(choice.playerId).toBe(payer);
+        const paid = choice.options.slice(0, choice.minSelections).map((o) => o.optionId as string);
+        payments.push(paid);
+        return paid;
       }
       return firstLegal(s);
     };
@@ -712,25 +713,58 @@ describe("Battle of Wits (50175)", () => {
       .reduce((sum, e) => sum + (e.type === "threatPlaced" ? e.amount : 0), 0);
   const staged = (...mental: string[]) => withCounters(handOf(open(), P1, ...mental), 2, 2, 2);
 
-  it("nothing spent: Zemo schemes for his full amount, no counter is removed, and the prompt comes once per threat", () => {
+  it("X of 0: one prompt, from 0 to the 3 threat about to be placed; no payment, the full amount, no counter removed", () => {
     const asked: string[][] = [];
+    const payments: string[][] = [];
     const start = staged(...MENTAL_CARDS);
-    const run = reveal(start, spending(0, asked));
+    const run = reveal(start, spending(0, asked, undefined, payments));
     expect(placed(run)).toBe(3);
     expect(total(run.state)).toBe(total(start));
-    // Known gap (reported, not worked around): "Spend no more" ends one threat's turn, not the loop, so the prompt
-    // comes once per threat about to be placed (3 here) instead of once.
-    expect(asked).toHaveLength(3);
+    // Asked once, not once per threat, and choosing 0 ends it at once.
+    expect(asked).toEqual([["0", "1", "2", "3"]]);
+    expect(payments).toEqual([]);
   });
 
-  it("spending 1 [mental] resource prevents 1 threat and removes 1 secret counter; the first player picks where", () => {
+  it("X of 1 prevents 1 threat and removes 1 secret counter, paid with one card", () => {
+    const asked: string[][] = [];
+    const payments: string[][] = [];
     const start = staged(...MENTAL_CARDS);
-    const run = reveal(start, spending(1));
+    const run = reveal(start, spending(1, asked, undefined, payments));
+    expect(asked).toHaveLength(1);
+    expect(payments.map((p) => p.length)).toEqual([1]);
     expect(placed(run)).toBe(2);
     expect(total(run.state)).toBe(total(start) - 1);
   });
 
-  it("spending 2 prevents 2 threat and removes 2 secret counters", () => {
+  it("X of 3 is one payment of three [mental] cards: all 3 threat prevented, 3 counters removed", () => {
+    const payments: string[][] = [];
+    const start = staged(...MENTAL_CARDS);
+    const run = reveal(start, spending(3, [], undefined, payments));
+    expect(payments.map((p) => p.length)).toEqual([3]);
+    expect(placed(run)).toBe(0);
+    expect(total(run.state)).toBe(total(start) - 3);
+  });
+
+  it("a card that generates two [mental] resources (Genius) pays X of 2 alone, and is all the player can offer", () => {
+    const asked: string[][] = [];
+    const payments: string[][] = [];
+    // Genius is the only card the player holds, anywhere, that pays [mental].
+    const held = staged(GENIUS);
+    const [genius] = playerOf(held, P1).hand;
+    const stripped = withoutMental(held, P1);
+    const start = {
+      ...stripped,
+      players: stripped.players.map((p) => (p.playerId === P1 ? { ...p, hand: [genius!, ...p.hand] } : p)),
+    };
+    const run = reveal(start, spending(2, asked, undefined, payments));
+    // Two resources from one card: X runs to 2, not to the 3 threat pending.
+    expect(asked).toEqual([["0", "1", "2"]]);
+    expect(payments).toEqual([[`hand:${genius}`]]);
+    expect(placed(run)).toBe(1);
+    expect(total(run.state)).toBe(total(start) - 2);
+  });
+
+  it("X of 2 prevents 2 threat and removes 2 secret counters", () => {
     const start = staged(...MENTAL_CARDS);
     const run = reveal(start, spending(2));
     expect(placed(run)).toBe(1);
@@ -760,7 +794,7 @@ describe("Battle of Wits (50175)", () => {
     expect(counts(run.state)).toEqual([1, 2, 2]);
   });
 
-  it("a non-mental resource does not pay: with only physical cards in hand the spend is not offered", () => {
+  it("a non-mental resource does not pay: with only physical cards in hand nobody is asked", () => {
     const asked: string[][] = [];
     const start = withoutMental(staged(...PHYSICAL_CARDS), P1);
     const run = reveal(start, spending(1, asked));

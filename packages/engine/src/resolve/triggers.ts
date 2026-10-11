@@ -51,13 +51,7 @@ import { carriedByEvent, eventSubjects, hearsEncounterDeckDiscard, type TriggerE
 import { limitReached } from "./ability.js";
 import { resourcesChoiceOf, type AbilityDefinition } from "../abilities.js";
 import { chosenSizePayments } from "../payable.js";
-import {
-  abilityCostOfDefinition,
-  cannotEnterPlay,
-  cannotPlayCard,
-  revealCannotBeCanceled,
-  triggeredAbilityForbidden,
-} from "../rules.js";
+import { cannotEnterPlay, cannotPlayCard, revealCannotBeCanceled, triggeredAbilityForbidden } from "../rules.js";
 import { abilityLacksValidTarget } from "./target-validity.js";
 import { KEYWORD_ABILITIES } from "../keyword-abilities.js";
 import { attackKeywordsOf, hasKeyword } from "../keywords.js";
@@ -103,8 +97,7 @@ function costPayable(
   /** The event the ability would answer: a computed X ("for each damage dealt by that attack") is read against it. */
   event: TriggerEvent,
 ): boolean {
-  // With what a rule adds for an "(attack)" or "(thwart)" ability of a character in play (`abilityCostFor`).
-  const cost = fromHand ? definition.cost : abilityCostOfDefinition(state, deps, id, definition);
+  const cost = definition.cost;
   if (!cost && !fromHand) return true;
   // "Discard 1 card from your hand →" (`AbilityCost.discardFromHand`): default picks from the hand, as `legalActions`
   // supplies them for an action, so the cost is judged on whether the hand holds enough cards it accepts.

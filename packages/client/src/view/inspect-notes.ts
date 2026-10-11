@@ -66,8 +66,10 @@ export function scenarioAreaNotes(state: GameState, deps: EngineDeps, id: Instan
 
 /**
  * Where this card sits relative to another, when that is not a play area: the cards tucked under it (a facedown one is
- * only counted, never named), the card it is tucked under, and the card that holds it (a held minion, a captive ally).
- * Empty for a card with none of these.
+ * only counted, never named), the card it is tucked under, the card that holds it (a held minion, a captive ally) and,
+ * for an attachment sent to another host in the villain's place, whose "the villain" it now means. The cards attached
+ * to it and the one it is attached to are `attachedLinks`, which the sheet draws as links. Empty for a card with none
+ * of these.
  */
 export function placementNotes(state: GameState, id: InstanceId): readonly string[] {
   const notes: string[] = [];
@@ -87,16 +89,67 @@ export function placementNotes(state: GameState, id: InstanceId): readonly strin
   const held = heldByOf(state, id);
   if (held?.kind === "held") notes.push(`Held by ${held.hostName}: in play, engaged with no player, does not activate`);
   if (held?.kind === "captive") notes.push(`Held by ${held.hostName}: under no player's control`);
+  const instance = getInstance(state, id);
+  // "Text on that card that refers to 'the villain' refers to [its host] instead" (`CardInstance.villainAlias`).
+  if (instance?.villainAlias) {
+    const alias = nameOf(state, instance.villainAlias);
+    notes.push(`Sent to ${alias} instead of the villain: "the villain" in its text means ${alias}`);
+  }
   return notes;
 }
 
+/** A card the sheet can open from another: the host of an attachment, or one of the attachments on a host. */
+export interface CardLink {
+  readonly instanceId: InstanceId;
+  readonly name: string;
+}
+
+/** What hangs on this card, and the card this one hangs on: the sheet lists each as a link that opens it. */
+export interface AttachedLinks {
+  /** The card this one is attached to, when it is an attachment (a held minion or captive ally has its own note). */
+  readonly host: CardLink | null;
+  readonly attachments: readonly CardLink[];
+}
+
+/** The links for `id`, or null for a card with no attachments that is attached to nothing. */
+export function attachedLinks(state: GameState, id: InstanceId): AttachedLinks | null {
+  const hostId = getInstance(state, id)?.attachedTo ?? null;
+  const host = hostId !== null && !heldByOf(state, id) ? { instanceId: hostId, name: nameOf(state, hostId) } : null;
+  const attachments = attachmentsOf(state, id).map(({ id: attachmentId, name }) => ({
+    instanceId: attachmentId,
+    name,
+  }));
+  return host || attachments.length > 0 ? { host, attachments } : null;
+}
+
+const nameOf = (state: GameState, id: InstanceId): string =>
+  currentName(state, id) ?? cardOf(state, id)?.name ?? "a card";
+
+/** The faceup cards attached to this one, in the order they were attached (a facedown one is only counted by the tile). */
+function attachmentsOf(
+  state: GameState,
+  id: InstanceId,
+): readonly { readonly id: InstanceId; readonly name: string }[] {
+  return (getInstance(state, id)?.attachments ?? []).flatMap((attachment) =>
+    getInstance(state, attachment)?.faceup === false ? [] : [{ id: attachment, name: nameOf(state, attachment) }],
+  );
+}
+
 /**
- * The cards the sheet steps through (◂ ▸) when it is opened on a card with others under it, or on one of those: the
- * host first, then what is tucked under it in order. Empty for a card in neither role.
+ * The cards the sheet steps through (◂ ▸) when it is opened on a card with others under it or attached to it, or on one
+ * of those: the host first, then what is tucked under it in order, then what is attached to it. Empty for a card in no
+ * such role.
  */
 export function tuckedSiblings(state: GameState, id: InstanceId): readonly InstanceId[] {
   const own = getInstance(state, id)?.tucked ?? [];
-  if (own.length > 0) return [id, ...own];
-  const host = Object.values(state.instances).find((instance) => instance.tucked.includes(id));
-  return host ? [host.instanceId, ...host.tucked] : [];
+  const attached = attachmentsOf(state, id).map((card) => card.id);
+  if (own.length > 0 || attached.length > 0) return [id, ...own, ...attached];
+  const instance = getInstance(state, id);
+  const host = Object.values(state.instances).find((candidate) => candidate.tucked.includes(id));
+  if (host) return [host.instanceId, ...host.tucked, ...attachmentsOf(state, host.instanceId).map((card) => card.id)];
+  const owner = instance?.attachedTo ? getInstance(state, instance.attachedTo) : undefined;
+  if (owner) {
+    return [owner.instanceId, ...owner.tucked, ...attachmentsOf(state, owner.instanceId).map((card) => card.id)];
+  }
+  return [];
 }

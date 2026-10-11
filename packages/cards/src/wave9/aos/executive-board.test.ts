@@ -59,6 +59,8 @@ const REFS = [
 const ALL = [MEDICAL, MEDICAL_AID, SURVEILLANCE, SURVEILLANCE_AID, TACTICAL, TACTICAL_AID];
 // Core cards with one printed resource of a type, to pay a Hero Action with.
 const ENERGY_CARDS = ["01002", "01006"];
+/** Energy: a resource card that generates two [energy] resources. */
+const ENERGY_DOUBLE = "01088";
 const MENTAL_CARDS = ["01004", "01005"];
 const PHYSICAL_CARDS = ["01003", "01008"];
 
@@ -104,7 +106,6 @@ const idOf = (s: GameState, code: string): InstanceId => {
 };
 const secretsOn = (s: GameState, id: InstanceId) => inst(s, id).counters["secret"] ?? 0;
 const villainOf = (s: GameState) => s.villains[0]!.instanceId;
-const PLACE = "Place the counter";
 const rest = (s: GameState, ...codes: readonly string[]) => onlyDeck(s, BLANK, ...codes, FILLER_A, FILLER_B);
 
 /** Answers a chooseOption by the label it contains, a chooseCards/target by `target`, a payment from `pay` hand cards. */
@@ -131,8 +132,7 @@ function scripted(opts: { label?: string | readonly string[]; target?: InstanceI
   };
 }
 /** Reveals `aim` in the next villain phase, `label` answering the choices; Rhino's boost is a blank. */
-const reveal = (state: GameState, aim: string, pick: Picker = scripted({ label: PLACE })) =>
-  villainPhase(rest(state, aim), [], pick);
+const reveal = (state: GameState, aim: string, pick: Picker = scripted()) => villainPhase(rest(state, aim), [], pick);
 
 describe("registry", () => {
   it("registers the eighteen refs of the nine cards, each a valid definition, and skips nothing", () => {
@@ -177,36 +177,105 @@ describe("A.I.M. Interference (50184a to 50184c): When Revealed", () => {
     expect(counts).toEqual([2, 3, 1]);
   });
 
-  it("spending a [energy] resource prevents one placing, the player naming which card gets none", () => {
-    let state = heroForm(setupGame());
-    state = withMembers(state, { [MEDICAL]: 2, [SURVEILLANCE]: 2, [TACTICAL]: 2 });
-    const moved = moveToHand(state, P1, ...ENERGY_CARDS);
-    state = moved.state;
-    const medical = idOf(state, MEDICAL);
-    // Prevent the Medical Officer's counter (the first card asked about), let the other two be placed.
-    let spent = false;
-    const pick: Picker = (s) => {
+  /** Every [energy] or wild card the player holds anywhere is gone, then exactly `codes` are in hand. */
+  function holding(state: GameState, ...codes: readonly string[]) {
+    const pays = (id: InstanceId): boolean => {
+      const card = state.cardPool[inst(state, id).cardId] as
+        | { resourceIcons?: Record<string, number>; producesIcons?: Record<string, number> }
+        | undefined;
+      const icons = { ...card?.resourceIcons, ...card?.producesIcons };
+      return Boolean(icons["energy"] || icons["wild"]);
+    };
+    const wanted = moveToHand(state, P1, ...codes);
+    const keep = (id: InstanceId) => wanted.ids.includes(id) || !pays(id);
+    return {
+      ids: wanted.ids,
+      state: {
+        ...wanted.state,
+        players: wanted.state.players.map((p) =>
+          p.playerId === P1
+            ? { ...p, hand: p.hand.filter(keep), deck: p.deck.filter(keep), discard: p.discard.filter(keep) }
+            : p,
+        ),
+      } as GameState,
+    };
+  }
+  interface Seen {
+    /** The prompt's kind; a target prompt's slot follows it ("chooseTarget:spared"). */
+    readonly kind: string;
+    readonly labels: readonly string[];
+    readonly min: number;
+  }
+  /** Chooses X = `x`, pays with the payment listed first, and spares `spare` when asked which cards get no counter. */
+  const spendingX =
+    (x: number, seen: Seen[], spare: readonly InstanceId[] = []): Picker =>
+    (s) => {
       const choice = s.pendingChoice!;
-      if (choice.prompt.kind === "chooseOption") {
-        const spend = choice.options.find((o) => o.label.includes("prevent"));
-        const place = choice.options.find((o) => o.label.includes("Place the counter"))!;
-        if (spend && !spent) {
-          spent = true;
-          return [spend.optionId];
-        }
-        return [place.optionId];
+      const kind = choice.prompt.kind === "chooseTarget" ? `chooseTarget:${choice.prompt.slot}` : choice.prompt.kind;
+      seen.push({ kind, labels: choice.options.map((o) => o.label), min: choice.minSelections });
+      if (choice.prompt.kind === "chooseNumber") return [String(x)];
+      if (choice.prompt.kind === "spendResources")
+        return choice.options.slice(0, choice.minSelections).map((o) => o.optionId);
+      if (kind === "chooseTarget:spared") {
+        const hits = choice.options.filter((o) => o.ref.kind === "card" && spare.includes(o.ref.instanceId));
+        if (hits.length > 0) return hits.map((o) => o.optionId);
       }
-      if (choice.prompt.kind === "spendResources") return [`hand:${moved.ids[0]}`];
       return firstLegal(s);
     };
-    const run = reveal(state, AIM_ENERGY, pick);
-    const counts = ENVIRONMENTS.map((c) => secretsOn(run.state, idOf(run.state, c)));
-    expect(spent).toBe(true);
-    expect(counts.filter((n) => n === 2)).toHaveLength(1);
-    expect(counts.filter((n) => n === 3)).toHaveLength(2);
-    expect(medical).toBeDefined();
-    expect(playerOf(run.state, P1).discard).toContain(moved.ids[0]);
-    expect(playerOf(run.state, P1).hand).toContain(moved.ids[1]);
+  const kindsOf = (seen: readonly Seen[]) =>
+    seen.map((x) => x.kind).filter((k) => ["chooseNumber", "spendResources", "chooseTarget:spared"].includes(k));
+  const base = () => withMembers(heroForm(setupGame()), { [MEDICAL]: 2, [SURVEILLANCE]: 2, [TACTICAL]: 2 });
+
+  it("X of 1: one prompt for X, one payment of one [energy] card, and the player names the card that gets no counter", () => {
+    const held = holding(base(), ...ENERGY_CARDS);
+    const tactical = idOf(held.state, TACTICAL);
+    const seen: Seen[] = [];
+    const run = reveal(held.state, AIM_ENERGY, spendingX(1, seen, [tactical]));
+    expect(kindsOf(seen)).toEqual(["chooseNumber", "spendResources", "chooseTarget:spared"]);
+    // Two [energy] cards against three Board Member cards: X runs from 0 to 2.
+    expect(seen[seen.findIndex((x) => x.kind === "chooseNumber")]!.labels).toEqual(["0", "1", "2"]);
+    expect(ENVIRONMENTS.map((c) => secretsOn(run.state, idOf(run.state, c)))).toEqual([3, 3, 2]);
+    expect(held.ids.filter((id) => playerOf(run.state, P1).discard.includes(id))).toHaveLength(1);
+  });
+
+  it("X of 0: asked once, no payment, every Board Member card gets its counter", () => {
+    const held = holding(base(), ...ENERGY_CARDS);
+    const seen: Seen[] = [];
+    const run = reveal(held.state, AIM_ENERGY, spendingX(0, seen));
+    expect(kindsOf(seen)).toEqual(["chooseNumber"]);
+    expect(ENVIRONMENTS.map((c) => secretsOn(run.state, idOf(run.state, c)))).toEqual([3, 3, 3]);
+    expect(held.ids.every((id) => !playerOf(run.state, P1).discard.includes(id))).toBe(true);
+  });
+
+  it("a card that generates two [energy] resources (Energy) pays X of 2 alone: one counter is placed", () => {
+    const held = holding(base(), ENERGY_DOUBLE);
+    const medical = idOf(held.state, MEDICAL);
+    const surveillance = idOf(held.state, SURVEILLANCE);
+    const seen: Seen[] = [];
+    const run = reveal(held.state, AIM_ENERGY, spendingX(2, seen, [medical, surveillance]));
+    expect(kindsOf(seen)).toEqual(["chooseNumber", "spendResources", "chooseTarget:spared"]);
+    expect(seen.find((x) => x.kind === "chooseNumber")!.labels).toEqual(["0", "1", "2"]);
+    // One card pays for both.
+    expect(seen.find((x) => x.kind === "spendResources")!.min).toBe(1);
+    expect(ENVIRONMENTS.map((c) => secretsOn(run.state, idOf(run.state, c)))).toEqual([2, 2, 3]);
+    expect(playerOf(run.state, P1).discard).toContain(held.ids[0]);
+  });
+
+  it("X of 3 prevents every counter: nothing is left to name, and no counter is placed", () => {
+    const held = holding(base(), ENERGY_DOUBLE, ENERGY_CARDS[0]!);
+    const seen: Seen[] = [];
+    const run = reveal(held.state, AIM_ENERGY, spendingX(3, seen));
+    expect(seen.find((x) => x.kind === "chooseNumber")!.labels).toEqual(["0", "1", "2", "3"]);
+    expect(kindsOf(seen)).toEqual(["chooseNumber", "spendResources"]);
+    expect(ENVIRONMENTS.map((c) => secretsOn(run.state, idOf(run.state, c)))).toEqual([2, 2, 2]);
+  });
+
+  it("nothing of the type to spend: nobody is asked and every counter is placed", () => {
+    const held = holding(base());
+    const seen: Seen[] = [];
+    const run = reveal(held.state, AIM_ENERGY, spendingX(1, seen));
+    expect(kindsOf(seen)).toEqual([]);
+    expect(ENVIRONMENTS.map((c) => secretsOn(run.state, idOf(run.state, c)))).toEqual([3, 3, 3]);
   });
 
   it("the [physical] card works the same way on a Board Member attachment too (both faces are Board Member cards)", () => {
@@ -291,7 +360,7 @@ describe("Forced Responses of the attachments", () => {
     const start = flipped(MEDICAL);
     const villain = villainOf(start);
     const damaged = patchInstance(start, villain, { damage: 5 });
-    const run = reveal(damaged, AIM_ENERGY, scripted({ label: ["Heal 2 damage from the villain", PLACE] }));
+    const run = reveal(damaged, AIM_ENERGY, scripted({ label: "Heal 2 damage from the villain" }));
     expect(secretsOn(run.state, idOf(run.state, MEDICAL))).toBe(5);
     expect(inst(run.state, villain).damage).toBe(3);
   });
@@ -300,18 +369,14 @@ describe("Forced Responses of the attachments", () => {
     const start = flipped(MEDICAL);
     const hero = start.players[0]!.identity.instanceId;
     const before = inst(start, hero).damage;
-    const run = reveal(start, AIM_ENERGY, scripted({ label: ["fewest remaining", PLACE] }));
+    const run = reveal(start, AIM_ENERGY, scripted({ label: "fewest remaining" }));
     expect(inst(run.state, hero).damage).toBeGreaterThan(before);
   });
 
   it("answers each placing once, however many counters were placed (one A.I.M. places one)", () => {
     const start = flipped(MEDICAL);
     const villain = villainOf(start);
-    const run = reveal(
-      patchInstance(start, villain, { damage: 6 }),
-      AIM_ENERGY,
-      scripted({ label: ["Heal 2", PLACE] }),
-    );
+    const run = reveal(patchInstance(start, villain, { damage: 6 }), AIM_ENERGY, scripted({ label: "Heal 2" }));
     expect(inst(run.state, villain).damage).toBe(4);
   });
 

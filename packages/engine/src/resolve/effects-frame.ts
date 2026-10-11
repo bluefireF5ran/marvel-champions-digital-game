@@ -104,7 +104,12 @@ import {
   undefeatedVillains,
 } from "../query.js";
 import { cannotBeHealed, cannotChooseToDiscard, cannotTakeDamage, cannotThwart } from "../rules.js";
-import { combineRequirements, requirementTotal, type ResolvedRequirement } from "../resources.js";
+import {
+  combineRequirements,
+  requirementTotal,
+  type ResolvedRequirement,
+  type ResourceRequirement,
+} from "../resources.js";
 import { canPaySpend, fewestSpend, spendPays } from "../payable.js";
 import {
   activeAbilityRefs,
@@ -128,7 +133,7 @@ import {
   selectTargets,
   reachOf,
 } from "../select.js";
-import type { EffectSpec, PlayerRef, StatusName } from "../spec.js";
+import type { EffectSpec, PlayerRef, StatusName, ValueSpec } from "../spec.js";
 import type { StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
 import { executeSettleCostDamage } from "../cost-damage.js";
@@ -141,6 +146,7 @@ import { executePayRemoveThreatCost } from "../remove-threat-cost.js";
 import { executeSettleReadyCardsCost } from "../ready-cards-cost.js";
 import { executeDefeatedTogether } from "./defeated-together.js";
 import { executeSearchCollection } from "./collection.js";
+import { announceAbilityResolved } from "./ability.js";
 import { settleDeclaredDefenderCost } from "./enemy-activation.js";
 import { executeAccuse } from "./accusation.js";
 import { executeReportFact } from "./report-fact.js";
@@ -244,6 +250,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
           : parent,
       );
     }
+    // The ability these effects are has now resolved (RRG 1.8 "Resolve", p. 37).
+    announceAbilityResolved(ctx, frame);
     return;
   }
   const context = contextOf(frame, ctx.deps);
@@ -2415,6 +2423,7 @@ function executeSpendResources(
   effect: Extract<EffectSpec, { kind: "spendResources" }>,
   context: EffectContext,
 ): void {
+  if (effect.x) return executeSpendXResources(ctx, frame, effect, effect.x, context);
   const [playerId] = resolvePlayers(ctx.state, effect.player, context);
   const requirement = combineRequirements(effect.resources, 0);
   // docs/phase7-wave6.md §3.69: "spend 2 different resources", the cost field's rule (`distinctTypeCount`), shared with
@@ -2462,6 +2471,106 @@ function executeSpendResources(
   // Spent mid-effect: the event goes above this effects frame, so "after you spend this card" resolves before the
   // effects that follow the spend (RRG 1.8 "Cost Arrow Icon", p. 14; docs/phase7-wave2.md §12).
   if (paid && playerId) announceResourcesSpent(ctx, playerId, payPayment(ctx, playerId, payment), null, "effect");
+}
+
+/** `resources` taken `times` times: the price of X when `resources` is the price of one (`spendResources.x`). */
+const scaledRequirement = (resources: ResourceRequirement, times: number): ResourceRequirement => {
+  const one = combineRequirements(resources, 0);
+  return {
+    generic: one.generic * times,
+    physical: one.physical * times,
+    mental: one.mental * times,
+    energy: one.energy * times,
+    ...(one.wild ? { wild: one.wild * times } : {}),
+  };
+};
+
+/** The frame var holding the X a `spendResources.x` is waiting to be paid for (0: not chosen yet). */
+const spendXPending = (bind: string): string => `_spendX.${bind}`;
+
+/**
+ * "You may spend X [type] resources to …" (`EffectSpec spendResources.x`): the player chooses X from 0 to the most
+ * they could pay (and no more than `x.max`), then pays X times `resources` in one payment. Two choices on the one
+ * effect: the X chosen waits in a frame var (`spendXPending`) while the payment is open. The payment is `required`,
+ * so `resolveChoice` takes nothing less than a payment in full (`engine.ts`) and the answer read here always pays.
+ */
+function executeSpendXResources(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "spendResources" }>,
+  x: { readonly max: ValueSpec },
+  context: EffectContext,
+): void {
+  const [playerId] = resolvePlayers(ctx.state, effect.player, context);
+  const pendingVar = spendXPending(effect.bind);
+  const { [pendingVar]: pending = 0, ...vars } = frame.vars;
+  const finish = (amount: number): void =>
+    setFrame(ctx, {
+      ...frame,
+      answer: null,
+      cursor: frame.cursor + 1,
+      vars: { ...vars, [`${effect.bind}.amount`]: amount, [`${effect.bind}.made`]: amount > 0 ? 1 : 0 },
+    });
+  if (!playerId) return finish(0);
+  const priceOfX = (amount: number): ResourceRequirement => scaledRequirement(effect.resources, amount);
+
+  // The payment's answer: X was chosen and is paid for in full.
+  if (pending > 0 && frame.answer !== null) {
+    const payment = paymentsFromOptionIds(frame.answer);
+    const pool = payment.length > 0 ? priceOrNull(ctx, playerId, payment, null, null) : null;
+    const paid = pool !== null && spendPays(pool, combineRequirements(priceOfX(pending), 0), 0);
+    finish(paid ? pending : 0);
+    if (paid) announceResourcesSpent(ctx, playerId, payPayment(ctx, playerId, payment), null, "effect");
+    return;
+  }
+
+  if (pending === 0 && frame.answer === null) {
+    const most = Math.max(0, resolveValue(ctx.state, x.max, context, ctx.deps));
+    let top = 0;
+    while (top < most && canPaySpend(ctx.state, ctx.deps, playerId, priceOfX(top + 1))) top++;
+    if (top === 0) return finish(0);
+    requestChoice(ctx, {
+      playerId,
+      authority: effectChoiceAuthority(ctx.state, frame.selfInstanceId, effect.player),
+      prompt: { kind: "chooseNumber", min: 0, max: top },
+      options: Array.from({ length: top + 1 }, (_, index) => ({
+        optionId: String(index),
+        label: String(index),
+        ref: { kind: "none" } as const,
+      })),
+      minSelections: 1,
+      maxSelections: 1,
+      frameId: frame.frameId,
+    });
+    return;
+  }
+
+  // The number's answer: 0 declines; otherwise X waits in the frame while its payment is asked for.
+  let chosen = pending;
+  if (pending === 0 && frame.answer !== null) {
+    const answered = Number(frame.answer[0]);
+    chosen = Number.isInteger(answered) && answered > 0 ? answered : 0;
+    emit(ctx, { type: "numberChosen", playerId, bind: effect.bind, amount: chosen });
+    if (chosen === 0) return finish(0);
+  }
+  const price = priceOfX(chosen);
+  const options = paymentOptions(ctx, playerId, null);
+  if (!canPaySpend(ctx.state, ctx.deps, playerId, price)) return finish(0);
+  const fewest = fewestSpend(ctx.state, ctx.deps, playerId, price);
+  setFrame(ctx, { ...frame, answer: null, vars: { ...vars, [pendingVar]: chosen } });
+  requestChoice(ctx, {
+    playerId,
+    prompt: { kind: "spendResources", requirement: combineRequirements(price, 0), required: true },
+    options: fewest
+      ? [
+          ...options.filter((option) => fewest.includes(option.optionId)),
+          ...options.filter((option) => !fewest.includes(option.optionId)),
+        ]
+      : options,
+    minSelections: fewest?.length ?? 1,
+    maxSelections: options.length,
+    frameId: frame.frameId,
+  });
 }
 
 /**

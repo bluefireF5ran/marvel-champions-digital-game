@@ -1,7 +1,6 @@
 import {
   resolvableAs,
   type AbilityCost,
-  type AbilityDefinition,
   type AbilityRegistry,
   type AbilityTriggerSpec,
   type CardIcon,
@@ -900,8 +899,6 @@ export function thwartCostFor(
   return any ? { resources, indirectDamage } : null;
 }
 
-type AdditionalCostPower = "attack" | "thwart" | "defend";
-
 /**
  * The resources a player must spend, on top of the power's own costs, to make this basic power with this character
  * (`RuleSpec additionalPowerCost`, docs/phase7-wave9.md §3.31): every applicable rule added together, or null when
@@ -911,56 +908,18 @@ export function additionalPowerCostFor(
   state: GameState,
   deps: EngineDeps,
   characterId: InstanceId,
-  /** Several: one use that is more than one of them (an ability labeled both ways); each rule still asks once. */
-  power: AdditionalCostPower | readonly AdditionalCostPower[],
+  power: "attack" | "thwart" | "defend",
 ): { readonly resources: ResolvedRequirement; readonly sourceInstanceIds: readonly InstanceId[] } | null {
   let resources: ResolvedRequirement | null = null;
   const sourceInstanceIds: InstanceId[] = [];
-  const powers: readonly AdditionalCostPower[] = typeof power === "string" ? [power] : power;
   for (const { rule, context } of activeRules(state, deps, "additionalPowerCost")) {
-    if (!powers.some((p) => rule.powers.includes(p))) continue;
-    if (!matchesQuery(state, characterId, rule.character, context)) continue;
+    if (!rule.powers.includes(power) || !matchesQuery(state, characterId, rule.character, context)) continue;
     resources = combineRequirements(resources ?? 0, rule.resources);
     if (context.selfInstanceId !== null && !sourceInstanceIds.includes(context.selfInstanceId)) {
       sourceInstanceIds.push(context.selfInstanceId);
     }
   }
   return resources !== null && requirementTotal(resources) > 0 ? { resources, sourceInstanceIds } : null;
-}
-
-/**
- * The cost of the ability `abilityId` on the card `sourceId` as a player must pay it: the written cost, and for an
- * "(attack)" or "(thwart)" ability of a character in play that a rule taxes (`RuleSpec additionalPowerCost`,
- * docs/phase7-wave9.md §4.1 Q48 = B) the rule's resources on top (`AbilityCost.additionalPower`), so an ability with no
- * written cost gains one. RRG 1.8 "Cost" (p. 13): an additional cost is paid "simultaneously with the cost that is
- * being added to", or none of it is paid and the effect does not occur. The written cost itself, by identity, when no
- * rule applies. A forced ability is never taxed: nobody chooses to initiate it.
- */
-export const abilityCostFor = (
-  state: GameState,
-  deps: EngineDeps,
-  sourceId: InstanceId,
-  abilityId: string,
-): AbilityCost | undefined => abilityCostOfDefinition(state, deps, sourceId, deps.abilities[abilityId]);
-
-/** `abilityCostFor` for a caller that holds the ability's definition. */
-export function abilityCostOfDefinition(
-  state: GameState,
-  deps: EngineDeps,
-  sourceId: InstanceId,
-  definition: AbilityDefinition | undefined,
-): AbilityCost | undefined {
-  const written = definition?.cost;
-  const labels = definition?.label;
-  if (!definition || !labels) return written;
-  const powers = (["attack", "thwart"] as const).filter((power) => labels.includes(power));
-  const [power] = powers;
-  if (power === undefined || ("forced" in definition.trigger && definition.trigger.forced === true)) return written;
-  if (!cardsInPlay(state).includes(sourceId)) return written;
-  const ruled = additionalPowerCostFor(state, deps, sourceId, powers);
-  if (!ruled) return written;
-  const { resources, sourceInstanceIds } = ruled;
-  return { ...written, additionalPower: { resources, power, sourceInstanceIds } };
 }
 
 /** How many additional times this player resolves each When Revealed ability they reveal (Media Coverage). */

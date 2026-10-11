@@ -23,7 +23,7 @@ import type { GameEvent } from "./events.js";
 import type { InstanceId } from "./ids.js";
 import { legalActions, paymentFor, tryPayment } from "./legal.js";
 import { mustInstance, mustPlayer } from "./query.js";
-import { abilityCostFor, additionalPowerCostFor } from "./rules.js";
+import { additionalPowerCostFor } from "./rules.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
 import { stubAlly, stubMinion, stubSideScheme, stubSupport, stubTreachery, stubVillain } from "./testing/fixtures.js";
@@ -79,7 +79,7 @@ const THUG = stubMinion({ id: "thug", atk: 1, sch: 0, hp: 9, boostIcons: 0 });
 const BLANK = stubTreachery({ id: "blank", boostIcons: 0 });
 const BOSS = stubVillain({ id: "boss", stages: [{ hp: flat(50), atk: 2, sch: 0 }] });
 
-// --- §4.1 Q48 = B: an ally's own "(attack)" / "(thwart)" ability, and an ally an effect declares the defender ------
+// --- §4.1 Q53 = B and Q48 = B: an ally's own "(attack)" / "(thwart)" ability; an ally an effect declares the defender
 const three = { kind: "const", value: 3 } as const;
 const one = { kind: "const", value: 1 } as const;
 const allies = { kind: "each", query: { categories: ["ally"] } } as const;
@@ -527,7 +527,13 @@ describe("§3.31 `additionalPowerCost`: an additional cost to defend with an all
   });
 });
 
-describe('§4.1 Q48 = B `additionalPowerCost`: an ally\'s own "(attack)" or "(thwart)" ability', () => {
+/**
+ * §4.1 Q53 = B (revising Q48 for labeled abilities). RRG 1.8 "Labeled Ability" (p. 26): "When a player resolves an
+ * ability labeled '(attack),' that ability is considered to be an attack made by that player's identity", and the same
+ * for "(thwart)". So an ally's own labeled ability is not an attack or thwart "with an ally", and the rule adds nothing
+ * to it.
+ */
+describe('§4.1 Q53 = B `additionalPowerCost`: an ally\'s own "(attack)" or "(thwart)" ability costs nothing extra', () => {
   /** `table`, with `card` in play too. */
   function withCard(hand: number, card: { readonly id: string }, scheme: { readonly id: string } | null = TAX_SCHEME) {
     const t = table(hand + 10, scheme);
@@ -552,73 +558,47 @@ describe('§4.1 Q48 = B `additionalPowerCost`: an ally\'s own "(attack)" or "(th
     payment: payment.map((fromHand) => ({ fromHand })),
   });
 
-  it("reads the rule's resources onto the ability's cost: labeled abilities of the ally only", () => {
+  it('the "(attack)" action costs its exhaust alone, while the ally\'s basic attack is still taxed', () => {
     const t = withCard(1, STRIKER);
-    expect(abilityCostFor(t.state, deps, t.card, STRIKE.ref.id)).toMatchObject({
-      exhaustSelf: true,
-      additionalPower: { power: "attack", sourceInstanceIds: [t.scheme] },
-    });
-    expect(abilityCostFor(t.state, deps, t.card, SNEAK.ref.id)?.additionalPower?.power).toBe("thwart");
-    // No label: the written cost (none), by identity.
-    expect(abilityCostFor(t.state, deps, t.card, POKE.ref.id)).toBeUndefined();
-    const free = withCard(1, STRIKER, null);
-    expect(abilityCostFor(free.state, deps, free.card, STRIKE.ref.id)).toBe(STRIKE.definition.cost);
-    // A rule over attacks alone leaves the "(thwart)" ability as written.
-    const attacks = withCard(1, STRIKER, ATTACK_TAX_SCHEME);
-    expect(abilityCostFor(attacks.state, deps, attacks.card, SNEAK.ref.id)).toBeUndefined();
-    expect(abilityCostFor(attacks.state, deps, attacks.card, STRIKE.ref.id)?.additionalPower).toBeDefined();
-  });
-
-  it('the "(attack)" action pays 1 resource with its exhaust, and the attack resolves', () => {
-    const t = withCard(1, STRIKER);
-    const [card] = mustPlayer(t.state, P1).hand;
+    expect(additionalPowerCostFor(t.state, deps, t.card, "attack")).not.toBeNull();
     const { legal } = abilityFor(t.state, t.card, STRIKE.ref.id);
-    expect(legal?.needsPayment).toBe(true);
-    expect(legal?.example).toMatchObject({ type: "useAbility", payment: [{ fromHand: card }] });
-    const out = play(t.state, legal!.example);
-    expect(handSize(out.state)).toBe(0);
+    expect(legal?.needsPayment).toBe(false);
+    expect(legal?.example).toMatchObject({ type: "useAbility", payment: [] });
+    const out = play(t.state, use(t.card, STRIKE.ref.id));
+    expect(handSize(out.state)).toBe(1);
     expect(exhausted(out.state, t.card)).toBe(true);
     expect(mustInstance(out.state, t.villain).damage).toBe(3);
-    expect(out.events).toContainEqual({
-      type: "additionalPowerCostPaid",
-      playerId: P1,
-      characterInstanceId: t.card,
-      power: "attack",
-      sourceInstanceIds: [t.scheme],
-    });
+    expect(types(out.events)).not.toContain("additionalPowerCostPaid");
+    // The same ally's basic attack, the rule's own case.
+    const basic = applyCommand(
+      t.state,
+      { type: "basicAttack", playerId: P1, attackerInstanceId: t.card, targetInstanceId: t.villain },
+      deps,
+    );
+    expect(basic.ok).toBe(false);
   });
 
-  it("unpaid, the action is refused and the ally stays ready; with nothing to spend it is not offered", () => {
-    const t = withCard(1, STRIKER);
-    const result = applyCommand(t.state, use(t.card, STRIKE.ref.id), deps);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("insufficient_resources");
-    expect(exhausted(t.state, t.card)).toBe(false);
-
+  it("with nothing to spend, the labeled actions are offered and resolve", () => {
     const broke = withCard(0, STRIKER);
-    expect(abilityFor(broke.state, broke.card, STRIKE.ref.id).legal).toBeUndefined();
-    expect(abilityFor(broke.state, broke.card, SNEAK.ref.id).legal).toBeUndefined();
-    // Its unlabeled action is still free.
-    const poke = abilityFor(broke.state, broke.card, POKE.ref.id).legal;
-    expect(poke?.needsPayment).toBe(false);
-    const out = play(broke.state, poke!.example);
-    expect(mustInstance(out.state, broke.villain).damage).toBe(1);
+    for (const id of [STRIKE.ref.id, SNEAK.ref.id, POKE.ref.id]) {
+      expect(abilityFor(broke.state, broke.card, id).legal?.needsPayment).toBe(false);
+    }
+    const struck = play(broke.state, use(broke.card, STRIKE.ref.id));
+    expect(mustInstance(struck.state, broke.villain).damage).toBe(3);
+    expect(types(struck.events)).not.toContain("additionalPowerCostPaid");
+  });
+
+  it('a "(thwart)" action with no cost of its own stays free', () => {
+    const t = withCard(2, STRIKER);
+    const { legal } = abilityFor(t.state, t.card, SNEAK.ref.id);
+    expect(legal?.needsPayment).toBe(false);
+    const out = play(t.state, use(t.card, SNEAK.ref.id));
+    expect(handSize(out.state)).toBe(2);
+    expect(mustInstance(out.state, t.scheme).threat).toBe(4);
     expect(types(out.events)).not.toContain("additionalPowerCostPaid");
   });
 
-  it('a "(thwart)" action with no cost of its own costs the resource', () => {
-    const t = withCard(2, STRIKER);
-    const { legal } = abilityFor(t.state, t.card, SNEAK.ref.id);
-    expect(legal?.needsPayment).toBe(true);
-    const out = play(t.state, legal!.example);
-    expect(handSize(out.state)).toBe(1);
-    expect(mustInstance(out.state, t.scheme).threat).toBe(4);
-    expect(out.events.some((e) => e.type === "additionalPowerCostPaid" && e.power === "thwart")).toBe(true);
-    const refused = applyCommand(t.state, use(t.card, SNEAK.ref.id), deps);
-    expect(refused.ok).toBe(false);
-  });
-
-  it('the same "(attack)" action on a support, and the ally\'s without the rule, cost nothing more', () => {
+  it('the same "(attack)" action on a support, and the ally\'s without the rule, cost the same', () => {
     const turret = withCard(0, TURRET);
     const shot = abilityFor(turret.state, turret.card, STRIKE.ref.id).legal;
     expect(shot?.needsPayment).toBe(false);
@@ -657,42 +637,19 @@ describe('§4.1 Q48 = B `additionalPowerCost`: an ally\'s own "(attack)" or "(th
       return defaultPick(state).length > 0 ? defaultPick(state) : [choice.options[0]!.optionId];
     };
 
-  it('a triggered "(attack)" Response asks its controller for the resource as it is initiated', () => {
-    const t = withCard(1, FOLLOWER);
-    const out = afterThwart(t, paying(true));
-    expect(out.prompts).toContain("payForAbility");
-    expect(handSize(out.state)).toBe(0);
-    expect(mustInstance(out.state, t.villain).damage).toBe(3);
-    expect(out.events.some((e) => e.type === "additionalPowerCostPaid" && e.characterInstanceId === t.card)).toBe(true);
+  it('a triggered "(attack)" Response resolves without a payment, whatever its controller holds', () => {
+    for (const hand of [1, 0]) {
+      const t = withCard(hand, FOLLOWER);
+      const out = afterThwart(t, paying(true));
+      expect(out.prompts).not.toContain("payForAbility");
+      expect(handSize(out.state)).toBe(hand);
+      expect(mustInstance(out.state, t.villain).damage).toBe(3);
+      expect(types(out.events)).not.toContain("additionalPowerCostPaid");
+    }
   });
 
-  it("declining the payment declines the Response; with nothing to spend it is not offered", () => {
-    const t = withCard(1, FOLLOWER);
-    const declined = afterThwart(t, paying(false));
-    expect(declined.prompts).toContain("payForAbility");
-    expect(handSize(declined.state)).toBe(1);
-    expect(mustInstance(declined.state, t.villain).damage).toBe(0);
-    expect(types(declined.events)).not.toContain("additionalPowerCostPaid");
-
-    const broke = afterThwart(withCard(0, FOLLOWER), paying(true));
-    expect(broke.prompts).toEqual([]);
-    expect(mustInstance(broke.state, t.villain).damage).toBe(0);
-
-    // Without the rule the Response is free: no payment is asked.
-    const bare = withCard(0, FOLLOWER, null);
-    const main = bare.state.mainScheme.instanceId;
-    const threatened = {
-      ...bare.state,
-      instances: { ...bare.state.instances, [main]: { ...mustInstance(bare.state, main), threat: 3 } },
-    };
-    const free = afterThwart({ ...bare, state: threatened }, paying(true));
-    expect(free.prompts).not.toContain("payForAbility");
-    expect(mustInstance(free.state, t.villain).damage).toBe(3);
-  });
-
-  it('a Forced "(attack)" ability is not a player\'s to pay for: it resolves as written', () => {
+  it('a Forced "(attack)" ability resolves as written', () => {
     const t = withCard(0, ZEALOT);
-    expect(abilityCostFor(t.state, deps, t.card, ZEAL.ref.id)).toBeUndefined();
     const out = afterThwart(t, paying(true));
     expect(mustInstance(out.state, t.villain).damage).toBe(3);
     expect(types(out.events)).not.toContain("additionalPowerCostPaid");

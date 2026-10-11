@@ -42,7 +42,6 @@ import {
   scale,
   scenarioPlayAreaOf,
   schemesInPlay,
-  selfDamageThreshold,
   type CardInstance,
   type EngineDeps,
   type Form,
@@ -59,6 +58,7 @@ import {
 } from "@mc/engine";
 import { artFor, type ArtSource, type CardBack, type CardFace } from "../art/art-source.js";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
+import { breakPointOf } from "./break-point.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
 import { deckTopStatus, shownTopOf } from "./deck-top.js";
@@ -299,6 +299,12 @@ export function attachmentChipText(chip: AttachmentChip): string {
 export function attachmentChipDamage(chip: AttachmentChip): string | null {
   if (chip.damageThreshold !== null) return `${chip.damage}/${chip.damageThreshold}`;
   return chip.damage > 0 ? `${chip.damage}` : null;
+}
+
+/** `attachmentChipDamage` with the word: "0/3 dmg", so a count on a chip never rests on its red alone. */
+export function attachmentChipDamageTag(chip: AttachmentChip): string | null {
+  const damage = attachmentChipDamage(chip);
+  return damage === null ? null : `${damage} dmg`;
 }
 
 export interface SchemePanel {
@@ -972,7 +978,7 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
       .filter((action): action is "attack" | "thwart" => action !== null),
     attachments: attachmentChipsOf(state, instance, deps),
     counters: countersOf(state, id),
-    damageNote: current === undefined ? damageNote(instance.damage, selfDamageThreshold(state, id, deps)) : null,
+    damageNote: current === undefined ? damageNote(instance.damage, breakPointOf(state, id, deps)) : null,
     threat: threatOnCard(state, id),
     ownerName:
       instance.ownerId !== null && instance.controllerId !== null && instance.ownerId !== instance.controllerId
@@ -1391,7 +1397,7 @@ function attachmentChipsOf(state: GameState, instance: CardInstance, deps: Engin
       counters: countersOf(state, attachmentId),
       damage: attachmentInstance?.damage ?? 0,
       // A facedown card's text is hidden, so its threshold is too.
-      damageThreshold: faceup ? selfDamageThreshold(state, attachmentId, deps) : null,
+      damageThreshold: faceup ? breakPointOf(state, attachmentId, deps) : null,
       faceup,
     };
   });
@@ -1476,7 +1482,7 @@ export function scenarioPlayAreaPanels(state: GameState, deps: EngineDeps): read
 export function environmentPanel(state: GameState, id: InstanceId, deps: EngineDeps): EnvironmentPanel {
   const card = cardOf(state, id);
   const damage = getInstance(state, id)?.damage ?? 0;
-  const note = damageNote(damage, selfDamageThreshold(state, id, deps));
+  const note = damageNote(damage, breakPointOf(state, id, deps));
   const tucked = tuckedCardsUnder(state, id);
   return {
     instanceId: id,

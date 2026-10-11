@@ -976,10 +976,10 @@ export const additionalCostToReady = (
  * Paid by the character's controller with the power's own costs (RRG 1.8 "Cost", p. 13): a basic attack or thwart
  * carries the payment and is refused unpaid, the character unexhausted; at the Declare Defender step a character whose
  * controller cannot pay is not offered, and one declared and then not paid for is not the defender and does not
- * exhaust. Several rules add up. It also reaches (§4.1 Q48 = B) an "(attack)" or "(thwart)" ability on a matching
- * character, whose cost gains the resources (unpaid, the ability is not initiated; a Forced ability is not asked), and
- * a matching character a card effect declares the defender (`declareDefender`): its controller is asked, and unpaid
- * it is not declared and that instruction does not exhaust it.
+ * exhaust. Several rules add up. It also reaches (§4.1 Q48 = B) a matching character a card effect declares the
+ * defender (`declareDefender`): its controller is asked, and unpaid it is not declared and that instruction does not
+ * exhaust it. It does not reach an "(attack)" or "(thwart)" ability of a matching character (§4.1 Q53 = B): RRG 1.8
+ * "Labeled Ability" (p. 26) counts that as an attack or thwart made by the player's identity.
  */
 export const additionalPowerCost = (
   character: TargetQuery,
@@ -1924,6 +1924,18 @@ export const removeCounter = (
  * encounter cards as the cost.
  */
 export const dealEncounterCardsCost = (n: number): AbilityCost => ({ dealEncounterCards: n });
+/**
+ * "Deal a player N facedown encounter card(s) →" (Aerial Recon, `falcon` 53009: "Exhaust Aerial Recon and deal a
+ * player 1 facedown encounter card →"): the payer picks one player still in the game, themself included, and that
+ * player is dealt `n` facedown encounter cards as the cost (`AbilityCost.dealEncounterCardsTo`). The pick is the
+ * player's identity card, bound to `slot`: "that player" in the effects is `controllerOf(chosen(slot))`. In a
+ * one-player game the pick is forced. As `dealEncounterCardsCost`, a deal paid as a cost is not announced to "when a
+ * player would be dealt an encounter card" interrupts (RRG 1.8 "Cost", p. 13: costs are paid at once). On an action
+ * only: a response window cannot ask for this pick.
+ */
+export const dealEncounterCardsToChosenPlayerCost = (n = 1, slot = "dealtPlayer"): AbilityCost => ({
+  dealEncounterCardsTo: { count: n, slot },
+});
 /**
  * "Remove **up to** N [type] counters from [Groot] →" ("We Are Groot", `gmw` 16006; docs/phase7-wave3.md §3.32): the
  * player picks how many, 1 to N (RRG 1.8 "Cost", p. 14: "up to" still needs at least one), in the command's
@@ -3203,10 +3215,11 @@ export const on = {
   /**
    * "After you resolve [card]'s '[Name]' ability" (Talon Line, `falcon` 53012: "After you resolve Falcon's
    * 'Eagle-Eyed' ability"; docs/phase7-wave9.md §3.43 (c)): the ability with that id resolved, its controller being
-   * "you". The slots that ability held as it began to resolve, what its costs bound among them, are this ability's as
-   * `moment.<slot>`: "the discarded card" of a `discardTopOfEncounterDeckCost(1, "discarded")` is
-   * `chosen("moment.discarded")`, read where the card now is (`boostIcons`, `starIcons`). A card a response to its
-   * discard took away is still in that set here. Vars are not handed over.
+   * "you". The slots that ability holds once it has resolved, what its costs and its effects bound among them, are this
+   * ability's as `moment.<slot>`: "the discarded card" of a `discardTopOfEncounterDeckCost(1, "discarded")` or of a
+   * `discardEncounterCards(1, { bind: "discarded" })` is `chosen("moment.discarded")`, read where the card now is
+   * (`boostIcons`, `starIcons`). A card a response to its discard took away is still in that set here. Vars are not
+   * handed over.
    */
   youResolveAbility: (abilityId: string): EventPattern =>
     pattern("abilityResolved", { playerIs: "controller" }, { eventIs: { abilityId } }),

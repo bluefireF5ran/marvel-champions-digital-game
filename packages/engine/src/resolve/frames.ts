@@ -248,6 +248,8 @@ export function pushEffects(
     readonly byPlayer?: boolean;
     /** The ability these effects belong to (`Frame<"effects">.abilityId`, docs/phase7-wave6.md §3.84). */
     readonly abilityId?: AbilityId | undefined;
+    /** The ability whose resolution this frame announces as it finishes (`Frame<"effects">.announceResolved`). */
+    readonly announceResolved?: Frame<"effects">["announceResolved"];
     /** The setup instruction the parent frame resolves, carried on to its branches (`SetupInstructionSource`). */
     readonly instruction?: SetupInstructionSource | undefined;
     /**
@@ -278,6 +280,7 @@ export function pushEffects(
         : {}),
       ...(spec.byPlayer ? { byPlayer: true as const } : {}),
       ...(spec.abilityId !== undefined ? { abilityId: spec.abilityId } : {}),
+      ...(spec.announceResolved ? { announceResolved: spec.announceResolved } : {}),
       ...(spec.instruction ? { instruction: spec.instruction } : {}),
       ...(spec.defeatedLeaving !== undefined ? { defeatedLeaving: spec.defeatedLeaving } : {}),
       ...(spec.defeatedLeavingSource !== undefined ? { defeatedLeavingSource: spec.defeatedLeavingSource } : {}),

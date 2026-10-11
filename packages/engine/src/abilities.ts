@@ -1534,19 +1534,17 @@ export type RuleSpec =
    *   declaring one asks its controller for the payment (`ChoicePrompt spendResources`), and a controller who does not
    *   pay has not declared it: the character stays ready and the step is asked again without it.
    *
-   * - **An "(attack)" or "(thwart)" ability of the character's own** (docs/phase7-wave9.md §4.1 Q48 = B; RRG 1.8
-   *   "Labeled Ability", p. 26): a labeled ability on a matching character in play, printed or gained, has the
-   *   resources added to its cost (`rules.ts abilityCostFor`, `AbilityCost.additionalPower`). They are paid as the
-   *   ability is initiated, with its own cost; a player who cannot pay cannot initiate it, and declining the payment
-   *   of a triggered one declines the ability. A forced ability is not asked: it has no cost to add to and its
-   *   resolution is not a player's choice.
-   * - **A defender a card effect declares** (`EffectSpec declareDefender`; Q48 = B): the character's controller is
-   *   asked for the payment as the effect resolves, and unpaid the character is not declared the defender and is not
-   *   exhausted by that instruction. A character already defending the attack is not charged again.
+   * - **A defender a card effect declares** (`EffectSpec declareDefender`; docs/phase7-wave9.md §4.1 Q48 = B): the
+   *   character's controller is asked for the payment as the effect resolves, and unpaid the character is not
+   *   declared the defender and is not exhausted by that instruction. A character already defending the attack is not
+   *   charged again.
    *
-   * The payer is the player the power is made by: the character's controller. Not reached: an attack or thwart
-   * another card's ability makes with the character (an event that deals damage "as" an ally would), which no
-   * current effect models as the ally's own.
+   * The payer is the player the power is made by: the character's controller.
+   *
+   * **Not reached: an "(attack)" or "(thwart)" ability of the character's own** (§4.1 Q53 = B, which revises Q48 for
+   * labeled abilities). RRG 1.8 "Labeled Ability" (p. 26): "A triggered ability with a label counts as its player's
+   * identity performing that action", so a labeled ability printed on or gained by an ally is an attack or thwart the
+   * identity makes, not one made "with" the ally, and costs nothing extra.
    */
   | {
       readonly kind: "additionalPowerCost";
@@ -2284,16 +2282,6 @@ export interface AbilityCost {
    */
   readonly resources?: number | ResourceRequirement | ResourcesChoice;
   /**
-   * Never authored: set by the engine on the cost of an "(attack)" or "(thwart)" ability of a character a rule taxes
-   * (`RuleSpec additionalPowerCost`, `rules.ts abilityCostFor`). The resources are added to whatever else the cost
-   * asks for (`costResourceRequirement`) and paid with it, and paying the cost logs `additionalPowerCostPaid`.
-   */
-  readonly additionalPower?: {
-    readonly resources: ResourceRequirement;
-    readonly power: "attack" | "thwart";
-    readonly sourceInstanceIds: readonly InstanceId[];
-  };
-  /**
    * "Spend X resources of any type, where X is the number of villains under Routed →": a number of resources of any
    * type the board gives, not the payer. Read when the cost is determined (RRG 1.8 "Initiating Abilities", p. 24, step
    * 3) with the ability's card as `self` and the payer as `you`, never below 0, added to any fixed `resources`, and
@@ -2478,6 +2466,21 @@ export interface AbilityCost {
    * paying player is dealt that many encounter cards, facedown, as the cost (docs/phase7-wave3.md §3.20).
    */
   readonly dealEncounterCards?: number;
+  /**
+   * "Deal a player 1 facedown encounter card →" (Aerial Recon, `falcon` 53009): the payer picks one player still in
+   * the game, themself included, and that player is dealt `count` facedown encounter cards as the cost.
+   *
+   * - **The pick.** Made with the cost, as the picked player's identity card in `costChoices[slot]`; with one player
+   *   in the game it is forced and may be omitted. Bound to `slot` for the effects ("that player" is the controller
+   *   of the slot's card). Any player can be picked: the player is who the cost is done to, not a card it is paid
+   *   with (as `dealDamage.choose`'s target and an attach cost's host). `legalActions` offers one variant per player.
+   * - **Not announced to "would be dealt" interrupts**, as `dealEncounterCards`: every cost is paid at once (RRG 1.8
+   *   "Cost", p. 13; `TriggerEvent encounterCardBeingDealt`). The card is dealt and the cost is paid; the deal is
+   *   recorded for abilities that answer a card having been dealt (`encounterCardDealt`, source `"ability"`).
+   * - **Actions only.** A response window has no prompt for this pick: with more than one player in the game a
+   *   triggered ability with this cost cannot be initiated (`@mc/cards`' validator refuses to define one).
+   */
+  readonly dealEncounterCardsTo?: { readonly count: number; readonly slot: string };
   /**
    * "Take 1 damage →" (Focused Rage): the controller's identity takes the damage. A value is read when the cost is
    * determined, with the cost's own picks bound: "choose an ATTACK event in your hand, and take damage equal to its

@@ -27,7 +27,7 @@ import {
   type StatKey,
 } from "../../ui/widgets.js";
 import {
-  attachmentChipDamage,
+  attachmentChipDamageTag,
   attachmentChipText,
   counterNote,
   threatNote,
@@ -358,10 +358,11 @@ export function drawCharacter(
     ).strokeRect(chip.x, chip.y, chip.width, chip.height);
     // The chip's ground goes under its own text.
     scene.children.bringToTop(name);
-    // Damage on the attachment (Crossbones' Armor's "2/5") sits at the chip's right edge, and gets its width first:
-    // the name wraps around it, the count the table is watching never is.
+    // Damage on the attachment (Crossbones' Armor's "2/5 dmg") sits on a row of its own at the chip's right edge: the
+    // name keeps the whole width, and the count the table is watching is never cut.
     if (damage) {
-      const tag = label(scene, 0, chip.y + 3, damage, typeRole.label, accent.heroRed.hex, ink.body * dim);
+      const tagY = chip.y + chipHeight - DAMAGE_ROW - 1;
+      const tag = label(scene, 0, tagY, damage, typeRole.label, accent.heroRed.hex, ink.body * dim);
       tag.setX(chip.x + chip.width - 3 - tag.width);
     }
     chipTargets.push({ rect: chip, instanceId: attachment.instanceId });
@@ -377,7 +378,7 @@ export function drawCharacter(
     const heights = overflow.map((attachment) =>
       Math.max(
         16,
-        footStripLayout(attachmentChipText(attachment), artColumn.width, attachmentChipDamage(attachment) ? 36 : 0)
+        footStripLayout(attachmentChipText(attachment), artColumn.width, attachmentChipDamageTag(attachment) ? 50 : 0)
           .height,
       ),
     );
@@ -391,7 +392,7 @@ export function drawCharacter(
         height: heights[index]!,
       };
       stripBottom = strip.y;
-      drawFootStrip(scene, strip, attachmentChipText(attachment), "note", dim, attachmentChipDamage(attachment));
+      drawFootStrip(scene, strip, attachmentChipText(attachment), "note", dim, attachmentChipDamageTag(attachment));
       chipTargets.push({ rect: strip, instanceId: attachment.instanceId });
     }
   }
@@ -443,6 +444,9 @@ const COMPACT_PANEL_HEIGHT = 150;
 /** The stat badges on a wide panel stay at least this big (when the panel can hold them at all): a name chip never squeezes them smaller. */
 const STAT_BADGE_COMFORT = 30;
 
+/** The row under a chip's name that carries the count of damage on the attachment. */
+const DAMAGE_ROW = 14;
+
 interface AttachmentChipSpec {
   readonly attachment: CharacterPanel["attachments"][number];
   readonly usable: boolean;
@@ -455,7 +459,7 @@ interface AttachmentChipSpec {
 
 /**
  * One attachment chip's text, fitted before the chip is placed so the column can reserve the height a wrapped name
- * needs. The damage tag at the right gets its width first: the name wraps around it, the count is never cut.
+ * needs (and the row under it for a count of damage).
  */
 function measureAttachmentChip(
   scene: Phaser.Scene,
@@ -464,13 +468,12 @@ function measureAttachmentChip(
   chipWidth: number,
   dim: number,
 ): AttachmentChipSpec {
-  const damage = attachmentChipDamage(attachment);
+  const damage = attachmentChipDamageTag(attachment);
   const text = attachmentChipText(attachment);
   const shown = usable ? `\u25B6 ${text}` : text;
-  const tagProbe = damage ? label(scene, 0, 0, damage, typeRole.label, accent.heroRed.hex, 0).setVisible(false) : null;
-  const damageWidth = tagProbe ? tagProbe.width + 6 : 0;
-  tagProbe?.destroy();
-  const nameWidth = chipWidth - 6 - damageWidth;
+  // The damage count rides on its own row under the name ("0/3 dmg"), so a name keeps the whole width and wraps on
+  // words, never mid-word around the count.
+  const nameWidth = chipWidth - 6;
   const name = label(
     scene,
     0,
@@ -487,6 +490,7 @@ function measureAttachmentChip(
     fitWrapped(name, nameWidth, 3, typeRole.label.size);
     height = Math.max(16, Math.ceil(name.height) + 6);
   }
+  if (damage) height += DAMAGE_ROW;
   return { attachment, usable, name, damage, height };
 }
 
@@ -572,17 +576,32 @@ function drawCardShapedPanel(
   // Attachments: the wide panel lists them as chips, and a card-shaped one (the villain in a narrow slot) used to
   // draw none at all, so Crossbones' Armor was invisible there with its damage. One strip each, damage at the
   // right edge where clipping never reaches it, and a tap opens the attachment like a chip does.
-  if (rect.height >= 80) {
+  const stripHeight = Math.min(20, Math.max(14, Math.round(inner.height * 0.1)));
+  if (rect.height >= 80 && panel.attachments.length > 0) {
+    // Each attachment takes a strip only while the stat badges keep a readable size (Fixer with three Tech attachments
+    // would otherwise be all strips); the rest are counted on one row, and Inspect lists every one.
+    const statCount = panel.stats.filter((tile) => tile.label !== "HP").length;
+    let shown = 0;
     for (const attachment of panel.attachments.slice(0, 2)) {
+      const reservedSoFar = strips.reduce((total, strip) => total + Math.max(stripHeight, strip.height ?? 0), 0);
+      if (!stripKeepsStats(inner.height, inner.width, reservedSoFar, stripHeight, statCount, panel.hp !== null)) break;
       strips.push({
         text: attachmentChipText(attachment),
         tone: "note",
-        tag: attachmentChipDamage(attachment),
+        tag: attachmentChipDamageTag(attachment),
         instanceId: attachment.instanceId,
+      });
+      shown += 1;
+    }
+    const hidden = panel.attachments.slice(shown);
+    if (hidden.length > 0) {
+      strips.push({
+        text: `${shown === 0 ? "" : "+"}${hidden.length} attached`,
+        tone: "note",
+        instanceId: hidden[0]!.instanceId,
       });
     }
   }
-  const stripHeight = Math.min(20, Math.max(14, Math.round(inner.height * 0.1)));
   // The active keyword tag is the least of the strips: it takes its row only while the stat badges keep a readable size.
   const keywordNote =
     rect.height >= 40

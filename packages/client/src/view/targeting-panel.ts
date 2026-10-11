@@ -30,6 +30,8 @@ import {
   type PreviewStop,
 } from "@mc/engine";
 import { artFor, type ArtSource } from "../art/art-source.js";
+import { attackRefusalWording } from "./attack-bar.js";
+import { breakPointOf } from "./break-point.js";
 import { faceOf } from "./board-model.js";
 import { exclusionWording, exclusionWordingFor } from "./highlights.js";
 import { cardName } from "./names.js";
@@ -114,19 +116,34 @@ export function targetingPanelOf(
   buildCommand: (target: InstanceId) => Command,
   deps: EngineDeps,
 ): TargetingPanel {
+  const attacker = action.action.kind === "basicAttack" ? action.action.instanceId : null;
   const options = action.targets.map((instanceId) =>
-    optionOf(state, instanceId, preview(state, buildCommand(instanceId), deps)),
+    optionOf(state, instanceId, preview(state, buildCommand(instanceId), deps), deps),
   );
   return {
     title: "Choose a target",
     source: { ...source, art: artOf(state, source.instanceId) },
     options,
-    excluded: groupBlockedByMessage(action.blockedTargets, (id) => cardName(state, id)),
+    excluded: groupBlockedByMessage(
+      // The attacker's bar (Encased in Ice) is named, not the engine's one message for every refused attack.
+      attacker === null
+        ? action.blockedTargets
+        : action.blockedTargets.map((blocked) => ({
+            ...blocked,
+            message: attackRefusalWording(state, deps, attacker, blocked.message),
+          })),
+      (id) => cardName(state, id),
+    ),
   };
 }
 
-function optionOf(state: GameState, instanceId: InstanceId, result: OutcomePreview): TargetOption {
-  const lines = outcomeLines(result, (id) => cardName(state, id), instanceId);
+function optionOf(state: GameState, instanceId: InstanceId, result: OutcomePreview, deps: EngineDeps): TargetOption {
+  const lines = outcomeLines(
+    result,
+    (id) => cardName(state, id),
+    instanceId,
+    (id) => breakPointOf(state, id, deps),
+  );
   return {
     instanceId,
     name: cardName(state, instanceId),
@@ -201,6 +218,8 @@ export function outcomeLines(
   result: OutcomePreview,
   nameOf: (id: InstanceId) => string,
   primaryId: InstanceId,
+  /** The damage at which a card with no hit points breaks (Encased in Ice's 3), when it has one. */
+  breakPoint?: (id: InstanceId) => number | null,
 ): readonly string[] {
   if (result.stop.kind === "rejected") return [result.stop.message];
 
@@ -215,7 +234,8 @@ export function outcomeLines(
     // The primary target is already named by the tile it's under; a secondary instance the effect also touched
     // (Photon Blast's own "if that enemy is a minion, deal 2 damage to another enemy") is named inline.
     const prefix = id === primaryId ? null : nameOf(id);
-    for (const line of counterOutcome(counter, result.events)) lines.push(prefix ? `${prefix}: ${line}` : line);
+    for (const line of counterOutcome(counter, result.events, breakPoint?.(id) ?? null))
+      lines.push(prefix ? `${prefix}: ${line}` : line);
   }
   const caveat = stopCaveat(result.stop);
   if (caveat) lines.push(caveat);
@@ -223,7 +243,11 @@ export function outcomeLines(
 }
 
 /** One instance's before/after, worded the way `view/log-lines.ts` already words the same facts once they've happened. */
-function counterOutcome(counter: PreviewCounter, events: readonly GameEvent[]): readonly string[] {
+function counterOutcome(
+  counter: PreviewCounter,
+  events: readonly GameEvent[],
+  breakPoint: number | null,
+): readonly string[] {
   const { instanceId: id, before, after } = counter;
   const lines: string[] = [];
 
@@ -258,6 +282,15 @@ function counterOutcome(counter: PreviewCounter, events: readonly GameEvent[]): 
       const wasted = dealt - before.remainingHitPoints;
       if (wasted > 0) lines.push(`No overkill, so ${wasted} was lost.`);
     }
+  }
+
+  // A card with no hit points that holds damage (Encased in Ice): the count, against the point it breaks at.
+  if (before.remainingHitPoints === null && before.inPlay && after.damage !== before.damage) {
+    lines.push(
+      !after.inPlay
+        ? `${before.damage} damage → Breaks`
+        : `${before.damage} → ${after.damage} damage${breakPoint !== null ? ` (breaks at ${breakPoint})` : ""}`,
+    );
   }
 
   if (before.threat !== null) {

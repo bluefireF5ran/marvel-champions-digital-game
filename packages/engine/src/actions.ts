@@ -41,7 +41,6 @@ import { engineError, EngineInvariantError, type EngineError, type EngineErrorCo
 import { finishTurn } from "./flow.js";
 import { statBonus } from "./modifiers.js";
 import {
-  abilityCostFor,
   additionalPowerCostFor,
   canDivideBasicPower,
   attachLimitFault,
@@ -128,6 +127,7 @@ import {
   planAttachCost,
   planDealDamageChoice,
 } from "./attach-cost.js";
+import { dealToCostPlayer, planDealToCost } from "./deal-to-cost.js";
 import {
   REMOVE_THREAT_FROM_SLOT,
   REMOVE_THREAT_MAX_VAR,
@@ -2498,8 +2498,7 @@ export function costResourceRequirement(
   event: TriggerEvent | null = null,
 ): { readonly requirement: ResolvedRequirement; readonly computed?: number } {
   // A size the payer chooses (`ResourcesChoice`) is no fixed requirement: `resourceVars` reads it off the payment.
-  // A rule's additional cost over the ability's character is paid with it (`AbilityCost.additionalPower`).
-  const fixed = combineRequirements(fixedResourcesOf(cost), cost?.additionalPower?.resources ?? 0);
+  const fixed = combineRequirements(fixedResourcesOf(cost), 0);
   if (cost?.resourcesEqualTo === undefined) return { requirement: fixed };
   const carried = carriedByEvent(event);
   const context: EffectContext = {
@@ -2778,6 +2777,12 @@ export function planCost(
   // "Deal 1 damage to another friendly character →" (`dealDamage.choose`, docs/phase7-wave8.md §3.74): the payer's pick.
   if (cost.dealDamage?.choose) {
     const chosen = planDealDamageChoice(state, deps, sourceId, playerId, cost.dealDamage.choose, choices, bindings);
+    if (isFault(chosen)) return chosen;
+    Object.assign(bindings, chosen);
+  }
+  // "Deal a player 1 facedown encounter card →" (`dealEncounterCardsTo`): the payer's pick of a player.
+  if (cost.dealEncounterCardsTo) {
+    const chosen = planDealToCost(state, cost.dealEncounterCardsTo, choices);
     if (isFault(chosen)) return chosen;
     Object.assign(bindings, chosen);
   }
@@ -3403,15 +3408,6 @@ export function payCost(
   const top = ctx.state.stack[0];
   const paidFor = (top?.kind === "ability" || top?.kind === "playCard") && top.instanceId === sourceId ? top : null;
   const identityId = mustPlayer(ctx.state, playerId).identity.instanceId;
-  if (cost.additionalPower) {
-    emit(ctx, {
-      type: "additionalPowerCostPaid",
-      playerId,
-      characterInstanceId: sourceId,
-      power: cost.additionalPower.power,
-      sourceInstanceIds: cost.additionalPower.sourceInstanceIds,
-    });
-  }
   if (cost.exhaustSelf) exhaustCard(ctx, sourceId);
   // "Flip this card →": announced above the frame being paid for, as any flip is (docs/phase7-wave7.md §3.64).
   if (cost.flipSelf) {
@@ -3466,6 +3462,12 @@ export function payCost(
   // of several cards dealt here reset the encounter deck, the response to the reset follows the whole payment (no
   // card in the pool deals more than one this way; docs/phase7-wave6.md §4.1 Q58).
   for (let i = 0; i < (cost.dealEncounterCards ?? 0); i++) dealEncounterCardTo(ctx, playerId, "ability");
+  // "Deal a player 1 facedown encounter card →" (`dealEncounterCardsTo`): to the player the payer picked.
+  if (cost.dealEncounterCardsTo) {
+    const dealtTo = dealToCostPlayer(ctx.state, cost.dealEncounterCardsTo, plan.bindings);
+    for (let i = 0; dealtTo !== null && i < cost.dealEncounterCardsTo.count; i++)
+      dealEncounterCardTo(ctx, dealtTo, "ability");
+  }
   for (const id of plan.bindings.discard ?? []) {
     const zone = locateCard(ctx.state, id);
     discardFromHand(ctx, zone?.kind === "hand" ? zone.playerId : playerId, id);
@@ -5211,14 +5213,12 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
     const limit = definition.limit;
     return engineError("limit_reached", `limit ${limit?.count} per ${limit?.period}`, command);
   }
-  // With what a rule adds for an "(attack)" or "(thwart)" ability of this character (`abilityCostFor`).
-  const written = abilityCostFor(ctx.state, ctx.deps, command.cardInstanceId, command.abilityId);
   const plan = planCost(
     ctx.state,
     ctx.deps,
     command.cardInstanceId,
     command.playerId,
-    written,
+    definition.cost,
     command.costChoices ?? {},
     handCardsIn(command.payment),
     command.costSelection,
@@ -5237,7 +5237,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
       command,
     );
   }
-  const vars = resourceVars(pool, plan.cost ?? written, plan.requirement, command.costSelection?.resources);
+  const vars = resourceVars(pool, plan.cost ?? definition.cost, plan.requirement, command.costSelection?.resources);
   if (isFault(vars)) return engineError(vars.code, vars.message, command);
 
   // Read before paying: paying may exhaust or discard the source.
@@ -5252,7 +5252,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
         payingFor,
         pool,
         plan.requirement,
-        plan.cost ?? written,
+        plan.cost ?? definition.cost,
         vars,
       ),
     ),
@@ -5265,7 +5265,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
     pool,
     { ...plan.vars, ...vars, ...sources },
     plan.requirement,
-    plan.cost ?? written,
+    plan.cost ?? definition.cost,
     command.wildAs,
   );
   if (isFault(settled)) return engineError(settled.code, settled.message, command);
@@ -5281,7 +5281,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }):
     settled.types?.undeclared,
   );
   logAbilityWildTypes(ctx, command.playerId, command.cardInstanceId, command.abilityId, settled.types);
-  payCost(ctx, command.cardInstanceId, command.playerId, written, plan);
+  payCost(ctx, command.cardInstanceId, command.playerId, definition.cost, plan);
   const unpayable = thwartCostUnpayableAfterPaying(ctx, definition, command);
   if (unpayable) return unpayable;
   announceResourcesSpent(ctx, command.playerId, spent, command.cardInstanceId, "ability");

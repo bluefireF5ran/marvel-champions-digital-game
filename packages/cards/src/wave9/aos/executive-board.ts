@@ -22,7 +22,10 @@ import {
   heal,
   heroAction,
   ifElse,
+  ifThen,
   inMode,
+  made,
+  not,
   on,
   option,
   placeThreat,
@@ -33,14 +36,14 @@ import {
   resolveWhenRevealedOf,
   self,
   spend,
-  spendResources,
+  spendXResources,
   stateCheck,
   superlative,
   theMainScheme,
   theVillain,
   valueAtLeast,
+  varOf,
   whenRevealed,
-  you,
 } from "../../dsl/index.js";
 
 const BOARD_MEMBER = trait("BOARD MEMBER");
@@ -67,21 +70,25 @@ const lossAtThree = () =>
 const afterSecretPlacedHere = on.countersPlaced("secret", "self");
 
 /**
- * "You may spend X [type] resources to prevent X of these counters from being placed", played one Board Member card at
- * a time: for each, the first-listed choice is to spend 1 resource of the type (an option only a player who can pay
- * may choose) to prevent that card's counter, or to let it be placed. Choosing which X cards get no counter and
- * paying X in total comes to the same thing as X single payments (docs/phase7-wave9.md section 3.28).
+ * "Place 1 secret counter on each Board Member card. You may spend X [type] resources to prevent X of these counters
+ * from being placed." The revealing player chooses X once, from 0 to the number of Board Member cards and no more than
+ * the resources of the type they could pay, and pays X in one payment (`spendXResources`), so a card that generates
+ * two of the type covers 2. They then name the X cards that get no counter (no question when X is every card), and
+ * each other Board Member card gets its counter, one card at a time. A player with nothing of the type to spend is
+ * not asked (docs/phase7-wave9.md section 3.28).
  */
-const placeSecrets = (type: "energy" | "mental" | "physical") =>
-  forEachCard(
-    "member",
-    each(BOARD_MEMBER_CARDS),
-    chooseOneBy(
-      you,
-      option(`Spend 1 [${type}] resource to prevent this counter`, spendResources({ [type]: 1 }, "prevented")),
-      option("Place the counter", addCounters("secret", 1, chosen("member"))),
+const placeSecrets = (type: "energy" | "mental" | "physical") => [
+  spendXResources({ [type]: 1 }, countOf(BOARD_MEMBER_CARDS), "prevented"),
+  // X of every card: no counter is placed and there is no card to name.
+  ifThen(not(valueAtLeast(varOf("prevented.amount"), countOf(BOARD_MEMBER_CARDS))), [
+    ifThen(made("prevented"), chooseTarget("spared", BOARD_MEMBER_CARDS, { count: varOf("prevented.amount") })),
+    forEachCard(
+      "member",
+      each(query([], { trait: BOARD_MEMBER, excluding: chosen("spared") })),
+      addCounters("secret", 1, chosen("member")),
     ),
-  );
+  ]),
+];
 
 /**
  * S.H.I.E.L.D. Executive Board (Agents of S.H.I.E.L.D.; docs/phase7-wave9.md sections 3.26 to 3.28, owner answers Q1
@@ -97,9 +104,9 @@ const placeSecrets = (type: "energy" | "mental" | "physical") =>
  * once, however many were placed. The first player chooses on an encounter card's behalf (RRG 1.8 "First Player",
  * p. 19). The last paragraph is a state check: 3 Board Member attachments in play lose the game.
  *
- * **A.I.M. Interference (50184a to 50184c)**: When Revealed places 1 secret counter on each Board Member card, a
- * payment of 1 [type] resource preventing one placing at a time. The boost resolves the When Revealed ability alone
- * (no incite: the card is not revealed).
+ * **A.I.M. Interference (50184a to 50184c)**: When Revealed places 1 secret counter on each Board Member card; the
+ * revealing player may first spend X [type] resources, X chosen once and paid in one payment, to prevent X of those
+ * placings (`placeSecrets`). The boost resolves the When Revealed ability alone (no incite: the card is not revealed).
  *
  * Cards (9):
  * - 50181a Chief Medical Officer (environment)
@@ -159,11 +166,11 @@ export const EXECUTIVE_BOARD: AbilityRegistry = defineAbilities({
   ),
   "50183b.tactical-officers-aid-constant": lossAtThree(),
 
-  "50184a.when-revealed": whenRevealed(placeSecrets("energy")),
+  "50184a.when-revealed": whenRevealed(...placeSecrets("energy")),
   "50184a.boost": boost(resolveWhenRevealedOf(self)),
-  "50184b.when-revealed": whenRevealed(placeSecrets("mental")),
+  "50184b.when-revealed": whenRevealed(...placeSecrets("mental")),
   "50184b.boost": boost(resolveWhenRevealedOf(self)),
-  "50184c.when-revealed": whenRevealed(placeSecrets("physical")),
+  "50184c.when-revealed": whenRevealed(...placeSecrets("physical")),
   "50184c.boost": boost(resolveWhenRevealedOf(self)),
 });
 

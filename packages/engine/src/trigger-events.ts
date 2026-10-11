@@ -993,7 +993,7 @@ export type TriggerEventBody =
    * dealing effect is unresolved (`preThenUnresolved { cause: "cardNotDealt" }`), as for a card that could not be
    * dealt. `source` is `"ability"` and `sourceInstanceId` the card whose ability deals it.
    *
-   * **Not** announced: a card dealt as a cost (`AbilityCost.dealEncounterCards`; every cost is paid at once, RRG 1.8
+   * **Not** announced: a card dealt as a cost (`AbilityCost.dealEncounterCards`, `dealEncounterCardsTo`; all costs are paid at once, RRG 1.8
    * "Cost", p. 13, as `cardBeingDiscarded` and `statusBeingGiven` have it), the engine's own handling of an encounter
    * card found in a player deck (`dealUnhandledEncounterCard`, a fallback no card text makes), and "reveal an
    * additional encounter card" for a card that could not be given or enter play (no deal; `source: null` of
@@ -1399,16 +1399,19 @@ export type TriggerEventBody =
    * An ability resolved: it was triggered and its effects resolved (RRG 1.8 "Resolve", p. 37). "After you resolve the
    * ability of a Preparation card you control" (Black Widow; Synth-Suit too, ruling Feb 28, 2026 (2)).
    *
-   * `carried` (docs/phase7-wave9.md §3.43 (c)): the slots the ability held as it began to resolve, by its own names:
-   * what its costs bound (`AbilityCost.discardFromEncounterDeck.slot`, `encounterLookDiscard.slot`, …), its chosen
-   * targets, the slots its own event gave it. An answering ability reads them as `moment.<slot>` (`carriedByEvent`),
-   * so "After you resolve Falcon's 'Eagle-Eyed' ability, … for each icon in the discarded card's boost area" (Talon
-   * Line, `falcon` 53012) reads `moment.<slot>`, the card Eagle-Eyed's cost discarded, where that card now is. A
-   * card a response took away from a "discarded this way" set (§4.1 Q32) is still in the carried set: the resolved
-   * ability no longer counts it, but it is the card that was discarded. Slots only: a var of the set
+   * `carried` (docs/phase7-wave9.md §3.43 (c)): the slots the ability holds once its effects have resolved, by its
+   * own names: what its costs bound (`AbilityCost.discardFromEncounterDeck.slot`, `encounterLookDiscard.slot`, …), its
+   * chosen targets, the slots its own event gave it, and what its effects bound (a card an effect discarded, found or
+   * chose; a branch's slots as they came back to the ability). An answering ability reads them as `moment.<slot>`
+   * (`carriedByEvent`), so "After you resolve Falcon's 'Eagle-Eyed' ability, … for each icon in the discarded card's
+   * boost area" (Talon Line, `falcon` 53012) reads `moment.<slot>`, the card Eagle-Eyed discarded, where that card
+   * now is. A card a response took away from a "discarded this way" set (§4.1 Q32) is still in the carried set: the
+   * resolved ability no longer counts it, but it is the card that was discarded. Slots only: a var of the set
    * (`<slot>.boostIcons`) says what the resolved ability counted, not what the card prints, so an answering ability
-   * reads the card (`ValueSpec boostIcons`, `starIcons`). Absent when the ability held no slot. A slot the
-   * ability's effects bind later is not carried: the event is made before they resolve.
+   * reads the card (`ValueSpec boostIcons`, `starIcons`). Absent when the ability holds no slot.
+   *
+   * Made as the ability's effects frame finishes (`announceAbilityResolved`), and only if something could respond
+   * then: an answering ability's own condition may read `carried`, so it is judged once the slots are known.
    */
   | {
       readonly kind: "abilityResolved";

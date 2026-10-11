@@ -150,6 +150,8 @@ describe("the lists, derived from content data", () => {
         "the_leaper",
         "extreme_risk",
         "growing_strong",
+        "techno",
+        "whiteout",
       ]
     `);
   });
@@ -542,21 +544,21 @@ describe("modular set x scenario: every pairing builds", () => {
     }
     expect({ sets: MODULAR_SETS.length, scenarios: PLAYABLE_SCENARIOS.length, ...kinds }).toMatchInlineSnapshot(`
       {
-        "build": 4716,
+        "build": 4808,
         "required": 28,
-        "restricted": 611,
+        "restricted": 621,
         "scenarios": 51,
-        "sets": 105,
+        "sets": 107,
       }
     `);
     expect(restrictedBy).toMatchInlineSnapshot(`
       {
-        "breakout": 105,
+        "breakout": 107,
         "four-horsemen": 1,
-        "mojo": 99,
-        "sinister-six": 104,
-        "spiral": 99,
-        "the-hood": 105,
+        "mojo": 101,
+        "sinister-six": 106,
+        "spiral": 101,
+        "the-hood": 107,
         "thunderbolts": 97,
         "tower-defense": 1,
       }
