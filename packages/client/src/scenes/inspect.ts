@@ -173,6 +173,8 @@ function extraNotesOf(model: InspectModel): readonly { readonly title: string; r
     ...(model.hitPointFloorNote ? [{ title: "hit points", lines: [model.hitPointFloorNote] }] : []),
     ...(model.resourceIconNote ? [{ title: "resource icons", lines: [model.resourceIconNote] }] : []),
     ...(model.attackBarNote ? [{ title: "attacks", lines: [model.attackBarNote] }] : []),
+    ...(model.reverseNote ? [{ title: "other side", lines: [model.reverseNote] }] : []),
+    ...(model.forcedNote ? [{ title: "forced action", lines: [model.forcedNote] }] : []),
     ...(model.areaNotes.length > 0 ? [{ title: "where it is", lines: model.areaNotes }] : []),
   ];
 }

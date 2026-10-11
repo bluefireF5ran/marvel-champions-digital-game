@@ -21,6 +21,7 @@ import {
   type LegalAction,
   type PlayerId,
 } from "@mc/engine";
+import { eachPlayerPhrase } from "./ability-label.js";
 
 export type CostChoicePrompt =
   | { readonly kind: "branch"; readonly options: readonly { readonly branch: number; readonly label: string }[] }
@@ -106,6 +107,8 @@ export function describeCost(
   const parts: string[] = [];
   if (cost.exhaustIdentity) parts.push("exhaust your hero");
   else if (cost.exhaustSelf) parts.push("exhaust this card");
+  const everyone = eachPlayerPhrase(cost.eachPlayer);
+  if (everyone) parts.push(everyone);
   if (cost.resources !== undefined) {
     parts.push(
       typeof cost.resources === "number"

@@ -35,6 +35,7 @@ import { McSelectionRing, McTabs, paintDotGrid } from "../ui/widgets.js";
 import { boardModel, type BoardModel } from "../view/board-model.js";
 import { highlights, type Highlights } from "../view/highlights.js";
 import { withAttackBarWording } from "../view/attack-bar.js";
+import { withForcedActions } from "../view/forced-actions.js";
 import { withDefenseLockout } from "../view/defense-lockout.js";
 import { appendCardHistory, emptyCardHistoryLog, type CardHistoryLog } from "../view/card-history.js";
 import { appendEvents, emptyLog, type LogState } from "../view/log-lines.js";
@@ -526,7 +527,12 @@ export class BoardScene extends Phaser.Scene {
     this.#model = this.#withDebugSideSchemes(boardModel(state.game, state.perspectiveId, POOL_DEPS, mine));
     this.#marks = state.legal
       ? withDefenseLockout(
-          withAttackBarWording(highlights(state.legal.actions), state.legal.actions, state.game, POOL_DEPS),
+          withForcedActions(
+            withAttackBarWording(highlights(state.legal.actions), state.legal.actions, state.game, POOL_DEPS),
+            state.legal.actions,
+            state.game,
+            POOL_DEPS,
+          ),
           state.game,
           state.perspectiveId,
           POOL_DEPS,

@@ -479,6 +479,9 @@ export const TRACK_TITLES: Readonly<Record<string, string>> = {
   "scenarios/baron-zemo/battle.mp3": "The Baron's Design",
   "scenarios/baron-zemo/villain-loses.mp3": "The Mole Exposed",
   "scenarios/baron-zemo/villain-wins.mp3": "Thirteenth Baron Triumphant",
+  "scenarios/enchantress/battle.mp3": "The Hypnotic Gaze",
+  "scenarios/enchantress/villain-loses.mp3": "The Spell Is Broken",
+  "scenarios/enchantress/villain-wins.mp3": "All Hearts Are Hers",
 };
 
 /** "music:scenarios/rhino/battle.mp3" → "scenarios/rhino/battle.mp3". */

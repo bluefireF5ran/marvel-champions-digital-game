@@ -45,6 +45,7 @@ import {
   type LegalActions,
   type PlayerId,
 } from "@mc/engine";
+import { sealForTable } from "../view/hidden-reverse.js";
 import { actingPlayer } from "./acting-player.js";
 import { emptyRecord, recordEvents, type GameRecord } from "./game-record.js";
 import { isCurrentSchema, SAVE_SCHEMA, type GameStorage, type SaveMeta, type SaveStatus } from "./game-storage.js";
@@ -498,7 +499,9 @@ export class EngineSessionCore {
     const toAct = actingPlayer(state);
     return {
       version: this.#version,
-      state: stripPool(state),
+      // What the table may read: a double-sided card whose other face no player may look at is named by its stand-in
+      // (`sealHiddenReverses`), so the real card id never leaves the engine session (docs/phase7-wave9.md §3.54).
+      state: stripPool(sealForTable(state)),
       events,
       legal: toAct ? { playerId: toAct, actions: queryLegalActions(state, toAct, POOL_DEPS) } : null,
       record: this.#record,

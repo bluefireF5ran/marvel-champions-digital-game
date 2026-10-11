@@ -253,6 +253,15 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
     return { key: SCENES.board, data: {} };
   }
 
+  // `&fixture=enchantress`: a real Enchantress game stopped at round 3's turn with a Kiss of Temptation owed, the Crown
+  // on Enchantress and the Gaze still hidden (`store/dev-enchantress-game.ts`).
+  if (screen === "board" && params.get("fixture") === "enchantress") {
+    const { startEnchantressGame } = await import("../store/dev-enchantress-game.js");
+    const { store } = appSession();
+    if (!gameRunning(store)) await startEnchantressGame(store);
+    return { key: SCENES.board, data: {} };
+  }
+
   // `&fixture=grounded`: Jubilee on round 2 with Grounded in play, for Flip to hero's additional cost.
   if (screen === "board" && params.get("fixture") === "grounded") {
     const { startDevGroundedGame } = await import("../store/dev-mission-game.js");

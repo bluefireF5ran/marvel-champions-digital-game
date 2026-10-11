@@ -152,6 +152,7 @@ describe("the lists, derived from content data", () => {
         "growing_strong",
         "techno",
         "whiteout",
+        "trickster_magic",
       ]
     `);
   });
@@ -328,6 +329,7 @@ describe("the lists, derived from content data", () => {
           "black_widow_villain",
           "m.o.d.o.k.",
           "thunderbolts",
+          "enchantress_villain",
         ],
         "standard set": [
           "standard",
@@ -392,6 +394,7 @@ describe("the lists, derived from content data", () => {
         "modok",
         "thunderbolts",
         "baron-zemo",
+        "enchantress",
       ]
     `);
   });
@@ -544,22 +547,22 @@ describe("modular set x scenario: every pairing builds", () => {
     }
     expect({ sets: MODULAR_SETS.length, scenarios: PLAYABLE_SCENARIOS.length, ...kinds }).toMatchInlineSnapshot(`
       {
-        "build": 4808,
+        "build": 4961,
         "required": 28,
-        "restricted": 621,
-        "scenarios": 51,
-        "sets": 107,
+        "restricted": 627,
+        "scenarios": 52,
+        "sets": 108,
       }
     `);
     expect(restrictedBy).toMatchInlineSnapshot(`
       {
-        "breakout": 107,
+        "breakout": 108,
         "four-horsemen": 1,
-        "mojo": 101,
-        "sinister-six": 106,
-        "spiral": 101,
-        "the-hood": 107,
-        "thunderbolts": 97,
+        "mojo": 102,
+        "sinister-six": 107,
+        "spiral": 102,
+        "the-hood": 108,
+        "thunderbolts": 98,
         "tower-defense": 1,
       }
     `);

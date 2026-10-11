@@ -59,6 +59,8 @@ import {
 import { artFor, type ArtSource, type CardBack, type CardFace } from "../art/art-source.js";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { breakPointOf } from "./break-point.js";
+import { counterGoalsOf } from "./counter-goal.js";
+import { otherFaceVisible } from "./hidden-reverse.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
 import { deckTopStatus, shownTopOf } from "./deck-top.js";
@@ -249,6 +251,11 @@ export interface AttachmentChip {
    * any more than the table's own picture of it does (`faceOf`'s own `back` branch).
    */
   readonly faceup: boolean;
+  /**
+   * The count its own text waits for on a kind of counter ("charm": 5 on a Hypnotic Gaze), so the chip reads "3/5 charm"
+   * and shows the goal even at none (`counterGoalsOf`). Absent when it waits for none.
+   */
+  readonly counterGoals?: Readonly<Record<string, number>>;
 }
 
 /** "Web-Shooter · 2 web · exhausted", "Crossbones' Armor · 2/5 damage" — everything a chip has room to say. */
@@ -283,9 +290,15 @@ export function compactVillainNote(panel: CharacterPanel): string {
 
 /** The chip's label without its damage: the part that may be clipped when the chip is narrow. */
 export function attachmentChipText(chip: AttachmentChip): string {
+  const goals = chip.counterGoals ?? {};
+  const toward = Object.entries(goals).map(([name, goal]) => {
+    const count = chip.counters.find((counter) => counter.name === name)?.count ?? 0;
+    return `${count}/${goal} ${name}`;
+  });
   return [
     chip.name,
-    ...chip.counters.map((counter) => `${counter.count} ${counter.name}`),
+    ...toward,
+    ...chip.counters.filter((counter) => !(counter.name in goals)).map((counter) => `${counter.count} ${counter.name}`),
     chip.exhausted ? "exhausted" : null,
   ]
     .filter(Boolean)
@@ -1101,7 +1114,11 @@ export function faceOf(state: GameState, instanceId: InstanceId, view?: ViewerCo
     default:
       // A flipped double-sided encounter card shows its other face, not its front (Criminal Enterprise once it
       // has become State of Madness). Without this the table keeps drawing the side that is no longer in play.
-      return instance.flipped && "flipSide" in card && card.flipSide ? { kind: "flipSide" } : { kind: "front" };
+      // Never the other face of a card whose reverse is hidden (`otherFaceVisible`): the stand-in's own `flipSide` is some
+      // other card's Trance.
+      return instance.flipped && otherFaceVisible(state, instanceId) && "flipSide" in card && card.flipSide
+        ? { kind: "flipSide" }
+        : { kind: "front" };
   }
 }
 
@@ -1399,6 +1416,9 @@ function attachmentChipsOf(state: GameState, instance: CardInstance, deps: Engin
       // A facedown card's text is hidden, so its threshold is too.
       damageThreshold: faceup ? breakPointOf(state, attachmentId, deps) : null,
       faceup,
+      ...(faceup && Object.keys(counterGoalsOf(state, attachmentId, deps)).length > 0
+        ? { counterGoals: counterGoalsOf(state, attachmentId, deps) }
+        : {}),
     };
   });
 }
@@ -1528,10 +1548,24 @@ export function threatNote(threat: number): string | null {
  * "3 ratings counters, 1 time counter": every counter kind on a card spelled out, so a bare "3 ratings" never has to
  * be read as a stat. Null when the card holds none.
  */
-export function counterNote(counters: readonly { readonly name: string; readonly count: number }[]): string | null {
-  if (counters.length === 0) return null;
-  return counters
-    .map((counter) => `${counter.count} ${counter.name} counter${counter.count === 1 ? "" : "s"}`)
+export function counterNote(
+  counters: readonly { readonly name: string; readonly count: number }[],
+  /** The count the card's own text waits for per kind (`counterGoalsOf`): "3 of 5 charm counters". */
+  goals: Readonly<Record<string, number>> = {},
+): string | null {
+  const shown = [
+    ...counters,
+    ...Object.keys(goals)
+      .filter((name) => !counters.some((counter) => counter.name === name))
+      .map((name) => ({ name, count: 0 })),
+  ];
+  if (shown.length === 0) return null;
+  return shown
+    .map((counter) => {
+      const goal = goals[counter.name];
+      const noun = `${counter.name} counter${counter.count === 1 && goal === undefined ? "" : "s"}`;
+      return goal === undefined ? `${counter.count} ${noun}` : `${counter.count} of ${goal} ${noun}`;
+    })
     .join(", ");
 }
 

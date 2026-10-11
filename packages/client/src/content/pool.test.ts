@@ -52,11 +52,11 @@ describe("POOL_CARDS", () => {
   });
 });
 
-/** Trickster Takeover's two scenarios are in the card data but not scripted yet (`@mc/cards` `playable/unscripted.ts`). */
-const NOT_PLAYABLE_WAVE9_SCENARIOS = ["enchantress", "god-of-lies"];
+/** God of Lies is in the card data but not playable yet (`@mc/cards` `playable/unscripted.ts`). */
+const NOT_PLAYABLE_WAVE9_SCENARIOS = ["god-of-lies"];
 
 describe("POOL_SCENARIOS", () => {
-  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five (not Trickster Takeover's two), in that order", () => {
+  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five and Trickster Takeover's Enchantress (not God of Lies), in that order", () => {
     expect(POOL_SCENARIOS.map((s) => s.id)).toEqual(
       [
         ...CORE_SCENARIOS,
@@ -79,7 +79,7 @@ describe("POOL_SCENARIOS", () => {
         MOJO_SCENARIOS.length +
         WAVE7_SCENARIOS.length +
         WAVE8_SCENARIOS.length +
-        5,
+        6,
     );
   });
 });

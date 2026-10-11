@@ -12,7 +12,16 @@
  * what the host reports about that — the game's `record` and any `saveError`.
  */
 
-import type { ChoiceId, Command, EngineErrorCode, GameEvent, GameState, IllegalDeck, PlayerId } from "@mc/engine";
+import {
+  type ChoiceId,
+  type Command,
+  type EngineErrorCode,
+  type GameEvent,
+  type GameState,
+  type IllegalDeck,
+  type PlayerId,
+} from "@mc/engine";
+import { sealForTable } from "../view/hidden-reverse.js";
 import { hasOffTurnAction } from "../view/highlights.js";
 import { actingPlayer } from "../engine/acting-player.js";
 import { emptyRecord, type GameRecord } from "../engine/game-record.js";
@@ -282,7 +291,8 @@ export class SessionStore {
     this.#set({
       status: "playing",
       version: update.version,
-      game: update.state,
+      // Sealed again here, whatever host produced the update (the dev host builds states directly): idempotent.
+      game: sealForTable(update.state),
       lastEvents: update.events,
       legal: update.legal,
       perspectiveId: toAct ?? this.#state.perspectiveId ?? update.state.firstPlayerId,

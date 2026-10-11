@@ -12,6 +12,9 @@
  */
 
 import { attackBarNote, attackRefusalWording } from "./attack-bar.js";
+import { counterGoalsOf } from "./counter-goal.js";
+import { forcedAbilitiesOf, owedForcedActions } from "./forced-actions.js";
+import { otherFaceVisible, reverseHiddenNote } from "./hidden-reverse.js";
 import { breakPointOf } from "./break-point.js";
 import { perPlayerCostOf, type PerPlayerCost } from "./per-player-cost.js";
 import type { AbilityId, AnyCard, KeywordInstance, ResourceIconType } from "@mc/content";
@@ -267,6 +270,10 @@ export interface InspectModel {
   readonly areaNotes: readonly string[];
   /** "Limited by Encased in Ice": what limits this character from attacking, when something does (`view/attack-bar.ts`). */
   readonly attackBarNote: string | null;
+  /** "Its other side is hidden until it flips." on a double-sided card whose reverse no player may read (`view/hidden-reverse.ts`). */
+  readonly reverseNote?: string | null;
+  /** "Forced Action: use it ..." on a card whose text has one (`view/forced-actions.ts`); owed now or only each turn. */
+  readonly forcedNote?: string | null;
   /** The cards attached to this one and the one it is attached to, each a link that opens it (`view/inspect-notes.ts`). */
   readonly attached: AttachedLinks | null;
   /** True when an open payment (threaded in as `InspectPayment`) could still spend this exact card. */
@@ -378,7 +385,9 @@ export function inspectModel(
   // name "Scarlet Witch", hero stats of 0 and Chaos Control, a power she doesn't have in that form, while the
   // button below correctly offered Superpowered Siblings. Reported from play. The same default read a villain on
   // stage II as stage I.
-  const face = opts.face ?? faceOf(state, instanceId, view);
+  const asked = opts.face ?? faceOf(state, instanceId, view);
+  // A card whose reverse is hidden is read by its showing face only, whatever face was asked for (`view/hidden-reverse.ts`).
+  const face: CardFace = asked.kind === "flipSide" && !otherFaceVisible(state, instanceId) ? { kind: "front" } : asked;
 
   return {
     instanceId,
@@ -437,7 +446,9 @@ export function inspectModel(
     history: cardHistoryOf(history, instanceId, state, perspectiveId, deps),
     damageNote: current === undefined ? damageNote(instance.damage, breakPointOf(state, instanceId, deps)) : null,
     threatNote: threatNote(threatOnCard(state, instanceId)),
-    counterNote: counterNote(countersOf(state, instanceId)),
+    counterNote: counterNote(countersOf(state, instanceId), counterGoalsOf(state, instanceId, deps)),
+    reverseNote: reverseHiddenNote(state, instanceId),
+    forcedNote: forcedNoteOf(state, instanceId, legal, deps),
     hitPointFloorNote: hitPointFloorNote(state, instanceId, deps),
     resourceIconNote: resourceIconNote(state, deps, instanceId),
     areaNotes: [...scenarioAreaNotes(state, deps, instanceId), ...placementNotes(state, instanceId)],
@@ -601,6 +612,23 @@ function resourceAbilityNote(
     return text;
   }
   return null;
+}
+
+/**
+ * What Inspect says of a card whose text has a "Forced Action": that it must be used, and whether it is owed right now
+ * (the engine lists it usable, `owedForcedActions`) or only each turn it can be. Null for every other card.
+ */
+function forcedNoteOf(
+  state: GameState,
+  instanceId: InstanceId,
+  legal: LegalActions | null,
+  deps: EngineDeps,
+): string | null {
+  if (!cardsInPlay(state).includes(instanceId) || forcedAbilitiesOf(state, instanceId, deps).length === 0) return null;
+  const owed = owedForcedActions(legal, deps).some((action) => action.instanceId === instanceId);
+  return owed
+    ? "Forced Action: you must use it before your turn ends. End Turn waits for it."
+    : "Forced Action: you must use it during your turn if you are able.";
 }
 
 /** Every action ability `legalActions` currently lists for this card, named and priced. */
@@ -930,7 +958,7 @@ function statusOf(
     const { entry, target } = refused;
     const message =
       entry.action.kind === "basicAttack"
-        ? attackRefusalWording(state, deps, entry.action.instanceId, target.message)
+        ? attackRefusalWording(state, deps, entry.action.instanceId, target.message, target.instanceId)
         : target.message;
     return { playable: false, message, targets: [] };
   }

@@ -754,6 +754,10 @@ function describe(
      */
     case "abilityResolved": {
       const short = abilityShortLabelOf(state, event.instanceId, event.abilityId, deps);
+      // A Forced Action the player had to use (Trance, Temptation): always told, so the log shows it was paid.
+      if (event.forced) {
+        return { text: `${card(event.instanceId)}: Forced Action used${short ? ` (${short})` : ""}.`, voice: "player" };
+      }
       if (!short) return null;
       // A Special that blanked a text box (Blizzard) names whose, from the lasting effect it just added.
       const blanked = blankedBy(burst, state, event.instanceId);
@@ -761,6 +765,24 @@ function describe(
       return { text: `${card(event.instanceId)} — ${short}${blankedNote}.`, voice: "player" };
     }
 
+    // Forced Actions still owed when the last turn ended (RRG 1.8 "Action", p. 6): each is put to its player before the
+    // phase can end.
+    case "forcedActionsRequired": {
+      const owed = event.actions.map((action) => `${who(action.playerId)}: ${card(action.instanceId)}`);
+      return { text: `Forced Action owed, ${owed.join("; ")}. Use it to end the phase.`, voice: "scenario" };
+    }
+    // Double-sided cards whose other side nobody may read until each flips (Hypnotic Gaze). Only the front's name is
+    // told: the event names the instances, and they all share one front.
+    case "reversesHidden": {
+      const names = [...new Set(event.instanceIds.map((id) => card(id)))];
+      return { text: `${names.join(", ")}: other side hidden until it flips.`, voice: "scenario" };
+    }
+    // A counter limit ("Max 1 synergy counter here"): the counters that did not fit are not placed.
+    case "countersNotPlaced":
+      return {
+        text: `${event.amount} ${event.counterType} counter${event.amount === 1 ? "" : "s"} not placed on ${card(event.instanceId)} (its limit).`,
+        voice: "player",
+      };
     // A double-sided card turned over by a card (Phoenix Force, RRG 1.8 "Flip", p. 20): without a line its face, its
     // traits and its text changed with nothing in the log to say so.
     case "cardFlipped": {

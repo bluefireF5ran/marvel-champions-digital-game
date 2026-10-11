@@ -1,18 +1,15 @@
 /**
- * What stops a character attacking, in the card's own name: "Encased in Ice" rather than the engine's one message for
- * every attack it refuses ("a guard minion blocks attacks against the villain", `basicAttackPaying`). Whether an attack
- * is legal is the engine's answer and stays so; this only names the cause of a refusal the engine already made, from
- * the attachments on the attacker whose text says its host cannot attack (`cannotAttack` with `attacker: { hostOfSelf }`).
- *
- * Engine ask: the refusal should carry its own reason and the card that causes it (the rule's source), so the client
- * can word any bar (Distracting Taunts, Fear of Kang) and not just an attachment on the attacker. Until then this reads
- * the one pattern it can tell without evaluating a rule.
+ * What stops a character attacking, in the card's own name: "Encased in Ice" or "Seduced" rather than the engine's one
+ * message for every attack it refuses ("a guard minion blocks attacks against the villain", `basicAttackPaying`).
+ * Whether an attack is legal is the engine's answer and stays so; this only names the cause of a refusal the engine
+ * already made, by asking the engine which rule forbids it (`attackForbiddenBy`: the card whose text says so).
  */
 import {
-  activeAbilityRefs,
+  attackForbiddenBy,
   cardOf,
+  cardsInPlay,
   currentName,
-  getInstance,
+  isAttackTarget,
   type EngineDeps,
   type GameState,
   type InstanceId,
@@ -23,18 +20,15 @@ import type { Highlights } from "./highlights.js";
 /** The engine's message for any attack `canAttack` refuses, whatever refused it (`basicAttackPaying`). */
 export const ATTACK_REFUSED_MESSAGE = "a guard minion blocks attacks against the villain";
 
-/** The attachments on `id` whose text bars the card they are on from attacking. */
+/** The cards whose text forbids a basic attack by `id` on some target in play, in play order. */
 export function attackBarsOn(state: GameState, id: InstanceId, deps: EngineDeps): readonly InstanceId[] {
-  const attachments = getInstance(state, id)?.attachments ?? [];
-  return attachments.filter((attachmentId) =>
-    activeAbilityRefs(state, attachmentId, deps).some((ref) => {
-      const trigger = deps.abilities[ref.id]?.trigger;
-      return (
-        trigger?.kind === "constant" &&
-        (trigger.rules ?? []).some((rule) => rule.kind === "cannotAttack" && rule.attacker?.hostOfSelf === true)
-      );
-    }),
-  );
+  const bars: InstanceId[] = [];
+  for (const target of cardsInPlay(state)) {
+    if (target === id || !isAttackTarget(state, target, deps)) continue;
+    const by = attackForbiddenBy(state, id, target, deps, true)?.byInstanceId;
+    if (by && !bars.includes(by)) bars.push(by);
+  }
+  return bars;
 }
 
 const nameOf = (state: GameState, id: InstanceId): string =>
@@ -47,17 +41,20 @@ export function attackBarName(state: GameState, id: InstanceId, deps: EngineDeps
 }
 
 /**
- * The reason to show for an attack by `attackerId` the engine refused with `message`: the bar's name when the attacker
- * is barred and the message is the engine's catch-all, the engine's own message otherwise.
+ * The reason to show for an attack by `attackerId` the engine refused with `message`: the forbidding card's name when
+ * a rule forbids it (`attackForbiddenBy`, on `targetId` when given) and the message is the engine's catch-all, the
+ * engine's own message otherwise (a message that already names its card, "Seduced: you cannot make basic attacks").
  */
 export function attackRefusalWording(
   state: GameState,
   deps: EngineDeps,
   attackerId: InstanceId,
   message: string,
+  targetId?: InstanceId,
 ): string {
   if (message !== ATTACK_REFUSED_MESSAGE) return message;
-  const bar = attackBarName(state, attackerId, deps);
+  const by = targetId ? attackForbiddenBy(state, attackerId, targetId, deps, true)?.byInstanceId : null;
+  const bar = by ? nameOf(state, by) : attackBarName(state, attackerId, deps);
   return bar ? `${bar} stops ${nameOf(state, attackerId)} attacking it` : message;
 }
 
@@ -86,7 +83,10 @@ export function withAttackBarWording(
     if (entry.action.kind !== "basicAttack") continue;
     for (const target of entry.blockedTargets) {
       if (marks.anyTarget.has(target.instanceId)) continue;
-      blocked.set(target.instanceId, attackRefusalWording(state, deps, entry.action.instanceId, target.message));
+      blocked.set(
+        target.instanceId,
+        attackRefusalWording(state, deps, entry.action.instanceId, target.message, target.instanceId),
+      );
     }
   }
   const refused = actions.illegal.find((entry) => entry.action.kind === "basicAttack");

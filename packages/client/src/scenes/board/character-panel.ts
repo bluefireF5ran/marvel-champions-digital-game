@@ -304,7 +304,7 @@ export function drawCharacter(
   const specs = panel.attachments.slice(0, 4).map((attachment) => {
     const usable =
       controller.selection.kind === "idle" && (ctx.marks?.usableAbilities.has(attachment.instanceId) ?? false);
-    return measureAttachmentChip(scene, attachment, usable, textWidth, dim);
+    return measureAttachmentChip(scene, attachment, usable, textWidth, dim, owedWords(ctx, attachment));
   });
   const baselineSize = blockFor(0).badges[0]?.size ?? 0;
   const badgeFloor = Math.min(STAT_BADGE_COMFORT * 0.8, baselineSize);
@@ -378,7 +378,7 @@ export function drawCharacter(
     const heights = overflow.map((attachment) =>
       Math.max(
         16,
-        footStripLayout(attachmentChipText(attachment), artColumn.width, attachmentChipDamageTag(attachment) ? 50 : 0)
+        footStripLayout(chipText(ctx, attachment), artColumn.width, attachmentChipDamageTag(attachment) ? 50 : 0)
           .height,
       ),
     );
@@ -392,7 +392,7 @@ export function drawCharacter(
         height: heights[index]!,
       };
       stripBottom = strip.y;
-      drawFootStrip(scene, strip, attachmentChipText(attachment), "note", dim, attachmentChipDamageTag(attachment));
+      drawFootStrip(scene, strip, chipText(ctx, attachment), "note", dim, attachmentChipDamageTag(attachment));
       chipTargets.push({ rect: strip, instanceId: attachment.instanceId });
     }
   }
@@ -444,8 +444,20 @@ const COMPACT_PANEL_HEIGHT = 150;
 /** The stat badges on a wide panel stay at least this big (when the panel can hold them at all): a name chip never squeezes them smaller. */
 const STAT_BADGE_COMFORT = 30;
 
+/** " · must use" on a chip whose Forced Action is owed (words, never the ▶ and its green alone). */
+function owedWords(ctx: BoardDrawContext, attachment: CharacterPanel["attachments"][number]): string {
+  return ctx.marks?.owed?.has(attachment.instanceId) ? OWED_WORDS : "";
+}
+
+/** The chip's text with its owed words, for the strips that draw a chip without measuring it. */
+function chipText(ctx: BoardDrawContext, attachment: CharacterPanel["attachments"][number]): string {
+  return `${attachmentChipText(attachment)}${owedWords(ctx, attachment)}`;
+}
+
 /** The row under a chip's name that carries the count of damage on the attachment. */
 const DAMAGE_ROW = 14;
+
+const OWED_WORDS = " \u00B7 must use";
 
 interface AttachmentChipSpec {
   readonly attachment: CharacterPanel["attachments"][number];
@@ -467,9 +479,10 @@ function measureAttachmentChip(
   usable: boolean,
   chipWidth: number,
   dim: number,
+  owed = "",
 ): AttachmentChipSpec {
   const damage = attachmentChipDamageTag(attachment);
-  const text = attachmentChipText(attachment);
+  const text = `${attachmentChipText(attachment)}${owed}`;
   const shown = usable ? `\u25B6 ${text}` : text;
   // The damage count rides on its own row under the name ("0/3 dmg"), so a name keeps the whole width and wraps on
   // words, never mid-word around the count.
@@ -586,7 +599,7 @@ function drawCardShapedPanel(
       const reservedSoFar = strips.reduce((total, strip) => total + Math.max(stripHeight, strip.height ?? 0), 0);
       if (!stripKeepsStats(inner.height, inner.width, reservedSoFar, stripHeight, statCount, panel.hp !== null)) break;
       strips.push({
-        text: attachmentChipText(attachment),
+        text: chipText(ctx, attachment),
         tone: "note",
         tag: attachmentChipDamageTag(attachment),
         instanceId: attachment.instanceId,

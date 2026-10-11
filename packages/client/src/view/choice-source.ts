@@ -371,6 +371,9 @@ export function playDestinationTitleOf(
   return named ? `Where does ${named[1]} go?` : "Where does it go?";
 }
 
+/** The end-of-phase prompt for a Forced Action that is still owed: nothing else can be done until one is used. */
+export const FORCED_ACTION_TITLE = "Forced Action: you must use one";
+
 /**
  * The design's overlay titles for every `PendingChoice.prompt` kind (`scenes/choice.ts`'s own overlay header, moved
  * here so it can be unit tested the way every other view model in this file is). `orderCards`/`chooseBottomCards`
@@ -427,6 +430,8 @@ export function promptTitleOf(
       ? formChangeCostTitleOf(prompt.requirement, prompt.formChangeCost)
       : spendResourcesTitleOf(prompt.requirement, prompt.distinctTypes);
   }
+  // The player phase cannot end until one of these Forced Actions is used (RRG 1.8 "Action", p. 6; `forcedAction`).
+  if (kind === "chooseOption" && prompt.forcedAction) return FORCED_ACTION_TITLE;
   if (kind === "chooseOption" && counts?.options) {
     const destination = playDestinationTitleOf(state, counts.options);
     if (destination) return destination;
@@ -489,6 +494,8 @@ export function choiceHeaderText(
   deps: EngineDeps,
   genericTitle: string,
 ): string {
+  // The options are the cards that owe the action: the title says so, with no one card named as the asker.
+  if (choice.prompt.kind === "chooseOption" && choice.prompt.forcedAction) return genericTitle;
   const source = choiceSourceOf(state, choice);
   const instruction = source ? null : choiceInstructionOf(state, choice);
   let named: string;

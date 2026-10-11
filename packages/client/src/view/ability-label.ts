@@ -110,6 +110,8 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
   // the other way around.
   if (cost.exhaustSelf) parts.push("exhaust");
   if (cost.exhaustIdentity) parts.push("exhaust your identity");
+  const everyone = eachPlayerPhrase(cost.eachPlayer);
+  if (everyone) parts.push(everyone);
   const resources = resourcePhrase(cost.resources);
   if (resources) parts.push(resources);
   if (cost.resourcesX) parts.push(`spend X ${cost.resourcesX.resource}`);
@@ -149,6 +151,18 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
   if (cost.discardSelf) parts.push("discard this card");
   if (cost.payPrintedCostOf) parts.push("pay a card's printed cost");
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/**
+ * "each player exhausts, takes 1 damage": `AbilityCost.eachPlayer`, a cost every player in the game pays in kind
+ * (Crown of the Enchantress). Null when the cost has none or names no component.
+ */
+export function eachPlayerPhrase(each: AbilityCost["eachPlayer"]): string | null {
+  if (!each) return null;
+  const doing: string[] = [];
+  if (each.exhaustIdentity) doing.push("exhausts");
+  if (each.damageSelf) doing.push(`takes ${each.damageSelf} damage`);
+  return doing.length > 0 ? `each player ${doing.join(", ")}` : null;
 }
 
 function resourcePhrase(resources: AbilityCost["resources"]): string | null {

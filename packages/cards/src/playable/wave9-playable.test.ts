@@ -1,8 +1,7 @@
 /**
  * Wave 9 (cycle 9, Agents of S.H.I.E.L.D.) in the playable pool (docs/wave-definition-of-done.md step 5, cards half):
- * its six heroes and five scenarios are chosen through `playableScenario` like every earlier wave's. What is not
- * scripted yet (Trickster Takeover's two scenarios and modular set) is in the
- * card data but not offered anywhere (`./unscripted.ts`).
+ * its six heroes and six scenarios are chosen through `playableScenario` like every earlier wave's. What is not
+ * scripted yet (Trickster Takeover's God of Lies) is in the card data but not offered anywhere (`./unscripted.ts`).
  */
 import {
   CORE_STARTER_DECKS,
@@ -29,9 +28,9 @@ const NEW_HEROES = [
   "falcon-leadership",
   "winter-aggression",
 ];
-const NEW_SCENARIOS = ["black-widow", "batroc", "modok", "thunderbolts", "baron-zemo"];
-const NOT_PLAYABLE_SCENARIOS = ["enchantress", "god-of-lies"];
-const NOT_PLAYABLE_SETS = ["enchantress_villain", "god_of_lies", "trickster_magic"];
+const NEW_SCENARIOS = ["black-widow", "batroc", "modok", "thunderbolts", "baron-zemo", "enchantress"];
+const NOT_PLAYABLE_SCENARIOS = ["god-of-lies"];
+const NOT_PLAYABLE_SETS = ["god_of_lies"];
 const EXECUTIVE_BOARD = "s.h.i.e.l.d._executive_board";
 
 const everyCardOf = (config: ReturnType<typeof playableScenario>): string[] => {
@@ -61,7 +60,7 @@ describe("wave 9 in the playable pool", () => {
     for (const [id, ability] of Object.entries(WAVE9_ABILITIES)) expect(PLAYABLE_ABILITIES[id], id).toBe(ability);
   });
 
-  it("the five scripted scenarios are the playable ones; Trickster Takeover's two are not", () => {
+  it("the six scripted scenarios are the playable ones; God of Lies is not", () => {
     expect(WAVE9_SCENARIOS.filter(scenarioIsScripted).map((s) => s.id as string)).toEqual(NEW_SCENARIOS);
     const playable = new Set(PLAYABLE_SCENARIO_RECORDS.map((s) => s.id as string));
     for (const id of NEW_SCENARIOS) expect(playable.has(id), id).toBe(true);
@@ -101,10 +100,11 @@ describe("wave 9 in the playable pool", () => {
     expect(() => playableScenario("batroc", { seed: 1, players, easierStart: true })).toThrow();
   });
 
-  it.each(["falcon-leadership", "maria-hill-leadership"])(
+  it.each(["falcon-leadership", "maria-hill-leadership", "nick-fury-justice"])(
     "%s plays a seeded greedy game to an outcome that replays",
     (hero) => {
-      const scenario = hero === "falcon-leadership" ? "batroc" : "black-widow";
+      const scenario =
+        hero === "falcon-leadership" ? "batroc" : hero === "maria-hill-leadership" ? "black-widow" : "enchantress";
       const config = playableScenario(scenario, { seed: 2026, players: [{ starterDeckId: hero }] });
       const created = createGame(config, PLAYABLE_DEPS);
       if (!created.ok) throw new Error(created.error.message);
@@ -144,7 +144,14 @@ describe("wave 9 modular sets", () => {
 
   it("the scripted wave 9 modular sets are offered", () => {
     const modular = new Set(MODULAR_SETS.map((s) => s.id as string));
-    for (const id of ["a.i.m._abduction", "a.i.m._science", "batrocs_brigade", "scientist_supreme", "s.h.i.e.l.d."])
+    for (const id of [
+      "a.i.m._abduction",
+      "a.i.m._science",
+      "batrocs_brigade",
+      "scientist_supreme",
+      "s.h.i.e.l.d.",
+      "trickster_magic",
+    ])
       expect(modular.has(id), id).toBe(true);
     // Thunderbolt minion sets are offered at the Thunderbolts scenario only (its pool); a pool member is a modular set elsewhere too.
   });
@@ -159,21 +166,6 @@ describe("wave 9 modular sets", () => {
       });
       const inGame = new Set(everyCardOf(config));
       expect([...cardsOfSets([setId])].some((id) => inGame.has(id))).toBe(true);
-    },
-  );
-
-  it.each(NOT_PLAYABLE_SETS.filter((id) => id !== "enchantress_villain" && id !== "god_of_lies"))(
-    "%s is refused as a modular, set-aside or extra pick",
-    (setId) => {
-      const players = [{ starterDeckId: "core-spider-man-justice" }];
-      expect(() => playableScenario("rhino", { seed: 2, players, modularSetIds: [setId] })).toThrow();
-      expect(() =>
-        playableScenario("batroc", { seed: 2, players, modularSetIds: [setId, "batrocs_brigade"] }),
-      ).toThrow();
-      expect(() =>
-        playableScenario("thunderbolts", { seed: 2, players, setAsideModularSetIds: [setId, "supersonic"] }),
-      ).toThrow();
-      expect(() => playableScenario("batroc", { seed: 2, players, extraModularSetIds: [setId] })).toThrow();
     },
   );
 

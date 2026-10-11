@@ -14,10 +14,8 @@
 import type { Scenario } from "@mc/content";
 
 export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
-  // Trickster Takeover (`tt`): the two scenarios' own sets and the modular set.
-  "enchantress_villain",
+  // Trickster Takeover (`tt`): God of Lies' own set (the Enchantress scenario and Trickster Magic are playable).
   "god_of_lies",
-  "trickster_magic",
 ]);
 
 /**
@@ -27,10 +25,6 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
 export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
   god_of_lies:
     "Scripted in full; waits on the client: the board does not yet draw the neutral play area, the shared villain dial or the Synergy environments' counters. Un-gate once those are in and the scenario game (spec 8.4 item 71) passes.",
-  enchantress_villain:
-    "Scripted in full; waits on the client: a Hypnotic Gaze's hidden reverse side must not be shown (`otherFaceVisible`), and Forced Actions need their prompt and the End Turn refusal. Un-gate with trickster_magic once those are in and the scenario game (spec 8.4 item 70) passes.",
-  trickster_magic:
-    "Scripted in full; the Enchantress scenario's required modular set. Un-gate together with enchantress_villain (the pinned pool counts and snapshots move once).",
 };
 
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */
