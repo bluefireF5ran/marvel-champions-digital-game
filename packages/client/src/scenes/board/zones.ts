@@ -50,6 +50,8 @@ import {
   ENVIRONMENT_MIN_WIDTH,
   type CompactEnvironmentLayout,
   tuckedFanLayout,
+  minionRoomBesideEnvironments,
+  MINION_BESIDE_TILE_MAX,
   environmentCompactLayout,
   environmentSlots,
   environmentStripRoom,
@@ -121,7 +123,11 @@ export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel
   if (beside && model.minions.length > 0) {
     // Beside the villain only when that gives bigger cards than the sliver under it (many minions crowd the narrow
     // space beside it, and the row under the villain is the full width).
-    const sideSlots = cardRow(beside, model.minions.length, { gap: 8, maxHeight: beside.height, align: "start" });
+    const sideSlots = cardRow(
+      { ...beside, height: Math.min(beside.height, MINION_BESIDE_TILE_MAX) },
+      model.minions.length,
+      { gap: 8, align: "start" },
+    );
     const belowSlots =
       minionArea.height > 40 ? cardRow(minionArea, model.minions.length, { gap: 8, maxHeight: minionArea.height }) : [];
     if (belowSlots.length === 0 || sideSlots[0]!.height > belowSlots[0]!.height) {
@@ -268,7 +274,13 @@ function drawSingleVillain(
     const room: Rect = { x: envLeft, y: villainRect.y, width: envRoom, height: villainRect.height };
     const slots = environmentSlots(room, model.environments.length);
     model.environments.forEach((environment, index) => drawEnvironment(ctx, slots[index]!, environment));
-    return { bottom: villainRect.y + villainRect.height, minionsBeside: null };
+    // The space right of the environments is the full zone's height: minions (a held one, Thunderbolt Backup's) take it
+    // when that gives bigger tiles than the row under the band (`drawEnemies` compares the two).
+    const free =
+      model.minions.length > 0 && !ctx.tabbed
+        ? minionRoomBesideEnvironments(rect, slots, MINION_BESIDE_MIN_WIDTH)
+        : null;
+    return { bottom: villainRect.y + villainRect.height, minionsBeside: free };
   }
   // No room beside the villain (the phone's enemies tab gives the panel the whole width): the environments sit in a
   // strip right under it, so MaGog's crowds and their ratings counters are on the table here too.

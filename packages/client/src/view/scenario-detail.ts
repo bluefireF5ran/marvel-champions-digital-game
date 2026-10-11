@@ -19,6 +19,7 @@
  */
 import type { AnyCard, CardId, EncounterSet, ScalingValue, Scenario, VillainStage } from "@mc/content";
 import { pooledModularShortSummary, pooledModularSummary } from "./modular-summary.js";
+import { hasRandomVillain, randomVillainLabel } from "./random-villain.js";
 import { formatScaling } from "./scaling-text.js";
 
 export interface StageDetail {
@@ -115,8 +116,9 @@ export function scenarioDetailOf(
     .filter((id) => (id as string) !== (scenario.villainCardId as string))
     .map((id) => cardsById.get(id as string)?.name ?? (id as string));
 
-  const villainIsRandom = scenario.randomVillainName !== undefined;
-  const villainName = scenario.randomVillainName ?? side.name;
+  const randomLabel = randomVillainLabel(scenario, cardsById);
+  const villainIsRandom = hasRandomVillain(scenario);
+  const villainName = randomLabel ?? side.name;
   const displayName = villainIsRandom
     ? villainName
     : otherVillainNames.length === 1

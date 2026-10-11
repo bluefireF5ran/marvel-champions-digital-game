@@ -152,7 +152,7 @@ import {
   paintPanel,
   sectionHeader,
   STAMP_CHIP_TYPE,
-  clampLines,
+  fitWrapped,
 } from "../ui/widgets.js";
 import { appSession, deckStorage } from "../session.js";
 import type { DeckBuilderSceneData } from "./deck-builder.js";
@@ -1595,6 +1595,8 @@ export class DecksScene extends Phaser.Scene {
         fontSize: "26px",
       })
       .setWordWrapWidth(column);
+    // A very long deck name steps its type down to fit three lines whole, never an ellipsis.
+    fitWrapped(name, column, 3, 26);
     y += name.height + 6;
     // Wraps inside the pane: an imported deck's line ("... · LEGAL · IMPORTED") is wider than one row.
     const meta = label(
@@ -1751,7 +1753,8 @@ export class DecksScene extends Phaser.Scene {
         fontSize: "24px",
       })
       .setWordWrapWidth(column, true);
-    clampLines(name, 3);
+    // A very long name steps its type down to fit three lines whole, never an ellipsis.
+    fitWrapped(name, column, 3, 24);
     y += name.height + 4;
     const credit = this.add
       .text(left, y, communityCredit(entry), textStyle(typeRole.rowTitle, surface.paper.hex))

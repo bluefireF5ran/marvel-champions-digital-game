@@ -52,6 +52,22 @@ export function environmentSlots(room: Rect, count: number, preferredHeight: num
   }));
 }
 
+/** The tallest a minion tile seated beside the environments grows: a readable card, not a poster. */
+export const MINION_BESIDE_TILE_MAX = 170;
+
+/**
+ * The free space to the right of the environments, the full height of the enemies zone: a minion the environment
+ * holds (Thunderbolt Backup's), or any minion in a game with an environment, seats here at a size the zone's own
+ * height allows instead of in the thin row under the villain band. Null when less than `minWidth` is left.
+ */
+export function minionRoomBesideEnvironments(zone: Rect, slots: readonly Rect[], minWidth: number): Rect | null {
+  if (slots.length === 0) return null;
+  const left = Math.max(...slots.map((slot) => slot.x + slot.width)) + ENVIRONMENT_GAP + 2;
+  const right = zone.x + zone.width - 10;
+  if (right - left < minWidth) return null;
+  return { x: left, y: zone.y + 10, width: right - left, height: Math.max(0, zone.height - 20) };
+}
+
 /** Below this tile height the full tile (a 30px title band, a subtitle and counter chips) cannot lay out without overlap. */
 export const ENVIRONMENT_COMPACT_BELOW = 96;
 
