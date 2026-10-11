@@ -108,9 +108,12 @@ test.describe("Decks & Collection: community decks", () => {
     await selectCommunityDeck(page, SPIDER_MAN, "Spider-Man and Friends");
     await shot(page, "02-community-deck-selected");
     expect(await findVisibleText(page, "COMMUNITY DECK", "Decks")).not.toHaveLength(0);
-    expect(await findVisibleText(page, "by MarvelCDB user 706", "Decks")).not.toHaveLength(0);
+    expect(await findVisibleText(page, "by nungunz", "Decks")).not.toHaveLength(0);
     expect(await findVisibleText(page, "TESTED", "Decks")).not.toHaveLength(0);
-    expect(await findVisibleText(page, "LAST UPDATED", "Decks")).not.toHaveLength(0);
+    expect(await findVisibleText(page, "PUBLISHED NOV 6, 2019", "Decks")).not.toHaveLength(0);
+    expect(await findVisibleText(page, "LAST UPDATED", "Decks"), "MarvelCDB's update date is not shown").toHaveLength(
+      0,
+    );
     expect(await findVisibleText(page, "DECK LIST", "Decks")).not.toHaveLength(0);
     expect(await findVisibleText(page, "marvelcdb.com/decklist/view/103", "Decks")).not.toHaveLength(0);
     const keys = (await stops(page)).map((s) => s.key);
@@ -145,7 +148,7 @@ test.describe("Decks & Collection: community decks", () => {
     const [copy] = await ownDecks(page);
     expect(copy).toMatchObject({ name: SPIDER_MAN.name, source: "imported", legal: true, selected: true });
     expect((await statusLine(page))?.tone).toBe("success");
-    expect((await statusLine(page))?.text).toContain(`Added "${SPIDER_MAN.name}" by MarvelCDB user 706`);
+    expect((await statusLine(page))?.text).toContain(`Added "${SPIDER_MAN.name}" by nungunz`);
     expect((await offer(page, SPIDER_MAN.id)).added).toBe(true);
     expect((await stops(page)).map((s) => s.key)).toEqual(
       expect.arrayContaining(["stats-edit", "stats-delete", "stats-play"]),

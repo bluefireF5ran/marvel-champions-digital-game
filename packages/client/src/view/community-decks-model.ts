@@ -71,7 +71,7 @@ export function communityDeckAsDeck(entry: CommunityDeck, poolVersion: string): 
       site: "marvelcdb",
       marvelcdbDeckId: String(entry.marvelcdbId),
       url: entry.url,
-      importedAt: entry.updatedAt ?? entry.publishedAt ?? "",
+      importedAt: entry.publishedAt ?? "",
     },
   };
 }
@@ -156,16 +156,23 @@ export function communityMetaLine(offer: CommunityOffer): string {
   return `${communityCredit(entry)} · ${communityStatusText(offer)}${offer.added ? " · in your decks" : ""} · ${who}`;
 }
 
-/** "Sep 30, 2026" for the decklist's last update on MarvelCDB as of the day it was saved, or null when unknown. */
-export function communityUpdatedText(entry: Pick<CommunityDeck, "updatedAt" | "publishedAt">): string | null {
-  const iso = entry.updatedAt ?? entry.publishedAt;
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+/**
+ * "Published Nov 6, 2019 · v1.0": when the author published this decklist and its MarvelCDB version. MarvelCDB's
+ * `date_update` is deliberately not shown (it moves without the deck changing). Null when neither is known.
+ */
+export function communityPublishedText(entry: Pick<CommunityDeck, "publishedAt" | "version">): string | null {
+  const parts: string[] = [];
+  if (entry.publishedAt) {
+    const date = new Date(entry.publishedAt).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    parts.push(`Published ${date}`);
+  }
+  if (entry.version) parts.push(`v${entry.version}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /**

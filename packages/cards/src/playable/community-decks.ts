@@ -42,25 +42,52 @@ function loadFixtures(): Record<string, unknown> {
 const FIXTURES = loadFixtures();
 
 /**
- * MarvelCDB user id → the author's name as MarvelCDB shows it. Recorded by hand when a decklist is saved (the public
- * decklist JSON has only `user_id`). Brian-V and Web-Warrior Fanatic are authors the owner named as good sources
- * (2026-10-10, marvelcdb.com/user/profile/2326 and /34979); the rest are the names the wave 5 custom-deck tests and
- * the wave 9 decklist table (`../wave9/custom-decks-marvelcdb.test.ts`) recorded at fetch time.
+ * MarvelCDB user id → the author's name as MarvelCDB shows it. Kept by hand (the public decklist JSON has only
+ * `user_id`) and never guessed: a name goes in when it has been read from the decklist's own page
+ * (`marvelcdb.com/decklist/view/<id>`, whose author link is `/user/profile/<user id>/<name>`). Every name below was
+ * read that way on 2026-10-10, or was recorded at fetch time by the wave 5 and wave 9 decklist tests, or was given by
+ * the owner (Brian-V, Web-Warrior Fanatic).
  */
 export const COMMUNITY_DECK_AUTHORS: Readonly<Record<number, string>> = {
+  3: "ImpossibleGerman",
   5: "dr00",
+  13: "KennedyHawk",
+  34: "zachbunn",
+  388: "Mag",
+  706: "nungunz",
   720: "jamjams32",
   2326: "Brian-V",
+  2504: "Remedy",
+  3043: "oxthearsenal",
+  3779: "NocturnalAnimal",
+  4029: "KingOfRohan",
+  6910: "IlEmperatore",
+  7491: "L3w15 7",
+  7644: "MegiDolaDyne",
+  7708: "AxeUnknown",
+  8757: "Saan",
+  8938: "journeyman2",
   10006: "CVdantespeak",
+  11440: "Man-is-Obsolete",
+  12314: "Thrawn24",
+  13437: "BananaBobert",
   14578: "SoloMarvelChampion",
+  16017: "NelsonAllOver",
   16053: "VillainTheory",
+  16103: "stilonxy",
+  16663: "MiguelCantillo3",
+  18463: "enzo",
   18564: "Raftman",
+  19074: "JRise33",
   19903: "LeahLorenna",
+  27264: "Doublejefferdy",
   28541: "andyr",
+  34614: "Ademuruiken",
   34979: "Web-Warrior Fanatic",
   37731: "Tzars",
   38537: "Daring Lime",
   47191: "JuanMC",
+  75879: "Juastin",
 };
 
 /** MarvelCDB decklist ids saved as fixtures that the game should not recommend. */
@@ -82,8 +109,12 @@ export interface CommunityDeck {
   readonly url: string;
   /** The decklist's MarvelCDB version ("1.0", "2.0"). */
   readonly version: string;
-  /** ISO 8601, MarvelCDB's `date_creation` and `date_update` as they were when the fixture was saved. */
+  /** ISO 8601, MarvelCDB's `date_creation`: when the author published this decklist. */
   readonly publishedAt: string | null;
+  /**
+   * ISO 8601, MarvelCDB's `date_update` when the fixture was saved. Not shown to players: it moves without the deck
+   * changing (a re-fetch days later returned later dates for unchanged decklists), so it does not say "revised".
+   */
   readonly updatedAt: string | null;
   /** MarvelCDB's own tags ("solo", "multiplayer", "theme", "beginner"). */
   readonly tags: readonly string[];

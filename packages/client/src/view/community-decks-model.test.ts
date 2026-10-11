@@ -15,7 +15,7 @@ import {
   communityOffers,
   communityOffersForHero,
   communityStatusText,
-  communityUpdatedText,
+  communityPublishedText,
   isCommunityDeckId,
   type CommunityDeckGate,
 } from "./community-decks-model.js";
@@ -141,13 +141,13 @@ describe("adding a community deck", () => {
 });
 
 describe("what the detail rail says", () => {
-  test("the last update is the decklist's own MarvelCDB date", () => {
-    expect(
-      communityUpdatedText({ updatedAt: "2026-09-30T20:53:16+00:00", publishedAt: "2019-11-06T15:28:15+00:00" }),
-    ).toBe("Sep 30, 2026");
-    expect(communityUpdatedText({ updatedAt: null, publishedAt: "2019-11-06T15:28:15+00:00" })).toBe("Nov 6, 2019");
-    expect(communityUpdatedText({ updatedAt: null, publishedAt: null })).toBeNull();
-    for (const deck of catalog) expect(communityUpdatedText(deck), deck.name).not.toBeNull();
+  test("says when the decklist was published and its version, never MarvelCDB's update date", () => {
+    expect(communityPublishedText({ publishedAt: "2019-11-06T15:28:15+00:00", version: "1.0" })).toBe(
+      "Published Nov 6, 2019 · v1.0",
+    );
+    expect(communityPublishedText({ publishedAt: null, version: "2.0" })).toBe("v2.0");
+    expect(communityPublishedText({ publishedAt: null, version: "" })).toBeNull();
+    for (const deck of catalog) expect(communityPublishedText(deck), deck.name).toMatch(/^Published .+ · v\d/);
   });
 
   test("the author's notes come out as plain paragraphs", () => {
@@ -178,7 +178,7 @@ describe("what the detail rail says", () => {
 
   test("every saved write-up reads as text with no Markdown or HTML left in it", () => {
     const withNotes = catalog.filter((deck) => deck.description.trim().length > 0);
-    expect(withNotes.length).toBeGreaterThan(20);
+    expect(withNotes.length).toBeGreaterThanOrEqual(67);
     for (const deck of withNotes) {
       const notes = communityNotesOf(deck.description);
       expect(notes.length, deck.name).toBeGreaterThan(0);

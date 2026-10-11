@@ -28,12 +28,18 @@ recommendation only; building from scratch and importing any other MarvelCDB dec
 - **A deck cannot be listed without being tested.** `playable/marvelcdb-decklists.test.ts` proves every catalog
   entry against the playable pool (imports, legal, a seeded game that replays deep-equal) and fails if the catalog
   holds a deck it did not prove.
-- **Author names are kept by hand.** MarvelCDB's public decklist JSON has `user_id` but no name. Add one line per
-  author to `COMMUNITY_DECK_AUTHORS` in that file when a decklist is saved; until then the deck is credited to
-  "MarvelCDB user <id>".
-- **Keep `description_md` when saving a fixture from now on.** The Decks screen shows it as the author's notes on how
-  the deck plays. The wave 7, 8 and 9 fixtures were saved with it emptied, so those decks show no notes.
-- **`date_update` is shown as "Last updated".** It is MarvelCDB's own field as of the day the fixture was saved.
+- **Author names are kept by hand and never guessed.** MarvelCDB's public decklist JSON has `user_id` but no name.
+  Read the name from the decklist's own page (`marvelcdb.com/decklist/view/<id>`; the author link is
+  `/user/profile/<user id>/<name>`) and add one line to `COMMUNITY_DECK_AUTHORS` in that file. Without a line the deck
+  is credited to "MarvelCDB user <id>", and `community-decks.test.ts` fails until the author is named.
+- **Keep `description_md` when saving a fixture.** The Decks screen shows it as the author's notes on how the deck
+  plays. The wave 7, 8 and 9 fixtures were first saved with it emptied; it was restored on 2026-10-10 from a re-fetch
+  (only that field written, every other field compared equal). The whole file must stay under the importer's
+  20,000-character cap (`MAX_IMPORT_TEXT_LENGTH`), which is why Magik's decklist (37117, a 34,640-character
+  write-up) has none.
+- **The screen shows the published date (`date_creation`) and the version, not `date_update`.** `date_update` moves
+  without the deck changing: the 2026-10-10 re-fetch returned later dates for decklists whose contents were
+  identical.
 - To keep a saved decklist out of the recommendations, add its id to `NOT_RECOMMENDED` in the same file.
 
 The client side is `packages/client/src/view/community-decks-model.ts` (offers, the progression gate, the credit and

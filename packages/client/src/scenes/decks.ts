@@ -60,7 +60,7 @@
  * (`@mc/cards`'s `communityDecks`) are a third list group, after the player's own decks. They are recommendations,
  * labeled as community decks from MarvelCDB and never as precons. Selecting one shows its own card list in the
  * middle pane (cards open in Inspect) and, in the stats rail's place, the author's credit, a Tested stamp, the
- * decklist's last-updated date, the author's notes, the MarvelCDB link and one action: add an editable copy. A deck
+ * decklist's published date and version, the author's notes, the MarvelCDB link and one action: add an editable copy. A deck
  * whose hero or cards the player has not unlocked is shown dimmed with what opens it, and cannot be added.
  *
  * A deck row's tap **selects** it (updates the pool and stats panes) rather
@@ -109,7 +109,7 @@ import {
   communityOfferMatches,
   communityOffers,
   communityStatusText,
-  communityUpdatedText,
+  communityPublishedText,
   type CommunityOffer,
 } from "../view/community-decks-model.js";
 import { deckOptionsOf, deckRowIndexOf, type DeckOption } from "../view/deck-list-model.js";
@@ -1723,7 +1723,7 @@ export class DecksScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------------------------------------------------
   // A community deck's detail rail, in the stats pane's place: whose deck it is and where it comes from (it is a
-  // MarvelCDB author's deck, not an official precon), that this game tested it, when the author last updated it,
+  // MarvelCDB author's deck, not an official precon), that this game tested it, when it was published and its version,
   // the author's own notes (how they play it), the MarvelCDB link, and one action: add an editable copy.
   // ------------------------------------------------------------------------------------------------------------
   #drawCommunityPane(rect: Rect, offer: CommunityOffer, wide: boolean): void {
@@ -1780,7 +1780,7 @@ export class DecksScene extends Phaser.Scene {
     }
     y += chipHeight + 10;
 
-    const updated = communityUpdatedText(entry);
+    const published = communityPublishedText(entry);
     const meta = label(
       this,
       left,
@@ -1788,7 +1788,7 @@ export class DecksScene extends Phaser.Scene {
       [
         option.identityName ?? entry.heroName,
         deckCountText(stats),
-        ...(updated ? [`Last updated ${updated}`] : []),
+        ...(published ? [published] : []),
         "Not an official precon",
       ].join(" · "),
       typeRole.label,
