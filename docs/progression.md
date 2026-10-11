@@ -35,6 +35,10 @@ campaign box; the box's own cast joins at once, and every other hero's precon is
 | Age of Apocalypse        | Complete the NeXt Evolution campaign       | Bishop and Magik at once (MC45's cast); Iceman (Unus), Jubilee (Four Horsemen), Nightcrawler (Apocalypse), Magneto (Dark Beast)                                              |
 | Agents of S.H.I.E.L.D.   | Complete the Age of Apocalypse campaign    | Maria Hill and Nick Fury at once (MC50's cast); Black Panther (Shuri) (Black Widow), Silk (Batroc), Falcon (M.O.D.O.K.), Winter Soldier (Thunderbolts)                       |
 
+Trickster Takeover (Enchantress; Loki, God of Lies; the Trickster Magic modular set) has no row of its own: it
+opens with the Agents of S.H.I.E.L.D. wave. The pack prints no unlock requirement, so this is a progression policy
+choice, not a rule (owner, 2026-10-11).
+
 On the Saga shelf a campaign still follows the shelf's own order (win a volume on Standard to open the next) unless
 it was opened by hand. Adding a wave to the app's pool means adding its row to `UNLOCK_WAVES`: `unlocks.test.ts`
 fails until every pool wave and every pool hero has a place on the path.
