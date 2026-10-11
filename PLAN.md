@@ -1331,6 +1331,10 @@ opens it; the published date and version are shown, not MarvelCDB's update date.
 - [ ] **Community decks inside the deck builder**: list the chosen hero's community decks as a starting point when a
       new deck is begun.
 
+**Also after the Fear No Evil wave**, as its own PRs: the optional on-device helper (move suggestions in a game, deck
+rating and card suggestions in the deck builder), planned in [docs/local-ai-plan.md](docs/local-ai-plan.md). It starts
+with a search player that needs no training and doubles as the proof that every scenario is winnable.
+
 ### Decisions to settle before building
 
 **Resolved (2026-09-25):** all four are settled. Illegal decks, the taboo list and the card-pool version are answered by
