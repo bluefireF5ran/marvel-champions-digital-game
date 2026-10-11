@@ -23,22 +23,9 @@ export const reverseHiddenNote = (state: GameState, id: InstanceId): string | nu
   otherFaceVisible(state, id) ? null : REVERSE_HIDDEN_NOTE;
 
 /**
- * The state as the client holds it: `sealHiddenReverses`, and without the state-check memo of each hidden card.
- * `GameState.stateChecks` is keyed "<instance>:<ability id>", and the ability id of a hidden Gaze is its real front's
- * ("i88:55008a.hypnotic-gaze-constant-2"), which names which Gaze it is. The client reads none of it.
- *
- * Engine ask: `sealHiddenReverses` should rewrite or drop those keys itself.
+ * The state as the client holds it: the engine's `sealHiddenReverses`, which names each hidden card by its stand-in
+ * everywhere the state names it, the ability ids in its bookkeeping included (`GameState.stateChecks` is keyed
+ * "<instance>:<ability id>", and a printed ability's id is its card's own).
  */
-export function sealForTable<S extends Pick<GameState, "instances" | "cardPool" | "stateChecks">>(state: S): S {
-  const sealed = sealHiddenReverses(state);
-  const hidden = new Set(
-    Object.values(state.instances)
-      .filter((instance) => instance.reverseHidden === true)
-      .map((instance) => `${instance.instanceId}:`),
-  );
-  if (hidden.size === 0) return sealed;
-  const stateChecks = Object.fromEntries(
-    Object.entries(sealed.stateChecks).filter(([key]) => ![...hidden].some((prefix) => key.startsWith(prefix))),
-  );
-  return { ...sealed, stateChecks };
-}
+export const sealForTable = <S extends Pick<GameState, "instances" | "cardPool">>(state: S): S =>
+  sealHiddenReverses(state);

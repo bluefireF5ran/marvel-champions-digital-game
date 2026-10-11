@@ -316,22 +316,111 @@ function withoutSealedCampaignLog(state: GameState): GameState {
  * The state with each hidden-reverse card (`CardInstance.reverseHidden`) named by its stand-in (`standInOf`) instead
  * of its own card id: what a player's view is built from, or what is sent to a client, so that the other face of such
  * a card cannot be read out of the state (docs/phase7-wave9.md §3.54). The card keeps its instance id, zone, counters
- * and everything else. Like `sealHiddenPiles` this is not a state the engine can resume or replay from; the authority
- * keeps the full `GameState`. Returns the state itself when no card has a hidden reverse.
+ * and everything else. Returns the state itself when no card has a hidden reverse, or when each is already named by
+ * its stand-in (sealing twice is sealing once).
  *
- * Two things outside this function's reach, for whoever sends state over a wire: the game's RNG state (`GameState.rng`,
- * from which the shuffle of the look-alike cards can be recomputed) must not be sent, and the id of an ability printed
- * on the hidden card's showing face is that card's own (`AbilityId` carries the card id), so a stack frame, a use count
- * or an event that names one is redacted with the same predicate.
+ * The card id is not the only thing that names the card: the id of an ability printed on its showing face is that
+ * card's own ("55008a.hypnotic-gaze-constant-2"), and the state keeps ability ids in its bookkeeping
+ * (`GameState.stateChecks` and `abilityUses`, keyed "<instance>:<ability id>"; a stack frame, an open choice, a lasting
+ * effect or an event kept on a frame may name one too). So after the instances are renamed, every string in the
+ * state, object keys included, has each hidden card's id and its showing face's ability ids rewritten to the
+ * stand-in's (`hiddenNames`, `renameIn`); only the printed catalog (`cardPool`) and the RNG state are left alone.
+ * Rewritten and not dropped, so the sealed state stays consistent with itself: the stand-in's abilities are the ones a
+ * query over a sealed instance finds, and the memo of a state check or a use count is still found under them.
+ *
+ * The rewrite is by name, not by instance: a second copy of the same card that is not hidden would be renamed with it.
+ * A hide covers a whole look-alike group of unique cards (`sameFront`), so no such copy exists today. The ids of the
+ * hidden face's own abilities are not rewritten: that face is out of play until the flip and nothing may name them,
+ * and naming the stand-in's other face instead would be a false answer.
+ *
+ * Like `sealHiddenPiles` this is not a state the authority can resume or replay from; the authority keeps the full
+ * `GameState`. A client may still ask the engine questions of it or preview a command on it, and throws the result
+ * away. One thing stays outside this function's reach, for whoever sends state over a wire: the game's RNG state
+ * (`GameState.rng`, from which the shuffle of the look-alike cards can be recomputed) must not be sent.
  */
 export function sealHiddenReverses<S extends Pick<GameState, "instances" | "cardPool">>(state: S): S {
-  const hidden = Object.values(state.instances).filter((instance) => instance.reverseHidden === true);
-  if (hidden.length === 0) return state;
-  const instances = { ...state.instances };
-  for (const instance of hidden) {
-    instances[instance.instanceId] = { ...instance, cardId: standInOf(state, instance.cardId) };
+  const names = hiddenNames(state);
+  if (names.length === 0) return state;
+  const sealed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(state)) {
+    sealed[key] = UNSEALED_FIELDS.has(key) ? value : renameIn(value, names);
   }
-  return { ...state, instances };
+  return sealed as S;
+}
+
+/** Top-level fields `sealHiddenReverses` passes through: the printed catalog, and the RNG state (no card is named). */
+const UNSEALED_FIELDS: ReadonlySet<string> = new Set(["cardPool", "rng"]);
+
+/** A name a hidden card goes by in the state, and the stand-in's name for the same thing. */
+type Rename = readonly [from: string, to: string];
+
+/**
+ * Every name that tells a hidden-reverse card from its stand-in: the ids of the abilities on its showing face, each
+ * paired with the stand-in's ability in the same printed position, then its card id. Ability ids come first because a
+ * card id is usually their prefix. Empty when no card is hidden or each is its own stand-in.
+ */
+function hiddenNames(state: Pick<GameState, "instances" | "cardPool">): readonly Rename[] {
+  const abilityIds = new Map<string, string>();
+  const cardIds = new Map<string, string>();
+  for (const instance of Object.values(state.instances)) {
+    if (instance.reverseHidden !== true) continue;
+    const standIn = standInOf(state, instance.cardId);
+    if (standIn === instance.cardId) continue;
+    cardIds.set(instance.cardId, standIn);
+    const real = state.cardPool[instance.cardId];
+    const shown = state.cardPool[standIn];
+    if (!real || !shown || !("abilities" in real) || !("abilities" in shown)) continue;
+    real.abilities.forEach((ref, index) => {
+      const other = shown.abilities[index];
+      if (other && other.id !== ref.id) abilityIds.set(ref.id, other.id);
+    });
+  }
+  return [...abilityIds, ...cardIds];
+}
+
+const isIdCharacter = (character: string | undefined): boolean =>
+  character !== undefined && /[A-Za-z0-9]/.test(character);
+
+/** `text` with each whole occurrence of a hidden name replaced: one that is not part of a longer word or number. */
+function renameText(text: string, names: readonly Rename[]): string {
+  let out = text;
+  for (const [from, to] of names) {
+    let at = out.indexOf(from);
+    while (at !== -1) {
+      const whole = !isIdCharacter(out[at - 1]) && !isIdCharacter(out[at + from.length]);
+      if (whole) out = out.slice(0, at) + to + out.slice(at + from.length);
+      at = out.indexOf(from, at + (whole ? to.length : from.length));
+    }
+  }
+  return out;
+}
+
+/**
+ * `value` with every string in it, object keys included, renamed (`renameText`). A part that names nothing hidden is
+ * returned as it is, so an untouched branch of the state is shared and not copied. Should two keys of one object come
+ * to the same name, the first is kept: every such map in the state is keyed by instance first, so none does.
+ */
+function renameIn(value: unknown, names: readonly Rename[]): unknown {
+  if (typeof value === "string") return renameText(value, names);
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    let changed = false;
+    const items = value.map((item: unknown) => {
+      const renamed = renameIn(item, names);
+      if (renamed !== item) changed = true;
+      return renamed;
+    });
+    return changed ? items : value;
+  }
+  let changed = false;
+  const fields: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    const renamedKey = renameText(key, names);
+    const renamed = renameIn(item, names);
+    if (renamedKey !== key || renamed !== item) changed = true;
+    if (!(renamedKey in fields)) fields[renamedKey] = renamed;
+  }
+  return changed ? fields : value;
 }
 
 /** A game state as a client or a wire copy may hold it: `sealHiddenPiles`, then `sealHiddenReverses`. */

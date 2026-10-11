@@ -35,25 +35,35 @@ const P3 = "p3" as PlayerId;
 const charmHere = { kind: "counters", of: self, counterType: "charm" } as const;
 const hostIdentity = { categories: ["identity"], hostOfSelf: true } as const;
 
-/** "Your identity gains the Defiant trait." */
-const GAZE_TRAIT = stubAbility("gaze.trait", {
-  trigger: { kind: "constant", traitGrants: [{ trait: trait("DEFIANT"), target: hostIdentity }] },
-  effects: [],
-});
-/** "If there are 5 or more charm counters here, remove each charm counter from here and flip this card." */
-const GAZE_FLIP = stubAbility("gaze.flip", {
-  trigger: { kind: "stateCheck", when: { kind: "compare", left: charmHere, op: "atLeast", right: n(5) } },
-  effects: [
-    { kind: "removeCounters", target: self, counterType: "charm" },
-    { kind: "flipCard", target: self, reveal: true },
-  ],
-});
-/** "Your identity gains the Enthralled trait." */
-const TRANCE_TRAIT = stubAbility("trance.trait", {
-  trigger: { kind: "constant", traitGrants: [{ trait: trait("ENTHRALLED"), target: hostIdentity }] },
-  effects: [],
-});
 const TRANCES = ["envy", "greed", "pride", "sloth", "wrath"] as const;
+/**
+ * An ability's id carries its card's id, as the ids of printed abilities do ("55008a.hypnotic-gaze-constant-2"): each
+ * of the five fronts has its own two, alike in everything but the id.
+ */
+/** "Your identity gains the Defiant trait." */
+const GAZE_TRAITS = TRANCES.map((name) =>
+  stubAbility(`gaze-${name}.trait`, {
+    trigger: { kind: "constant", traitGrants: [{ trait: trait("DEFIANT"), target: hostIdentity }] },
+    effects: [],
+  }),
+);
+/** "If there are 5 or more charm counters here, remove each charm counter from here and flip this card." */
+const GAZE_FLIPS = TRANCES.map((name) =>
+  stubAbility(`gaze-${name}.flip`, {
+    trigger: { kind: "stateCheck", when: { kind: "compare", left: charmHere, op: "atLeast", right: n(5) } },
+    effects: [
+      { kind: "removeCounters", target: self, counterType: "charm" },
+      { kind: "flipCard", target: self, reveal: true },
+    ],
+  }),
+);
+/** "Your identity gains the Enthralled trait." */
+const TRANCE_TRAITS = TRANCES.map((name) =>
+  stubAbility(`trance-${name}.trait`, {
+    trigger: { kind: "constant", traitGrants: [{ trait: trait("ENTHRALLED"), target: hostIdentity }] },
+    effects: [],
+  }),
+);
 /** "When Revealed: Take N damage." (a different N on each Trance, so the test can tell whose resolved) */
 const REVEALED = TRANCES.map((name, index) =>
   stubAbility(`trance-${name}.revealed`, {
@@ -62,13 +72,13 @@ const REVEALED = TRANCES.map((name, index) =>
   }),
 );
 const GAZES: readonly AttachmentCard[] = TRANCES.map((name, index) => ({
-  ...stubAttachment({ id: `gaze-${name}`, name: "gaze", abilities: [GAZE_TRAIT.ref, GAZE_FLIP.ref] }),
+  ...stubAttachment({ id: `gaze-${name}`, name: "gaze", abilities: [GAZE_TRAITS[index]!.ref, GAZE_FLIPS[index]!.ref] }),
   flipSide: {
     name: `trance of ${name}`,
     traits: [],
     keywords: [],
     text: { printed: `trance of ${name}`, current: `trance of ${name}` },
-    abilities: [TRANCE_TRAIT.ref, REVEALED[index]!.ref],
+    abilities: [TRANCE_TRAITS[index]!.ref, REVEALED[index]!.ref],
   },
 }));
 const GAZE_IDS = GAZES.map((card) => card.id as string);
@@ -111,7 +121,15 @@ const charm = (id: string, amount: number) =>
 const CHARM_4 = charm("charm4", 4);
 const CHARM_1 = charm("charm1", 1);
 const FILLER = stubTreachery({ id: "filler", boostIcons: 0 });
-const deps = depsOf(GAZE_TRAIT, GAZE_FLIP, TRANCE_TRAIT, ...REVEALED, DEAL.ability, CHARM_4.ability, CHARM_1.ability);
+const deps = depsOf(
+  ...GAZE_TRAITS,
+  ...GAZE_FLIPS,
+  ...TRANCE_TRAITS,
+  ...REVEALED,
+  DEAL.ability,
+  CHARM_4.ability,
+  CHARM_1.ability,
+);
 
 /** A game at the first turn with the five gazes set aside (surgery: out of the encounter deck). */
 function table(players: 1 | 3 = 3, seed = 21): GameState {
@@ -163,6 +181,27 @@ const gazeInstances = (state: GameState): readonly InstanceId[] =>
 const mentions = (value: unknown, needles: readonly string[]): readonly string[] => {
   const text = JSON.stringify(value);
   return needles.filter((needle) => text.includes(`"${needle}"`));
+};
+/**
+ * Every string that would say which card a hidden one is, for the cards not in `flipped`: its other face's name and the
+ * prefix of that face's ability ids ("trance-greed.revealed"), and the front's own card id, which is also the prefix
+ * of the front's ability ids ("gaze-greed.flip"); the stand-in's front id says nothing and is left out.
+ */
+const secretsExcept = (flipped: readonly string[]): readonly string[] =>
+  TRANCES.filter((name) => !flipped.includes(`gaze-${name}`)).flatMap((name) => [
+    `trance of ${name}`,
+    `trance-${name}`,
+    ...(`gaze-${name}` === GAZE_IDS[0] ? [] : [`gaze-${name}`]),
+  ]);
+/** The needles found anywhere in the JSON of `value`: in a value, a key or part of a longer string. */
+const occurrences = (value: unknown, needles: readonly string[]): readonly string[] => {
+  const text = JSON.stringify(value);
+  return needles.filter((needle) => text.includes(needle));
+};
+/** A state as a client holds it, without the printed catalog and the RNG state (neither is sent as state). */
+const tableOf = (state: GameState): unknown => {
+  const { cardPool: _pool, rng: _rng, ...sealed } = sealHiddenInformation(state);
+  return sealed;
 };
 const types = (events: readonly GameEvent[]) => events.map((e) => e.type);
 
@@ -226,6 +265,56 @@ describe("§3.54 a double-sided card attached with its other face hidden (attach
     // A state with no hidden reverse is returned as it is.
     const plain = table();
     expect(sealHiddenReverses(plain)).toBe(plain);
+  });
+
+  it("no string of the sealed state names a hidden card: not its id, its abilities' ids or its other face's", () => {
+    const dealt = play(table());
+    const charmed = play(dealt.state, CHARM_4);
+    // The authority's bookkeeping is keyed by ability id, and a printed ability's id is its card's own.
+    const checked = Object.keys(charmed.state.stateChecks);
+    expect(checked.length).toBe(3);
+    expect(occurrences(checked, secretsExcept([])).length).toBeGreaterThan(0);
+    for (const state of [dealt.state, charmed.state]) {
+      expect(occurrences(tableOf(state), secretsExcept([]))).toEqual([]);
+    }
+    // The memo of each state check is kept, under the stand-in's ability: the sealed state agrees with itself.
+    const sealed = sealHiddenInformation(charmed.state);
+    expect(Object.keys(sealed.stateChecks).sort()).toEqual(
+      [P1, P2, P3].map((player) => `${gazeOn(charmed.state, player)}:${GAZE_IDS[0]}.flip`).sort(),
+    );
+    expect(Object.values(sealed.stateChecks)).toEqual(Object.values(charmed.state.stateChecks));
+    // A use count and a frame on the stack are sealed the same way, wherever a hidden card's ability is named.
+    const mine = gazeOn(charmed.state, P1);
+    const real = mustInstance(charmed.state, mine).cardId as string;
+    const marked = {
+      ...charmed.state,
+      abilityUses: { ...charmed.state.abilityUses, [`${mine}:${real}.flip`]: 1 },
+      stack: [{ sourceInstanceId: mine, abilityId: `${real}.flip`, cardId: real }] as never,
+    };
+    const again = sealHiddenInformation(marked);
+    expect(again.abilityUses[`${mine}:${GAZE_IDS[0]}.flip`]).toBe(1);
+    expect(again.stack).toEqual([{ sourceInstanceId: mine, abilityId: `${GAZE_IDS[0]}.flip`, cardId: GAZE_IDS[0] }]);
+    expect(occurrences(tableOf(marked), secretsExcept([]))).toEqual([]);
+    // Sealing a sealed state changes nothing, and what names no hidden card is shared, not copied.
+    expect(sealHiddenReverses(sealed)).toBe(sealed);
+    expect(sealed.players).toBe(charmed.state.players);
+    expect(sealed.cardPool).toBe(charmed.state.cardPool);
+  });
+
+  it("after the flip the sealed state names the flipped card and its other face, and no card still hidden", () => {
+    const dealt = play(table(1));
+    const flipped = play(play(dealt.state, CHARM_4).state, CHARM_1);
+    const mine = gazeOn(flipped.state, P1);
+    const real = mustInstance(flipped.state, mine).cardId as string;
+    expect(mustInstance(flipped.state, mine).flipped).toBe(true);
+    const sealed = tableOf(flipped.state);
+    // The four set aside are hidden still: only the flipped card's names are in the state.
+    expect(occurrences(sealed, secretsExcept([real]))).toEqual([]);
+    expect(occurrences(sealed, [real])).toEqual([real]);
+    expect(sealHiddenInformation(flipped.state).instances[mine]!.cardId).toBe(real);
+    // The same search fails on the state the authority keeps, so it is a search that can fail.
+    const { cardPool: _pool, rng: _rng, ...open } = flipped.state;
+    expect(occurrences(open, secretsExcept([real])).length).toBeGreaterThan(0);
   });
 
   it("at 4 charm counters it takes 1: no counters, the other face up, its When Revealed resolved by its player", () => {

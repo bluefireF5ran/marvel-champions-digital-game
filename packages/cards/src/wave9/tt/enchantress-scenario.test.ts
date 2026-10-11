@@ -69,8 +69,17 @@ const TRANCE_ACTION: Readonly<Record<Gaze, string>> = {
   "55010a": "55010b.trance-of-sloth-forced-action",
   "55011a": "55011b.trance-of-wrath-forced-action",
 };
-/** Everything that would name the Trance under a Gaze that has not flipped: the reverse's id, name and action. */
-const secretsOf = (gaze: Gaze): string[] => [`${gaze.slice(0, -1)}b`, TRANCE_NAME[gaze], TRANCE_ACTION[gaze]];
+/**
+ * Everything that would name the Trance under a Gaze that has not flipped: the reverse's id (the prefix of its ability
+ * ids), name and action, and the front's own card id (the prefix of the front's ability ids), which differs on each
+ * of the five and so names which one it is; every Gaze but the stand-in, the first of the five by card id.
+ */
+const secretsOf = (gaze: Gaze): string[] => [
+  `${gaze.slice(0, -1)}b`,
+  TRANCE_NAME[gaze],
+  TRANCE_ACTION[gaze],
+  ...(gaze === GAZES[0] ? [] : [gaze]),
+];
 
 /** Standard-set and Core fillers. */
 const BLANK = "01186"; // Advance: no boost icon
