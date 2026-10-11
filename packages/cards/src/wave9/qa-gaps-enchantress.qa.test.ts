@@ -53,7 +53,7 @@ const handOnly = (s: GameState, ids: readonly InstanceId[]): GameState => ({
   ...s,
   players: s.players.map((p) => (p.playerId === P1 ? { ...p, hand: [...ids] } : p)),
 });
-const inForm = (s: GameState, form: "alter_ego" | "hero"): GameState => ({
+const inForm = (s: GameState, form: "alterEgo" | "hero"): GameState => ({
   ...s,
   players: s.players.map((p) => (p.playerId === P1 ? { ...p, identity: { ...p.identity, form } } : p)),
 });
@@ -127,7 +127,7 @@ describe("Alluring Call (55012): 'place 1 charm counter ... Play a card from you
     const { s, call, haymaker } = withAlluringCall();
     const may = moveToHand(s, P1, "01006").ids[0]!;
     const e1 = moveToHand(s, P1, "01088").ids[0]!;
-    const staged = inForm(handOnly(s, [haymaker, may, e1]), "alter_ego");
+    const staged = inForm(handOnly(s, [haymaker, may, e1]), "alterEgo");
     const seen: string[] = [];
     const r = act(staged, { cards: ["Aunt May"], seen }, use(P1, call, "55012.alluring-call-forced-action"));
     expect(seen[0], "Haymaker (a Hero Action) is not offered in alter-ego form").toMatch(/^chooseCards: Aunt May$/);
@@ -140,7 +140,7 @@ describe("Alluring Call (55012): 'place 1 charm counter ... Play a card from you
     const e1 = moveToHand(s, P1, "01088").ids[0]!;
     // Alter-ego form: Haymaker cannot be played at all.
     const wrongForm = act(
-      inForm(handOnly(s, [haymaker, e1]), "alter_ego"),
+      inForm(handOnly(s, [haymaker, e1]), "alterEgo"),
       {},
       use(P1, call, "55012.alluring-call-forced-action"),
     );
@@ -257,7 +257,7 @@ describe("Trance of Greed (55008b): 'Draw 1 card, then play that card (paying it
   }
 
   /** The player's hand replaced, the top of the deck set, form optionally changed. */
-  function staged(s: GameState, top: string, hand: readonly string[], form?: "alter_ego" | "hero") {
+  function staged(s: GameState, top: string, hand: readonly string[], form?: "alterEgo" | "hero") {
     const topped = putOnTop(s, top);
     const ids = moveToHand(topped, P1, ...hand);
     const only = handOnly(ids.state, ids.ids);
@@ -295,7 +295,7 @@ describe("Trance of Greed (55008b): 'Draw 1 card, then play that card (paying it
   it("owner decision 62B, case (b): affordable but not legally playable (a Hero Action in alter-ego form; a resource card): 1 damage, no payment asked, the card stays in hand", () => {
     const { s, gaze } = greed();
     for (const [code, form] of [
-      ["01087", "alter_ego"],
+      ["01087", "alterEgo"],
       ["01088", "hero"],
     ] as const) {
       const top = staged(s, code, ["01089", "01090", "01058"], form);
