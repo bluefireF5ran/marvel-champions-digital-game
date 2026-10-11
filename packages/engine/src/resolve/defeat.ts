@@ -28,6 +28,7 @@ import {
   mainSchemeStates,
   mainSchemeStateOf,
   mainSchemeValue,
+  maxHitPoints,
   mustInstance,
   mustPlayer,
   mustVillain,
@@ -1130,6 +1131,24 @@ export function eliminatePlayer(ctx: Ctx, playerId: PlayerId): void {
   // An event, or an Invocation card mid-Special (`executeResolveSpecials`), which goes to its own deck's discard pile.
   for (const id of [...mustPlayer(ctx.state, playerId).resolving]) {
     moveCard(ctx, id, discardZoneFor(ctx.state, id), "top");
+  }
+
+  // RRG 1.8 "Hit Points" (p. 22): the dial "represents their remaining hit points" and has no reading below zero, so
+  // an identity defeated by more damage than it had left stops at zero, as one that stays in play does (`settleDials`,
+  // which skips an eliminated player and does not run once the game is over). Read here, after the player's own
+  // "+X hit points" cards have left play. The damage was dealt, logged and read in full before this (the sweep's
+  // excess, a damage instruction's `amount`).
+  const dial = mustInstance(ctx.state, identityId);
+  const hp = maxHitPoints(ctx.state, identityId, ctx.deps);
+  if (hp !== undefined && dial.damage > hp) {
+    updateInstance(ctx, identityId, (i) => ({ ...i, damage: hp }));
+    emit(ctx, {
+      type: "damageBeyondZeroLost",
+      instanceId: identityId,
+      cardId: dial.cardId,
+      amount: dial.damage - hp,
+      damage: hp,
+    });
   }
 
   emit(ctx, { type: "playerEliminated", playerId });

@@ -376,7 +376,8 @@ describe("§3.25 item 3: base THW and ATK equal to the THW and ATK of the contro
     expect(mustInstance(gone.state, wardOf(state)).controllerId).toBe(P2);
     // P2 is in alter-ego form until their turn.
     expect(stats(gone.state)).toEqual({ thw: 0, atk: 0 });
-    const p2 = drive(gone.session, [endTurn(P1), flip(P2)]);
+    // P1's turn ended with their elimination (RRG 1.8 "Player Elimination", p. 34): it is P2's already.
+    const p2 = drive(gone.session, [flip(P2)]);
     expect(stats(p2.state)).toEqual({ thw: 4, atk: 2 });
   });
 

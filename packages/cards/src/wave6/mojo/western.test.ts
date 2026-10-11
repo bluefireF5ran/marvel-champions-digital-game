@@ -403,9 +403,15 @@ describe("Card Shark (39068)", () => {
     expect(inst(state, hero(state)).damage).toBeGreaterThan(0);
     return { state, events, ids: stacked.ids, shark: shark.id, attack: attacks[0]!, hero: hero(state) };
   };
-  /** Damage the hero took beyond the two attacks that landed (the villain's and Card Shark's). */
+  /**
+   * Damage the hero took beyond the two attacks that landed (the villain's and Card Shark's). Summed from the damage
+   * dealt, not read off the dial: a hero these attacks defeat stops at zero (RRG 1.8 "Hit Points", p. 22).
+   */
   const indirect = (r: ReturnType<typeof attackWith>) =>
-    inst(r.state, r.hero).damage - of(r.events, "attackResolved").reduce((sum, e) => sum + e.damageDealt, 0);
+    of(r.events, "damageDealt")
+      .filter((e) => e.targetInstanceId === r.hero)
+      .reduce((sum, e) => sum + e.amount, 0) -
+    of(r.events, "attackResolved").reduce((sum, e) => sum + e.damageDealt, 0);
 
   it("After it attacks you: discards the top 3 cards of your deck and takes indirect damage per different printed resource type", () => {
     // [physical] Repulsor Blast, [energy] Supersonic Punch, [wild] War Machine: three different types.

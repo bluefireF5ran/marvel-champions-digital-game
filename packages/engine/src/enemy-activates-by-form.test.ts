@@ -130,8 +130,12 @@ describe("enemyActivation — 'X activates against you' by the player's form (§
     const { session, events } = run(s);
     expect(kinds(events)).toEqual(["attackResolved"]);
     expect(flips(events)).toEqual([2]);
-    // ATK 1 + 10 + (1 + 1) boost icons, undefended; schBonus is not read by an attack.
-    expect(session.state.instances[s.hero]!.damage).toBe(damage + 13);
+    // ATK 1 + 10 + (1 + 1) boost icons, undefended; schBonus is not read by an attack. Read from the log: the hero is
+    // defeated by it, and an eliminated identity's dial stops at zero (RRG 1.8 "Hit Points", p. 22).
+    expect(
+      events.flatMap((e) => (e.type === "damageDealt" && e.targetInstanceId === s.hero ? [e.amount] : [])),
+    ).toEqual([13]);
+    expect(session.state.instances[s.hero]!.damage).toBeGreaterThan(damage);
     expect(session.state.instances[s.scheme]!.threat).toBe(threat);
   });
 

@@ -434,9 +434,9 @@ describe("§3.25 item 2: its controller is eliminated (RRG 1.8 'Player Eliminati
     const first = play(state, DOOM.card.id, P1);
     expect(first.state.firstPlayerId).toBe(P2);
     expect(locateCard(first.state, ward)).toEqual({ kind: "playArea", playerId: P2 });
-    const p2Turn = drive(first.state, [endTurn(P1)]);
-    expect(p2Turn.state.step).toMatchObject({ phase: "player", activePlayerId: P2 });
-    const second = play(p2Turn.state, DOOM.card.id, P2);
+    // Eliminated on their own turn, so that turn has ended and the next player's has begun.
+    expect(first.state.step).toMatchObject({ phase: "player", activePlayerId: P2 });
+    const second = play(first.state, DOOM.card.id, P2);
     expect(second.state.firstPlayerId).toBe(P3);
     expect(second.state.outcome).toBeNull();
     expect(locateCard(second.state, ward)).toEqual({ kind: "playArea", playerId: P3 });
