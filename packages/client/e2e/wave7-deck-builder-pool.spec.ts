@@ -313,6 +313,8 @@ test.describe("Deadpool with another aspect: flow 3", () => {
 
 test.describe("Findings pinned from flow 1 (the aspect's name and a per player cost)", () => {
   test("a saved user-built deck's row names its aspect", async ({ page }) => {
+    // Filling a whole deck through the builder takes a minute alone; with the suite's other workers it passed 120 s once.
+    test.setTimeout(300_000);
     await openDecks(page);
     await startNewDeck(page, "44001a");
     await press(page, "DeckBuilder", "aspect:pool");
