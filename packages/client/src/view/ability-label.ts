@@ -19,6 +19,7 @@
  * `AbilityReference.label`, `faceUpName`, or a field on `AbilityCost`.
  */
 
+import { cardTextDisplay } from "./card-text-display.js";
 import type { AbilityId } from "@mc/content";
 import {
   activeAbilityRefs,
@@ -80,7 +81,8 @@ export function abilityShortLabelOf(
   deps: EngineDeps,
 ): string | null {
   const printed = activeAbilityRefs(state, instanceId).find((ref) => ref.id === abilityId)?.label;
-  if (printed) return printed;
+  // The data keeps icons as bracket tokens ("[star] Gather Intel"); every surface draws the label verbatim.
+  if (printed) return cardTextDisplay(printed);
   const keyword = keywordAbilityLabel(abilityId);
   if (keyword) return keyword;
   // RRG "Special": a card's own printed sub-heading is literally the word "Special" (Invocation cards, Wakanda
@@ -110,6 +112,8 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
   // the other way around.
   if (cost.exhaustSelf) parts.push("exhaust");
   if (cost.exhaustIdentity) parts.push("exhaust your identity");
+  const everyone = eachPlayerPhrase(cost.eachPlayer);
+  if (everyone) parts.push(everyone);
   const resources = resourcePhrase(cost.resources);
   if (resources) parts.push(resources);
   if (cost.resourcesX) parts.push(`spend X ${cost.resourcesX.resource}`);
@@ -149,6 +153,18 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
   if (cost.discardSelf) parts.push("discard this card");
   if (cost.payPrintedCostOf) parts.push("pay a card's printed cost");
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/**
+ * "each player exhausts, takes 1 damage": `AbilityCost.eachPlayer`, a cost every player in the game pays in kind
+ * (Crown of the Enchantress). Null when the cost has none or names no component.
+ */
+export function eachPlayerPhrase(each: AbilityCost["eachPlayer"]): string | null {
+  if (!each) return null;
+  const doing: string[] = [];
+  if (each.exhaustIdentity) doing.push("exhausts");
+  if (each.damageSelf) doing.push(`takes ${each.damageSelf} damage`);
+  return doing.length > 0 ? `each player ${doing.join(", ")}` : null;
 }
 
 function resourcePhrase(resources: AbilityCost["resources"]): string | null {

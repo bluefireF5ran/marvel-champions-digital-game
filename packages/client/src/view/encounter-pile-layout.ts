@@ -36,6 +36,36 @@ export function pileChipsOf(box: Rect): PileChips {
   };
 }
 
+/** A pile with a faceup top card (the encounter deck under Falcon): the chips that leave its foot for the card's words. */
+export interface ShownTopChips extends PileChips {
+  /** The strip along the foot: the card's name over its boost line. */
+  readonly card: Rect;
+}
+
+/** Height of the foot strip: a name that may wrap to two small lines, over the 12px boost line. */
+export const SHOWN_TOP_CARD_HEIGHT = 40;
+
+/**
+ * Where a pile's name, count and a faceup top card's words go. Only a stacked box has the height: the name and the
+ * count share one row along the top, the card's name and boost line take the foot, the art shows between. Null for a
+ * short box, which keeps `pileChipsOf`'s one strip and puts the boost line in its name.
+ */
+export function shownTopChipsOf(box: Rect): ShownTopChips | null {
+  if (box.height < PILE_STACK_MIN_HEIGHT) return null;
+  const countWidth = 34;
+  return {
+    mode: "stacked",
+    name: { x: box.x + 3, y: box.y + 3, width: box.width - 6 - countWidth, height: 18 },
+    count: { x: box.x + box.width - 3 - countWidth, y: box.y + 3, width: countWidth, height: 18 },
+    card: {
+      x: box.x + 3,
+      y: box.y + box.height - 3 - SHOWN_TOP_CARD_HEIGHT,
+      width: box.width - 6,
+      height: SHOWN_TOP_CARD_HEIGHT,
+    },
+  };
+}
+
 /** The shortest a pile box may be: one 14px name-and-count strip with a pixel of ground around it. */
 export const PILE_MIN_HEIGHT = 16;
 /** A pile this tall keeps the art-and-chips look with its own 6px gap; below it the column goes to compact rows. */
@@ -150,4 +180,10 @@ export function splitSetAside(
   }
   const piles = { ...encounter, height: Math.max(0, encounter.height - h - FOOTER_GAP) };
   return { encounter: piles, log, footer: { ...encounter, y: encounter.y + piles.height + FOOTER_GAP, height: h } };
+}
+
+/** A faceup top card's name with a leading article dropped when the full one does not fit the pile's strip ("The Trickster Tango" -> "Trickster Tango"). */
+export function shortPileName(name: string): string {
+  const trimmed = name.replace(/^(the|a|an)\s+/i, "");
+  return trimmed.length > 0 ? trimmed : name;
 }

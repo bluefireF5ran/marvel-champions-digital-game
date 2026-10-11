@@ -206,6 +206,21 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
       { scenarioId: "dark-beast", identityCardId: "49001a" }, // Magneto
     ],
   },
+  {
+    // The gate is Age of Apocalypse's. Baron Zemo, the finale, pays no hero: the four hero packs take the four villains
+    // before him in release order (Black Panther, Silk, Falcon, Winter Soldier). Confirmed by the owner, 2026-10-10.
+    cycleId: "cycle9",
+    name: "Agents of S.H.I.E.L.D.",
+    gate: { kind: "campaignWin", campaignId: "aoa", hint: "Complete the Age of Apocalypse campaign" },
+    campaignId: "aos",
+    starterHeroIds: ["50001a", "50034a"], // Maria Hill, Nick Fury: MC50's own cast
+    heroRewards: [
+      { scenarioId: "black-widow", identityCardId: "51001a" }, // Black Panther (Shuri)
+      { scenarioId: "batroc", identityCardId: "52001a" }, // Silk
+      { scenarioId: "modok", identityCardId: "53001a" }, // Falcon
+      { scenarioId: "thunderbolts", identityCardId: "54001a" }, // Winter Soldier
+    ],
+  },
 ];
 
 /** What the player has done, read from storage by `progressOf`. */
@@ -468,6 +483,19 @@ export class Unlocks {
   waveLock(cycleId: string | undefined): string | null {
     if (cycleId === undefined) return null;
     return this.#waves.get(cycleId)?.lockReason ?? null;
+  }
+
+  /**
+   * Why a campaign box is closed, naming the box itself: a wave's second box (MojoMania, in Mutant Genesis' wave)
+   * opens with its wave, and says so in its own name rather than the wave's.
+   */
+  campaignHint(campaignId: string): string | null {
+    const wave = waveOfCampaign(campaignId);
+    if (!wave) return null;
+    const lock = this.waveLock(wave.cycleId);
+    if (!lock || !wave.gate) return lock;
+    const name = wave.campaignId === campaignId ? wave.name : campaignNameOf(campaignId);
+    return `${wave.gate.hint} to unlock ${name}`;
   }
 
   /** Null when the scenario may be played: its wave is open, or it was opened on its own. */

@@ -14,7 +14,9 @@
 # Needs two repository secrets: NETLIFY_AUTH_TOKEN (a Netlify personal access token) and NETLIFY_SITE_ID (the site's
 # Project ID, under Project configuration -> General). Netlify's own builds stay off ("Stop builds" in the site's
 # build settings); netlify.toml's redirects and headers still apply to these deploys.
-name: Netlify deploy
+# Named "CI" because the tests stage shows under this workflow's name: "CI / Tests / Unit tests (...)" runs the suite
+# once, and "CI / Build and deploy to Netlify" waits for it and runs no tests itself.
+name: CI
 
 on:
   push:

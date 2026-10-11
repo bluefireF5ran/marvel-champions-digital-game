@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { PILE_MIN_HEIGHT, encounterPileSlots, pileChipsOf } from "./encounter-pile-layout.js";
+import {
+  PILE_MIN_HEIGHT,
+  encounterPileSlots,
+  pileChipsOf,
+  shortPileName,
+  shownTopChipsOf,
+} from "./encounter-pile-layout.js";
 
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a): boolean =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -61,5 +67,31 @@ describe("encounterPileSlots", () => {
     const chips = pileChipsOf(box);
     expect(chips.name.y).toBeGreaterThanOrEqual(1);
     expect(chips.name.y + chips.name.height).toBeLessThanOrEqual(16);
+  });
+});
+
+describe("shownTopChipsOf", () => {
+  const box = { x: 100, y: 60, width: 137, height: 65 };
+
+  test("a stacked tile keeps name and count on one top row and gives the foot to the card's words", () => {
+    const chips = shownTopChipsOf(box)!;
+    expect(chips.name.y).toBe(chips.count.y);
+    expect(chips.name.x + chips.name.width).toBeLessThanOrEqual(chips.count.x);
+    expect(chips.card.y).toBeGreaterThanOrEqual(chips.name.y + chips.name.height);
+    expect(chips.card.y + chips.card.height).toBeLessThanOrEqual(box.y + box.height);
+    expect(chips.card.height).toBeGreaterThanOrEqual(40);
+  });
+
+  test("a short tile has no room: it keeps the one strip", () => {
+    expect(shownTopChipsOf({ ...box, height: 40 })).toBeNull();
+  });
+});
+
+describe("shortPileName", () => {
+  it("drops a leading article and nothing else", () => {
+    expect(shortPileName("The Trickster Tango")).toBe("Trickster Tango");
+    expect(shortPileName("A Hard Choice")).toBe("Hard Choice");
+    expect(shortPileName("Theft in Progress")).toBe("Theft in Progress");
+    expect(shortPileName("The")).toBe("The");
   });
 });

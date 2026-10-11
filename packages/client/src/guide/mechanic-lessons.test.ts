@@ -1172,3 +1172,385 @@ describe("X-23: Specialists", () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Nick Fury: Stealth and Assault", () => {
+  const suit = (t: Awaited<ReturnType<typeof run>>) =>
+    Object.values(t.state().instances).find((i) => i.cardId.startsWith("50035") && i.attachedTo !== null)!;
+
+  test("opens as Nick Fury with the suit on Assault and the stacked hand", async () => {
+    const t = await run("nickFury");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(suit(t).flipped).toBe(false);
+    expect(
+      t
+        .me()
+        .hand.map((id) => t.state().instances[id]!.cardId)
+        .sort(),
+    ).toEqual(["50049", "50049", "50049", "50053", "50053", "50053"]);
+  });
+
+  test("walks Infiltrate, the flip, Stealth's scheme and Break Cover with Assault to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("nickFury", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("infiltrate");
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.me().identity.instanceId,
+      abilityId: "50034b.infiltrate" as never,
+      payment: [],
+    });
+    t.settle(/./);
+    expect(suit(t).flipped).toBe(true);
+    expect(t.controller.view().step?.id).toBe("flip");
+
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("stealth");
+    t.dispatch({ type: "endTurn", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    // Hand-size discard, if asked; Stealth is forced, so Rhino's attack becomes a scheme with no defender question.
+    t.settle(/./);
+    expect(t.state().round).toBe(2);
+    const banked = suit(t).threat;
+    expect(banked).toBeGreaterThanOrEqual(1); // Rhino's scheme was diverted onto the suit, 1 per activation
+    expect(t.controller.view().step?.id).toBe("assault");
+
+    t.dispatch({
+      type: "basicAttack",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      attackerInstanceId: t.me().identity.instanceId,
+      targetInstanceId: activeVillain(t.state() as never).instanceId,
+    });
+    // Break Cover is forced (no offer); Assault is the one offer, and it asks how much to remove.
+    const offer = t.state().pendingChoice!;
+    expect(offer.prompt.kind).toBe("chooseTriggers");
+    expect(offer.options.map((o) => o.optionId)).toEqual([expect.stringContaining("50035a.assault-interrupt")]);
+    expect(suit(t).flipped).toBe(false); // Break Cover already showed Assault
+    t.dispatch({
+      type: "resolveChoice",
+      playerId: offer.playerId,
+      choiceId: offer.choiceId,
+      selectedOptionIds: offer.options.map((o) => o.optionId),
+    });
+    expect(t.controller.view().step?.id).toBe("assault");
+    const how = t.state().pendingChoice!;
+    expect(how.prompt.kind).toBe("chooseNumber");
+    expect(how.options.map((o) => o.label)).toEqual(["1", "2"]); // up to 3, never 0, never more than the suit holds
+    t.choose(/^1$/);
+    t.settle(/./);
+    expect(suit(t).threat).toBe(banked - 1);
+    const rhino = t.state().villains[0]!;
+    expect(t.state().instances[rhino.instanceId]!.damage).toBe(3); // ATK 2 + 1 for the threat removed
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Maria Hill: Reassignment", () => {
+  const counters = (t: Awaited<ReturnType<typeof run>>, code: string): Record<string, number> => {
+    const found = t
+      .me()
+      .playArea.map((id) => t.state().instances[id]!)
+      .find((i) => i.cardId === code)!;
+    return { ...found.counters };
+  };
+
+  test("opens as Maria Hill with both supports and the Reinforcements in hand", async () => {
+    const t = await run("mariaHill");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(
+      t
+        .me()
+        .hand.map((id) => t.state().instances[id]!.cardId)
+        .sort(),
+    ).toEqual(["50004", "50005", "50005", "50005", "50008", "50016"]);
+  });
+
+  test("walks both supports, the flip and Reassignment to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("mariaHill", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("support-staff");
+    const reinforcements = () => t.me().hand.filter((id) => t.state().instances[id]!.cardId === "50005");
+    t.dispatch({
+      type: "playCard",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.handId("50008"),
+      payment: [{ fromHand: reinforcements()[0]! }],
+      attachToInstanceId: null,
+    });
+    t.settle(/./);
+    expect(t.controller.view().step?.id).toBe("command-team");
+    t.dispatch({
+      type: "playCard",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.handId("50016"),
+      payment: [{ fromHand: reinforcements()[0]! }, { fromHand: reinforcements()[1]! }],
+      attachToInstanceId: null,
+    });
+    t.settle(/./);
+    expect(t.controller.view().step?.id).toBe("flip");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("reassignment");
+    const staffBefore = Object.values(counters(t, "50008")).reduce((a, b) => a + b, 0);
+    expect(staffBefore).toBeGreaterThan(0);
+
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.me().identity.instanceId,
+      abilityId: "50001a.reassignment" as never,
+      payment: [],
+    });
+    expect(t.controller.view().step?.id).toBe("reassignment"); // still choosing from / to
+    t.choose(/Support Staff/);
+    t.choose(/Command Team/);
+    t.settle(/./);
+    expect(Object.values(counters(t, "50008")).reduce((a, b) => a + b, 0)).toBe(staffBefore - 1);
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Silk: tucked cards", () => {
+  const tucked = (t: Awaited<ReturnType<typeof run>>) => t.state().instances[t.me().identity.instanceId]!.tucked;
+
+  test("opens as Cindy Moon with nothing tucked", async () => {
+    const t = await run("silk");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(tucked(t)).toEqual([]);
+    expect(t.controller.view().step?.id).toBe("intro");
+  });
+
+  test("walks the flip, Advance tucked by Silk Sense and Cindy Moon's draw 2 to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("silk", onComplete);
+    t.controller.primary();
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("tuck");
+
+    t.dispatch({ type: "endTurn", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    // Hand-size discard, the defender question (no defense), then Silk Sense's offer after Advance: accept it.
+    while (t.state().pendingChoice && t.state().pendingChoice!.prompt.kind !== "chooseTriggers")
+      t.choose(/No defense|./);
+    expect(t.controller.view().step?.id).toBe("tuck");
+    const offer = t.state().pendingChoice!;
+    expect(offer.options.map((o) => o.optionId)).toEqual([expect.stringContaining("52001a.silk-sense")]);
+    t.dispatch({
+      type: "resolveChoice",
+      playerId: offer.playerId,
+      choiceId: offer.choiceId,
+      selectedOptionIds: offer.options.map((o) => o.optionId),
+    });
+    t.settle(/./);
+    expect(tucked(t).map((id) => t.state().instances[id]!.cardId)).toEqual(["01186"]); // Advance
+
+    expect(t.controller.view().step?.id).toBe("flip-back");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("cindy-moon");
+    const before = t.me().hand.length;
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.me().identity.instanceId,
+      abilityId: "52001b.cindy-moon-action" as never,
+      payment: [],
+    });
+    t.settle(/./);
+    expect(tucked(t)).toEqual([]);
+    expect(t.me().hand.length).toBe(before + 2);
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Falcon: the faceup top card", () => {
+  test("opens as Sam Wilson holding Redwing, with Charge on top of the encounter deck", async () => {
+    const t = await run("falcon");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(t.handId("53002")).toBeDefined();
+    const top = Object.values(t.state().encounterDecks)[0]!.deck[0]!;
+    expect(t.state().instances[top]!.cardId).toBe("01099");
+  });
+
+  test("walks Redwing, the flip and Redwing's action (damage equal to the icons) to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("falcon", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("redwing");
+    expect(currentStep(t.controller.state)?.copy.payWith?.map((p) => p.kind === "handCard" && p.code)).toEqual([
+      "53022",
+      "53021",
+    ]);
+    t.dispatch({
+      type: "playCard",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.handId("53002"),
+      payment: [{ fromHand: t.handId("53022") }, { fromHand: t.handId("53021") }],
+      attachToInstanceId: null,
+    });
+    t.settle(/./);
+    expect(t.controller.view().step?.id).toBe("flip");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("send-redwing");
+
+    const redwing = t.me().playArea.find((id) => t.state().instances[id]!.cardId === "53002")!;
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: redwing,
+      abilityId: "53002.redwing-action" as never,
+      payment: [],
+    });
+    t.settle(/damage|Rhino/);
+    const rhino = t.state().villains[0]!;
+    expect(t.state().instances[rhino.instanceId]!.damage).toBe(2); // Charge's two boost icons
+    expect(t.me().hand.some((id) => t.state().instances[id]!.cardId === "53002")).toBe(true);
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Black Panther: Inventor and Specials", () => {
+  test("opens as Shuri with the stacked hand and no upgrade", async () => {
+    const t = await run("blackPanther");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(
+      t
+        .me()
+        .hand.map((id) => t.state().instances[id]!.cardId)
+        .sort(),
+    ).toEqual(["51005", "51006", "51006", "51007", "51008", "51009"]);
+  });
+
+  test("walks Inventor (Panther Claws), the next round, the flip and the Special to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("blackPanther", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("inventor");
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.me().identity.instanceId,
+      abilityId: "51001b.inventor" as never,
+      payment: [],
+    });
+    expect(t.controller.view().step?.id).toBe("inventor"); // still choosing
+    t.choose(/Panther Claws/);
+    t.settle(/./);
+    const attached = Object.values(t.state().instances).filter((i) => i.cardId === "51011" && i.attachedTo !== null);
+    expect(attached).toHaveLength(1);
+    expect(t.controller.view().step?.id).toBe("end-turn");
+
+    t.dispatch({ type: "endTurn", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    t.settle(/./);
+    expect(t.state().round).toBe(2);
+    expect(t.controller.view().step?.id).toBe("flip");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("special");
+
+    t.dispatch({
+      type: "basicAttack",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      attackerInstanceId: t.me().identity.instanceId,
+      targetInstanceId: activeVillain(t.state() as never).instanceId,
+    });
+    const offer = t.state().pendingChoice!;
+    expect(offer.options.map((o) => o.optionId)).toEqual([expect.stringContaining("51001a.black-panther-response")]);
+    t.dispatch({
+      type: "resolveChoice",
+      playerId: offer.playerId,
+      choiceId: offer.choiceId,
+      selectedOptionIds: offer.options.map((o) => o.optionId),
+    });
+    expect(t.controller.view().step?.id).toBe("special");
+    t.choose(/Panther Claws/);
+    t.settle(/./);
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Baron Zemo: the accusation", () => {
+  const tactical = (t: Awaited<ReturnType<typeof run>>) =>
+    Object.values(t.state().instances).find((i) => i.cardId === "50183a")!;
+
+  test("opens as Peter Parker against Zemo with 2 secret counters on each board member", async () => {
+    const t = await run("zemo");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(t.state().instances[t.state().villains[0]!.instanceId]!.cardId).toBe("50165a");
+    expect(tactical(t).counters.secret).toBe(2);
+    expect(t.controller.view().step?.id).toBe("intro");
+  });
+
+  test("the practice answer the lesson names is the A.I.M. envelope's own combination for this seed", async () => {
+    const t = await run("zemo");
+    expect([...t.core.save().initialState.hiddenPiles!.aim!].map(String).sort()).toEqual(["50187", "50190", "50193"]);
+  });
+
+  test("walks the grid, two secrets, the Response, the advance and the accusation to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("zemo", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("read-the-grid");
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("flip");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    expect(t.controller.view().step?.id).toBe("first-secret");
+
+    const inHand = (code: string) => t.me().hand.filter((id) => t.state().instances[id]!.cardId === code);
+    const use = (pay: readonly InstanceId[]) =>
+      t.dispatch({
+        type: "useAbility",
+        playerId: MECHANIC_TRYIT_PLAYER_ID,
+        cardInstanceId: tactical(t).instanceId,
+        abilityId: "50183a.chief-tactical-officer-action" as never,
+        payment: pay.map((fromHand) => ({ fromHand })),
+      });
+    use(inHand("01090"));
+    t.settle(/./); // the 2 damage's target
+    expect(tactical(t).counters.secret).toBe(1);
+    expect(t.controller.view().step?.id).toBe("second-secret");
+    use(inHand("01008"));
+    t.settle(/./);
+    expect(tactical(t).counters.secret ?? 0).toBe(0);
+    expect(t.controller.view().step?.id).toBe("gain-evidence");
+
+    t.dispatch({ type: "endTurn", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    // The optional discard, then stage 1B's Response (take it), place 2 secrets on the bare member.
+    while (t.state().pendingChoice) {
+      const choice = t.state().pendingChoice!;
+      if (choice.prompt.kind === "accuse" || /Advance to stage 2A/.test(choice.options[0]?.label ?? "")) break;
+      if (choice.prompt.kind === "chooseTriggers") {
+        // An optional Response: take Zemo's Manipulations' (the stage 1B Response), decline any other.
+        const mine = choice.options.filter((o) => /Manipulations/.test(o.label));
+        t.dispatch({
+          type: "resolveChoice",
+          playerId: choice.playerId,
+          choiceId: choice.choiceId,
+          selectedOptionIds: mine.map((o) => o.optionId),
+        });
+      } else t.choose(/Place 2 secret|No defense/);
+    }
+    expect(t.controller.view().step?.id).toBe("advance");
+    t.choose(/Advance to stage 2A/);
+    expect(t.state().pendingChoice!.prompt.kind).toBe("accuse");
+    expect(t.controller.view().step?.id).toBe("accuse");
+    t.choose(/Security Scanner, Ideology, Authority/);
+    t.settle(/./);
+    expect(t.state().accusation?.wrong ?? []).toEqual([]); // all four guesses were right
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});

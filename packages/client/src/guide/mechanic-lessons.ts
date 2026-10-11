@@ -10,8 +10,9 @@
  * (`FULL_GATE` lists every basic action), the way the aspect lessons keep it: a player free to keep playing is never
  * blocked while a step waits for them to get around to the mechanic.
  */
-import { abilityId, cardId } from "@mc/content";
+import { abilityId, cardId, type CardId } from "@mc/content";
 import {
+  cardInHand,
   cardPlayed,
   defenderDeclared,
   eventSeen,
@@ -21,6 +22,7 @@ import {
   type LessonPredicate,
   villainActivationPast,
 } from "../view/lesson-model.js";
+import { evidenceInputOf, faceupEvidenceOf } from "../view/evidence-model.js";
 import type { MechanicTryItId } from "./mechanic-tryits.js";
 
 const FULL_GATE = ["attack", "thwart", "recover", "changeForm", "endTurn"] as const;
@@ -1444,6 +1446,669 @@ const NIGHTCRAWLER_TRYIT: Lesson = {
   ],
 };
 
+/** Nick Fury's suit form upgrade (Assault / Stealth, 50035a/b) in play, if any. */
+function suitFormOf({ game }: LessonObservation) {
+  return Object.values(game.instances).find((i) => i.cardId.startsWith("50035") && i.attachedTo !== null);
+}
+
+/** True while the suit form shows its Stealth face (the instance's `flipped` side, `wave9/aos/nick-fury/testing.ts`). */
+const stealthShowing: LessonPredicate = (observation) => suitFormOf(observation)?.flipped === true;
+
+/** True once the last command dealt damage to the villain and no choice (Break Cover, Assault) is left open. */
+const villainHitAndSettled: LessonPredicate = ({ game, lastEvents }) =>
+  game.pendingChoice === null &&
+  lastEvents.some(
+    (event) =>
+      event.type === "damageDealt" && game.villains.some((villain) => villain.instanceId === event.targetInstanceId),
+  );
+
+/**
+ * Nick Fury: Stealth and Assault. The opening is Nick Fury in alter-ego form with his suit form upgrade attached,
+ * Assault up (`mechanic-tryit-config.ts`). Infiltrate (an alter-ego action) turns it to Stealth; as a hero, an enemy
+ * that would attack him schemes instead and 1 threat of that scheme lands on the suit (`wave9/aos/nick-fury/
+ * support-upgrades-allies.ts`). In round 2 his attack makes Break Cover (a forced interrupt) turn the suit to Assault,
+ * and Assault offers to remove up to 3 threat from it for +1 damage each. Gather Intel (a basic thwart puts 1 threat
+ * on the suit) is left to the glossary: round 1 has no threat on the main scheme to thwart.
+ */
+const NICK_FURY_TRYIT: Lesson = {
+  id: "mechanic-tryit-nick-fury",
+  title: "Nick Fury: Stealth and Assault",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Threat on your own suit",
+        body:
+          "Nick's [[suitForm|suit form]] is an upgrade with two sides. [[stealthSuit|Stealth]] makes an enemy's attack " +
+          "on him a scheme and banks some of that threat on the suit. Assault spends it as extra damage.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "infiltrate",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Infiltrate: show Stealth",
+        body:
+          "Setup put the suit in play with Assault up. Infiltrate is an alter-ego action that turns it to Stealth. " +
+          "It is free, and it is not your once-per-turn form change.",
+        tip: "Tap Nick Fury, then Infiltrate.",
+        short: "Use Infiltrate.",
+        doThis: "Tap Nick Fury, then Infiltrate",
+      },
+      mode: "await",
+      completes: stealthShowing,
+      gate: FULL_GATE,
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Nick Fury",
+        body: "Stealth only works in hero form, so [[flip|flip]] from the alter ego to the hero.",
+        doThis: "Flip to hero form",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "stealth",
+      anchor: { kind: "action", id: "endTurn" },
+      copy: {
+        title: "End your turn and let Rhino come",
+        body:
+          "End your turn (discard a card if the game asks). Rhino would attack Nick, so he schemes instead. Some " +
+          "of that threat goes on the suit, not the main scheme.",
+        tip: "Stealth only guards Nick himself, not an ally.",
+        short: "End turn, then watch Stealth.",
+        doThis: "End your turn",
+      },
+      mode: "await",
+      completes: playerPhaseOfRound(2),
+      gate: FULL_GATE,
+    },
+    {
+      id: "assault",
+      anchor: { kind: "action", id: "attack" },
+      copy: {
+        title: "Attack: Break Cover, then Assault",
+        body:
+          "Attacking forces Break Cover, which turns the suit to Assault. Then Assault offers to remove up to 3 threat " +
+          "from the suit for 1 extra damage each. Accept it and spend what Stealth banked.",
+        tip: "Break Cover resolves first, so the threat is spendable.",
+        short: "Attack, then accept Assault.",
+        doThis: "Attack Rhino, then accept Assault",
+      },
+      mode: "await",
+      completes: villainHitAndSettled,
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "Banked threat became damage",
+        body:
+          "The suit is on Assault now; Infiltrate turns it back to Stealth only from the alter ego. A basic thwart " +
+          "also banks 1 threat on the suit (Gather Intel), so thwarting feeds your next attack.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
+const SUPPORT_STAFF = cardId("50008");
+const COMMAND_TEAM = cardId("50016");
+const REINFORCEMENTS = cardId("50005");
+
+/** True once a card `code` is in the perspective player's play area. */
+const inPlayArea =
+  (code: CardId): LessonPredicate =>
+  ({ game, perspectiveId }) => {
+    const player = game.players.find((p) => p.playerId === perspectiveId);
+    return !!player?.playArea.some((id) => game.instances[id]?.cardId === code);
+  };
+
+/**
+ * Maria Hill: Reassignment. The opening is Maria Hill in alter-ego form with a hand of Support Staff (cost 1) and
+ * Command Team (cost 2), both S.H.I.E.L.D. supports with Uses counters, and Reinforcements to pay for them
+ * (`mechanic-tryit-config.ts`). Reassignment is an action printed on her hero side (`wave9/aos/maria-hill/identity.ts`):
+ * it moves 1 counter from a S.H.I.E.L.D. support to another, once per round, and the counter becomes the type the
+ * destination uses. It is only usable with two such supports in play, one of them holding a counter; the lesson is done
+ * on the engine's own `countersMoved` event once the ability has settled.
+ */
+const MARIA_HILL_TRYIT: Lesson = {
+  id: "mechanic-tryit-maria-hill",
+  title: "Maria Hill: Reassignment",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Move counters between supports",
+        body:
+          "Maria's deck is built on [[shieldSupports|S.H.I.E.L.D. supports]]. Many of them run on counters, and " +
+          "Reassignment moves one [[allPurposeCounters|counter]] from one such support to another.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "support-staff",
+      anchor: { kind: "card", code: SUPPORT_STAFF },
+      copy: {
+        title: "Play Support Staff",
+        body: "Support Staff costs 1 and has the S.H.I.E.L.D. trait, with 3 staff counters. Pay with Reinforcements.",
+        tip: "Discard Reinforcements to pay.",
+        short: "Play Support Staff.",
+        doThis: "Tap Support Staff, then Play",
+        payWith: [{ kind: "handCard", code: REINFORCEMENTS, doThis: "Tap Reinforcements, then Pay" }],
+      },
+      mode: "await",
+      completes: inPlayArea(SUPPORT_STAFF),
+      gate: FULL_GATE,
+    },
+    {
+      id: "command-team",
+      anchor: { kind: "card", code: COMMAND_TEAM },
+      copy: {
+        title: "Play Command Team",
+        body: "Command Team costs 2 and is a second S.H.I.E.L.D. support, with 3 command counters. Pay with two more.",
+        tip: "Discard two Reinforcements to pay.",
+        short: "Play Command Team.",
+        doThis: "Tap Command Team, then Play",
+        payWith: [
+          { kind: "handCard", code: REINFORCEMENTS, doThis: "Tap Reinforcements, then Pay" },
+          { kind: "handCard", code: REINFORCEMENTS, doThis: "Tap another Reinforcements, then Pay" },
+        ],
+      },
+      mode: "await",
+      completes: inPlayArea(COMMAND_TEAM),
+      gate: FULL_GATE,
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Maria Hill",
+        body: "Reassignment is printed on her hero side, so [[flip|flip]] from the alter ego to the hero.",
+        doThis: "Flip to hero form",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "reassignment",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Use Reassignment",
+        body:
+          "Pick the support to take a counter from, then the one to give it to. The counter takes the type its new " +
+          "card uses. You may do this once each round.",
+        tip: "It needs two supports and a counter to move.",
+        short: "Use Reassignment.",
+        doThis: "Tap Maria Hill, then Reassignment",
+      },
+      mode: "await",
+      completes: seenAndSettled("countersMoved"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "One counter moved",
+        body:
+          "A support with no counters left is discarded, so move from one that has spare. Anything that places an " +
+          "all-purpose counter, like Nick Fury or S.H.I.E.L.D. Director, feeds the same supports.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
+/** The perspective player's identity instance. */
+function identityOfPerspective({ game, perspectiveId }: LessonObservation) {
+  const player = game.players.find((p) => p.playerId === perspectiveId);
+  return player ? game.instances[player.identity.instanceId] : undefined;
+}
+
+/** True once at least one card is tucked under the perspective player's identity (Silk Sense's response resolved). */
+const somethingTucked: LessonPredicate = (observation) =>
+  (identityOfPerspective(observation)?.tucked.length ?? 0) > 0 && observation.game.pendingChoice === null;
+
+/**
+ * Silk: tucked cards. The encounter deck is stacked (`mechanic-tryit-config.ts`) so round 1's villain phase reveals
+ * Advance, a treachery. As Silk, "after you resolve a treachery card" offers Silk Sense, which tucks that card under her
+ * identity from the encounter discard pile (`wave9/silk/silk/identity.ts`). In round 2 she flips to Cindy Moon, whose
+ * action discards a tucked card to draw 2 (once per round). Both steps read the identity's own `tucked` list and the
+ * engine's `cardDrawn` event.
+ */
+const SILK_TRYIT: Lesson = {
+  id: "mechanic-tryit-silk",
+  title: "Silk: tucked cards",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Silk keeps what she beats",
+        body:
+          "A [[tuckedCards|tucked]] card sits faceup under another card, out of play. Silk tucks the minions, side " +
+          "schemes and treacheries she deals with, and Cindy Moon cashes them in for cards. She holds up to 4.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Silk",
+        body: "Silk Sense is printed on her hero side, so [[flip|flip]] from Cindy Moon to Silk before the villain phase.",
+        doThis: "Flip to Silk",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "tuck",
+      anchor: { kind: "action", id: "endTurn" },
+      copy: {
+        title: "End your turn and tuck the treachery",
+        body:
+          "End your turn (discard a card if the game asks), and choose no defense. The encounter card revealed is a " +
+          "treachery. After you resolve it, accept Silk Sense to tuck it under Silk.",
+        tip: "Accept Silk Sense after the treachery.",
+        short: "End turn, then accept Silk Sense.",
+        doThis: "End turn, then accept Silk Sense",
+      },
+      mode: "await",
+      completes: somethingTucked,
+      gate: FULL_GATE,
+    },
+    {
+      id: "flip-back",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip back to Cindy Moon",
+        body: "The cash-in is printed on her alter-ego side. [[flip|Flip]] from Silk to Cindy Moon.",
+        doThis: "Flip to Cindy Moon",
+      },
+      mode: "await",
+      completes: (observation) => formIs("alterEgo")(observation) && observation.game.step.phase === "player",
+      gate: FULL_GATE,
+    },
+    {
+      id: "cindy-moon",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Discard a tucked card, draw 2",
+        body:
+          "Cindy Moon's action discards a tucked card as its cost, then draws 2 cards. Use it once each round. With " +
+          "nothing tucked it cannot be used.",
+        tip: "The tucked card goes to the encounter discard pile.",
+        short: "Use Cindy Moon's action.",
+        doThis: "Tap Cindy Moon, then her action",
+      },
+      mode: "await",
+      completes: ({ game, lastEvents, perspectiveId }) =>
+        game.pendingChoice === null &&
+        lastEvents.filter((event) => event.type === "cardDrawn" && event.playerId === perspectiveId).length >= 2,
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "Tucked, then traded",
+        body:
+          "Tucked cards are not in play, and they leave if Silk's identity card does. A fifth tucked card forces you to " +
+          "keep only 4, so cash them in before the cap bites.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
+const REDWING = cardId("53002");
+
+/** True once Redwing's action settled: the ally is back in hand after having been played, and the villain took damage. */
+const redwingSentHome: LessonPredicate = (observation) => {
+  const { game, lastEvents } = observation;
+  return (
+    game.pendingChoice === null &&
+    lastEvents.some(
+      (event) => event.type === "damageDealt" && game.villains.some((v) => v.instanceId === event.targetInstanceId),
+    ) &&
+    cardInHand(REDWING)(observation)
+  );
+};
+
+/**
+ * Falcon: the faceup top card. As Falcon, the encounter deck's top card is faceup for everyone during the player
+ * phase (`wave9/falcon/falcon/identity.ts`); the stacked opening makes it Charge (2 boost icons). Redwing's hero
+ * action returns him to hand and discards that card, then deals damage to an enemy equal to its icons (star and
+ * boost, `support-upgrades-allies.ts`). Because the card is faceup, the lesson can say what the hit will be; the step
+ * is done when Redwing is back in hand and the villain took damage in the same action.
+ */
+const FALCON_TRYIT: Lesson = {
+  id: "mechanic-tryit-falcon",
+  title: "Falcon: the faceup top card",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Falcon sees what's coming",
+        body:
+          "As Falcon, the [[encounterTopFaceup|top encounter card is faceup]] during your turn. It isn't revealed, and " +
+          "nothing triggers. Several of his cards [[discardedIcons|discard it for its icons]]. Redwing is the simplest.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "redwing",
+      anchor: { kind: "card", code: REDWING },
+      copy: {
+        title: "Play Redwing",
+        body: "Redwing is an ally that costs 2. Pay with The Triskelion and Resource Reserve.",
+        tip: "Redwing goes back to your hand later.",
+        short: "Play Redwing.",
+        doThis: "Tap Redwing, then Play",
+        payWith: [
+          { kind: "handCard", code: cardId("53022"), doThis: "Tap The Triskelion, then Pay" },
+          { kind: "handCard", code: cardId("53021"), doThis: "Tap Resource Reserve, then Pay" },
+        ],
+      },
+      mode: "await",
+      completes: inPlayArea(REDWING),
+      gate: FULL_GATE,
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Falcon",
+        body:
+          "The faceup card and Redwing's action are both for the hero. [[flip|Flip]] from Sam Wilson to Falcon, then " +
+          "look at the top of the encounter deck.",
+        doThis: "Flip to Falcon",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "send-redwing",
+      anchor: { kind: "card", code: REDWING },
+      copy: {
+        title: "Redwing: discard it for damage",
+        body:
+          "Redwing's action returns him to your hand and discards the top encounter card. Choose damage to an enemy: " +
+          "it equals the icons on the discarded card, so look first. A faceup card with no icons can't be used.",
+        tip: "Pick Rhino as the target.",
+        short: "Use Redwing's action on Rhino.",
+        doThis: "Tap Redwing, then his action",
+      },
+      mode: "await",
+      completes: redwingSentHome,
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "Icons became damage",
+        body:
+          "Redwing is back in hand, ready to play again. The next top card is faceup now. Bird's-Eye View and " +
+          "Battlefield Awareness read the same icons for threat removal and a power bonus.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
+/** True once the last command resolved ability `id` and no choice is left open. */
+function abilityResolvedAndSettled(id: string): LessonPredicate {
+  return ({ game, lastEvents }) =>
+    game.pendingChoice === null &&
+    lastEvents.some((event) => event.type === "abilityResolved" && event.abilityId === id);
+}
+
+/**
+ * Black Panther: Inventor, then a Special. Shuri (alter ego) uses Inventor to find a Black Panther or Tech upgrade and play
+ * it for 2 less (`wave9/bp/black-panther/identity.ts`); the action exhausts her, so the lesson ends the turn and flips in
+ * round 2. As Black Panther, a basic attack answers with a Response that resolves the "Special" ability on one Black Panther
+ * upgrade. Both steps read the engine's `abilityResolved` for the identity's own ability, so any upgrade chosen counts.
+ */
+const BLACK_PANTHER_TRYIT: Lesson = {
+  id: "mechanic-tryit-black-panther",
+  title: "Black Panther: Inventor and Specials",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Shuri builds, Black Panther uses",
+        body:
+          "Shuri's [[shuriInventor|Inventor]] fetches a Black Panther or Tech upgrade from your deck for 2 less. As " +
+          "Black Panther, each basic power can then resolve that upgrade's Special.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "inventor",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Use Inventor",
+        body:
+          "Inventor exhausts Shuri, then lets you pick a Black Panther or Tech upgrade from your deck. It costs 2 " +
+          "less, so each of these is free. Panther Claws hits hardest.",
+        tip: "You pay any cost that is left.",
+        short: "Use Inventor, then pick an upgrade.",
+        doThis: "Tap Shuri, then Inventor",
+      },
+      mode: "await",
+      completes: abilityResolvedAndSettled("51001b.inventor"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "end-turn",
+      anchor: { kind: "action", id: "endTurn" },
+      copy: {
+        title: "End your turn",
+        body: "Inventor exhausted Shuri, so Black Panther can't attack this turn. End it and come back next round.",
+        short: "End your turn.",
+        doThis: "End your turn",
+      },
+      mode: "await",
+      completes: playerPhaseOfRound(2),
+      gate: FULL_GATE,
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Black Panther",
+        body: "The Special response is printed on the hero side. [[flip|Flip]] from Shuri to Black Panther.",
+        doThis: "Flip to Black Panther",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "special",
+      anchor: { kind: "action", id: "attack" },
+      copy: {
+        title: "Attack, then resolve a Special",
+        body:
+          "Make a basic attack on Rhino. After it, accept the Response and pick your upgrade: its Special resolves " +
+          "once. Most Specials also let you discard the upgrade for a bigger effect.",
+        tip: "A Special is not a basic power.",
+        short: "Attack, then accept the Response.",
+        doThis: "Attack Rhino, then accept the Response",
+      },
+      mode: "await",
+      completes: abilityResolvedAndSettled("51001a.black-panther-response"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "The Special resolved",
+        body:
+          "The upgrade stays unless you discarded it. Clawed Strike, On the Prowl and Wakanda Forever! also resolve " +
+          "Specials, so a good upgrade pays off all game.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
+/** The Chief Tactical Officer's secret counters (front face), or null once the card has flipped or is not in play. */
+function tacticalSecrets({ game }: LessonObservation): number | null {
+  const card = Object.values(game.instances).find((i) => i.cardId === "50183a");
+  return card ? (card.counters?.secret ?? 0) : null;
+}
+
+/** True once the players hold faceup evidence (a card came out of the S.H.I.E.L.D. envelope). */
+const evidenceGained: LessonPredicate = ({ game }) => {
+  const input = evidenceInputOf(game);
+  return input !== null && faceupEvidenceOf(input).length > 0;
+};
+
+/** True while the accusation prompt is open. */
+const accusePromptOpen: LessonPredicate = ({ game }) => game.pendingChoice?.prompt.kind === "accuse";
+
+/**
+ * Baron Zemo: the evidence and the accusation (MC50 pp. 18 and 19). A solo Spider-Man game against Zemo whose seed
+ * and stacked hand (`mechanic-tryit-config.ts`) let one round do all of it through the real prompts: the Chief Tactical
+ * Officer's hero action twice (two [physical] each) clears its 2 secret counters, stage 1B's Response at the end of the
+ * player phase places 2 on it and gains 2 evidence cards, and the same Response offers stage 2A, where the accusation
+ * is made. Every step reads the engine: the secret counters on the environment, the faceup evidence through the sealed
+ * `evidenceInputOf`, the open `accuse` prompt, and the accusation itself on `GameState.accusation`. The practice
+ * answer in the last steps is a constant the lesson test pins to the seed's A.I.M. envelope; the client never reads
+ * a hidden pile. The Evidence view is a scene, not game state, so the steps that point at it are acknowledgements.
+ */
+const ZEMO_TRYIT: Lesson = {
+  id: "mechanic-tryit-zemo",
+  title: "Baron Zemo: the accusation",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "A mole on the Board",
+        body:
+          "Three [[evidenceCards|evidence cards]] in a sealed A.I.M. envelope name the mole. Every card you gain from " +
+          "the S.H.I.E.L.D. envelope crosses out combinations, until you can make the [[accusation|accusation]].",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "read-the-grid",
+      copy: {
+        title: "Read the Evidence view",
+        body:
+          "Open EVIDENCE on the board, or press E. It shows both envelopes by size, the evidence you hold faceup, " +
+          "and a grid of 27 combinations. Faceup evidence crosses out every row that uses it. Close it when done.",
+        tip: "Tap a card there to read it in Inspect.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Spider-Man",
+        body: "The board members' actions are Hero Actions, so [[flip|flip]] from Peter Parker to Spider-Man.",
+        doThis: "Flip to Spider-Man",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "first-secret",
+      copy: {
+        title: "Uncover a secret",
+        body:
+          "Chief Tactical Officer has 2 secret counters. Its Hero Action spends two [physical] resources to remove " +
+          "one and deal 2 damage to an enemy. Pay with Strength, which makes two.",
+        tip: "Tap the Chief Tactical Officer card.",
+        short: "Use the Tactical Officer once.",
+        doThis: "Use the Chief Tactical Officer, pay with Strength",
+      },
+      mode: "await",
+      completes: (observation) => (tacticalSecrets(observation) ?? 0) <= 1 && observation.game.pendingChoice === null,
+      gate: FULL_GATE,
+    },
+    {
+      id: "second-secret",
+      copy: {
+        title: "Uncover the last one",
+        body: "Do it again, paying with both Web-Shooters. A board member with no secrets left is what gains evidence.",
+        tip: "Spend one [physical] from each Web-Shooter.",
+        short: "Use the Tactical Officer again.",
+        doThis: "Use the Chief Tactical Officer, pay with both Web-Shooters",
+      },
+      mode: "await",
+      completes: (observation) => tacticalSecrets(observation) === 0 && observation.game.pendingChoice === null,
+      gate: FULL_GATE,
+    },
+    {
+      id: "gain-evidence",
+      anchor: { kind: "action", id: "endTurn" },
+      copy: {
+        title: "End the turn and gain evidence",
+        body:
+          "End your turn. Stage 1B's Response offers to place 2 secret counters on a board member with none, to gain 2 " +
+          "evidence cards. Accept it and pick the Tactical Officer.",
+        tip: "Put the counters back on the bare member.",
+        short: "End turn, then gain evidence.",
+        doThis: "End turn, accept the Response, pick the Tactical Officer",
+      },
+      mode: "await",
+      completes: evidenceGained,
+      gate: FULL_GATE,
+    },
+    {
+      id: "advance",
+      copy: {
+        title: "The grid shrank",
+        body:
+          "The new evidence is faceup, and every combination that uses it is crossed out. The same Response offers to " +
+          "advance to stage 2A for the accusation. Early is costly in a real game; this is practice, so advance.",
+        tip: "Advance to stage 2A.",
+        short: "Choose to advance.",
+        doThis: "Choose Advance to stage 2A",
+      },
+      mode: "await",
+      completes: accusePromptOpen,
+      gate: FULL_GATE,
+    },
+    {
+      id: "accuse",
+      copy: {
+        title: "Name the mole",
+        body:
+          "The sheet lists only the combinations left open, each under its board member. Pick one and confirm: it " +
+          "is final. In this practice game the envelope holds Security Scanner, Ideology and Authority.",
+        tip: "Security Scanner, Ideology, Authority.",
+        short: "Accuse Security Scanner, Ideology, Authority.",
+        doThis: "Pick that row, then Accuse",
+      },
+      mode: "await",
+      completes: ({ game }) => game.accusation !== undefined && game.accusation !== null,
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "Four guesses checked",
+        body:
+          "Means, motive, opportunity and board member were each checked against the envelope. Each wrong one puts " +
+          "a secret counter on every board member, and a right one costs nothing. Only be early when Zemo is close.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
 /** One `Lesson` per mechanic with a "Try it" game, keyed like `guide/mechanic-tryit-config.ts`'s own record. */
 export const MECHANIC_TRYIT_LESSONS: Readonly<Record<MechanicTryItId, Lesson>> = {
   storm: STORM_TRYIT,
@@ -1462,4 +2127,10 @@ export const MECHANIC_TRYIT_LESSONS: Readonly<Record<MechanicTryItId, Lesson>> =
   jubilee: JUBILEE_TRYIT,
   bishop: BISHOP_TRYIT,
   nightcrawler: NIGHTCRAWLER_TRYIT,
+  nickFury: NICK_FURY_TRYIT,
+  mariaHill: MARIA_HILL_TRYIT,
+  silk: SILK_TRYIT,
+  falcon: FALCON_TRYIT,
+  blackPanther: BLACK_PANTHER_TRYIT,
+  zemo: ZEMO_TRYIT,
 };

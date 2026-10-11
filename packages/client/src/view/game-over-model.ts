@@ -19,7 +19,9 @@ import {
   mainSchemeStage,
   maxHitPoints,
   remainingHitPoints,
-  scale,
+  scaleIn,
+  sharedScheme,
+  sharedVillain,
   type EngineDeps,
   type GameState,
   type InstanceId,
@@ -50,6 +52,8 @@ export interface GameOverSeat {
   readonly name: string;
   readonly detail: string;
   readonly defeated: boolean;
+  /** True for a seat that sat the scenario out (owner decision 66B): neither a defeat nor counted in the table. */
+  readonly satOut: boolean;
 }
 
 export interface GameOverModel {
@@ -161,27 +165,40 @@ export function gameOverModel(
   const tone: GameOverTone = outcome?.result === "win" ? "win" : "loss";
   // The villain with the active counter: with several villains, the one still standing last.
   const villainState = activeVillain(state);
-  const villain = cardName(state, villainState.instanceId);
+  const avatar = cardName(state, villainState.instanceId);
+  // God of Lies: the villain the table fights is Loki, God of Lies, the shared dial the Avatars' damage and shatter
+  // counters land on; the Avatar in the villain slot is only the face of it (docs/phase7-wave9.md section 3.66). So the
+  // debrief names Loki and his remaining hit points, never an Avatar's stage.
+  const dial = sharedVillain(state);
+  const lokiId = dial?.instanceId ?? null;
+  const villain = dial && lokiId ? cardName(state, lokiId) : avatar;
   const stage = numeral(villainState.stageIndex);
   const round = state.round;
 
   const scheme = mainSchemeStage(state);
   const schemeName = scheme.name ?? cardName(state, state.mainScheme.instanceId);
-  const schemeTarget = scale(scheme.targetThreat, state.startingPlayerCount);
+  const schemeTarget = scaleIn(state, scheme.targetThreat);
 
-  const villainHp = hpNumber(remainingHitPoints(state, villainState.instanceId, deps) ?? 0);
+  const villainHp = hpNumber(
+    dial && lokiId ? dial.remaining : (remainingHitPoints(state, villainState.instanceId, deps) ?? 0),
+  );
+  const standing =
+    dial && lokiId
+      ? `${villain} at ${hpNumber(dial.remaining)} of ${hpNumber(dial.hp)} hit points left`
+      : `${villain} at stage ${stage} and ${villainHp} hit points left`;
   // A win with the active villain still on his feet came from a card's own text ("If there are 3 villains under
   // Routed, the players win the game."): the engine logs every such win as `villainDefeated`
   // (`EffectSpec endGame`), so the screen reads the villain's hit points rather than the reason.
   const scenarioWin =
     outcome?.result === "win" &&
     outcome.reason === "villainDefeated" &&
+    !dial?.defeated &&
     (remainingHitPoints(state, villainState.instanceId, deps) ?? 0) > 0;
   const heroesDown = record.seats.filter((seat) => seat.defeatedInRound !== null);
   const firstDown = [...heroesDown].sort((a, b) => (a.defeatedInRound ?? 0) - (b.defeatedInRound ?? 0))[0];
 
   const difficulty = config ? sentenceCase(config.difficulty) : null;
-  const meta = [`Round ${round}`, difficulty, plural(state.players.length, "hero", "heroes")]
+  const meta = [`Round ${round}`, difficulty, plural(state.startingPlayerCount, "hero", "heroes")]
     .filter(Boolean)
     .join(" · ");
 
@@ -197,14 +214,18 @@ export function gameOverModel(
       if (scenarioWin) {
         kicker = "The scenario is won";
         headline = "The players win";
-        summary = `The scenario's own text ended the game in round ${round}, with ${villain} at stage ${stage} and ${villainHp} hit points left.`;
+        summary = `The scenario's own text ended the game in round ${round}, with ${standing}.`;
         break;
       }
-      kicker = `Stage ${stage} cleared`;
+      kicker = dial && lokiId ? "The shared villain fell" : `Stage ${stage} cleared`;
       headline = `${villain} defeated`;
-      summary = `${villain} went down in round ${round}, with ${record.damageToVillain} damage dealt to the villain across the game.`;
+      summary = `${villain} went down in round ${round}, with ${dial && lokiId ? dial.damage : record.damageToVillain} damage dealt to the villain across the game.`;
       const blow = record.lastVillainDamage;
-      if (blow) {
+      if (dial && lokiId) {
+        // The last hit landed on an Avatar and moved the dial (or a shatter did): the record's blow names the Avatar, so
+        // the line says what the table fought, the dial reaching 0.
+        finalBlow = { title: `${villain} reached 0 hit points`, body: `The shared dial ran out in round ${round}.` };
+      } else if (blow) {
         const source = blow.sourceInstanceId ? cardName(state, blow.sourceInstanceId) : null;
         const seat = seatOf(state, blow.sourceInstanceId);
         finalBlow = source
@@ -221,18 +242,18 @@ export function gameOverModel(
     case "playerConceded": {
       kicker = "Game conceded";
       headline = concededBy ? `${playerName(state, concededBy)} conceded` : "The table conceded";
-      summary = `The game was given up in round ${round}, with ${villain} at stage ${stage} and ${villainHp} hit points left.`;
+      summary = `The game was given up in round ${round}, with ${standing}.`;
       break;
     }
     case "allPlayersDefeated": {
       kicker = "Every hero is defeated";
       headline = `${villain} wins this one`;
-      summary = `Every hero was down by round ${round}, with ${villain} at stage ${stage} and ${villainHp} hit points left.`;
+      summary = `Every hero was down by round ${round}, with ${standing}.`;
       const last = record.lastEliminated;
       if (last) {
         finalBlow = {
           title: `${playerName(state, last.playerId)} was the last to fall`,
-          body: `Defeated in round ${last.round}, with ${villain} still at ${villainHp} hit points.`,
+          body: `Defeated in round ${last.round}, with ${villain} still at ${dial && lokiId ? `${hpNumber(dial.remaining)} of ${hpNumber(dial.hp)}` : villainHp} hit points.`,
         };
       }
       break;
@@ -242,7 +263,7 @@ export function gameOverModel(
     case "encounterDeckExhausted": {
       kicker = "The encounter deck ran dry";
       headline = `${villain} wins this one`;
-      summary = `The encounter deck and its discard pile were both empty in round ${round}, with ${villain} at stage ${stage} and ${villainHp} hit points left.`;
+      summary = `The encounter deck and its discard pile were both empty in round ${round}, with ${standing}.`;
       break;
     }
     // A card's own text ended the game, and the engine always names that card (`GameOutcome.sourceInstanceId`): not a
@@ -261,7 +282,7 @@ export function gameOverModel(
       const tripper = lost?.causeInstanceId ? cardName(state, lost.causeInstanceId) : null;
       kicker = "A card ended the game";
       headline = `${villain} wins this one`;
-      summary = `${source ?? "A card's own text"} ended the game in round ${round}, with ${villain} at stage ${stage} and ${villainHp} hit points left.`;
+      summary = `${source ?? "A card's own text"} ended the game in round ${round}, with ${standing}.`;
       if (sourceId && source) {
         const line = losingSentenceOf(state, sourceId, deps);
         const reached = line ? reachedOn(state, sourceId, line) : null;
@@ -276,6 +297,17 @@ export function gameOverModel(
           const body = line ?? `Its own text says the players lose, and its condition was met in round ${round}.`;
           finalBlow = { title: `${source} ended the game`, body, cardInstanceId: sourceId };
           cause = `${source}: ${body}`;
+        }
+        // Worlds Collide: the pod's shared threat reached its target, which is the shared scheme's own loss.
+        const sharedLoss = sharedScheme(state);
+        if (sharedLoss && sharedLoss.instanceId === sourceId) {
+          const reached = `${sharedLoss.threat} of ${sharedLoss.target} threat`;
+          finalBlow = {
+            title: `${source} ended the game`,
+            body: `The shared threat reached ${reached}. The players lose the game.`,
+            cardInstanceId: sourceId,
+          };
+          cause = `${source}: ${reached}. The players lose the game.`;
         }
       }
       break;
@@ -303,8 +335,15 @@ export function gameOverModel(
   const stats: GameOverStat[] = [
     {
       label: villain,
-      value: tone === "win" && !scenarioWin ? `Stage ${stage} cleared` : `Stage ${stage} · ${villainHp} HP left`,
-      note: `${record.damageToVillain} damage dealt to ${villain}`,
+      value:
+        dial && lokiId
+          ? dial.defeated
+            ? "Defeated"
+            : `${hpNumber(dial.remaining)} of ${hpNumber(dial.hp)} HP left`
+          : tone === "win" && !scenarioWin
+            ? `Stage ${stage} cleared`
+            : `Stage ${stage} · ${villainHp} HP left`,
+      note: `${dial && lokiId ? dial.damage : record.damageToVillain} damage dealt to ${villain}`,
     },
     {
       label: "Threat removed",
@@ -313,7 +352,7 @@ export function gameOverModel(
     },
     {
       label: "Heroes down",
-      value: `${heroesDown.length} of ${state.players.length}`,
+      value: `${heroesDown.length} of ${state.startingPlayerCount}`,
       note: firstDown
         ? `${playerName(state, firstDown.playerId)} defeated in round ${firstDown.defeatedInRound}`
         : "Every hero stood to the end",
@@ -336,18 +375,22 @@ export function gameOverModel(
   const seats: GameOverSeat[] = record.seats.map((seat) => {
     const player = state.players.find((candidate) => candidate.playerId === seat.playerId);
     const played = plural(seat.cardsPlayed, "card") + " played";
+    if (seat.satOut || player?.sittingOut) {
+      return { name: playerName(state, seat.playerId), detail: "Sat out", defeated: false, satOut: true };
+    }
     if (seat.defeatedInRound !== null || !player) {
       return {
         name: playerName(state, seat.playerId),
         detail: `Defeated R${seat.defeatedInRound ?? round} · ${played}`,
         defeated: true,
+        satOut: false,
       };
     }
     const id = player.identity.instanceId;
     const hp = remainingHitPoints(state, id, deps);
     const max = maxHitPoints(state, id, deps);
     const health = hp !== undefined && max !== undefined ? `${hpFraction(hp, max)} HP · ` : "";
-    return { name: playerName(state, seat.playerId), detail: `${health}${played}`, defeated: false };
+    return { name: playerName(state, seat.playerId), detail: `${health}${played}`, defeated: false, satOut: false };
   });
 
   const topDamage = [...record.seats].sort((a, b) => b.damage - a.damage)[0];
@@ -371,13 +414,13 @@ export function gameOverModel(
       state,
       record,
       tone,
-      villain,
+      avatar,
       outcome?.reason ?? null,
       lossLine(state, record, cause, finalBlow),
     ),
     seats,
     mvp,
-    villainInstanceId: villainState.instanceId,
+    villainInstanceId: lokiId ?? villainState.instanceId,
   };
 }
 

@@ -68,6 +68,16 @@ describe("footStripLayout", () => {
     },
   );
 
+  // Seen at 1440x900: "HANDSPRIN / G" in an 80px minion tile. A word wider than the strip is never broken; the scene
+  // steps the font and tracking down until it fits, so a lone long word is one row and the strip keeps its height.
+  test.each(["Handspring", "Nightcrawler"])("the single word %s stays one row, never broken across lines", (word) => {
+    for (const width of [75, 84, 96]) {
+      const layout = footStripLayout(word, width);
+      expect(layout.lines, `${word} @${width}`).toBe(1);
+      expect(layout.height).toBe(FOOT_STRIP_HEIGHT);
+    }
+  });
+
   test("a longer attachment name wraps in the hero panel's text column without being clipped", () => {
     const layout = footStripLayout("Targeted for Elimination", 112);
     expect(layout.clipped).toBe(false);

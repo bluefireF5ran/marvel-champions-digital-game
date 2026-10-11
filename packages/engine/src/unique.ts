@@ -40,6 +40,7 @@
  *    matching ally.
  */
 
+import { linkedKeywordNames, linkedKeywordsOf } from "./linked.js";
 import type { AnyCard } from "@mc/content";
 import { DEFAULT_DEPS, type EngineDeps } from "./abilities.js";
 import type { InstanceId, PlayerId } from "./ids.js";
@@ -160,11 +161,35 @@ export function uniqueEntryBlocker(
   deps: EngineDeps,
   id: InstanceId,
   forPlayer: PlayerId | null = null,
+  /** The card whose ability is putting `id` into play, when one is (`broughtInByItsNamedCard`). */
+  bringer: InstanceId | null = null,
 ): InstanceId | null {
   const card = cardOf(state, id);
   if (!card || card.type === "villain") return null;
   // `ignore` keeps a card already in play from matching itself.
-  return matchingCardInPlay(state, card, new Set([id]), forPlayer, deps);
+  const ignore = new Set([id]);
+  if (bringer !== null && broughtInByItsNamedCard(state, card, bringer)) ignore.add(bringer);
+  return matchingCardInPlay(state, card, ignore, forPlayer, deps);
+}
+
+/**
+ * Whether `card` is a linked card and `bringer` the card its Linked keyword names, "the card that brings the linked
+ * cards into play" (RRG 1.8 "Linked (Card Title)", p. 27). The unique rule then does not hold the named card against
+ * the linked card it is putting into play.
+ *
+ * Zzzax (`tt` 55059, a unique minion): "When Defeated: The player who defeated this minion puts the set-aside Zzzax ally
+ * into play under their control." The ally (55066) is unique with the same title and neither has a subtitle, so they
+ * match (RRG 1.8 "Unique Icon", pp. 45–46), and the minion is still in play while its When Defeated resolves (RRG 1.8
+ * "When Defeated Abilities", p. 48: "A defeated card leaves play after its 'When Defeated' ability is resolved"). Read
+ * to the letter the ally could never enter play and the card's one sentence about it would do nothing; the pack's
+ * other three pairs differ only in having subtitles. No FFG ruling names the case. Built on the card's evident purpose
+ * (the owner's rule: intent over the letter where the card plainly means it), and narrowly: only the named card, only
+ * for the linked card its own ability brings in. Every other card in play still blocks the linked card, and the named
+ * card still blocks any other copy.
+ */
+function broughtInByItsNamedCard(state: GameState, card: AnyCard, bringer: InstanceId): boolean {
+  const named = cardOf(state, bringer);
+  return named !== undefined && linkedKeywordsOf(card).some((keyword) => linkedKeywordNames(keyword, named));
 }
 
 /**

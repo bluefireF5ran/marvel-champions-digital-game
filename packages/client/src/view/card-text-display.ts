@@ -21,6 +21,7 @@ const ICON_WORDS: Readonly<Record<string, string>> = {
 export function cardTextDisplay(text: string): string {
   return text
     .replace(/\[per_hero\]/g, " per hero")
+    .replace(/\[per_group\]/g, " per group")
     .replace(/\[([a-z]+)\]/g, (whole, key: string) => ICON_WORDS[key] ?? whole)
     .replace(/\b([A-Z][a-z]+)_([A-Z][a-z]+)\b/g, "$1 $2")
     .replace(/ {2,}/g, " ");

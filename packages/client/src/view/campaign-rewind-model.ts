@@ -59,6 +59,22 @@ export interface RewindView {
    * predates seeds being recorded, so the option is simply not offered.
    */
   readonly replaySeed: number | null;
+  /**
+   * The loss changed the campaign log itself (a defeat instruction ran: MC50 p. 19's new envelope and new evidence),
+   * so the log is not the one the attempt opened with. Read by comparing the log before the attempt with the log now,
+   * never by naming a box. False for every box whose retry restores the log exactly.
+   */
+  readonly logChanged: boolean;
+}
+
+/** The Rewind screen's intro line. A box told as comic pages reads "the page flips back"; a changed log says so in either. */
+export function rewindIntroOf(view: Pick<RewindView, "logChanged">, pageBased: boolean): string {
+  if (view.logChanged) {
+    return "This defeat changes the log, so it is not exactly as it was when you opened the issue. Change decks or aspects first if you want.";
+  }
+  return pageBased
+    ? "The page flips back to the last panel you read. The log picks up exactly where it left off. Change decks or aspects first if you want."
+    : "Same villain, same log as when you opened it. Change decks or aspects first if you want.";
 }
 
 const faceKey = (face: CampaignCardFace): string => `${face.cardId as string}\u0000${face.face ?? ""}`;
@@ -98,5 +114,21 @@ export function rewindViewOf(
         : issueNumber === 2
           ? "Everything from issue #1."
           : `Everything from issues ${keptRange}.`;
-  return { campaignLost: record.status === "lost", issueNumber, keptSummary, gone, replaySeed: entry?.seed ?? null };
+  // The retry restores the shared and hidden records and each seat's fields exactly, unless a defeat instruction wrote.
+  const logChanged =
+    entry?.logBefore.shared !== undefined &&
+    JSON.stringify([record.shared, record.hidden, (record.seats ?? []).map((seat) => seat.fields)]) !==
+      JSON.stringify([
+        entry.logBefore.shared,
+        entry.logBefore.hidden,
+        (entry.logBefore.seats ?? []).map((seat) => seat.fields),
+      ]);
+  return {
+    campaignLost: record.status === "lost",
+    issueNumber,
+    keptSummary: logChanged && issueNumber > 1 ? `${keptSummary} Except what this defeat changed.` : keptSummary,
+    gone,
+    replaySeed: entry?.seed ?? null,
+    logChanged,
+  };
 }

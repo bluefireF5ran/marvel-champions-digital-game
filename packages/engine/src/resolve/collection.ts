@@ -7,9 +7,13 @@ import type { AnyCard, CardId } from "@mc/content";
 import { CARD_DATA_CATEGORIES, cardTraits } from "../campaign/ops.js";
 import { type Ctx, emit, nextInstanceId, requestChoice, setFrame, updatePlayer } from "../ctx.js";
 import { EngineInvariantError } from "../errors.js";
-import { type EffectContext, resolvePlayers } from "../select.js";
+import type { PlayerId } from "../ids.js";
+import { linkedKeywordsOf } from "../linked.js";
+import { cardOf, foeHeroFace, getInstance, getPlayer, titleShowing } from "../query.js";
+import { cardsInPlay, categoriesOf, type EffectContext, resolvePlayers } from "../select.js";
 import type { CollectionSearchFilter, EffectSpec } from "../spec.js";
 import { type CardInstance, type GameState, NO_STATUSES } from "../state.js";
+import { sameTitle } from "../titles.js";
 import { effectChoiceAuthority } from "../villain/authority.js";
 import type { Frame } from "./frames.js";
 import { markPreThenUnresolved } from "./then.js";
@@ -18,9 +22,29 @@ import { markPreThenUnresolved } from "./then.js";
  * A scenario-, campaign- or competitive-specific card is in no collection search: it "can only be used during a
  * campaign from the same product" (RRG 1.8 "Campaign-Specific Card", p. 11), by that campaign's own rules, and the
  * owner's decision leaves every such card out (§4.1 Q47 = A), whatever aspect it also prints.
+ *
+ * A linked card is in none either (docs/phase7-wave9.md §3.77). RRG 1.8 "Linked (Card Title)" (p. 27): "Cards with
+ * the linked keyword cannot be included in any deck. Instead, they are set aside at the start of the game if any deck
+ * includes the card that brings the linked cards into play". Ruling August 3, 2026 - Ruling 4, answer 3: "Linked
+ * cards cannot be included in decks", asked about a campaign reward. So the card its parentheses name is the one way
+ * a linked card comes into a game, and a search of the collection is not it.
  */
-const matchesFilter = (card: AnyCard, filter: CollectionSearchFilter): boolean => {
+const matchesFilter = (
+  card: AnyCard,
+  filter: CollectionSearchFilter,
+  titlesInPlay: () => ReadonlySet<string>,
+  ownTitles: () => ReadonlySet<string>,
+): boolean => {
   if ("specificTo" in card && card.specificTo !== undefined) return false;
+  if (linkedKeywordsOf(card).length > 0) return false;
+  if (filter.notAmongOwnCards && [...ownTitles()].some((title) => sameTitle(card.name, title))) return false;
+  if (filter.heroTitleNotInPlay) {
+    if (card.type !== "hero_identity" || card.separatedIdentity) return false;
+    // Only the version a game starts with is a hero to choose (the others replace it during a game).
+    if (card.progressingIdentity && card.progressingIdentity.versions[0] !== card.id) return false;
+    const title = foeHeroFace(card).faceName;
+    if ([...titlesInPlay()].some((inPlay) => sameTitle(title, inPlay))) return false;
+  }
   const categories = CARD_DATA_CATEGORIES[card.type];
   if (filter.categories && !filter.categories.some((category) => categories.includes(category))) return false;
   if (filter.aspects && !filter.aspects.includes("aspect" in card ? (card.aspect as string) : "")) return false;
@@ -40,7 +64,12 @@ const matchesFilter = (card: AnyCard, filter: CollectionSearchFilter): boolean =
  * deck copies and copies already fetched, and a copy removed from the game stays counted, since it "does not become a
  * part of the collection" (ruling, December 17, 2025 - Ruling 4, answer 1).
  */
-export function collectionCandidates(state: GameState, filter: CollectionSearchFilter): readonly AnyCard[] {
+export function collectionCandidates(
+  state: GameState,
+  filter: CollectionSearchFilter,
+  /** The searching player, for a filter that reads their cards (`notAmongOwnCards`). */
+  playerId?: PlayerId,
+): readonly AnyCard[] {
   const inGame = new Map<string, number>();
   for (const instance of Object.values(state.instances))
     inGame.set(instance.cardId, (inGame.get(instance.cardId) ?? 0) + 1);
@@ -48,9 +77,53 @@ export function collectionCandidates(state: GameState, filter: CollectionSearchF
     if (a.name !== b.name) return a.name < b.name ? -1 : 1;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   };
+  let titles: ReadonlySet<string> | undefined;
+  const titlesInPlay = (): ReadonlySet<string> => (titles ??= characterTitlesInPlay(state));
+  let own: ReadonlySet<string> | undefined;
+  const ownTitles = (): ReadonlySet<string> => (own ??= titlesAmongCardsOf(state, playerId));
   return Object.values(state.cardPool)
-    .filter((card) => matchesFilter(card, filter) && card.quantityInSet - (inGame.get(card.id) ?? 0) > 0)
+    .filter(
+      (card) =>
+        matchesFilter(card, filter, titlesInPlay, ownTitles) && card.quantityInSet - (inGame.get(card.id) ?? 0) > 0,
+    )
     .sort(byTitle);
+}
+
+/**
+ * The printed titles of a player's cards in this game, for `CollectionSearchFilter.notAmongOwnCards` ("a different"
+ * card, docs/phase7-wave9.md §4.1 Q12 = A): the cards in their deck, hand and discard pile, and the cards in play they
+ * own or control. Cards set aside, removed from the game or in the victory display are not among them. No player, no
+ * titles.
+ */
+function titlesAmongCardsOf(state: GameState, playerId: PlayerId | undefined): ReadonlySet<string> {
+  const player = playerId === undefined ? undefined : getPlayer(state, playerId);
+  if (!player) return new Set();
+  const inPlay = cardsInPlay(state).filter((id) => {
+    const instance = getInstance(state, id);
+    return instance?.ownerId === player.playerId || instance?.controllerId === player.playerId;
+  });
+  const titles = new Set<string>();
+  for (const id of [...player.deck, ...player.hand, ...player.discard, ...inPlay]) {
+    const title = cardOf(state, id)?.name;
+    if (title !== undefined) titles.add(title);
+  }
+  return titles;
+}
+
+/**
+ * The titles of the characters in play, for `CollectionSearchFilter.heroTitleNotInPlay`: the title each character is
+ * showing (`titleShowing`; RRG 1.8 "Identity", p. 23: an identity by its faceup side). Only a faceup title is in play
+ * (docs/phase7-wave9.md §4.1 Q44 = B): a seat's identity in alter-ego form shows its alter-ego title, so its hero title
+ * blocks nothing until it flips. A subtitle is not a title (RRG 1.8 "Subtitle", p. 41).
+ */
+function characterTitlesInPlay(state: GameState): ReadonlySet<string> {
+  const titles = new Set<string>();
+  for (const id of cardsInPlay(state)) {
+    if (!categoriesOf(state, id).includes("character")) continue;
+    const title = titleShowing(state, id);
+    if (title !== undefined) titles.add(title);
+  }
+  return titles;
 }
 
 /**
@@ -65,7 +138,7 @@ export function executeSearchCollection(
   context: EffectContext,
 ): void {
   const [playerId] = resolvePlayers(ctx.state, effect.player, context);
-  const candidates = playerId ? collectionCandidates(ctx.state, effect.filter) : [];
+  const candidates = playerId ? collectionCandidates(ctx.state, effect.filter, playerId) : [];
   const bind = (found: CardInstance["instanceId"] | null): void =>
     setFrame(ctx, {
       ...frame,

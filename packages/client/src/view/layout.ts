@@ -173,6 +173,11 @@ export interface BoardLayout {
 export interface LayoutOptions {
   /** Seats in the game. A solo game has no team strip. */
   readonly playerCount: number;
+  /**
+   * The scenario has a neutral play area (God of Lies): the villain band is given room for it under the villain and its
+   * environments on a short table, out of the player band's spare room (`longTableZones`).
+   */
+  readonly neutralArea?: boolean;
   /** Which phone tab is showing. Ignored off phone. */
   readonly activeTab?: PhoneTab;
   /**
@@ -507,7 +512,10 @@ function longTableZones(
   const tableTop = chrome.y + chrome.height + gutter;
   const tableHeight = hand.y - tableTop - gutter;
   // The villain band carries the taller content (villain panel plus a minion row).
-  const villainHeight = Math.round(tableHeight * 0.52);
+  // A neutral strip (label, a wide card, the line under it: 104) joins the villain and a two-row environment grid
+  // (136) in the band on a table too short for both at 52%; the player band gives up the difference.
+  const neutralFloor = options.neutralArea ? Math.min(Math.round(tableHeight * 0.6), 104 + 8 + 136 + 22) : 0;
+  const villainHeight = Math.max(Math.round(tableHeight * 0.52), neutralFloor);
   const playerTop = tableTop + villainHeight + gutter;
   const playerHeight = tableHeight - villainHeight - gutter;
 

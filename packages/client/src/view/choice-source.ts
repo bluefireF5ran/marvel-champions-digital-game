@@ -189,8 +189,10 @@ export function setupOptionQuestionFor(
 ): string | null {
   if (instruction.kind !== "campaign" || prompt.kind !== "chooseOption") return null;
   const first = options[0]?.label ?? "";
-  if (first.startsWith("Rejoin at full")) return "Rejoin your team?";
+  if (first.startsWith("Rejoin at full") || first.startsWith("Rejoin and heal REC")) return "Rejoin your team?";
   if (first.startsWith("Heal to full")) return "Heal your identity to full?";
+  // Agents of S.H.I.E.L.D.'s expert heal (`healRecForSecret`): healing by REC for a secret counter on a Board Member.
+  if (first.startsWith("Heal REC")) return "Heal your identity?";
   return null;
 }
 
@@ -248,15 +250,21 @@ function dividePromptTitleOf(
  * every spent resource must differ, else "Spend 3 resources, at least 2 different?". The count is the requirement's
  * total; a requirement of nothing keeps the bare title.
  */
-export function spendResourcesTitleOf(requirement: ResourceRequirement, distinctTypes?: number): string {
+export function spendResourcesTitleOf(
+  requirement: ResourceRequirement,
+  distinctTypes?: number,
+  required?: boolean,
+): string {
   const total =
     (requirement.generic ?? 0) +
     (requirement.physical ?? 0) +
     (requirement.mental ?? 0) +
     (requirement.energy ?? 0) +
     (requirement.wild ?? 0);
-  if (total <= 0) return "Spend resources?";
+  if (total <= 0) return required ? "Spend resources" : "Spend resources?";
   const noun = total === 1 ? "resource" : "resources";
+  // A payment nobody may skip is not a question (`playFromHand.mustPay`).
+  if (required) return `Spend ${total} ${noun}`;
   if (distinctTypes === undefined || distinctTypes <= 1) return `Spend ${total} ${noun}?`;
   if (distinctTypes >= total) return `Spend ${total} different ${noun}?`;
   return `Spend ${total} ${noun}, at least ${distinctTypes} different?`;
@@ -371,6 +379,9 @@ export function playDestinationTitleOf(
   return named ? `Where does ${named[1]} go?` : "Where does it go?";
 }
 
+/** The end-of-phase prompt for a Forced Action that is still owed: nothing else can be done until one is used. */
+export const FORCED_ACTION_TITLE = "Forced Action: you must use one";
+
 /**
  * The design's overlay titles for every `PendingChoice.prompt` kind (`scenes/choice.ts`'s own overlay header, moved
  * here so it can be unit tested the way every other view model in this file is). `orderCards`/`chooseBottomCards`
@@ -425,8 +436,10 @@ export function promptTitleOf(
   if (kind === "spendResources") {
     return prompt.formChangeCost
       ? formChangeCostTitleOf(prompt.requirement, prompt.formChangeCost)
-      : spendResourcesTitleOf(prompt.requirement, prompt.distinctTypes);
+      : spendResourcesTitleOf(prompt.requirement, prompt.distinctTypes, prompt.required === true);
   }
+  // The player phase cannot end until one of these Forced Actions is used (RRG 1.8 "Action", p. 6; `forcedAction`).
+  if (kind === "chooseOption" && prompt.forcedAction) return FORCED_ACTION_TITLE;
   if (kind === "chooseOption" && counts?.options) {
     const destination = playDestinationTitleOf(state, counts.options);
     if (destination) return destination;
@@ -489,6 +502,8 @@ export function choiceHeaderText(
   deps: EngineDeps,
   genericTitle: string,
 ): string {
+  // The options are the cards that owe the action: the title says so, with no one card named as the asker.
+  if (choice.prompt.kind === "chooseOption" && choice.prompt.forcedAction) return genericTitle;
   const source = choiceSourceOf(state, choice);
   const instruction = source ? null : choiceInstructionOf(state, choice);
   let named: string;

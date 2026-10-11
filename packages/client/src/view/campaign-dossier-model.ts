@@ -40,7 +40,7 @@ import {
   lostAtNodeIdOf,
   PLURALIZED_FIELDS,
   pluralizeFieldWord,
-  signedCount,
+  deltaWords,
   fieldIdWords,
 } from "./campaign-run-model.js";
 import { seatDeckSizeSplit } from "./campaign-deck-edit-model.js";
@@ -322,6 +322,17 @@ const WORLD_FIELD_PRESENTATION: Readonly<Record<string, FieldPresentation | { re
   morlocksSaved: { hidden: true },
   hopeDamage3: { hidden: true },
   hopeDamage4: { hidden: true },
+  // Agents of S.H.I.E.L.D. (MC50 p. 24): the board's four recorded secrets are the Briefing's case file (pictures) and
+  // the Log tab's printed sheet, so they are not repeated here as four rows of "-".
+  secrets1: { hidden: true },
+  secrets2: { hidden: true },
+  secrets3: { hidden: true },
+  secrets4: { hidden: true },
+  minionsAndSideSchemes: { label: "Alert Level start", when: "Threat placed on Alert Level in scenario #2." },
+  rescuedCaptives: { label: "Rescued Captives", when: "Locks taken off the Holding Cell in scenario #3." },
+  adaptoidEnvironments: { label: "Adaptoid environments", when: "Come back into play in scenario #5." },
+  survivingThunderbolts: { label: "Surviving Thunderbolts", when: "Shuffled into scenario #5's encounter deck." },
+  evidence: { label: "Evidence gained", when: "Each card has a Setup in every later scenario." },
   // Age of Apocalypse (MC45 p. 24): the four mission rows and five Overseers are their own panel (`missions`), so the
   // strike lists and the four result fields are not repeated as world rows.
   missions: { hidden: true },
@@ -969,7 +980,7 @@ export function campaignDossierLog(
           value.kind === "flag"
             ? fieldLabel(field)
             : value.kind === "number"
-              ? `${signedCount(value.value)} ${pluralizeFieldWord(fieldLabel(field), field, value.value)}`
+              ? deltaWords(field, value.value, pluralizeFieldWord(fieldLabel(field), field, value.value))
               : value.kind === "cardList"
                 ? `+ ${value.cardIds.map((id) => cardName(id)).join(", ")}`
                 : value.kind === "choice"

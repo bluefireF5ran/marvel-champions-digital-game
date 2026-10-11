@@ -204,6 +204,10 @@ export interface LogFieldDef {
    * Never shown to the players. MC50 p. 5: three evidence cards "are randomly drawn at the start of the campaign,
    * and kept hidden from the players in the A.I.M. envelope". Stored in `CampaignLog.hidden` and excluded from
    * every view model (design §10.2, Q4).
+   *
+   * Only a hidden field may hold a sealed value (`LogValueSeal`; a sealed `random` draw, docs/phase7-wave9.md §3.75).
+   * A hidden field holding an ordinary value is scratch the sheet does not print: it is traced and handed to a game
+   * like any other field.
    */
   readonly hidden?: true;
   /**
@@ -422,6 +426,20 @@ export type CampaignGameQuery =
    * same per Board Member. `counter` is a counter name as `CardInstance.counters` keys them.
    */
   | { readonly kind: "countersOn"; readonly query: TargetQuery; readonly counter: string }
+  /**
+   * MC50 pp. 9 to 15: "Record the number of secret counters on each Board Member card in the campaign log." The state
+   * of each card in play that matches `query`, one entry a card, for a `cardState` field: each counter named in
+   * `counters` as `CardInstance.counters` keys it (0 when the card has none) and, with `withFace`, the face the card
+   * is on. The entries are keyed and the faces named when the value is written (`LogValue` `cardState`), against the
+   * field's own `cardIds`: a card the field does not list is an `EngineInvariantError`, and so are two cards in play
+   * that would share one key. Written to any other field kind it reads as the matching cards (a count, a card list).
+   */
+  | {
+      readonly kind: "cardStateOf";
+      readonly query: TargetQuery;
+      readonly counters: readonly string[];
+      readonly withFace?: true;
+    }
   /** MC60 p. 13: "If Disturbed Psyche is in play and has at least 2 threat on it…" */
   | { readonly kind: "threatOn"; readonly query: TargetQuery }
   /**
@@ -725,6 +743,19 @@ export type CampaignOp =
        * The opposite of `choose.repeatOnRetry`, which makes a retry keep a pick (MC40 p. 7).
        */
       readonly perAttempt?: true;
+      /**
+       * A draw nobody may look at (MC50 p. 5: "put one card from each set into the A.I.M. envelope **without looking
+       * at them**"; docs/phase7-wave9.md §3.75).
+       *
+       * - **Drawn exactly as an open draw**: the same options, the same values off `CampaignLog.rng`, `perAttempt`
+       *   included. So the log replays from its seed to the same sealed cards, with nothing written down.
+       * - **Traced without its cards**: the record holds `sealed`, how many were drawn (`drawn`) and an empty `picked`.
+       * - **One use**: a later op of the same step list may read the slot only as the value of a `setField` or an
+       *   `appendToList` on a `hidden` field. The value it writes is itself sealed (`LogValue.sealed`). Any other read
+       *   of the slot (another field, a grant, a choice's options, a composition, a filter) is an
+       *   `EngineInvariantError`. `choiceMade` may still ask whether anything was drawn.
+       */
+      readonly sealed?: true;
     }
   // --- currency ----------------------------------------------------------------------------------------------
   /**
@@ -965,8 +996,27 @@ export interface EliminationPolicy {
 // §5 The log
 // ---------------------------------------------------------------------------------------------------------------
 
+/**
+ * A value no player may read (docs/phase7-wave9.md §3.75; MC50 p. 5, "without looking at them"), marked on the value
+ * itself so the mark goes wherever the value is copied: a retry baseline, a history entry, a stored log.
+ *
+ * - `sealed`: the value was drawn by a sealed `random` op (or copied or added to from one). It lives only in a
+ *   `hidden` field (`CampaignLog.hidden`). The runner traces a write of it with its contents taken out, hands it to a
+ *   game only in `CampaignLogView.hidden`, and refuses to read it between games except to count it, to filter a draw
+ *   by it (`excludingTitles`) or to write another hidden field.
+ * - `sealedSize`: on a value whose contents have been taken out (a trace, a `sealCampaignLog` copy), how many entries
+ *   the real value holds. Never set on the stored value itself.
+ */
+export interface LogValueSeal {
+  readonly sealed?: true;
+  readonly sealedSize?: number;
+}
+
 /** One field's value. The `kind` always matches its `LogFieldDef.type.kind`. */
-export type LogValue =
+export type LogValue = LogValueContent & LogValueSeal;
+
+/** What a field holds, by kind (`LogValue` without the seal marks). */
+export type LogValueContent =
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "flag"; readonly value: boolean }
   | { readonly kind: "cardList"; readonly cardIds: readonly CardId[] }
@@ -976,6 +1026,12 @@ export type LogValue =
   /**
    * MC50 p. 6/p. 11: counters *by name* plus the face the card is on, because the flip is permanent ("that board
    * member permanently turns against the heroes, flipping to its attachment side").
+   *
+   * Keyed by the card id the field lists (`LogFieldType` `cardState.cardIds`), which is the card's front face. `face`
+   * is absent while the card is on that face. On its other face it is that face's own card id when the two faces are
+   * two card records (`BaseCard.otherFaceId`), and the printed name of the other face (`CardFlipSide.name`) when they
+   * are one record, as `cardRef` names a face. Written by a `record` instruction's `cardStateOf` query and by nothing
+   * else; read in a game by `ValueSpec campaignLog { card, counter }` and `Predicate campaignLog { card, face }`.
    */
   | {
       readonly kind: "cardState";
@@ -1214,6 +1270,12 @@ export interface CampaignChoiceRecord {
    * (docs/phase7-wave8.md §3.45, Q22 = B). Absent on every other record.
    */
   readonly attempt?: number;
+  /**
+   * A `random` op with `sealed` (docs/phase7-wave9.md §3.75): `picked` is empty and `drawn` is how many cards the draw
+   * took. The cards are in no trace: a replay of the log from its seed draws them again.
+   */
+  readonly sealed?: true;
+  readonly drawn?: number;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1265,6 +1327,15 @@ export interface CampaignGameInput {
  */
 export interface CampaignLogView {
   readonly shared: Readonly<Record<string, LogValue>>;
+  /**
+   * The sealed values (`LogValueSeal`) an instruction of this game reads, apart from `shared` and nowhere else
+   * (docs/phase7-wave9.md §3.75). No `campaignLog` value, predicate or selector reads this record: the one reader is
+   * `EffectSpec seedHiddenPiles`, which moves the cards into `GameState.hiddenPiles`. It is part of the game's replay
+   * baseline (a saved game replays without the campaign log), so the authority's copy holds it; a state given to a
+   * player has it taken out (`sealHiddenPiles`). Absent when the game reads no sealed value, so every earlier game
+   * input is unchanged.
+   */
+  readonly hidden?: Readonly<Record<string, LogValue>>;
   readonly perSeat: readonly {
     readonly seatNumber: number;
     readonly fields: Readonly<Record<string, LogValue>>;

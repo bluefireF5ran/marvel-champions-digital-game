@@ -13,7 +13,7 @@
 import Phaser from "phaser";
 import { ink, surface, typeRole } from "../tokens.js";
 import { caseOf, textStyle } from "../ui/theme.js";
-import { McButton, label } from "../ui/widgets.js";
+import { McButton, fitText, fitWrapped, label } from "../ui/widgets.js";
 import { McVirtualList, type VirtualListRow } from "../ui/virtual-list.js";
 import { overlayPanelLayout } from "../view/overlay-layout.js";
 import { formFactorFor, toggleRowHeight, type Rect } from "../view/layout.js";
@@ -329,12 +329,14 @@ export class UnlocksOverlay extends Phaser.Scene {
     const midY = rect.y + ROW_HEIGHT / 2;
     const right = rect.x + rect.width - GUTTER;
     if (row.kind === "section") {
-      objects.push(label(this, rect.x, rect.y + ROW_HEIGHT - 18, row.title, typeRole.label, surface.paper.hex));
+      // A long section title wraps onto a second line (stepping the type down first), sitting on the row's foot.
+      const heading = label(this, rect.x, rect.y, row.title, typeRole.label, surface.paper.hex);
+      fitWrapped(heading, rect.width - GUTTER, 2, typeRole.label.size);
+      heading.setY(rect.y + ROW_HEIGHT - 6 - Math.ceil(heading.height));
+      objects.push(heading);
       return { objects };
     }
     if (row.kind === "wave") {
-      const rule = this.add.graphics();
-      rule.fillStyle(surface.paper.hex, 0.25).fillRect(rect.x, rect.y + ROW_HEIGHT - 6, rect.width - GUTTER, 1);
       const title = label(this, rect.x, midY - 2, row.title, typeRole.sectionHeader, surface.paper.hex, 1).setOrigin(
         0,
         0.5,
@@ -350,9 +352,24 @@ export class UnlocksOverlay extends Phaser.Scene {
       )
         .setOrigin(1, 0.5)
         .setFontSize(10);
-      // A long lock reason gives way to the wave's own name rather than running over it.
+      // A long lock reason gives way to the wave's own name rather than running over it: when it has too little room
+      // beside the title it drops under it (left-aligned, wrapped to the row's width), never squeezed into a sliver.
       const room = rect.width - GUTTER - title.width - 16;
-      if (status.width > room) status.setWordWrapWidth(room).setFontSize(9);
+      let ruleY = rect.y + ROW_HEIGHT - 6;
+      if (status.width > room) {
+        if (room >= 140) status.setWordWrapWidth(room).setFontSize(9);
+        else {
+          title.setY(rect.y + 13);
+          status
+            .setOrigin(0, 0)
+            .setPosition(rect.x, rect.y + 25)
+            .setFontSize(9);
+          status.setWordWrapWidth(rect.width - GUTTER);
+          ruleY = rect.y + ROW_HEIGHT - 1;
+        }
+      }
+      const rule = this.add.graphics();
+      rule.fillStyle(surface.paper.hex, 0.25).fillRect(rect.x, ruleY, rect.width - GUTTER, 1);
       objects.push(rule, title, status);
       return { objects };
     }
@@ -362,18 +379,20 @@ export class UnlocksOverlay extends Phaser.Scene {
       .text(rect.x + 12, midY - 9, row.title, textStyle(typeRole.body, surface.paper.hex, 0.95))
       .setOrigin(0, 0.5)
       .setFontSize(14);
+    // A long scenario name ("Scenario · Collector (Infiltrate the Museum)") steps its type down to the room beside the pill.
+    fitText(title, textWidth, 14);
     const detail = this.add
       .text(rect.x + 12, midY + 10, row.detail, textStyle(typeRole.body, surface.paper.hex, 0.6))
       .setOrigin(0, 0.5)
       .setFontSize(10);
     if (detail.width > textWidth) detail.setFontSize(9);
-    // Still too long on a phone: the full reason is in the confirm panel, so the row can cut it short.
+    // Still too long on a phone: wrap to a second line under a title lifted a little, never cut.
     if (detail.width > textWidth) {
-      let text = row.detail;
-      while (text.length > 1 && detail.width > textWidth) {
-        text = text.slice(0, -1);
-        detail.setText(`${text.trimEnd()}…`);
-      }
+      title.setY(midY - 13);
+      detail
+        .setOrigin(0, 0)
+        .setY(midY - 1)
+        .setWordWrapWidth(textWidth);
     }
     const toggleable = switchToggleable(row.state);
     const on = row.state === "on";

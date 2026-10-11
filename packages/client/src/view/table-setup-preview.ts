@@ -55,6 +55,7 @@ import {
 import { POOL_DEPS } from "../content/pool.js";
 import { encounterDeckPreviewOf, type EncounterDeckPreview } from "./encounter-preview.js";
 import { encounterDeckSizeText } from "./modular-summary.js";
+import { hasRandomVillain, randomVillainLabel } from "./random-villain.js";
 import { difficultyOptionsFor, type SetupDifficulty } from "./setup-draft.js";
 import { aspectName } from "./aspect-stamp.js";
 
@@ -386,7 +387,9 @@ export function tableSetupPreviewOf(
     villainCard?.type === "villain"
       ? (villainCard.sides.find((s) => s.side === (villainCard.startingSide ?? "A")) ?? villainCard.sides[0])
       : undefined;
-  const villainIsRandom = scenario.randomVillainName !== undefined;
+  // `startingVillain: "bySetup"` (God of Lies): the main scheme's Setup puts a random villain into play, so naming
+  // `villainCardId` here would promise a villain the board may not show.
+  const villainIsRandom = hasRandomVillain(scenario);
   const addedSets: AddedSetPreview[] = added.map((setup) => ({
     name:
       encounterSets.find((candidate) => (candidate.id as string) === setup.encounterSetId)?.name ??
@@ -396,7 +399,7 @@ export function tableSetupPreviewOf(
   }));
   return {
     playerCount,
-    villainName: scenario.randomVillainName ?? villainSide?.name ?? villainCard?.name ?? scenario.name,
+    villainName: randomVillainLabel(scenario, cardsById) ?? villainSide?.name ?? villainCard?.name ?? scenario.name,
     villainIsRandom,
     addedSets,
     villainCount: scenario.multipleVillains ? scenario.multipleVillains.villains.length : 1,

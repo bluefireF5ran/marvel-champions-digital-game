@@ -22,7 +22,7 @@ import {
   undefeatedVillains,
   villainOf,
 } from "./query.js";
-import { attachLimitFault, attachmentReachOf, canHaveAttached } from "./rules.js";
+import { attachLimitFault, attachmentReachOf, canHaveAttached, maxPerPlayerReached } from "./rules.js";
 import {
   cardsInPlay,
   classificationsOf,
@@ -31,6 +31,7 @@ import {
   type EffectContext,
   selectTargets,
   traitsOf,
+  villainAliasOf,
 } from "./select.js";
 import type { TargetQuery } from "./spec.js";
 import type { GameState } from "./state.js";
@@ -61,6 +62,9 @@ const POOL_QUERIES: Record<QualifiedHost["category"] | SuperlativeHost["among"],
 
 /** "The villain" for this context: the active villain, or the context's game area's (docs/phase7-wave2.md §3.1). */
 function theVillain(state: GameState, context: EffectContext): readonly InstanceId[] {
+  // On a card told that "the villain" in its text is its host (docs/phase7-wave9.md §3.49), that host.
+  const alias = villainAliasOf(state, context.selfInstanceId);
+  if (alias !== undefined) return [alias];
   const id = activeVillainIdFor(state, contextArea(state, context));
   const villain = id ? villainOf(state, id) : undefined;
   return villain && !villain.defeated ? [villain.instanceId] : [];
@@ -210,6 +214,23 @@ export function upgradeHostCandidates(
     // "Players may attach upgrades to allies in the mission area" (`RuleSpec playDestination.attachments`).
     ...attachmentReachOf(state, deps, id),
   });
+}
+
+/**
+ * `upgradeHostCandidates` for an upgrade an effect puts into play under `controllerId`, less the hosts on which a
+ * player would take control of one more copy of a "Max N per player" card than they may (`maxPerPlayerReached`; RRG
+ * 1.8 "Max, Maximum", p. 28; owner decision, docs/phase7-wave9.md §4.1 Q37 = A). The player who would control it is
+ * the host's controller (RRG 1.8 "Ownership and Control", p. 31), or `controllerId` on a host no player controls.
+ */
+export function putIntoPlayHostCandidates(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  controllerId: PlayerId,
+): readonly InstanceId[] {
+  return upgradeHostCandidates(state, deps, id, controllerId).filter(
+    (host) => maxPerPlayerReached(state, id, controllerOf(state, host) ?? controllerId) === null,
+  );
 }
 
 /**

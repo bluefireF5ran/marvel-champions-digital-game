@@ -8,6 +8,7 @@
  */
 
 import { footStripLayout, FOOT_STRIP_HEIGHT } from "../../view/foot-strip-layout.js";
+import { activeKeywordTag, inactiveKeywordNote, stripKeepsStats, tagCapacity } from "../../view/keyword-tags.js";
 import { countTween } from "../../ui/bound-tween.js";
 import type Phaser from "phaser";
 import type { InstanceId, PlayerId } from "@mc/engine";
@@ -15,12 +16,22 @@ import { drawArt, type ArtFit } from "../../art/card-art.js";
 import type { ArtSource } from "../../art/art-source.js";
 import { accent, ink, signal, status as statusTokens, surface, typeRole } from "../../tokens.js";
 import { textStyle } from "../../ui/theme.js";
-import { McHpPlate, McStatBadge, fitText, fitWrapped, label, paintPanel, type StatKey } from "../../ui/widgets.js";
 import {
-  attachmentChipDamage,
+  McHpPlate,
+  McStatBadge,
+  fitText,
+  fitTight,
+  fitWrapped,
+  label,
+  paintPanel,
+  type StatKey,
+} from "../../ui/widgets.js";
+import {
+  attachmentChipDamageTag,
   attachmentChipText,
   counterNote,
   threatNote,
+  tuckedLine,
   type CharacterPanel,
   type StatTile,
 } from "../../view/board-model.js";
@@ -42,7 +53,8 @@ import type { BoardDrawContext } from "./context.js";
 import type { DefeatFlashState, ExhaustMotionState, HpTickState, StatusStampState } from "./motion.js";
 import { dimAlpha, targetState } from "./selection.js";
 import { drawTeamUpBlurb, drawTeamUpRing } from "./team-up-badge.js";
-import { columnRings, ringDiameterFor } from "../../view/team-up-layout.js";
+import { drawTuckedRow, type TuckedRowDrawn } from "./tucked-row.js";
+import { panelRings, ringDiameterFor } from "../../view/team-up-layout.js";
 
 export interface DrawCharacterOptions {
   /**
@@ -55,6 +67,11 @@ export interface DrawCharacterOptions {
   readonly shape?: PanelShape | "auto";
   /** The seat this panel is the identity of: its Team-Up rings (`BoardDrawContext.teamUpRings`) sit in the free gap of its text column. */
   readonly playerId?: PlayerId;
+  /**
+   * Called with the keyword tag a card-shaped panel had no room to draw as a strip under its art (the stat badges come
+   * first), so the caller can carry it somewhere else, as the minion row does on its chip above the tile.
+   */
+  readonly onTagDropped?: (tag: string) => void;
 }
 
 /** "1 time counter" / "2 time counters, 1 snoop counter" — every counter kind on the card itself, in one short line. */
@@ -100,7 +117,7 @@ export function drawCharacter(
   // rather than as art. The identity asks for the wide panel outright, since
   // a tall window can hand it a slot that *looks* card-shaped.
   if (panelShape(rect, options.shape) === "card") {
-    drawCardShapedPanel(ctx, rect, panel, dim, firstDrawn);
+    drawCardShapedPanel(ctx, rect, panel, dim, firstDrawn, options.onTagDropped);
     return;
   }
 
@@ -168,11 +185,41 @@ export function drawCharacter(
     top += height + 3;
   }
   // A keyword the card does not print but has right now (Hurricane's "retaliate 1"): on the board, not only in Inspect.
-  if (panel.grantedKeywords.length > 0) {
-    const gained = panel.grantedKeywords.join(" \u00b7 ");
-    const height = Math.max(16, footStripLayout(gained, textWidth).height);
-    drawFootStrip(scene, { x: left, y: top, width: textWidth, height }, gained, "note", dim);
-    top += height + 3;
+  const keywordNote = activeKeywordTag(panel.grantedKeywords, panel.inactiveKeywords, tagCapacity(textWidth));
+  const offNote = inactiveKeywordNote(panel.inactiveKeywords);
+  for (const [text, dimmed] of [
+    [keywordNote, false],
+    [offNote, true],
+  ] as const) {
+    if (!text) continue;
+    drawFootStrip(
+      scene,
+      { x: left, y: top, width: textWidth, height: FOOT_STRIP_HEIGHT },
+      text,
+      "note",
+      dimmed ? dim * ink.meta : dim,
+    );
+    top += FOOT_STRIP_HEIGHT + 3;
+  }
+
+  // Cards tucked under this one (Silk's identity): small cards under an "UNDER n" strip, each opened by a tap; where the
+  // column has no room for the row (a short panel) the strip alone says the count and a tap opens the first.
+  const tuckTargets: { readonly rect: Rect; readonly ids: readonly InstanceId[] }[] = [];
+  let tuckedRow: TuckedRowDrawn | null = null;
+  if (panel.tuckedCount > 0) {
+    const roomLeft = rect.y + rect.height - 8 - top - TUCKED_STAT_RESERVE;
+    const drawn = compact
+      ? null
+      : drawTuckedRow(ctx, { x: left, y: top, width: textWidth, height: Math.min(roomLeft, 70) }, panel, dim);
+    if (drawn && drawn.height > 0) {
+      tuckedRow = drawn;
+      top += drawn.height + 4;
+    } else {
+      const strip: Rect = { x: left, y: top, width: textWidth, height: 16 };
+      drawFootStrip(scene, strip, tuckedLine(panel, false), "note", dim);
+      tuckTargets.push({ rect: strip, ids: panel.tucked.map((card) => card.instanceId) });
+      top += 19;
+    }
   }
 
   if (panel.exhausted && !compact) {
@@ -219,7 +266,7 @@ export function drawCharacter(
   const abilityLine = controller.abilityLine(panel.instanceId);
   if (abilityLine) {
     // An ability name that does not fit one row wraps to a second line and the strip grows (never "SKIN CONT…").
-    const height = footStripLayout(abilityLine, textWidth).height;
+    const height = measuredFootStripHeight(scene, abilityLine, textWidth);
     drawFootStrip(scene, { x: left, y: top, width: textWidth, height }, abilityLine, "ability", dim);
     top += height + 4;
   }
@@ -257,7 +304,7 @@ export function drawCharacter(
   const specs = panel.attachments.slice(0, 4).map((attachment) => {
     const usable =
       controller.selection.kind === "idle" && (ctx.marks?.usableAbilities.has(attachment.instanceId) ?? false);
-    return measureAttachmentChip(scene, attachment, usable, textWidth, dim);
+    return measureAttachmentChip(scene, attachment, usable, textWidth, dim, owedWords(ctx, attachment));
   });
   const baselineSize = blockFor(0).badges[0]?.size ?? 0;
   const badgeFloor = Math.min(STAT_BADGE_COMFORT * 0.8, baselineSize);
@@ -311,10 +358,11 @@ export function drawCharacter(
     ).strokeRect(chip.x, chip.y, chip.width, chip.height);
     // The chip's ground goes under its own text.
     scene.children.bringToTop(name);
-    // Damage on the attachment (Crossbones' Armor's "2/5") sits at the chip's right edge, and gets its width first:
-    // the name wraps around it, the count the table is watching never is.
+    // Damage on the attachment (Crossbones' Armor's "2/5 dmg") sits on a row of its own at the chip's right edge: the
+    // name keeps the whole width, and the count the table is watching is never cut.
     if (damage) {
-      const tag = label(scene, 0, chip.y + 3, damage, typeRole.label, accent.heroRed.hex, ink.body * dim);
+      const tagY = chip.y + chipHeight - DAMAGE_ROW - 1;
+      const tag = label(scene, 0, tagY, damage, typeRole.label, accent.heroRed.hex, ink.body * dim);
       tag.setX(chip.x + chip.width - 3 - tag.width);
     }
     chipTargets.push({ rect: chip, instanceId: attachment.instanceId });
@@ -330,7 +378,7 @@ export function drawCharacter(
     const heights = overflow.map((attachment) =>
       Math.max(
         16,
-        footStripLayout(attachmentChipText(attachment), artColumn.width, attachmentChipDamage(attachment) ? 36 : 0)
+        footStripLayout(chipText(ctx, attachment), artColumn.width, attachmentChipDamageTag(attachment) ? 50 : 0)
           .height,
       ),
     );
@@ -344,7 +392,7 @@ export function drawCharacter(
         height: heights[index]!,
       };
       stripBottom = strip.y;
-      drawFootStrip(scene, strip, attachmentChipText(attachment), "note", dim, attachmentChipDamage(attachment));
+      drawFootStrip(scene, strip, chipText(ctx, attachment), "note", dim, attachmentChipDamageTag(attachment));
       chipTargets.push({ rect: strip, instanceId: attachment.instanceId });
     }
   }
@@ -361,8 +409,9 @@ export function drawCharacter(
   // Rings after the panel's tap target, so a click on one opens the Team-Up panel rather than the character.
   if (rings && seatBadges.length > 0) {
     const free: Rect = { x: left, y: top, width: textWidth, height: statBlock.top - 4 - top };
-    const slots = columnRings(
+    const slots = panelRings(
       free,
+      artColumn,
       seatBadges.map((badge) => `${badge.key}@${panel.instanceId}`),
       ringDiameterFor(rings.tabbed),
     );
@@ -377,13 +426,39 @@ export function drawCharacter(
     // A tap shows the card; its sheet offers any ability it has, so nothing is used by a stray tap.
     ctx.makeTapTarget(target.rect, target.instanceId, () => controller.onCharacterTap(target.instanceId));
   }
+  for (const target of tuckTargets) openTucked(ctx, target.rect, target.ids);
+  tuckedRow?.addTapTargets();
 }
+
+/** A tap target over a tucked-cards strip: it opens the first card in Inspect, ◂ ▸ stepping through the rest. */
+function openTucked(ctx: BoardDrawContext, rect: Rect, ids: readonly InstanceId[]): void {
+  const first = ids[0];
+  if (first) ctx.makeTapTarget(rect, first, () => ctx.inspect(first, ids));
+}
+
+/** The height a wide panel keeps for its stat badges and HP plate before the tucked-cards row may take any. */
+const TUCKED_STAT_RESERVE = 90;
 
 /** A wide panel shorter than this draws its status tags small and on one row (`drawStatusTags`). */
 const COMPACT_PANEL_HEIGHT = 150;
 
 /** The stat badges on a wide panel stay at least this big (when the panel can hold them at all): a name chip never squeezes them smaller. */
 const STAT_BADGE_COMFORT = 30;
+
+/** " · must use" on a chip whose Forced Action is owed (words, never the ▶ and its green alone). */
+function owedWords(ctx: BoardDrawContext, attachment: CharacterPanel["attachments"][number]): string {
+  return ctx.marks?.owed?.has(attachment.instanceId) ? OWED_WORDS : "";
+}
+
+/** The chip's text with its owed words, for the strips that draw a chip without measuring it. */
+function chipText(ctx: BoardDrawContext, attachment: CharacterPanel["attachments"][number]): string {
+  return `${attachmentChipText(attachment)}${owedWords(ctx, attachment)}`;
+}
+
+/** The row under a chip's name that carries the count of damage on the attachment. */
+const DAMAGE_ROW = 14;
+
+const OWED_WORDS = " \u00B7 must use";
 
 interface AttachmentChipSpec {
   readonly attachment: CharacterPanel["attachments"][number];
@@ -397,7 +472,7 @@ interface AttachmentChipSpec {
 
 /**
  * One attachment chip's text, fitted before the chip is placed so the column can reserve the height a wrapped name
- * needs. The damage tag at the right gets its width first: the name wraps around it, the count is never cut.
+ * needs (and the row under it for a count of damage).
  */
 function measureAttachmentChip(
   scene: Phaser.Scene,
@@ -405,14 +480,14 @@ function measureAttachmentChip(
   usable: boolean,
   chipWidth: number,
   dim: number,
+  owed = "",
 ): AttachmentChipSpec {
-  const damage = attachmentChipDamage(attachment);
-  const text = attachmentChipText(attachment);
+  const damage = attachmentChipDamageTag(attachment);
+  const text = `${attachmentChipText(attachment)}${owed}`;
   const shown = usable ? `\u25B6 ${text}` : text;
-  const tagProbe = damage ? label(scene, 0, 0, damage, typeRole.label, accent.heroRed.hex, 0).setVisible(false) : null;
-  const damageWidth = tagProbe ? tagProbe.width + 6 : 0;
-  tagProbe?.destroy();
-  const nameWidth = chipWidth - 6 - damageWidth;
+  // The damage count rides on its own row under the name ("0/3 dmg"), so a name keeps the whole width and wraps on
+  // words, never mid-word around the count.
+  const nameWidth = chipWidth - 6;
   const name = label(
     scene,
     0,
@@ -429,6 +504,7 @@ function measureAttachmentChip(
     fitWrapped(name, nameWidth, 3, typeRole.label.size);
     height = Math.max(16, Math.ceil(name.height) + 6);
   }
+  if (damage) height += DAMAGE_ROW;
   return { attachment, usable, name, damage, height };
 }
 
@@ -446,6 +522,7 @@ function drawCardShapedPanel(
   panel: CharacterPanel,
   dim: number,
   firstDrawn: number,
+  onTagDropped?: (tag: string) => void,
 ): void {
   const { scene, controller } = ctx;
   // `firstDrawn` is the caller's index, taken *before* the panel frame, so an
@@ -484,11 +561,22 @@ function drawCardShapedPanel(
     readonly instanceId?: InstanceId;
     /** Taller than the usual strip: a wrapped ability name. */
     readonly height?: number;
+    /** Never wrapped: the strip stays one row high (the keyword tag, `keyword-tags.ts`). */
+    readonly oneRow?: boolean;
+    /** A strip about cards tucked here: a tap opens the first in Inspect and steps through these. */
+    readonly inspectIds?: readonly InstanceId[];
   }[] = [];
   if (panel.ownerName && rect.height >= 40) strips.push({ text: `from ${panel.ownerName}`, tone: "note" });
-  if (panel.grantedKeywords.length > 0 && rect.height >= 40) {
-    strips.push({ text: panel.grantedKeywords.join(" \u00b7 "), tone: "note" });
+  // What is tucked under this card (a minion with Energy Shield under it, an ally): the count, and a tap opens them.
+  if (panel.tuckedCount > 0 && rect.height >= 40) {
+    strips.push({
+      text: tuckedLine(panel, false),
+      tone: "note",
+      inspectIds: panel.tucked.map((card) => card.instanceId),
+    });
   }
+  // The keyword tag comes after the attachments (below), where it can be left off when the strips would squeeze the stat
+  // badges. A keyword that is off (a held minion's Guard) is not a strip: the tile's chip says so (`drawEngagedChip`).
   // Counters the card itself holds — Quinjet's time counters (`03019`), the
   // reason it has a support-shaped slot in the play area at all: "put an
   // Avenger ally into play with cost <= the number of time counters on
@@ -502,17 +590,44 @@ function drawCardShapedPanel(
   // Attachments: the wide panel lists them as chips, and a card-shaped one (the villain in a narrow slot) used to
   // draw none at all, so Crossbones' Armor was invisible there with its damage. One strip each, damage at the
   // right edge where clipping never reaches it, and a tap opens the attachment like a chip does.
-  if (rect.height >= 80) {
+  const stripHeight = Math.min(20, Math.max(14, Math.round(inner.height * 0.1)));
+  if (rect.height >= 80 && panel.attachments.length > 0) {
+    // Each attachment takes a strip only while the stat badges keep a readable size (Fixer with three Tech attachments
+    // would otherwise be all strips); the rest are counted on one row, and Inspect lists every one.
+    const statCount = panel.stats.filter((tile) => tile.label !== "HP").length;
+    let shown = 0;
     for (const attachment of panel.attachments.slice(0, 2)) {
+      const reservedSoFar = strips.reduce((total, strip) => total + Math.max(stripHeight, strip.height ?? 0), 0);
+      if (!stripKeepsStats(inner.height, inner.width, reservedSoFar, stripHeight, statCount, panel.hp !== null)) break;
       strips.push({
-        text: attachmentChipText(attachment),
+        text: chipText(ctx, attachment),
         tone: "note",
-        tag: attachmentChipDamage(attachment),
+        tag: attachmentChipDamageTag(attachment),
         instanceId: attachment.instanceId,
+      });
+      shown += 1;
+    }
+    const hidden = panel.attachments.slice(shown);
+    if (hidden.length > 0) {
+      strips.push({
+        text: `${shown === 0 ? "" : "+"}${hidden.length} attached`,
+        tone: "note",
+        instanceId: hidden[0]!.instanceId,
       });
     }
   }
-  const stripHeight = Math.min(20, Math.max(14, Math.round(inner.height * 0.1)));
+  // The active keyword tag is the least of the strips: it takes its row only while the stat badges keep a readable size.
+  const keywordNote =
+    rect.height >= 40
+      ? activeKeywordTag(panel.grantedKeywords, panel.inactiveKeywords, tagCapacity(inner.width))
+      : null;
+  if (keywordNote) {
+    const reservedSoFar = strips.reduce((total, strip) => total + Math.max(stripHeight, strip.height ?? 0), 0);
+    const statCount = panel.stats.filter((tile) => tile.label !== "HP").length;
+    if (stripKeepsStats(inner.height, inner.width, reservedSoFar, FOOT_STRIP_HEIGHT, statCount, panel.hp !== null))
+      strips.push({ text: keywordNote, tone: "note", height: FOOT_STRIP_HEIGHT, oneRow: true });
+    else onTagDropped?.(keywordNote);
+  }
   if (abilityLine) strips.push({ text: abilityLine, tone: "ability" });
   // A name that does not fit one row wraps and its strip grows (never "ADAMANTIU…" for Adamantium Claws), the damage
   // tag at the right keeping its own room first.
@@ -521,7 +636,9 @@ function drawCardShapedPanel(
     height: Math.max(
       stripHeight,
       strip.height ?? 0,
-      footStripLayout(strip.text, inner.width, strip.tag ? strip.tag.length * 7 + 8 : 0).height,
+      strip.oneRow
+        ? FOOT_STRIP_HEIGHT
+        : footStripLayout(strip.text, inner.width, strip.tag ? strip.tag.length * 7 + 8 : 0).height,
     ),
   }));
   strips.length = 0;
@@ -539,6 +656,7 @@ function drawCardShapedPanel(
     drawStatBlock(ctx, column, panel, dim);
   }
   const stripTargets: { readonly rect: Rect; readonly instanceId: InstanceId }[] = [];
+  const tuckTargets: { readonly rect: Rect; readonly ids: readonly InstanceId[] }[] = [];
   let stripY = inner.y + inner.height - reserved;
   strips.forEach((strip) => {
     const y = stripY;
@@ -546,6 +664,7 @@ function drawCardShapedPanel(
     stripY += stripRect.height;
     drawFootStrip(scene, stripRect, strip.text, strip.tone, dim, strip.tag ?? null);
     if (strip.instanceId) stripTargets.push({ rect: stripRect, instanceId: strip.instanceId });
+    if (strip.inspectIds) tuckTargets.push({ rect: stripRect, ids: strip.inspectIds });
   });
 
   // A brief ±4px shake on damage, wrapping everything drawn so far — the
@@ -566,6 +685,7 @@ function drawCardShapedPanel(
   for (const target of stripTargets) {
     ctx.makeTapTarget(target.rect, target.instanceId, () => controller.onCharacterTap(target.instanceId));
   }
+  for (const target of tuckTargets) openTucked(ctx, target.rect, target.ids);
 }
 
 /**
@@ -955,6 +1075,25 @@ function drawStatusTags(
 type FootTone = "ability" | "note" | "damage" | "threat";
 
 /**
+ * The height a strip needs for `text`, measured with the real font rather than `footStripLayout`'s estimate: the estimate
+ * reserved two lines for "▶ EXHAUST YOUR IDENTITY" in Maria Hill's 103px column, the words did not fit two at the caption
+ * floor, and the strip ended in "EXHAUST YOUR…". Starts at the estimate and adds a line (up to three) until the wrapped
+ * text is whole.
+ */
+export function measuredFootStripHeight(scene: Phaser.Scene, text: string, width: number, tagWidth = 0): number {
+  const estimate = footStripLayout(text, width, tagWidth);
+  if (estimate.lines === 1) return estimate.height;
+  for (let lines = estimate.lines; lines <= 3; lines += 1) {
+    const probe = label(scene, -2000, -2000, text, typeRole.label, surface.paper.hex, 1);
+    fitWrapped(probe, width - 10 - tagWidth, lines, typeRole.label.size);
+    const whole = !probe.text.includes("\u2026");
+    probe.destroy();
+    if (whole) return FOOT_STRIP_HEIGHT + 12 * (lines - 1);
+  }
+  return FOOT_STRIP_HEIGHT + 12 * 2;
+}
+
+/**
  * One solid ink strip carrying a line the table needs read over card art: the
  * `▶` ability affordance (an accent bar in the "legal" green) or a note — who
  * lent this card, a lasting effect aimed at this seat (caution yellow).
@@ -1006,7 +1145,12 @@ export function drawFootStrip(
     caption.setOrigin(0, 0).setY(rect.y + Math.max(2, (rect.height - caption.height) / 2));
     return;
   }
-  fitText(caption, rect.width - 12 - tagWidth, typeRole.label.size);
+  // A word as wide as the tile ("HANDSPRING" in an 80px minion tile) takes the two pixels between the bar and the text.
+  fitTight(caption, rect.width - 12 - tagWidth, typeRole.label.size);
+  if (caption.text.endsWith("\u2026")) {
+    caption.setText(text.toUpperCase()).setX(rect.x + 6);
+    fitTight(caption, rect.width - 8 - tagWidth, typeRole.label.size);
+  }
 }
 
 /**

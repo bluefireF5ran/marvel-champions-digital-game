@@ -23,6 +23,7 @@ import {
   titleTrackFor,
   type Track,
   finaleTrackFor,
+  interludeToStart,
   pickTrack,
   villainTracksFor,
 } from "./music-catalog.js";
@@ -50,6 +51,11 @@ export interface MusicController {
   playSetup(scenarioId: string | undefined): void;
   /** The Finale screen: the campaign's `finale` track; keeps the current track when the campaign has none. */
   playFinale(campaignId: string): void;
+  /**
+   * The between-scenario campaign screens (Briefing, Rewind, Run, Dossier): the campaign's `interlude` track, started
+   * once and carried across those screens. Leaves what is playing alone when the campaign has none.
+   */
+  playInterlude(campaignId: string): void;
   /** Extras' jukebox: one chosen track, looped until another screen asks for its own music. */
   playTrack(track: Track): void;
   /** The track the jukebox was last asked for, while it is still the one playing; else null. */
@@ -63,7 +69,7 @@ export class MusicScene extends Phaser.Scene implements MusicController {
   #currentKey: string | null = null;
   #targetKey: string | null = null;
   #lastTitleKey: string | null = null;
-  #mode: "title" | "battle" | "outcome" | "finale" | "jukebox" | "stopped" = "stopped";
+  #mode: "title" | "battle" | "outcome" | "interlude" | "finale" | "jukebox" | "stopped" = "stopped";
   #targetVolume = DEFAULT_MUSIC_VOLUME;
 
   constructor() {
@@ -144,6 +150,20 @@ export class MusicScene extends Phaser.Scene implements MusicController {
     const track = finaleTrackFor(MUSIC_CATALOG, campaignId);
     if (!track) return;
     this.#mode = "finale";
+    this.#requestTrack(track);
+  }
+
+  playInterlude(campaignId: string): void {
+    const track = interludeToStart(MUSIC_CATALOG, campaignId, this.#targetKey);
+    if (!track) {
+      // Already up (or the box has none): only take the mode over when it is already the interlude playing.
+      if (this.#targetKey !== null && this.#mode !== "interlude") {
+        const own = MUSIC_CATALOG.campaigns.get(campaignId)?.interlude ?? [];
+        if (own.some((t) => t.key === this.#targetKey)) this.#mode = "interlude";
+      }
+      return;
+    }
+    this.#mode = "interlude";
     this.#requestTrack(track);
   }
 

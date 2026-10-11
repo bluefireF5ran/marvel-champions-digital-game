@@ -272,11 +272,12 @@ test("Scenario select: Mansion Attack is titled so, and all eight wave 6 tiles h
     await clickStop(page, "__mcScenarioSelectDebug", `scenario-chip:product:${pack}`);
     await settle(page);
   }
-  const tiles = (await hook<{ id: string; title: string; villainArt: boolean; baked: boolean }[]>(
-    page,
-    "__mcScenarioSelectDebug",
-    "tiles",
-  ))!;
+  const readTiles = async () =>
+    (await hook<{ id: string; title: string; villainArt: boolean; baked: boolean }[]>(
+      page,
+      "__mcScenarioSelectDebug",
+      "tiles",
+    ))!;
   const WAVE6 = [
     "sabretooth",
     "project-wideawake",
@@ -287,6 +288,16 @@ test("Scenario select: Mansion Attack is titled so, and all eight wave 6 tiles h
     "spiral",
     "mojo",
   ];
+  // Art is drawn as each picture finishes loading: wait for the eight tiles rather than reading them once.
+  await waitFor(
+    async () => {
+      const now = await readTiles();
+      return WAVE6.every((id) => now.find((t) => t.id === id)?.baked) ? true : null;
+    },
+    "the eight wave 6 tiles have drawn their art",
+    30000,
+  ).catch(() => null);
+  const tiles = await readTiles();
   for (const id of WAVE6) {
     const tile = tiles.find((t) => t.id === id);
     expect(tile, `${id} has a tile`).toBeDefined();

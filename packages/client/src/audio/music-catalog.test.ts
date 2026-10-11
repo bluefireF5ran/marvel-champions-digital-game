@@ -4,6 +4,7 @@ import {
   MUSIC_CATALOG,
   battleTrackFor,
   interludeTrackFor,
+  interludeToStart,
   finaleTrackFor,
   outcomeTrackFor,
   parseMusicCatalog,
@@ -184,6 +185,21 @@ describe("titleTrackFor & interludeTrackFor", () => {
   test("interlude track retrieves campaign interlude", () => {
     expect(interludeTrackFor(mockCatalog, "rohrs", first)?.url).toBe("/rohrs-int.mp3");
     expect(interludeTrackFor(mockCatalog, "unknown", first)).toBeNull();
+  });
+});
+
+describe("interludeToStart", () => {
+  test("starts the campaign interlude, keeps it once up, and does nothing for a box without one", () => {
+    const track = interludeToStart(mockCatalog, "rohrs", "m-title", first);
+    expect(track?.url).toBe("/rohrs-int.mp3");
+    expect(interludeToStart(mockCatalog, "rohrs", track?.key ?? null, first)).toBeNull();
+    expect(interludeToStart(mockCatalog, "gmw", "m-title", first)).toBeNull();
+    expect(interludeToStart(mockCatalog, "unknown", null, first)).toBeNull();
+  });
+
+  test("the real catalog has an interlude for aos and none for a box without one", () => {
+    expect(interludeToStart(MUSIC_CATALOG, "aos", null)).not.toBeNull();
+    expect(interludeToStart(MUSIC_CATALOG, "no_such_box", null)).toBeNull();
   });
 });
 

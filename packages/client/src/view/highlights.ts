@@ -51,6 +51,11 @@ export interface Highlights {
   readonly unplayable: ReadonlyMap<InstanceId, IllegalReason>;
   /** In-play cards with a usable action or resource ability. */
   readonly usableAbilities: ReadonlySet<InstanceId>;
+  /**
+   * Cards whose Forced Action is owed (`view/forced-actions.ts`'s `withForcedActions`): the board writes "must use" on
+   * them. Absent until that has been applied.
+   */
+  readonly owed?: ReadonlySet<InstanceId>;
   /** Every card any legal action could be aimed at, for the targeting pulse. */
   readonly anyTarget: ReadonlySet<InstanceId>;
   /** Targets that exist but are blocked right now, e.g. the villain behind a Guard minion. */

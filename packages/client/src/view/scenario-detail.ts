@@ -19,6 +19,7 @@
  */
 import type { AnyCard, CardId, EncounterSet, ScalingValue, Scenario, VillainStage } from "@mc/content";
 import { pooledModularShortSummary, pooledModularSummary } from "./modular-summary.js";
+import { hasRandomVillain, randomVillainLabel } from "./random-villain.js";
 import { formatScaling } from "./scaling-text.js";
 
 export interface StageDetail {
@@ -115,8 +116,9 @@ export function scenarioDetailOf(
     .filter((id) => (id as string) !== (scenario.villainCardId as string))
     .map((id) => cardsById.get(id as string)?.name ?? (id as string));
 
-  const villainIsRandom = scenario.randomVillainName !== undefined;
-  const villainName = scenario.randomVillainName ?? side.name;
+  const randomLabel = randomVillainLabel(scenario, cardsById);
+  const villainIsRandom = hasRandomVillain(scenario);
+  const villainName = randomLabel ?? side.name;
   const displayName = villainIsRandom
     ? villainName
     : otherVillainNames.length === 1
@@ -208,4 +210,18 @@ export function shelfSubtitleOf(detail: ScenarioDetail): string {
   const line = setName ? `${stages} · ${setName}` : stages;
   if (detail.villainIsRandom) return `${detail.villainName} · random`;
   return detail.titledByScenario ? `${detail.villainName} · ${line}` : line;
+}
+
+/**
+ * A locked scenario tile's caption: the gate in few words, then the champion-point way in. "Complete the Age of
+ * Apocalypse campaign to unlock Agents of S.H.I.E.L.D." (the footer's full sentence) becomes "Finish Age of Apocalypse
+ * · or 100 pts"; it wraps on the tile, never cut.
+ */
+export function lockCaptionOf(lock: string, cost: number): string {
+  const gate = lock.split(" to unlock ")[0] ?? lock;
+  const short = gate
+    .replace(/^Complete (?:the |The )?/, "Finish ")
+    .replace(/ campaign$/, "")
+    .replace(/^Finish The /, "Finish ");
+  return `${short} · or ${cost} pts`;
 }

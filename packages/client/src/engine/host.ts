@@ -21,6 +21,7 @@ import type {
   EngineError,
   GameEvent,
   GameState,
+  SealedGameState,
   LegalActions,
   OutsideFacts,
   PlayerId,
@@ -172,8 +173,14 @@ export interface SessionConfig {
  */
 export type CardPool = Readonly<Record<string, AnyCard>>;
 
-/** The state as it crosses the worker boundary: everything but the card pool. */
+/** The authority's state without the card pool: a save's baseline, as storage and the worker's save reply hold it. */
 export type StateWithoutPool = Omit<GameState, "cardPool">;
+
+/**
+ * The table's state as it crosses the worker boundary in a snapshot: sealed (`sealForTable`: no hidden pile's cards,
+ * no hidden reverse, no sealed campaign value), and everything but the card pool.
+ */
+export type SealedStateWithoutPool = Omit<SealedGameState, "cardPool">;
 
 /** What a player may do, and who they are. Computed ahead of time by the host. */
 export interface LegalActionsFor {
@@ -188,8 +195,11 @@ export interface LegalActionsFor {
  */
 export interface EngineUpdate {
   readonly version: number;
-  /** Full state, card pool re-attached, so every `@mc/engine` query helper works. */
-  readonly state: GameState;
+  /**
+   * The state the table may read, card pool re-attached, so every `@mc/engine` query helper works: sealed
+   * (`sealForTable`), so it has no hidden pile's cards. The full state stays with the engine session.
+   */
+  readonly state: SealedGameState;
   /** The events of the command that produced this state; empty for a resumed game's first update. */
   readonly events: readonly GameEvent[];
   /**

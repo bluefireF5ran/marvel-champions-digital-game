@@ -12,11 +12,20 @@
  * Wave 8's six heroes are listed too, from the fixtures their own wave keeps
  * (`../wave8/fixtures/decklists/<hero>.json`, fetched 2026-10-08; `../wave8/custom-decks-marvelcdb.test.ts` documents
  * them and plays each at a wave 8 scenario). Here each sits at a Core villain through `playableScenario`.
+ *
+ * Wave 9's six heroes are listed the same way, two decks each (fetched 2026-10-10, `../wave9/fixtures/decklists/
+ * <hero>-<aspect>.json`; `../wave9/custom-decks-marvelcdb.test.ts` documents them and plays each at a wave 9 scenario).
+ *
+ * The same fixtures are the community-deck catalog a client recommends from (`./community-decks.ts`). The last two
+ * blocks here keep the two in step: every catalog deck this file's table does not name (waves 5 to 7, whose own
+ * tests play them in their own wave's pool, and any later fixture) gets the same three proofs against the playable
+ * pool, and every catalog deck is one this file proved.
  */
 import { createGame, replay, validateDeck } from "@mc/engine";
-import { PLAYABLE_CARDS, parseMarvelCdbDeckJsonText, type CoreAspect } from "@mc/content";
+import { PLAYABLE_CARDS, parseMarvelCdbDeckJsonText, type CoreAspect, type DeckContents } from "@mc/content";
 import { describe, expect, test } from "vitest";
 import { playToOutcome } from "../testing/driver.js";
+import { communityDecks, type CommunityDeck } from "./community-decks.js";
 import { PLAYABLE_DEPS, playableScenario } from "./index.js";
 
 // `import.meta.glob` (Vite/vitest's own static-file loader) rather than `node:fs`: `@mc/cards`'s tsconfig carries no
@@ -35,6 +44,12 @@ const WAVE8_FIXTURES = (import.meta as unknown as ImportMetaEnv).glob("../wave8/
   eager: true,
 }) as Record<string, string>;
 
+const WAVE9_FIXTURES = (import.meta as unknown as ImportMetaEnv).glob("../wave9/fixtures/decklists/*.json", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
 /**
  * Hero identity → MarvelCDB decklist id, its name on MarvelCDB, and its chosen aspect(s). A fifth entry names the
  * fixture of a wave that keeps its own (`../wave8/fixtures/decklists/<name>.json`).
@@ -45,6 +60,7 @@ const DECKLISTS: readonly (readonly [
   id: number,
   aspects: readonly string[],
   wave8Fixture?: string,
+  wave9Fixture?: string,
 ])[] = [
   ["Spider-Man", "01001a", 103, ["leadership"]],
   ["Captain Marvel", "01010a", 577, ["leadership"]],
@@ -82,23 +98,61 @@ const DECKLISTS: readonly (readonly [
   ["Jubilee", "47001a", 40621, ["justice"], "jubilee"],
   ["Nightcrawler", "48001a", 42268, ["protection"], "nightcrawler"],
   ["Magneto", "49001a", 43978, ["justice"], "magneto"],
+  ["Maria Hill", "50001a", 47248, ["justice"], "", "maria-hill-justice"],
+  ["Maria Hill", "50001a", 47008, ["leadership"], "", "maria-hill-leadership"],
+  ["Nick Fury", "50034a", 47451, ["aggression"], "", "nick-fury-aggression"],
+  ["Nick Fury", "50034a", 47480, ["justice"], "", "nick-fury-justice"],
+  ["Black Panther", "51001a", 49281, ["protection"], "", "black-panther-protection"],
+  ["Black Panther", "51001a", 49532, ["justice"], "", "black-panther-justice"],
+  ["Silk", "52001a", 49979, ["leadership"], "", "silk-leadership"],
+  ["Silk", "52001a", 49367, ["justice"], "", "silk-justice"],
+  ["Falcon", "53001a", 51319, ["leadership"], "", "falcon-leadership"],
+  ["Falcon", "53001a", 51168, ["pool"], "", "falcon-pool"],
+  ["Winter Soldier", "54001a", 53541, ["pool"], "", "winter-soldier-pool"],
+  ["Winter Soldier", "54001a", 51222, ["aggression"], "", "winter-soldier-aggression"],
 ];
 
 /** The Core villains, rotated so the games don't all run against one. */
 const SCENARIOS = ["rhino", "klaw", "ultron"] as const;
 
 const WAVE8_FIXTURE_OF = new Map(DECKLISTS.filter((row) => row[4]).map((row) => [row[2], row[4]!]));
+const WAVE9_FIXTURE_OF = new Map(DECKLISTS.filter((row) => row[5]).map((row) => [row[2], row[5]!]));
 
 const parse = (id: number) => {
   const wave8 = WAVE8_FIXTURE_OF.get(id);
-  const text = wave8
-    ? WAVE8_FIXTURES[`../wave8/fixtures/decklists/${wave8}.json`]
-    : FIXTURES[`./fixtures/marvelcdb-decklist-${id}.json`];
+  const wave9 = WAVE9_FIXTURE_OF.get(id);
+  const text = wave9
+    ? WAVE9_FIXTURES[`../wave9/fixtures/decklists/${wave9}.json`]
+    : wave8
+      ? WAVE8_FIXTURES[`../wave8/fixtures/decklists/${wave8}.json`]
+      : FIXTURES[`./fixtures/marvelcdb-decklist-${id}.json`];
   if (text === undefined) throw new Error(`no fixture for decklist ${id}`);
   const result = parseMarvelCdbDeckJsonText(text, PLAYABLE_CARDS);
   if (!result.ok) throw new Error(JSON.stringify(result.problems, null, 2));
   return result;
 };
+
+/** A seeded greedy game at a Core villain reaches an outcome, and its log replays to the same state. */
+function playsAndReplays(contents: DeckContents, scenario: (typeof SCENARIOS)[number]): void {
+  const config = playableScenario(scenario, {
+    seed: 2026,
+    players: [
+      {
+        identityCardId: contents.identityCardId,
+        deck: contents.cards.flatMap(({ cardId, quantity }) => Array.from({ length: quantity }, () => cardId)),
+        aspects: contents.aspects as readonly CoreAspect[],
+      },
+    ],
+  });
+  const created = createGame(config, PLAYABLE_DEPS);
+  if (!created.ok) throw new Error(`setup failed: ${created.error.message}`);
+  const result = playToOutcome(created.state, PLAYABLE_DEPS);
+  expect(result.outcome).not.toBeNull();
+  expect(result.rounds).toBeGreaterThanOrEqual(1);
+  const replayed = replay(result.session.log, PLAYABLE_DEPS);
+  expect(replayed.ok).toBe(true);
+  if (replayed.ok) expect(replayed.state).toEqual(result.session.state);
+}
 
 describe.each(
   DECKLISTS.map(
@@ -118,24 +172,41 @@ describe.each(
   });
 
   test(`plays a seeded greedy game against ${scenario} that replays deep-equal`, () => {
-    const { contents } = parse(id);
-    const config = playableScenario(scenario, {
-      seed: 2026,
-      players: [
-        {
-          identityCardId: contents.identityCardId,
-          deck: contents.cards.flatMap(({ cardId, quantity }) => Array.from({ length: quantity }, () => cardId)),
-          aspects: contents.aspects as readonly CoreAspect[],
-        },
-      ],
-    });
-    const created = createGame(config, PLAYABLE_DEPS);
-    if (!created.ok) throw new Error(`setup failed: ${created.error.message}`);
-    const result = playToOutcome(created.state, PLAYABLE_DEPS);
-    expect(result.outcome).not.toBeNull();
-    expect(result.rounds).toBeGreaterThanOrEqual(1);
-    const replayed = replay(result.session.log, PLAYABLE_DEPS);
-    expect(replayed.ok).toBe(true);
-    if (replayed.ok) expect(replayed.state).toEqual(result.session.state);
+    playsAndReplays(parse(id).contents, scenario);
   }, 120_000);
+});
+
+const TABLE_IDS = new Set(DECKLISTS.map((row) => row[2]));
+/** Catalog decks the table above does not name. */
+const REST_OF_CATALOG: readonly CommunityDeck[] = communityDecks().filter((deck) => !TABLE_IDS.has(deck.marvelcdbId));
+
+describe.each(
+  REST_OF_CATALOG.map(
+    (deck, index) => [deck.heroName, deck.marvelcdbId, deck, SCENARIOS[index % SCENARIOS.length]!] as const,
+  ),
+)("%s: community deck %i", (_hero, _id, deck, scenario) => {
+  test("is legal under validateDeck against the playable pool", () => {
+    expect(validateDeck(deck.contents, PLAYABLE_CARDS)).toEqual({ ok: true });
+  });
+
+  test(`plays a seeded greedy game against ${scenario} that replays deep-equal`, () => {
+    playsAndReplays(deck.contents, scenario);
+  }, 120_000);
+});
+
+describe("the community-deck catalog", () => {
+  test("lists every decklist in the table above, with the contents this file proved", () => {
+    const catalog = new Map(communityDecks().map((deck) => [deck.marvelcdbId, deck]));
+    for (const [hero, identity, id] of DECKLISTS) {
+      const entry = catalog.get(id);
+      expect(entry, `${hero}'s decklist ${id} is in the catalog`).toBeDefined();
+      expect(entry!.identityCardId).toBe(identity);
+      expect(entry!.contents).toEqual(parse(id).contents);
+    }
+  });
+
+  test("has no deck this file did not prove", () => {
+    const proved = new Set([...TABLE_IDS, ...REST_OF_CATALOG.map((deck) => deck.marvelcdbId)]);
+    expect(communityDecks().filter((deck) => !proved.has(deck.marvelcdbId))).toEqual([]);
+  });
 });

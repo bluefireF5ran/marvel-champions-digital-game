@@ -25,6 +25,8 @@ import { canHaveAttached, cannotBeUnattached } from "../rules.js";
 import { cardsInPlay, controllerOf, isFacedownAttachment } from "../select.js";
 import type { GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
+import { shuffle } from "../rng.js";
+import { sameFront } from "../hidden-reverse.js";
 
 /**
  * Whether `id` can be attached to `host` now: the host is in play and is not the card itself, the card is not one that
@@ -48,9 +50,20 @@ export function canAttachTo(state: GameState, deps: EngineDeps, id: InstanceId, 
  * came from ("search the top 5 cards of your deck for an [Arrow] event and attach it faceup to this card", Hawkeye's
  * Quiver; docs/phase7-wave2.md §3.10).
  */
-export function attachCard(ctx: Ctx, id: InstanceId, host: InstanceId, facedown = false): boolean {
+export function attachCard(ctx: Ctx, id: InstanceId, host: InstanceId, facedown = false, held = false): boolean {
   if (!canAttachTo(ctx.state, ctx.deps, id, host)) return false;
-  if (mustInstance(ctx.state, id).attachedTo === host) return true;
+  // `held`: the host holds a minion (`isHeldMinion`, docs/phase7-wave9.md §3.21). Marked after the move, which removes
+  // the mark of any earlier host (`relocateCard`); a card that is no minion, or facedown, is attached without it.
+  const hold = (engagedBefore: PlayerId | null): void => {
+    if (!held || facedown || cardOf(ctx.state, id)?.type !== "minion") return;
+    if (mustInstance(ctx.state, id).heldMinion) return;
+    updateInstance(ctx, id, (i) => ({ ...i, heldMinion: true }));
+    emit(ctx, { type: "minionHeld", instanceId: id, hostInstanceId: host, engagedBefore });
+  };
+  if (mustInstance(ctx.state, id).attachedTo === host) {
+    hold(null);
+    return true;
+  }
   const wasInPlay = cardsInPlay(ctx.state).includes(id);
   // An upgrade whose control came from its old host (p. 31) goes back to its owner when it moves off that host (same
   // page: a change of control lasts until "the ability that changed control of that card ceases to be in effect").
@@ -74,12 +87,83 @@ export function attachCard(ctx: Ctx, id: InstanceId, host: InstanceId, facedown 
     updateInstance(ctx, id, (i) => ({ ...i, faceup: true, facedownAs: null }));
   else if (!mustInstance(ctx.state, id).faceup) updateInstance(ctx, id, (i) => ({ ...i, faceup: true }));
   settleUpgradeControl(ctx, id, heldByHost ? ownerId : mustInstance(ctx.state, id).controllerId);
+  hold(before.engagedWith);
   return true;
 }
 
 /**
- * `attachCard`, reporting the `TriggerEvent cardAttached` to announce: one when the card landed on a host it was not on
- * before, none when it could not be attached or was already there. The caller pushes it when an ability listens.
+ * "(Players cannot look at the reverse sides)" (`EffectSpec attach.hideReverse`; docs/phase7-wave9.md §3.54; MC55
+ * p. 7): hides the other face of `id` and of every set-aside card with the same front (`sameFront`), until each flips.
+ * Before they are marked, the cards of the group are shuffled among themselves: each instance takes the card id of a
+ * random one of them (one shuffle on the game's seeded RNG), which is what dealing look-alike cards unseen does at the
+ * table, and is why an instance's id or place says nothing of its other face. They are otherwise indistinguishable (set
+ * aside, with nothing on them), so exchanging what each one is changes nothing a player could have seen.
+ *
+ * No-op for a card with one face, one already hidden (dealt from a group hidden earlier), or one already flipped.
+ */
+export function hideReverses(ctx: Ctx, id: InstanceId): void {
+  const instance = getInstance(ctx.state, id);
+  const card = cardOf(ctx.state, id);
+  if (!instance || !card || instance.reverseHidden || instance.flipped) return;
+  if (!("flipSide" in card) || card.flipSide === undefined) return;
+  const alike = (other: InstanceId): boolean => {
+    const otherCard = cardOf(ctx.state, other);
+    const otherInstance = getInstance(ctx.state, other);
+    return (
+      otherCard !== undefined && otherInstance !== undefined && !otherInstance.flipped && sameFront(card, otherCard)
+    );
+  };
+  // The card itself, wherever it is (set aside still, or in play already), and its look-alikes set aside.
+  const group = [id, ...ctx.state.encounterSetAside.filter((other) => other !== id && alike(other))];
+  const [cardIds, rng] = shuffle(
+    group.map((member) => mustInstance(ctx.state, member).cardId),
+    ctx.state.rng,
+  );
+  ctx.state = { ...ctx.state, rng };
+  group.forEach((member, index) => {
+    const cardId = cardIds[index];
+    if (cardId === undefined) return;
+    updateInstance(ctx, member, (i) => ({ ...i, cardId, reverseHidden: true }));
+  });
+  emit(ctx, { type: "reversesHidden", instanceIds: group });
+}
+
+/**
+ * "Attached ally is under no player's control. (Attached ally is still in play.)" (`EffectSpec attach` with
+ * `as: "captive"`; docs/phase7-wave9.md §3.19): clears the controller of an ally attached to `host`, which makes it a
+ * captive ally (`isCaptiveAlly`). Nothing else on it changes (RRG 1.8 "Ownership and Control", p. 31: a character that
+ * changes control "remains in the same state (i.e., readied or exhausted, damaged or not, etc.)"), and it keeps its
+ * owner. An upgrade on it is on a card no player controls, so the rule that ties an upgrade's control to its host's
+ * controller does not decide and the upgrade keeps its controller (`hostedUpgradeController`). No-op for a card that is
+ * not an ally, is not on `host` (the attach was refused), is facedown, or already has no controller.
+ */
+export function releaseControlOfCaptive(ctx: Ctx, id: InstanceId, host: InstanceId): void {
+  const instance = getInstance(ctx.state, id);
+  if (!instance || instance.attachedTo !== host || !instance.faceup) return;
+  const from = instance.controllerId;
+  if (from === null || cardOf(ctx.state, id)?.type !== "ally") return;
+  updateInstance(ctx, id, (i) => ({ ...i, controllerId: null }));
+  emit(ctx, { type: "controlReleased", instanceId: id, hostInstanceId: host, from });
+}
+
+/**
+ * `attachCard`, reporting what to announce: none when the card could not be attached or was already on that host;
+ * otherwise a `TriggerEvent cardAttached`, which the caller pushes when an ability listens, preceded by a
+ * `cardEntersPlay` when the attaching is how the card entered play.
+ *
+ * RRG 1.8 "Enters Play" (p. 18): a card enters play when it "transitions from an out-of-play area into play", by
+ * whatever means, so a card attached from a deck, a discard pile, a hand, a set-aside area or as a boost card has
+ * entered play: its keywords resolve (Uses places its counters, p. 46; toughness, hinder, the restricted check) as
+ * that event's apply step, and "when / after … enters play" abilities answer it, exactly as for a card that
+ * `putIntoPlay` attaches. The caller always pushes this one (`announcesAttaching`): its apply step is the keywords.
+ * Its player is the card's controller, or the attaching player for a card nobody controls (an encounter attachment).
+ *
+ * Not entering play: a card already in play moved from one host to another, which keeps its counters and state
+ * ("Leaves Play", p. 27, and "Enters Play" both name a change of area, and it changed none), and a card attached
+ * facedown, which is out of play on its host (RRG 1.8 "In Play and Out of Play", p. 23).
+ *
+ * Announced elsewhere: an encounter attachment being revealed that its own When Revealed or `cannotAttach` ability
+ * attaches. Its reveal announces it once that ability has resolved (`revealAnnouncesEntry`), as it always has.
  */
 export function attachCardBy(
   ctx: Ctx,
@@ -87,11 +171,36 @@ export function attachCardBy(
   host: InstanceId,
   playerId: PlayerId | null,
   facedown = false,
+  held = false,
 ): readonly TriggerEvent[] {
   const was = getInstance(ctx.state, id)?.attachedTo ?? null;
-  if (!attachCard(ctx, id, host, facedown) || was === host) return [];
-  return [{ kind: "cardAttached", instanceId: id, hostInstanceId: host, playerId }];
+  const wasInPlay = cardsInPlay(ctx.state).includes(id);
+  if (!attachCard(ctx, id, host, facedown, held) || was === host) return [];
+  const attached: TriggerEvent = { kind: "cardAttached", instanceId: id, hostInstanceId: host, playerId };
+  if (wasInPlay || !cardsInPlay(ctx.state).includes(id) || revealAnnouncesEntry(ctx.state, id)) return [attached];
+  return [{ kind: "cardEntersPlay", instanceId: id, playerId: controllerOf(ctx.state, id) ?? playerId }, attached];
 }
+
+/**
+ * Whether `id` is being revealed at a step whose end announces it entering play if it is attached by then: a
+ * self-attaching attachment's When Revealed (`settleAttach`; ruling Feb 20, 2026 (4)) or its `cannotAttach` abilities
+ * (`resolve/reveal.ts`).
+ */
+const revealAnnouncesEntry = (state: GameState, id: InstanceId): boolean =>
+  state.stack.some(
+    (frame) =>
+      frame.kind === "reveal" &&
+      frame.instanceId === id &&
+      (frame.stage === "settleAttach" || frame.stage === "cannotAttach"),
+  );
+
+/**
+ * Which of `attachCardBy`'s events go on the stack: a card entering play always (its apply step places its keywords'
+ * counters), `cardAttached` only when `heard` says an ability answers it, so an attach nobody hears logs no more than
+ * the move.
+ */
+export const announcesAttaching = (event: TriggerEvent, heard: (event: TriggerEvent) => boolean): boolean =>
+  event.kind === "cardEntersPlay" || heard(event);
 
 /**
  * RRG 1.8 "Ownership and Control" (p. 31): "Upgrades attached to a card controlled by a player other than the upgrade's

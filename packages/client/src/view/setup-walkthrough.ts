@@ -169,7 +169,15 @@ export function advanceSetupWalkthroughLog(
 /** The setup steps this screen tracks, in the order `GameStep`'s own "setup" kinds run. */
 const SETUP_STEP_ORDER = ["drawStartingHands", "mulligan", "playerSetupAbilities"] as const;
 
+/**
+ * True while the scenario has not been set up yet: a campaign instruction that runs before it (an expert campaign's
+ * "rejoin or sit out", `beforeScenarioSetup`) is asking, over a table with no threat, no setup cards and no hands.
+ */
+const beforeScenarioSetup = (state: GameState): boolean =>
+  state.step.phase === "setup" && state.step.kind === "scenarioSetup";
+
 function stateFor(state: GameState, stepKind: (typeof SETUP_STEP_ORDER)[number]): SetupStepState {
+  if (beforeScenarioSetup(state)) return "pending";
   if (state.step.phase !== "setup") return "done";
   const current = SETUP_STEP_ORDER.indexOf(state.step.kind as (typeof SETUP_STEP_ORDER)[number]);
   const target = SETUP_STEP_ORDER.indexOf(stepKind);
@@ -182,8 +190,13 @@ function stateFor(state: GameState, stepKind: (typeof SETUP_STEP_ORDER)[number])
 function checklistOf(state: GameState, deps: EngineDeps, revealedCount: number): readonly SetupChecklistItem[] {
   const scheme = schemePanel(state, state.mainScheme.instanceId, deps, true);
   return [
-    { key: "placed", label: "Villain & main scheme placed", state: "done" },
-    { key: "threat", label: `${scheme.threat} starting threat`, state: "done" },
+    // Before the scenario is set up nothing is placed yet: the chips say so instead of reading as done.
+    beforeScenarioSetup(state)
+      ? { key: "placed", label: "Villain & main scheme placed", state: "current" as const }
+      : { key: "placed", label: "Villain & main scheme placed", state: "done" as const },
+    beforeScenarioSetup(state)
+      ? { key: "threat", label: "Starting threat", state: "pending" as const }
+      : { key: "threat", label: `${scheme.threat} starting threat`, state: "done" as const },
     { key: "revealed", label: `Setup cards revealed — ${revealedCount}`, state: stateFor(state, "drawStartingHands") },
     { key: "mulligan", label: "Opening hands — mulligan", state: stateFor(state, "mulligan") },
     { key: "firstPlayer", label: "First player token", state: stateFor(state, "playerSetupAbilities") },
@@ -284,6 +297,22 @@ export function staticSetupLines(
   ).length;
   const handSizes = playerOrder(state).map((player) => getPlayer(state, player.playerId)?.hand.length ?? 0);
 
+  // Before the scenario is set up there is nothing to report but the seed: the villain, schemes and hands come next.
+  if (beforeScenarioSetup(state)) {
+    return [
+      {
+        id: "setup-fact-0",
+        ref: "Setup",
+        round: 0,
+        text:
+          seed !== null
+            ? `Seed ${seed} · waiting on a decision before the table is set up`
+            : "Waiting on a decision before the table is set up",
+        tags: [],
+        voice: "scenario" as const,
+      },
+    ];
+  }
   const texts = [
     seed !== null ? `Seed ${seed} · encounter deck shuffled (${deckSize})` : null,
     `${villainPanel.name} placed at stage ${villain.stageIndex + 1}${villainPanel.hp ? ` — ${hpNumber(villainPanel.hp.max)} HP` : ""}`,

@@ -1,4 +1,4 @@
-import { modeOnlyFlipped } from "./query.js";
+import { modeOnlyFlipped, scale } from "./query.js";
 import type {
   AnyCard,
   CardId,
@@ -17,6 +17,8 @@ import { engineError, type EngineError, type IllegalDeck } from "./errors.js";
 import { runFlow } from "./flow.js";
 import type { OutsideFacts } from "./outside-facts.js";
 import { encounterDeckId, instanceId, playerId, type EncounterDeckId, type InstanceId, type PlayerId } from "./ids.js";
+import { linkedKeywordNames, linkedKeywordsOf, linkedNameKey } from "./linked.js";
+import { podSetupFault, type PodSetup, type PodState } from "./pod.js";
 import { createRng, nextInt } from "./rng.js";
 import {
   FIRST_CAMPAIGN_STEP,
@@ -356,6 +358,16 @@ export interface GameSetupConfig {
    * field existed.
    */
   readonly stack?: SetupStack;
+  /**
+   * The Epic Multiplayer pod this game is one group of (`GameState.pod`, docs/phase7-wave9.md §3.64): passed by the
+   * builder of a scenario with neutral cards (`Scenario.neutralCards`), with the single-group values in Single Group
+   * Mode (MC55 p. 10), and by nothing else. `coordinator: "local"` with more than one group in the game is refused: a
+   * local coordinator cannot hear the other groups. With `neutral`, setup creates the closed in-play area of that name,
+   * puts the two neutral cards in it as plain cards (neither is the villain or a main scheme of this game, §3.59), and
+   * scales their printed values into the shared record with the **game's** counts (§3.65, §3.66). Absent: no pod record,
+   * and nothing about the game changes.
+   */
+  readonly pod?: PodSetup;
 }
 
 /**
@@ -637,19 +649,24 @@ export function illegalDecksOf(
 }
 
 /**
- * The pool's linked cards under the title each names (`KeywordInstance linked { cardTitle }`; RRG 1.8 "Linked (Card
- * Title)", p. 27), in pool order. A linked keyword with no title names nothing, so its card is never set aside.
+ * The pool's linked cards grouped by what each names (`KeywordInstance linked`; RRG 1.8 "Linked (Card Title)", p. 27),
+ * in pool order. A linked keyword with no title names nothing, so its card is never set aside. `names` asks whether a
+ * card is the one a group's parentheses name (`linked.ts`: a title, or a title and a card type).
  */
-function linkedCardsByTitle(cards: readonly AnyCard[]): ReadonlyMap<string, readonly AnyCard[]> {
-  const byTitle = new Map<string, AnyCard[]>();
+function linkedCardGroups(
+  cards: readonly AnyCard[],
+): readonly { readonly names: (card: AnyCard) => boolean; readonly cards: readonly AnyCard[] }[] {
+  const groups = new Map<string, { readonly names: (card: AnyCard) => boolean; readonly cards: AnyCard[] }>();
   for (const card of cards) {
-    if (!("keywords" in card)) continue;
-    for (const keyword of card.keywords) {
-      if (keyword.name !== "linked" || keyword.cardTitle === undefined) continue;
-      byTitle.set(keyword.cardTitle, [...(byTitle.get(keyword.cardTitle) ?? []), card]);
+    for (const keyword of linkedKeywordsOf(card)) {
+      const key = linkedNameKey(keyword);
+      if (key === undefined) continue;
+      const group = groups.get(key) ?? { names: (named: AnyCard) => linkedKeywordNames(keyword, named), cards: [] };
+      group.cards.push(card);
+      groups.set(key, group);
     }
   }
-  return byTitle;
+  return [...groups.values()];
 }
 
 /** `GameSetupConfig.setAsideUntilCalled` as `ScenarioRules` keeps it: only the lists that name something, or nothing. */
@@ -1001,6 +1018,7 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
       contents: deck.contents,
       ...(deck.buildAtSetup ? { buildAtSetup: true as const } : {}),
       ...(deck.closedToPlayerCards ? { closedToPlayerCards: true as const } : {}),
+      ...(deck.topCardInPlay ? { topCardInPlay: true as const } : {}),
     };
   }
   const setAsideModularSets: SetAsideModularSet[] = [];
@@ -1095,40 +1113,73 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
   // with no owner: "When a player takes control of a card with the linked keyword, that player becomes the owner of
   // that card" (`enterPlayOnReveal`). Appendix II (p. 51) names no step for them; they are created here, last, before
   // any deck is shuffled, so no other instance's id depends on whether the pool holds them.
+  //
+  // The encounter side is one more "deck" (docs/phase7-wave9.md §3.57; MC55 p. 2: a linked card "is set aside at the
+  // start of the game if any encounter card or card in a player's deck includes the card that brings the linked card
+  // into play"): one set for the game when an encounter card of the scenario, of the linked card's own product, is the
+  // named card, logged with no player, after the players' sets. Copies the scenario already set aside
+  // (`GameSetupConfig.setAside`) count toward that set, so a builder that lists them itself does not double it.
   const linkedSetAside: {
-    readonly forPlayer: PlayerId;
+    readonly forPlayer: PlayerId | null;
     readonly cardIds: readonly CardId[];
     readonly instanceIds: readonly InstanceId[];
   }[] = [];
-  const linkedCards = linkedCardsByTitle(config.cards);
-  if (linkedCards.size > 0) {
+  const linkedGroups = linkedCardGroups(config.cards);
+  if (linkedGroups.length > 0) {
+    const setAsideLinked = (card: AnyCard, cardIds: CardId[], instanceIds: InstanceId[]): void => {
+      const id = nextId();
+      instances[id] = {
+        ...blankInstance(
+          id,
+          card.id,
+          null,
+          "deckLimit" in card ? PLAYER_HOME : { kind: "encounterDeck", deckId: deckIds[0] as EncounterDeckId },
+        ),
+        faceup: true,
+      };
+      encounterSetAside.push(id);
+      cardIds.push(card.id);
+      instanceIds.push(id);
+    };
+    // Read before any linked card is created: the scenario's own cards, in a deck, in play or set aside, and the
+    // cards a separate scenario deck will be built from. A player card among them (a campaign's set-aside card, a
+    // linked card a builder listed) is not an encounter card.
+    const encounterCards = [
+      ...Object.values(instances).flatMap((instance) => (instance.ownerId === null ? [pool[instance.cardId]] : [])),
+      ...(config.scenarioDecks ?? []).flatMap((deck) => (deck.contents.cardIds ?? []).map((cardId) => pool[cardId])),
+    ].filter((card): card is AnyCard => card !== undefined && !("deckLimit" in card) && card.type !== "hero_identity");
+    const alreadyAside = new Map<CardId, number>();
+    for (const id of encounterSetAside) {
+      const cardId = instances[id]?.cardId;
+      if (cardId !== undefined) alreadyAside.set(cardId, (alreadyAside.get(cardId) ?? 0) + 1);
+    }
     for (const [seatIndex, setup] of config.players.entries()) {
-      const titles = new Set(setup.deck.map((cardId) => pool[cardId]?.name));
+      const deckCards = setup.deck.flatMap((cardId) => (pool[cardId] ? [pool[cardId]] : []));
       const cardIds: CardId[] = [];
       const instanceIds: InstanceId[] = [];
-      for (const [title, cards] of linkedCards) {
-        if (!titles.has(title)) continue;
-        for (const card of cards) {
-          for (let copy = 0; copy < Math.max(1, card.quantityInSet); copy++) {
-            const id = nextId();
-            instances[id] = {
-              ...blankInstance(
-                id,
-                card.id,
-                null,
-                "deckLimit" in card ? PLAYER_HOME : { kind: "encounterDeck", deckId: deckIds[0] as EncounterDeckId },
-              ),
-              faceup: true,
-            };
-            encounterSetAside.push(id);
-            cardIds.push(card.id);
-            instanceIds.push(id);
-          }
+      for (const group of linkedGroups) {
+        if (!deckCards.some(group.names)) continue;
+        for (const card of group.cards) {
+          for (let copy = 0; copy < Math.max(1, card.quantityInSet); copy++) setAsideLinked(card, cardIds, instanceIds);
         }
       }
       const player = players[seatIndex];
       if (player && instanceIds.length > 0) linkedSetAside.push({ forPlayer: player.playerId, cardIds, instanceIds });
     }
+    const cardIds: CardId[] = [];
+    const instanceIds: InstanceId[] = [];
+    for (const group of linkedGroups) {
+      const named = encounterCards.filter(group.names);
+      for (const card of group.cards) {
+        // The encounter card "that brings the linked card into play" is the one of the linked card's own product
+        // (MC55 p. 2: set aside "for any scenario using Trickster Magic as a modular set"). Another product's
+        // encounter card of the same title and type (a nemesis minion of that name) brings nothing into play.
+        if (!named.some((encounter) => encounter.setCode === card.setCode)) continue;
+        const missing = Math.max(1, card.quantityInSet) - (alreadyAside.get(card.id) ?? 0);
+        for (let copy = 0; copy < missing; copy++) setAsideLinked(card, cardIds, instanceIds);
+      }
+    }
+    if (instanceIds.length > 0) linkedSetAside.push({ forPlayer: null, cardIds, instanceIds });
   }
 
   const setupStack = stackedDecksOf(config, players, encounterDecks[deckIds[0] as string]?.deck ?? [], instances);
@@ -1179,6 +1230,66 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     if (!Number.isInteger(option.amount) || option.amount < 0)
       return invalid(`setup option ${option.option} states ${option.amount}, which is not a whole number of 0 or more`);
     setupOptionIds.add(option.option);
+  }
+  // The pod record, and the pod's two neutral cards in a closed area of their own (docs/phase7-wave9.md §3.59, §3.64).
+  // Created last, so every other card's instance id is what it would be without them.
+  let pod: PodState | undefined;
+  let neutralArea: { readonly name: string; readonly cards: readonly InstanceId[] } | undefined;
+  if (config.pod) {
+    const fault = podSetupFault(config.pod, players.length);
+    if (fault) return invalid(fault);
+    const { neutral, groupsInGame, playersInGame } = config.pod;
+    pod = {
+      groupId: config.pod.groupId,
+      coordinator: config.pod.coordinator,
+      groupsInPodAtStart: config.pod.groupsInPod,
+      groupsInGameAtStart: groupsInGame,
+      playersInGameAtStart: playersInGame,
+      shared: null,
+      outboundSeq: 0,
+      inboundSeq: 0,
+      ...(config.pod.groupIdsInPod && config.pod.groupIdsInPod.length > 1
+        ? { groupIdsInPod: config.pod.groupIdsInPod }
+        : {}),
+    };
+    if (neutral) {
+      const villainCard = pool[neutral.villainCardId];
+      const schemeCard = pool[neutral.mainSchemeCardId];
+      if (neutral.area === "") return invalid("the pod's neutral area needs a name");
+      if (villainCard?.type !== "villain") return invalid(`${neutral.villainCardId} is not a villain card`);
+      if (schemeCard?.type !== "main_scheme") return invalid(`${neutral.mainSchemeCardId} is not a main scheme card`);
+      if (Object.values(instances).some((i) => i.cardId === villainCard.id || i.cardId === schemeCard.id))
+        return invalid("a neutral card of the pod is already in the game as another card");
+      const startingSide = villainCard.startingSide ?? "A";
+      const villainStage = villainCard.sides.find((side) => side.side === startingSide)?.stages[0];
+      const schemeStage = schemeCard.stages[0];
+      if (!villainStage || !schemeStage) return invalid("a neutral card of the pod has no stage");
+      const home: CardHome = { kind: "encounterDeck", deckId: deckIds[0] as EncounterDeckId };
+      const villainInstanceId = nextId();
+      const mainSchemeInstanceId = nextId();
+      instances[villainInstanceId] = { ...blankInstance(villainInstanceId, villainCard.id, null, home), faceup: true };
+      instances[mainSchemeInstanceId] = {
+        ...blankInstance(mainSchemeInstanceId, schemeCard.id, null, home),
+        faceup: true,
+      };
+      neutralArea = { name: neutral.area, cards: [villainInstanceId, mainSchemeInstanceId] };
+      // The neutral cards' icons count the whole game (MC55 p. 4; the neutral scheme's own text), once, here.
+      pod = {
+        ...pod,
+        shared: {
+          villainHp: scale(villainStage.hp, playersInGame, groupsInGame),
+          villainDamage: 0,
+          villainFlipAtRemaining: neutral.villainFlipAtRemaining
+            ? scale(neutral.villainFlipAtRemaining, playersInGame, groupsInGame)
+            : null,
+          villainFlipped: false,
+          schemeThreat: 0,
+          schemeTarget: scale(schemeStage.targetThreat, playersInGame, groupsInGame),
+          status: "playing",
+        },
+        neutral: { area: neutral.area, villainInstanceId, mainSchemeInstanceId },
+      };
+    }
   }
   // The scenario's own rules, then the rules its campaign puts in force for this game (`CampaignNode.scenarioRuleSpecs`:
   // MC45 p. 5's Mission Rules card, p. 20's "Professor X cannot enter play during this game").
@@ -1237,6 +1348,8 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     playedThisPhase: {},
     playedByPlayerThisRound: {},
     attackedThisTurn: {},
+    ...(neutralArea ? { scenarioPlayAreas: { [neutralArea.name]: { cards: neutralArea.cards, closed: true } } } : {}),
+    ...(pod ? { pod } : {}),
     // Both absent outside a campaign, so a standalone game's serialized state is unchanged (see `GameState`).
     ...(config.campaign ? { campaign: config.campaign, campaignWrites: NO_CAMPAIGN_WRITES } : {}),
     ...(setupStack ? { setupStack } : {}),
@@ -1258,6 +1371,7 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     firstPlayerId: firstPlayer.playerId,
     seed: config.seed,
   });
+  if (neutralArea) emit(ctx, { type: "scenarioPlayAreaCreated", name: neutralArea.name, closed: true });
   for (const entry of permanentSetAside) emit(ctx, { type: "cardsSetAside", ...entry, reason: "permanent" });
   for (const entry of linkedSetAside) emit(ctx, { type: "linkedCardsSetAside", ...entry });
   for (const entry of autoIncluded) {

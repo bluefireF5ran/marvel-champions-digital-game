@@ -194,6 +194,28 @@ describe("seat rows and what is aimed at a seat", () => {
     expect(row.identityInstanceId).toBe(seat.identity.instanceId);
   });
 
+  test("a seat that sat the scenario out reads as sitting out, not as a defeat (owner decision 66B)", () => {
+    const seat = otherSeat();
+    const sitting: GameState = {
+      ...state,
+      startingPlayerCount: 1,
+      players: state.players.map((player) =>
+        player.playerId === seat.playerId ? { ...player, eliminated: true, sittingOut: true } : player,
+      ),
+    };
+    const row = boardModel(sitting, viewer, CORE_DEPS).team[0]!;
+    expect(row.eliminated).toBe(true);
+    expect(row.sittingOut).toBe(true);
+    // A defeated seat is not one that sat out.
+    const defeated: GameState = {
+      ...state,
+      players: state.players.map((player) =>
+        player.playerId === seat.playerId ? { ...player, eliminated: true } : player,
+      ),
+    };
+    expect(boardModel(defeated, viewer, CORE_DEPS).team[0]!.sittingOut).toBe(false);
+  });
+
   test("a lingering 'next card costs less' shows on the chosen seat, and only there", () => {
     const seat = otherSeat();
     const reduced: GameState = {

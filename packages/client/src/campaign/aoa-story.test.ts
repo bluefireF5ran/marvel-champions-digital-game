@@ -75,8 +75,16 @@ describe("the Age of Apocalypse story", () => {
     expect(setupCallCopyFor("mc45.s3.setup.heal")?.explain).toMatch(/3 threat/);
     // Owner decision, 2026-10-08 (row 72): a defeated hero may decline to rejoin, and the call says what that means.
     expect(setupCallCopyFor("mc45.s3.setup.heal")?.explain).toBe(
-      "Expert campaign: place 3 threat on the mission to heal your hero to full hit points, or decline. A hero defeated last scenario pays it to rejoin, or sits this scenario out.",
+      "Expert campaign: place 3 threat on the mission to heal your hero to full hit points, or decline. A hero who rejoined this scenario pays the 3 threat here, with no second question.",
     );
+    // Owner decision 66B: the rejoin-or-sit-out question comes before setup, and a hero who sits out is not counted.
+    for (const n of [2, 3, 4, 5]) {
+      const copy = setupCallCopyFor(`mc45.s${n}.setup.rejoin`);
+      expect(copy?.name).toBe("Rejoin or sit out");
+      expect(copy?.explain).toMatch(/before the scenario is set up/);
+      expect(copy?.explain).toMatch(/3 threat/);
+      expect(copy?.explain).toMatch(/not counted/);
+    }
     for (const n of [1, 2, 3, 4]) {
       expect(aftermathCallCopyFor(`mc45.s${n}.victory.evacuate.defeated`)?.heading).toBe("Take an upgrade.");
       expect(aftermathCallCopyFor(`mc45.s${n}.victory.sabotage.defeated`)?.heading).toBe("Take a support.");

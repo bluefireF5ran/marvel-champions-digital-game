@@ -115,7 +115,20 @@ const SPLIT = attackEvent("split", [
   { kind: "dealDamage", target: slot("m"), amount: n(1) },
   { kind: "divide", what: "damage", amount: n(2), among: ENEMY, chooser: { kind: "controller" } },
 ]);
-const EVENTS = [PLAIN, BEGUN, LABEL, TWICE, EACH, LATE, MOVE, MOVE_VILLAIN, SPLIT];
+const engagedMinions: TargetRef = {
+  kind: "each",
+  query: { categories: ["minion"], engagedWithPlayer: { kind: "controller" } },
+};
+/** "Hero Action (attack): Deal 3 damage to the villain and each minion engaged with you." (the shape of Spray Fire). */
+const SPRAY = attackEvent("spray", [
+  { kind: "attack", target: { kind: "villain" }, amount: n(3) },
+  { kind: "dealDamage", target: engagedMinions, amount: n(3) },
+]);
+/** "Hero Action (attack): Attack each enemy for 2." as an `attack` instruction: one event per enemy. */
+const ATTACK_EACH = attackEvent("attack-each", [{ kind: "attack", target: eachEnemy, amount: n(2) }]);
+/** The same with no "(attack)" label: nothing joins its events into one attack. */
+const UNLABELED_EACH = attackEvent("unlabeled-each", [{ kind: "attack", target: eachEnemy, amount: n(2) }], false);
+const EVENTS = [PLAIN, BEGUN, LABEL, TWICE, EACH, LATE, MOVE, MOVE_VILLAIN, SPLIT, SPRAY, ATTACK_EACH, UNLABELED_EACH];
 
 const GOON = stubMinion({
   id: "goon",
@@ -135,9 +148,21 @@ const VEIL = support("veil", MIRAGE);
 const WALL = support("wall", PARRY);
 const ROOM = support("room", ECHO);
 
-const deps: EngineDeps = depsOf(MIRAGE, PARRY, ECHO, ...EVENTS.map((event) => event.ability));
-const PLAYER_CARDS: readonly AnyCard[] = [PAL, SHIELD, VEIL, WALL, ROOM, ...EVENTS.map((event) => event.card)];
-const CARDS: readonly AnyCard[] = [GOON, BODYGUARD, BLANK, ...PLAYER_CARDS];
+/** "Forced Interrupt: When you attack the villain, resolve this attack against Decoy instead." (the shape of A.I.M. Grunt). */
+const LURE = stubAbility("lure.forced-interrupt", {
+  trigger: {
+    kind: "interrupt",
+    forced: true,
+    on: { on: "attack", playerIs: "controller", targetIs: { categories: ["villain"] } },
+  },
+  effects: [{ kind: "retargetAttack", attack: "player", character: { kind: "named", name: "decoy" } }],
+} satisfies AbilityDefinition);
+const BAIT = support("bait", LURE);
+const DECOY = { ...stubMinion({ id: "decoy", atk: 1, sch: 0, hp: 9, boostIcons: 0 }), name: "decoy" };
+
+const deps: EngineDeps = depsOf(MIRAGE, PARRY, ECHO, LURE, ...EVENTS.map((event) => event.ability));
+const PLAYER_CARDS: readonly AnyCard[] = [PAL, SHIELD, VEIL, WALL, ROOM, BAIT, ...EVENTS.map((event) => event.card)];
+const CARDS: readonly AnyCard[] = [GOON, BODYGUARD, DECOY, BLANK, ...PLAYER_CARDS];
 
 interface Table {
   readonly state: GameState;
@@ -153,7 +178,7 @@ function table(minion: AnyCard, ...inPlay: readonly AnyCard[]): Table {
     deps,
     players: 1,
     deck: PLAYER_CARDS.map((card) => card.id),
-    encounter: [GOON.id, BODYGUARD.id, ...copiesOf(BLANK.id, 30)],
+    encounter: [GOON.id, BODYGUARD.id, DECOY.id, ...copiesOf(BLANK.id, 30)],
   });
   const heroes: GameState = {
     ...base,
@@ -294,7 +319,9 @@ describe("a target changed in the attack's window is where the attack's damage g
     expect(attackedCharacters(events)).toEqual([pal]);
   });
 
-  it("'each enemy': only the attack on the enemy the window heard moves; the other enemy is attacked as written", () => {
+  // Owner decision, docs/phase7-wave9.md §4.1 Q4 = A (provisional): the retarget moves the whole attack. Before it,
+  // only the attack on the enemy the window heard moved, and the other enemy took its 2 and was attacked.
+  it("'each enemy' (Q4 = A): the whole attack moves; the new target takes it once and no enemy is attacked", () => {
     const t = table(GOON, VEIL, PAL);
     const pal = t.ids[1]!;
     const villain = activeVillain(t.state).instanceId;
@@ -306,10 +333,13 @@ describe("a target changed in the attack's window is where the attack's damage g
     expect([villain, t.minion]).toContain(from);
     expect(damageOn(state, pal)).toBe(2);
     expect(damageOn(state, from)).toBe(0);
-    expect(damageOn(state, other)).toBe(2);
-    expect([...attackedCharacters(events)].sort()).toEqual([pal, other].sort());
-    // The Goon retaliates only if it is the one still attacked.
-    expect(damageOn(state, t.hero)).toBe(other === t.minion ? 1 : 0);
+    expect(damageOn(state, other)).toBe(0);
+    expect(attackedCharacters(events)).toEqual([pal]);
+    expect(ofType(events, "attackTargetSkipped")).toMatchObject([
+      { targetInstanceId: other, attackerInstanceId: t.hero, reason: "attackRetargeted" },
+    ]);
+    // The Goon is not attacked, so it does not retaliate.
+    expect(damageOn(state, t.hero)).toBe(0);
   });
 
   it("a label-only division: the share put on the enemy the attack was moved off goes to the new target", () => {
@@ -466,5 +496,69 @@ describe("the log of a begun attack reads from start to finish (row 73)", () => 
     const t = table(GOON, VEIL, PAL);
     const { events } = play(t, BEGUN, t.ids[1]!);
     expect(ofType(events, "attackResumed")).toMatchObject([{ targetInstanceId: t.ids[1]!, amount: 3 }]);
+  });
+});
+
+describe("a retarget moves the whole attack of an '(attack)' ability (docs/phase7-wave9.md §4.1 Q4 = A, provisional)", () => {
+  // RRG 1.8 "Attack (Player Ability Type)" (p. 10): "An ability labeled as an attack is considered a single attack,
+  // even if that attack deals multiple instances of damage". Owner Q4 = A: "this attack" is the whole attack, "all of
+  // it resolves against the one minion". Under answer B only the share aimed at the villain would move: the Goon
+  // would take its 3 and the Decoy, a minion engaged with the player, 3 more (6).
+  it("the villain and each engaged minion: the Decoy is the only target and takes 3 once", () => {
+    const base = table(GOON, BAIT);
+    const decoy = minionEngagedWith(base.state, DECOY.id, P1);
+    const t = { ...base, state: decoy.state };
+    const villain = activeVillain(t.state).instanceId;
+    const { state, events } = play(t, SPRAY);
+    expect(ofType(events, "playerAttackRetargeted")).toMatchObject([
+      { attackerInstanceId: t.hero, fromInstanceId: villain, targetInstanceId: decoy.id },
+    ]);
+    expect(damageOn(state, decoy.id)).toBe(3);
+    expect(damageOn(state, villain)).toBe(0);
+    expect(damageOn(state, t.minion)).toBe(0);
+    expect(attackedCharacters(events)).toEqual([decoy.id]);
+    // The Goon (retaliate 1) is not attacked: logged as skipped, and it does not retaliate.
+    expect(ofType(events, "attackTargetSkipped")).toMatchObject([
+      { targetInstanceId: t.minion, attackerInstanceId: t.hero, reason: "attackRetargeted" },
+    ]);
+    expect(damageOn(state, t.hero)).toBe(0);
+  });
+
+  it("without the retarget, the same attack deals 3 to the villain and to each engaged minion", () => {
+    const base = table(GOON);
+    const decoy = minionEngagedWith(base.state, DECOY.id, P1);
+    const t = { ...base, state: decoy.state };
+    const { state, events } = play(t, SPRAY);
+    expect(damageOn(state, activeVillain(t.state).instanceId)).toBe(3);
+    expect(damageOn(state, decoy.id)).toBe(3);
+    expect(damageOn(state, t.minion)).toBe(3);
+    expect(ofType(events, "attackTargetSkipped")).toEqual([]);
+  });
+
+  it("an `attack` instruction with one event per enemy: the moved event takes the whole attack, the other event is not made", () => {
+    const t = table(GOON, VEIL, PAL);
+    const pal = t.ids[1]!;
+    const villain = activeVillain(t.state).instanceId;
+    const { state, events } = play(t, ATTACK_EACH, pal);
+    const moves = ofType(events, "playerAttackRetargeted");
+    expect(moves).toHaveLength(1);
+    const other = moves[0]!.fromInstanceId === villain ? t.minion : villain;
+    expect(damageOn(state, pal)).toBe(2);
+    expect(damageOn(state, villain)).toBe(0);
+    expect(damageOn(state, t.minion)).toBe(0);
+    expect(attackedCharacters(events)).toEqual([pal]);
+    expect(ofType(events, "attackTargetSkipped")).toMatchObject([
+      { targetInstanceId: other, reason: "attackRetargeted" },
+    ]);
+    expect(damageOn(state, t.hero)).toBe(0);
+  });
+
+  it("an unlabeled ability's attacks are separate: each event is moved on its own, as before", () => {
+    const t = table(GOON, VEIL, PAL);
+    const pal = t.ids[1]!;
+    const { state, events } = play(t, UNLABELED_EACH, pal);
+    expect(ofType(events, "playerAttackRetargeted")).toHaveLength(2);
+    expect(damageOn(state, pal)).toBe(4);
+    expect(ofType(events, "attackTargetSkipped")).toEqual([]);
   });
 });

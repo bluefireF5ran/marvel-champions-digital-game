@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 import { CORE_DEPS } from "@mc/cards";
 import { LocalEngineHost } from "../engine/local-host.js";
 import { SessionStore } from "../store/session-store.js";
-import { POOL_SCENARIOS } from "../content/pool.js";
+import { POOL_DEPS, POOL_SCENARIOS } from "../content/pool.js";
 import { initialSetupDraft, toSessionConfig } from "./setup-draft.js";
 import { boardModel, setAsidePanel } from "./board-model.js";
 import {
@@ -40,7 +40,13 @@ describe("set-aside modular sets on the board", () => {
   test("shows 0 once the last set has been shuffled in, because the scenario had some", async () => {
     const state = await game("mojo");
     const none: GameState = { ...state, setAsideModularSets: [] };
-    expect(setAsidePanel(none)).toEqual({ count: 0, names: [] });
+    expect(setAsidePanel(none, POOL_DEPS)).toEqual({ count: 0, names: [] });
+  });
+
+  test("Thunderbolts shuffled its sets in during Setup, so it shows no 'none left' footer", async () => {
+    const state = await game("thunderbolts");
+    expect(state.setAsideModularSets).toEqual([]);
+    expect(boardModel(state, state.players[0]!.playerId, POOL_DEPS).setAside).toBeNull();
   });
 
   test("a scenario that never set any aside shows nothing", async () => {

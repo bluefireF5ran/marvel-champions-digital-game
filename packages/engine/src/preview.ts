@@ -42,7 +42,7 @@ import {
 } from "./query.js";
 import { cardsInPlay, categoriesOf, hitPointFloor } from "./select.js";
 import type { GameOutcome, GameState, StatusCounts } from "./state.js";
-import { faceHidden, zoneHidden } from "./visibility.js";
+import { faceHidden, hiddenPileCardIds, zoneHidden } from "./visibility.js";
 
 /** Where a preview stopped, and why. */
 export type PreviewStop =
@@ -160,6 +160,16 @@ function namedInstances(event: GameEvent, state: GameState, into: Set<string>): 
   walk(event);
 }
 
+/** Whether an event carries one of these strings anywhere in it (the same structural walk as `namedInstances`). */
+function namesAny(event: GameEvent, ids: ReadonlySet<string>): boolean {
+  const walk = (value: unknown): boolean => {
+    if (typeof value === "string") return ids.has(value);
+    if (Array.isArray(value)) return value.some(walk);
+    return value !== null && typeof value === "object" && Object.values(value).some(walk);
+  };
+  return walk(event);
+}
+
 /**
  * How many events are certain, stated over zones rather than over a list of risky event kinds.
  *
@@ -168,6 +178,15 @@ function namedInstances(event: GameEvent, state: GameState, into: Set<string>): 
  *      shuffle's new order; or
  *  (b) names a card that was facedown out of a deck and is faceup once the command finishes (`faceHidden` then
  *      revealed) — a boost card left over from an earlier round being flipped, a facedown Drone turned over.
+ *  (c) names a card that was in a hidden pile (`GameState.hiddenPiles`, docs/phase7-wave9.md §3.29 (a)) — a card gained
+ *      from a pile or a pile turned faceup. A pile's card is a card id and never an instance, and no other event names
+ *      it by that id while it is hidden, so any mention is the reveal. Needed beside `randomPrefix`: taking a pile's
+ *      last cards, or all of them, draws nothing from the random stream.
+ *
+ *  (d) names a double-sided card whose other face no player may look at (`CardInstance.reverseHidden`,
+ *      docs/phase7-wave9.md §3.54) and that has flipped once the command finishes: what its other face is, and all it
+ *      then does, is not the previewing player's to know. Like (b), a mention of a card that stays as it is does not
+ *      truncate (a counter placed on it that is not the last one).
  *
  * Damaging a facedown Drone does *not* truncate: naming a facedown card is not reading it, and the Drone is still
  * facedown afterwards. That distinction is why (b) asks about the post-state's `faceup` rather than treating every
@@ -183,12 +202,21 @@ function certainPrefix(before: GameState, after: GameState, events: readonly Gam
     if (zoneHidden(before, instanceId, { deps })) hidden.add(id);
     else if (faceHidden(before, instanceId)) revealable.add(id);
   }
-  if (hidden.size === 0 && revealable.size === 0) return events.length;
+  const piled = hiddenPileCardIds(before);
+  // (d) below: the cards whose other face no player may look at and that the command flips.
+  const turning = new Set(
+    Object.values(before.instances)
+      .filter((instance) => instance.reverseHidden && after.instances[instance.instanceId]?.reverseHidden !== true)
+      .map((instance) => instance.instanceId as string),
+  );
+  if (hidden.size === 0 && revealable.size === 0 && piled.size === 0 && turning.size === 0) return events.length;
 
   for (const [index, event] of events.entries()) {
+    if (piled.size > 0 && namesAny(event, piled)) return index;
     const named = new Set<string>();
     namedInstances(event, before, named);
     for (const id of named) {
+      if (turning.has(id)) return index;
       if (hidden.has(id)) return index;
       if (revealable.has(id) && after.instances[id]?.faceup === true) return index;
     }

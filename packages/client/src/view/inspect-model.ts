@@ -11,6 +11,13 @@
  * legality: the message and the target list come from the engine.
  */
 
+import { attackBarNote, attackRefusalWording } from "./attack-bar.js";
+import { counterGoalsOf } from "./counter-goal.js";
+import { counterLimitsOf } from "./counter-limit.js";
+import { neutralNotes } from "./neutral-notes.js";
+import { forcedAbilitiesOf, owedForcedActions } from "./forced-actions.js";
+import { otherFaceVisible, reverseHiddenNote } from "./hidden-reverse.js";
+import { breakPointOf } from "./break-point.js";
 import { perPlayerCostOf, type PerPlayerCost } from "./per-player-cost.js";
 import type { AbilityId, AnyCard, KeywordInstance, ResourceIconType } from "@mc/content";
 import { keywordLabel } from "./keyword-label.js";
@@ -32,7 +39,6 @@ import {
   printedCostOf,
   printedResources,
   remainingHitPoints,
-  selfDamageThreshold,
   traitsOf,
   type AbilityTriggerSpec,
   type EngineDeps,
@@ -55,7 +61,14 @@ import { howThisWorksFor } from "./how-this-works.js";
 import { citeLabelOf, everyGlossaryEntry } from "./rules-reference.js";
 import { faceVisible } from "./visibility.js";
 import { poolTeamUpPairs, teamUpNoticeFor, teamUpWhyNot, type TeamUpNotice } from "./team-up-model.js";
-import { hitPointFloorNote, resourceIconNote, scenarioAreaNotes } from "./inspect-notes.js";
+import {
+  attachedLinks,
+  hitPointFloorNote,
+  placementNotes,
+  resourceIconNote,
+  scenarioAreaNotes,
+  type AttachedLinks,
+} from "./inspect-notes.js";
 import {
   damageNote,
   counterNote,
@@ -257,6 +270,14 @@ export interface InspectModel {
   readonly resourceIconNote: string | null;
   /** For a card in a scenario play area (the mission area, §3.33): no controller, closed area, blank ally text. */
   readonly areaNotes: readonly string[];
+  /** "Limited by Encased in Ice": what limits this character from attacking, when something does (`view/attack-bar.ts`). */
+  readonly attackBarNote: string | null;
+  /** "Its other side is hidden until it flips." on a double-sided card whose reverse no player may read (`view/hidden-reverse.ts`). */
+  readonly reverseNote?: string | null;
+  /** "Forced Action: use it ..." on a card whose text has one (`view/forced-actions.ts`); owed now or only each turn. */
+  readonly forcedNote?: string | null;
+  /** The cards attached to this one and the one it is attached to, each a link that opens it (`view/inspect-notes.ts`). */
+  readonly attached: AttachedLinks | null;
   /** True when an open payment (threaded in as `InspectPayment`) could still spend this exact card. */
   readonly canPayAsResource: boolean;
   /**
@@ -344,6 +365,8 @@ export function inspectModel(
       hitPointFloorNote: null,
       resourceIconNote: null,
       areaNotes: [],
+      attackBarNote: null,
+      attached: null,
       canPayAsResource: false,
       howItWorks: null,
       campaignNotice: null,
@@ -364,7 +387,9 @@ export function inspectModel(
   // name "Scarlet Witch", hero stats of 0 and Chaos Control, a power she doesn't have in that form, while the
   // button below correctly offered Superpowered Siblings. Reported from play. The same default read a villain on
   // stage II as stage I.
-  const face = opts.face ?? faceOf(state, instanceId, view);
+  const asked = opts.face ?? faceOf(state, instanceId, view);
+  // A card whose reverse is hidden is read by its showing face only, whatever face was asked for (`view/hidden-reverse.ts`).
+  const face: CardFace = asked.kind === "flipSide" && !otherFaceVisible(state, instanceId) ? { kind: "front" } : asked;
 
   return {
     instanceId,
@@ -415,19 +440,28 @@ export function inspectModel(
     art: artFor(card, face),
     footerLeft: `${card.setCode as string} · ${card.collectorNumber}`,
     footerRight: [card.unique ? "Unique" : null, `×${card.quantityInSet} in set`].filter(Boolean).join(" · "),
-    status: statusOf(state, instanceId, legal, perspectiveId, payment),
+    status: statusOf(state, instanceId, legal, perspectiveId, payment, deps),
     abilities: usableAbilitiesOf(state, instanceId, legal, deps),
     hidden: false,
     timing: timingEntriesFor(state, instanceId, deps),
     keywordDefinitions: keywordDefinitionsFor(state, instanceId, deps),
     history: cardHistoryOf(history, instanceId, state, perspectiveId, deps),
     damageNote:
-      current === undefined ? damageNote(instance.damage, selfDamageThreshold(state, instanceId, deps)) : null,
-    threatNote: threatNote(threatOnCard(state, instanceId)),
-    counterNote: counterNote(countersOf(state, instanceId)),
+      neutralNotes(state, instanceId)?.damage ??
+      (current === undefined ? damageNote(instance.damage, breakPointOf(state, instanceId, deps)) : null),
+    threatNote: neutralNotes(state, instanceId)?.threat ?? threatNote(threatOnCard(state, instanceId)),
+    counterNote: counterNote(
+      countersOf(state, instanceId),
+      counterGoalsOf(state, instanceId, deps),
+      counterLimitsOf(state, instanceId, deps),
+    ),
+    reverseNote: reverseHiddenNote(state, instanceId),
+    forcedNote: forcedNoteOf(state, instanceId, legal, deps),
     hitPointFloorNote: hitPointFloorNote(state, instanceId, deps),
     resourceIconNote: resourceIconNote(state, deps, instanceId),
-    areaNotes: scenarioAreaNotes(state, deps, instanceId),
+    areaNotes: [...scenarioAreaNotes(state, deps, instanceId), ...placementNotes(state, instanceId)],
+    attackBarNote: attackBarNote(state, deps, instanceId),
+    attached: attachedLinks(state, instanceId),
     canPayAsResource: payment !== null && payment.spendableInstanceIds.has(instanceId),
     howItWorks: howThisWorksFor(card),
     campaignNotice: campaignNoticeFor(textOf(card, face).current),
@@ -588,6 +622,23 @@ function resourceAbilityNote(
   return null;
 }
 
+/**
+ * What Inspect says of a card whose text has a "Forced Action": that it must be used, and whether it is owed right now
+ * (the engine lists it usable, `owedForcedActions`) or only each turn it can be. Null for every other card.
+ */
+function forcedNoteOf(
+  state: GameState,
+  instanceId: InstanceId,
+  legal: LegalActions | null,
+  deps: EngineDeps,
+): string | null {
+  if (!cardsInPlay(state).includes(instanceId) || forcedAbilitiesOf(state, instanceId, deps).length === 0) return null;
+  const owed = owedForcedActions(legal, deps).some((action) => action.instanceId === instanceId);
+  return owed
+    ? "Forced Action: you must use it before your turn ends. End Turn waits for it."
+    : "Forced Action: you must use it during your turn if you are able.";
+}
+
 /** Every action ability `legalActions` currently lists for this card, named and priced. */
 function usableAbilitiesOf(
   state: GameState,
@@ -676,6 +727,26 @@ function printedTraitsOf(card: AnyCard, face: CardFace): readonly string[] {
  * scan prints them, and inventing a number for a card that isn't in play would
  * be the client stating a rule.
  */
+/**
+ * The sheet for a printed rules card with no card record (`Scenario.referenceCards`: Shatter the Illusion): its title,
+ * its printed text and its scan, and nothing a card in a game would say.
+ */
+export function referenceInspectModel(reference: {
+  readonly title: string;
+  readonly text: string;
+  readonly art: ArtSource | null;
+}): InspectModel {
+  return {
+    ...cardInspectModel(undefined, { kind: "front" }),
+    name: reference.title,
+    typeLine: "Rules card",
+    rulesText: reference.text,
+    art: reference.art,
+    footerLeft: "Trickster Takeover",
+    footerRight: "Reference",
+  };
+}
+
 export function cardInspectModel(card: AnyCard | undefined, face: CardFace): InspectModel {
   if (!card) {
     return {
@@ -710,6 +781,8 @@ export function cardInspectModel(card: AnyCard | undefined, face: CardFace): Ins
       hitPointFloorNote: null,
       resourceIconNote: null,
       areaNotes: [],
+      attackBarNote: null,
+      attached: null,
       canPayAsResource: false,
       howItWorks: null,
       campaignNotice: null,
@@ -760,6 +833,8 @@ export function cardInspectModel(card: AnyCard | undefined, face: CardFace): Ins
     hitPointFloorNote: null,
     resourceIconNote: null,
     areaNotes: [],
+    attackBarNote: null,
+    attached: null,
     canPayAsResource: false,
     howItWorks: howThisWorksFor(card),
     campaignNotice: campaignNoticeFor(text.current),
@@ -857,6 +932,7 @@ function statusOf(
   legal: LegalActions | null,
   perspectiveId: PlayerId,
   payment: InspectPayment | null,
+  deps: EngineDeps,
 ): InspectStatus {
   // A non-active seat's off-turn Actions (`notYourTurn`) carry the same legal and illegal lists as a turn.
   if (!legal || (legal.kind !== "turn" && legal.kind !== "notYourTurn")) {
@@ -898,20 +974,35 @@ function statusOf(
   if (aimedAt.length > 0) {
     return {
       playable: null,
-      message: `A legal target for: ${aimedAt.map((entry) => entry.action.kind).join(", ")}.`,
+      message: `A legal target for: ${[...new Set(aimedAt.map((entry) => TARGET_FOR_WORD[entry.action.kind] ?? entry.action.kind))].join(", ")}.`,
       targets: [],
     };
   }
-  const blocked = legal.legal
-    .flatMap((entry) => entry.blockedTargets)
-    .concat(legal.illegal.flatMap((entry) => entry.blockedTargets))
-    .find((target) => target.instanceId === instanceId);
-  if (blocked) return { playable: false, message: blocked.message, targets: [] };
+  // Which attacker the engine refused is on the entry, so a barred one (Encased in Ice) is named, not "a guard minion".
+  const refused = [...legal.legal, ...legal.illegal]
+    .flatMap((entry) => entry.blockedTargets.map((target) => ({ entry, target })))
+    .find(({ target }) => target.instanceId === instanceId);
+  if (refused) {
+    const { entry, target } = refused;
+    const message =
+      entry.action.kind === "basicAttack"
+        ? attackRefusalWording(state, deps, entry.action.instanceId, target.message, target.instanceId)
+        : target.message;
+    return { playable: false, message, targets: [] };
+  }
 
   // In hand and named by no action at all: the engine had nothing to say, and
   // neither does this panel.
   return { playable: owned ? false : null, message: "", targets: [] };
 }
+
+/** The engine's action kinds that take a target, as the table says them. */
+const TARGET_FOR_WORD: Readonly<Record<string, string>> = {
+  basicAttack: "an attack",
+  basicThwart: "a thwart",
+  playCard: "a card you can play",
+  useAbility: "an ability",
+};
 
 /** "Cost 3 — you have 2 resources committed, 1 short." — null unless `payment` is open for this exact instance. */
 function paymentMessage(payment: InspectPayment | null, instanceId: InstanceId): string | null {
@@ -969,6 +1060,8 @@ export function triggerLabel(trigger: AbilityTriggerSpec): string {
       return "Setup";
     case "special":
       return "Special";
+    case "preparation":
+      return "Preparation";
     // "Attach to … If you cannot, …": the printed attach instruction, which has no header of its own.
     case "cannotAttach":
       return "Attach To";

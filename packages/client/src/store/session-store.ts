@@ -12,7 +12,16 @@
  * what the host reports about that — the game's `record` and any `saveError`.
  */
 
-import type { ChoiceId, Command, EngineErrorCode, GameEvent, GameState, IllegalDeck, PlayerId } from "@mc/engine";
+import {
+  type ChoiceId,
+  type Command,
+  type EngineErrorCode,
+  type GameEvent,
+  type IllegalDeck,
+  type PlayerId,
+  type SealedGameState,
+} from "@mc/engine";
+import { sealForTable } from "../view/hidden-reverse.js";
 import { hasOffTurnAction } from "../view/highlights.js";
 import { actingPlayer } from "../engine/acting-player.js";
 import { emptyRecord, type GameRecord } from "../engine/game-record.js";
@@ -26,7 +35,11 @@ export interface SessionState {
   readonly status: SessionStatus;
   /** The host's command count for `game`; -1 before the first update. */
   readonly version: number;
-  readonly game: GameState | null;
+  /**
+   * The game as the table may read it: sealed (`sealForTable`), so it has no hidden pile's cards, no hidden reverse
+   * and no sealed campaign value. Every engine query and preview accepts it as a `GameState`.
+   */
+  readonly game: SealedGameState | null;
   /** The events of the most recent command — what the Board scene animates. */
   readonly lastEvents: readonly GameEvent[];
   /** Prefetched legal actions for the player who must act. */
@@ -282,7 +295,8 @@ export class SessionStore {
     this.#set({
       status: "playing",
       version: update.version,
-      game: update.state,
+      // Sealed again here, whatever host produced the update: idempotent.
+      game: sealForTable(update.state),
       lastEvents: update.events,
       legal: update.legal,
       perspectiveId: toAct ?? this.#state.perspectiveId ?? update.state.firstPlayerId,

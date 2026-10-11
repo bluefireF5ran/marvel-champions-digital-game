@@ -288,7 +288,7 @@ export class GameOverScene extends Phaser.Scene {
     const tableTitle = this.#display(sideX + 16, bodyTop + 14, "The table", 20, surface.paper.hex);
     let rowY = tableTitle.y + tableTitle.height + 10;
     for (const seat of model.seats) {
-      const alpha = seat.defeated ? 0.55 : 1;
+      const alpha = seat.defeated || seat.satOut ? 0.55 : 1;
       const name = this.add.text(sideX + 16, rowY, seat.name, textStyle(typeRole.emphasis, surface.paper.hex, alpha));
       const detail = this.add
         .text(sideX + sideWidth - 16, rowY, seat.detail, textStyle(typeRole.emphasis, surface.paper.hex, 0.6 * alpha))

@@ -45,12 +45,15 @@ import { CATALOG_REPRINTS } from "../data/catalog.js";
 import { indexById } from "./pool-index.js";
 import {
   MAX_IMPORT_LINES,
-  MAX_IMPORT_TEXT_LENGTH,
+  MAX_MARVELCDB_RESPONSE_LENGTH,
   MAX_LINE_QUANTITY,
   type ImportNote,
   type ImportProblem,
   type ImportResult,
 } from "./types.js";
+
+const isLinked = (card: AnyCard): boolean =>
+  ((card as { keywords?: readonly { name: string }[] }).keywords ?? []).some((keyword) => keyword.name === "linked");
 
 export interface MarvelCdbDeckJson {
   readonly id: number;
@@ -232,6 +235,14 @@ export function parseMarvelCdbDeckJson(raw: unknown, pool: readonly AnyCard[]): 
       problems.push(problem("unknown_card", `Card code "${code}" is not in the card pool.`, [code as CardId]));
       continue;
     }
+    if (isLinked(card)) {
+      notes.push({
+        code: "linked_card_dropped",
+        message: `${card.name} has the Linked keyword, so it is not part of a deck: it was left out. The card that names it brings it into the game.`,
+        cardIds: [card.id],
+      });
+      continue;
+    }
     quantitiesById.set(card.id, (quantitiesById.get(card.id) ?? 0) + (rawQuantity as number));
   }
   // MarvelCDB lists some identity-set cards in a separate card set (Iceman's six Frostbite, `iceman_frostbite`), so a
@@ -308,13 +319,13 @@ export function parseMarvelCdbDeckJsonText(text: string, pool: readonly AnyCard[
   if (text.length === 0) {
     return { ok: false, problems: [{ code: "invalid_input", message: "MarvelCDB has no deck at that URL or id." }] };
   }
-  if (text.length > MAX_IMPORT_TEXT_LENGTH) {
+  if (text.length > MAX_MARVELCDB_RESPONSE_LENGTH) {
     return {
       ok: false,
       problems: [
         {
           code: "oversized_input",
-          message: `This response is ${text.length} characters, more than the ${MAX_IMPORT_TEXT_LENGTH} this importer accepts.`,
+          message: `This response is ${text.length} characters, more than the ${MAX_MARVELCDB_RESPONSE_LENGTH} this importer accepts.`,
         },
       ],
     };

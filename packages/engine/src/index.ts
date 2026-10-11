@@ -1,12 +1,38 @@
 export const ENGINE_VERSION = "0.18.0";
 
-export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId } from "./ids.js";
-export { playerId, instanceId, choiceId, encounterDeckId, frameId } from "./ids.js";
+export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId } from "./ids.js";
+export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId } from "./ids.js";
+
+export type {
+  GroupRef,
+  PodNeutralArea,
+  PodNeutralSetup,
+  PodSetup,
+  PodState,
+  SharedEvent,
+  SharedPodState,
+  SharedResult,
+  SharedThreatCause,
+} from "./pod.js";
+export {
+  applySharedEvent,
+  groupVar,
+  POD_MOMENT,
+  podBlocksOf,
+  podGroupIds,
+  podOf,
+  podSetupFault,
+  resolveGroup,
+  sharedLost,
+  SINGLE_GROUP,
+} from "./pod.js";
 
 export type { RngState } from "./rng.js";
 export { createRng, nextInt, nextUint32, shuffle } from "./rng.js";
 
 export type {
+  Accusation,
+  AccusationGuess,
   AttackRecord,
   RevealRecord,
   CardHome,
@@ -35,9 +61,17 @@ export type {
 export { NO_STATUSES } from "./state.js";
 
 export { cardTypeName, isRulesCardType, RULES_CARD_TYPES, type RulesCardType } from "./card-types.js";
+export {
+  ALL_PURPOSE_COUNTER,
+  ANY_COUNTER,
+  countersOfType,
+  definedCounterType,
+  definedCounterTypeOrNull,
+} from "./counter-types.js";
 
 export type {
   AttackInProgress,
+  CardPosition,
   ChoiceList,
   ChoiceOption,
   ChoicePrompt,
@@ -45,7 +79,14 @@ export type {
   DecisionAuthority,
   PendingChoice,
 } from "./choices.js";
-export { PLAY_TO_OWN_AREA, playDestinationOfOption, playToAreaOption } from "./choices.js";
+export {
+  cardTotalFault,
+  cardTotalOf,
+  mostCardsUnderTotal,
+  PLAY_TO_OWN_AREA,
+  playDestinationOfOption,
+  playToAreaOption,
+} from "./choices.js";
 
 export {
   effectChoiceAuthority,
@@ -73,13 +114,20 @@ export type {
   PaymentQuery,
   PaymentSource,
 } from "./legal.js";
-export { legalActions, paymentFor, tryPayment } from "./legal.js";
+export {
+  forcedActionOptionId,
+  legalActions,
+  outstandingForcedActions,
+  paymentFor,
+  tryPayment,
+  type OutstandingForcedAction,
+} from "./legal.js";
 
 /** What a card costs right now vs. what is printed on it, and the cards moving the price (Steve Rogers' Living Legend). */
 export type { PlayCost, PlayCostContribution } from "./actions.js";
 export { costAsDetermined, inPlayCostCandidates, playCostOf, playableOutsideHand } from "./actions.js";
 export { deckTopPermission, deckTopPlayOf, type DeckTopPermission } from "./actions.js";
-export type { Command, CommandType, Payment, ResourceAbilityUse } from "./commands.js";
+export type { Command, CommandType, Payment, ResourceAbilityUse, SpentCardAbilityUse } from "./commands.js";
 export type { GameEvent, GameEventType } from "./events.js";
 export type { EngineError, EngineErrorCode, IllegalDeck } from "./errors.js";
 
@@ -113,8 +161,12 @@ export type {
   AbilityCost,
   DamageSelfChoice,
   DeckDiscardChoice,
+  EncounterDeckDiscardCost,
+  RemoveThreatCost,
   DiscardCombined,
+  InPlayCombined,
   InPlayCostPick,
+  TuckedCostPick,
   DamageCostPick,
   AttachCost,
   AbilityDefinition,
@@ -195,6 +247,7 @@ export {
   excessDamageBonus,
   formChangeCostsFor,
   grantedIcons,
+  grantedLabeledAbilities,
   iconsBlankedOn,
   iconsInPlay,
   iconsOn,
@@ -208,19 +261,24 @@ export {
   schemeThreatDestination,
   threatCannotBeRemoved,
 } from "./rules.js";
-export type { ConsequentialDamage, DamageSourceInfo, FormChangeCost } from "./rules.js";
+export type { ConsequentialDamage, DamageSourceInfo, FormChangeCost, GrantedAbility } from "./rules.js";
 export { hasKeyword, isPermanent, keywordsOf, keywordTotal, printedKeywordsOf, statusActive } from "./keywords.js";
+export { linkedKeywordNames, linkedKeywordsOf } from "./linked.js";
+export { counterRoom } from "./counter-limit.js";
 export { printedResources } from "./resources.js";
 export { pairOfOptionId, pairOptionId, pairSelectionFault, resourceIconsMatch } from "./resolve/pair-cards.js";
 export { characterTitledAs, identityCardTitledAs } from "./titles.js";
 export type { CostChoices, CostSelection } from "./commands.js";
 export type { DeferredEffects, ReportTarget, Vars } from "./stack.js";
-export { currentActivationFrameId } from "./stack.js";
+export { attackPreventedVars, currentActivationFrameId, PAID_CARDS_SLOT } from "./stack.js";
 export {
   abilityUseKey,
   DEFAULT_DEPS,
   fixedResourcesOf,
+  GRANTED_BY_SLOT,
   inPlayPicksOf,
+  tuckedPickOf,
+  labeledResolvedVar,
   isResourcesChoice,
   NO_ABILITIES,
   resourcesChoiceOf,
@@ -297,6 +355,8 @@ export type {
   LogFieldDef,
   LogFieldType,
   LogValue,
+  LogValueContent,
+  LogValueSeal,
   LogWrite,
   LogWriteMode,
   LogWriteSpec,
@@ -343,12 +403,29 @@ export {
   setCampaignGrantLeftOut,
   startGameFromLog,
 } from "./campaign/runner.js";
-export { removedCardIdsOf, withRemovedCardsOutOfDecks } from "./campaign/log.js";
+export {
+  logValueSize,
+  removedCardIdsOf,
+  withoutSealedContents,
+  withoutSealedFields,
+  withRemovedCardsOutOfDecks,
+} from "./campaign/log.js";
+export { sealCampaignLog } from "./campaign/seal.js";
+export type {
+  SealedCampaignAttempt,
+  SealedCampaignHistoryEntry,
+  SealedCampaignLog,
+  SealedCampaignLogSnapshot,
+} from "./campaign/seal.js";
 
 /** Reading the frozen campaign snapshot a game carries (`GameState.campaign`), for view models and the runner. */
 export {
   campaignFaceOf,
+  CAMPAIGN_LOG_FRONT_FACE,
+  campaignLogCardCounter,
   campaignLogCardIds,
+  campaignLogCardRecorded,
+  campaignLogCardState,
   campaignLogContains,
   campaignLogField,
   campaignLogIsSet,
@@ -357,14 +434,25 @@ export {
   sameCampaignFace,
 } from "./campaign-state.js";
 
-export type { TriggerEvent, TriggerEventKind } from "./trigger-events.js";
+export type {
+  EncounterDealSource,
+  LeaveCauseSide,
+  OutOfPlayDiscard,
+  ImminentAttach,
+  TriggerEvent,
+  TriggerEventKind,
+  TuckedDiscardCause,
+  TuckHostKind,
+} from "./trigger-events.js";
 export {
   BASIC_POWER_STAT,
   carriedByEvent,
   damageTakenKey,
   eventSubjects,
+  hearsEncounterDeckDiscard,
   isAnnouncement,
   MOMENT_PREFIX,
+  TAKEN_AWAY_SUFFIX,
   TOTAL_ATK_RESULT,
 } from "./trigger-events.js";
 
@@ -386,7 +474,19 @@ export { stackEntries } from "./stack-view.js";
 export { frameCardId } from "./ctx.js";
 
 /** Who may read a card's face, as a rule over zones — the client's rendering and `preview()` share this one answer. */
-export { faceHidden, faceVisible, offeredByOpenChoice, zoneHidden } from "./visibility.js";
+export { displayNameOf, faceHidden, faceVisible, lookedAtBy, offeredByOpenChoice, zoneHidden } from "./visibility.js";
+export {
+  hiddenPileViews,
+  otherFaceVisible,
+  sealHiddenInformation,
+  sealHiddenPiles,
+  sealHiddenReverses,
+  type HiddenPileView,
+  type SealedGameState,
+} from "./visibility.js";
+export { placeHiddenPiles, revealedPileCardsOf } from "./resolve/hidden-piles.js";
+export { hiddenPilesSealed, hiddenPileSize, isSealedPileCard } from "./hidden-pile-state.js";
+export { evidenceRowId, evidenceRowsLeft, openEvidenceRows, wrongGuessesOf } from "./accusation.js";
 export type { TableContext, ViewerContext } from "./visibility.js";
 
 /** "What would this command do?" — a probe of the real engine, truncated wherever the answer needs hidden information. */
@@ -404,6 +504,9 @@ export type { EffectContext, PlayerCardClassification, QueryExclusion } from "./
 export {
   abilityIgnored,
   activeAbilityRefs,
+  gainedAbilities,
+  attackableAsMinion,
+  attackForbiddenBy,
   canAttack,
   cardsInPlay,
   facedownAttachments,
@@ -416,15 +519,21 @@ export {
   consideredRemainingHitPoints,
   controllerOf,
   deckTopFaceupPlayers,
+  encounterTopFaceup,
   hitPointFloor,
   ignoredAbilities,
   explainQuery,
+  isCaptiveAlly,
+  isAttackTarget,
+  isHeldMinion,
   matchesQuery,
   resolveValue,
   selectTargets,
   shownDeckTop,
+  shownEncounterTop,
   TOGETHER_TARGETS_SLOT,
   textBoxBlankFor,
+  villainAliasOf,
   traitsOf,
 } from "./select.js";
 
@@ -508,6 +617,9 @@ export {
   printedProfile,
   remainingHitPoints,
   scale,
+  scaleIn,
+  sharedScheme,
+  sharedVillain,
   schemesInPlay,
   villainStage,
   zoneContents,
@@ -516,6 +628,7 @@ export { legalDefenders } from "./resolve/enemy-activation.js";
 export { UNRESOLVED_VAR } from "./resolve/target-validity.js";
 export { mainSchemeCompletionLoses } from "./resolve/defeat.js";
 export { collectionCandidates } from "./resolve/collection.js";
+export { scenarioDeckCards, scenarioDeckWithTop } from "./resolve/scenario-deck-top.js";
 export {
   REPORT_NO,
   REPORT_YES,

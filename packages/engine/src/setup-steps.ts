@@ -45,6 +45,8 @@ export function resolveScenarioSetup(ctx: Ctx): void {
   const firstPlayerId = ctx.state.firstPlayerId;
   const mainSchemeInstanceId = ctx.state.mainScheme.instanceId;
   for (const player of ctx.state.players) {
+    // A seat that sat the scenario out before setup has no deck to shuffle (`EffectSpec sitOutScenario`).
+    if (player.eliminated) continue;
     const shuffled = shuffleZone(ctx, { kind: "deck", playerId: player.playerId }, player.deck);
     ctx.state = {
       ...ctx.state,
@@ -303,6 +305,8 @@ function putSetupCardsIntoPlay(ctx: Ctx, revealingPlayerId: PlayerId): void {
     }
   }
   for (const player of ctx.state.players) {
+    // A seat sitting the scenario out puts nothing into play: its set-aside cards were never part of this game.
+    if (player.eliminated) continue;
     const setAsidePermanent = player.setAside.filter((id) => isPermanentCard(mustCardOf(ctx.state, id)));
     for (const id of [...player.deck, ...setAsidePermanent]) {
       if (!hasKeyword(ctx.state, id, "setup")) continue;

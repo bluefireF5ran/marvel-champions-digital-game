@@ -65,6 +65,17 @@ export function fieldIdWords(field: string): string {
     .toLowerCase();
 }
 
+/** Fields that hold what a seat has LEFT, not what a scenario added: "6 HP left", never "+6 HP", which reads as a gain. */
+const REMAINING_FIELDS: ReadonlySet<string> = new Set(["remainingHp"]);
+
+/**
+ * One number written to the log, in words: a gain or loss reads signed ("+3 units"), a remaining amount reads as what
+ * is left ("6 HP left"). `label` is the field's own word where the caller has a fuller one than the Run's.
+ */
+export function deltaWords(field: string, n: number, label: string = pluralFieldLabel(field, n)): string {
+  return REMAINING_FIELDS.has(field) ? `${n} ${FIELD_SHORT_LABEL[field] ?? label} left` : `${signedCount(n)} ${label}`;
+}
+
 /** "+3", "-1", "0" — a delta reads as a delta, never as a bare magnitude that could be mistaken for a total. */
 export function signedCount(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
@@ -229,9 +240,14 @@ function numberDetailFor(
 ): string {
   const values = deltas.map((delta) => (delta.value as { kind: "number"; value: number }).value);
   const seated = deltas.filter((delta) => delta.seatNumber !== null);
-  if (seated.length === 0) return `${signedCount(values[0]!)} ${pluralFieldLabel(field, values[0]!)}`;
+  if (seated.length === 0) return deltaWords(field, values[0]!);
   const allEqual = values.every((value) => value === values[0]);
-  if (allEqual) return `${signedCount(values[0]!)} ${pluralFieldLabel(field, values[0]!)} each`;
+  if (allEqual) return `${deltaWords(field, values[0]!)} each`;
+  if (REMAINING_FIELDS.has(field)) {
+    return seated
+      .map((delta) => `${heroLabel(delta.seatNumber!)} ${deltaWords(field, (delta.value as { value: number }).value)}`)
+      .join(", ");
+  }
   const parts = seated.map(
     (delta) => `${heroLabel(delta.seatNumber!)} ${signedCount((delta.value as { value: number }).value)}`,
   );

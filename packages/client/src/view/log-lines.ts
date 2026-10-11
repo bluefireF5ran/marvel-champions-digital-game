@@ -27,7 +27,7 @@ import {
 } from "@mc/engine";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
-import { cardName, formWords, playerName, seatName } from "./names.js";
+import { cardName, faceUpName, formWords, playerName, seatName } from "./names.js";
 
 export type StatusName = "stunned" | "confused" | "tough";
 
@@ -153,6 +153,10 @@ export function plainLogLine(line: LogLine): LogLine {
   return { ...line, text: `${line.text} ${words}.`, tags: [] };
 }
 
+/** True when an ability's effects hold a play the player must make (`playFromHand.mustPay`, owner rulings 62B and 63B). */
+const mustPlayCardIn = (definition: unknown): boolean =>
+  definition !== undefined && JSON.stringify(definition).includes('"mustPay":true');
+
 /** The card is revealed next, before any step change or other move: it was parked, not dealt. */
 function revealedAtOnce(burst: Burst, instanceId: InstanceId): boolean {
   for (let i = burst.at + 1; i < burst.events.length; i++) {
@@ -161,6 +165,23 @@ function revealedAtOnce(burst: Burst, instanceId: InstanceId): boolean {
     return next.type === "encounterCardRevealed" && next.instanceId === instanceId;
   }
   return false;
+}
+
+/**
+ * The name a villain went by when `event` happened, when the same command swaps it for another card of its title
+ * afterward (`villainReplaced`, reason `swap`: God of Lies's Avatars). The log is written from the state after the whole
+ * command, where the instance already holds the new card, so without this "Loki the Wretch gets 5 shatter counters"
+ * reads "Loki the Knave gets ..." (the counters were on the Wretch). A reveal is left alone: it names the card now up.
+ */
+function swappedOutName(state: GameState, id: InstanceId, event: GameEvent, burst: Burst | undefined): string | null {
+  if (!burst || event.type === "encounterCardRevealed" || event.type === "villainReplaced") return null;
+  for (let i = burst.at + 1; i < burst.events.length; i++) {
+    const later = burst.events[i]!;
+    if (later.type === "villainReplaced" && later.instanceId === id && later.reason === "swap") {
+      return getCard(state, later.fromCardId)?.name ?? null;
+    }
+  }
+  return null;
 }
 
 /** The command's whole event list and where `event` sits in it: a few lines read the events around them. */
@@ -183,7 +204,8 @@ function describe(
   const verb = (id: PlayerId, plural: string, singular: string): string => (id === viewer ? plural : singular);
   /** "Your deck" vs "Spider-Man's deck": "you" possessive isn't "you's". */
   const possessive = (id: PlayerId): string => (id === viewer ? "Your" : `${who(id)}'s`);
-  const card = (id: Parameters<typeof cardName>[1]): string => faceNames?.get(id) ?? cardName(state, id);
+  const card = (id: Parameters<typeof cardName>[1]): string =>
+    faceNames?.get(id) ?? swappedOutName(state, id, event, burst) ?? cardName(state, id);
 
   switch (event.type) {
     case "roundStarted":
@@ -250,6 +272,19 @@ function describe(
       }
       if (event.from.kind === "scenarioPlayArea") {
         return { text: `${card(event.instanceId)} leaves the ${event.from.name} area.`, voice: "villain" };
+      }
+      // A minion a card held (Thunderbolt Backup's end-of-round swap) comes off it and engages a player: the engine
+      // records only the move, so without this line the swap read as one minion being held and nothing else.
+      if (
+        event.from.kind === "attachment" &&
+        event.to.kind === "playArea" &&
+        cardOf(state, event.instanceId)?.type === "minion" &&
+        !burst?.events.some((other) => other.type === "cardDetached" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: `${card(event.instanceId)} leaves ${faceUpName(state, event.from.hostInstanceId)} and engages ${who(event.to.playerId)}.`,
+          voice: "villain",
+        };
       }
       return null;
     // A set-aside modular set joining the deck (Mojo's 1B, The Hood): which one, since the board only shows a deck grow.
@@ -485,6 +520,12 @@ function describe(
           text: `${card(event.instanceId)} stays where it was: that kind of card can't go there.`,
           voice: "player",
         };
+      // RRG 1.8 "Max, Maximum" (p. 28): no one can take control of another copy of a "Max 1 per player" card.
+      if (event.reason === "maxPerPlayer")
+        return {
+          text: `${card(event.instanceId)} stays where it was: no one can control another copy (max per player).`,
+          voice: "player",
+        };
       return { text: `${card(event.instanceId)} has nothing to attach to and stays where it was.`, voice: "player" };
     case "statusGiven":
       return { text: `${card(event.instanceId)} is`, tags: [{ status: event.status, spent: false }], voice: "player" };
@@ -521,7 +562,7 @@ function describe(
       return {
         text: event.byEffect
           ? `${card(event.defenderInstanceId)} is declared the defender against ${card(event.attackInstanceId)}.`
-          : `${card(event.defenderInstanceId)} defends.`,
+          : `${card(event.defenderInstanceId)} defends${event.withoutExhausting ? " without exhausting" : ""}.`,
         voice: "player",
       };
     case "defenseDeclined":
@@ -574,6 +615,13 @@ function describe(
           voice: "player",
         };
       }
+      // An attack ability that moved to a new target (A.I.M. Grunt's Preparation): the other targets aren't attacked.
+      if (event.reason === "attackRetargeted") {
+        return {
+          text: `${card(event.attackerInstanceId)}'s attack moved to another target, so ${card(event.targetInstanceId)} takes no damage.`,
+          voice: "player",
+        };
+      }
       return {
         text: `${card(event.attackerInstanceId)} can't attack ${card(event.targetInstanceId)}, so it takes no damage from that attack.`,
         voice: "player",
@@ -594,6 +642,13 @@ function describe(
     // changed the threat ("reduce the amount of threat placed … by 1"); an attack always has a defense term, a scheme
     // has no equivalent that is always present.
     case "schemeResolved":
+      // Part of the total went on another card (`enemyScheme.divert`): its own `threatPlaced` line comes first.
+      if (event.diverted) {
+        return {
+          text: `${card(event.enemyInstanceId)} schemed: ${event.diverted.amount} threat goes on ${card(event.diverted.toInstanceId)}, ${event.threatPlaced} on ${card(event.schemeInstanceId)}.`,
+          voice: "villain",
+        };
+      }
       // Psychic Manipulation (`modifyAttack.removesThreat`, §3.35): the total comes off the scheme instead of going on.
       if (event.removesThreat) {
         const total = Math.max(0, event.baseSch + event.boostIcons + event.threatBonus);
@@ -629,6 +684,9 @@ function describe(
     // panel alone. A flip between two ordinary faces that *keeps* its damage (Risky Business's Norman Osborn) has
     // nothing extra to say.
     case "villainFlipped":
+      // An Avatar of Loki that would be defeated flips to its Fading Figment (the pod's neutral cards are in play).
+      if (state.pod?.neutral && event.from === "A" && event.to === "B")
+        return { text: "An Avatar of Loki would be defeated: it flips to a Fading Figment.", voice: "villain" };
       return {
         text: `${card(event.instanceId)} flips${event.hitPointsReset ? ", hit points reset," : ""} to side ${event.to}.`,
         voice: "villain",
@@ -647,7 +705,8 @@ function describe(
       return { text: `${who(event.playerId)} revealed ${card(event.instanceId)}.`, voice: "villain" };
     case "surgeTriggered":
       return {
-        text: `Surge — ${who(event.playerId)} ${verb(event.playerId, "reveal", "reveals")} another encounter card.`,
+        // Owner decision 22B: a surge deals a facedown encounter card that waits for the reveal step.
+        text: `Surge — ${who(event.playerId)} ${verb(event.playerId, "are", "is")} dealt another encounter card.`,
         voice: "villain",
       };
     // "The first [Technique] attachment revealed each round gains surge" (Nebula I-III) or "the first treachery the
@@ -673,7 +732,17 @@ function describe(
         voice: "scenario",
       };
     case "playerEliminated":
+      // A seat that sits a scenario out is eliminated with no defeat, and `playerSatOut` follows it in the same
+      // burst (owner decision 66B): that pair reads as one neutral line, not as a loss.
+      if (burst?.events.slice(burst.at + 1).some((e) => e.type === "playerSatOut" && e.playerId === event.playerId)) {
+        return null;
+      }
       return { text: `${who(event.playerId)} ${verb(event.playerId, "are", "is")} out of the game.`, voice: "loss" };
+    case "playerSatOut":
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "sit", "sits")} this scenario out. Set for ${event.startingPlayerCount} ${event.startingPlayerCount === 1 ? "player" : "players"}.`,
+        voice: "scenario",
+      };
     case "cardDiscardedFromPlay":
       return { text: `${card(event.instanceId)} left play.`, voice: "player" };
     case "playerSideSchemeLimitDiscard":
@@ -720,6 +789,20 @@ function describe(
      */
     case "abilityResolved": {
       const short = abilityShortLabelOf(state, event.instanceId, event.abilityId, deps);
+      // A Forced Action the player had to use (Trance, Temptation): always told, so the log shows it was paid.
+      if (event.forced) {
+        // A "must play it" Forced Action (Alluring Call, Trance of Greed; `playFromHand.mustPay`) that found no card
+        // legal to play and payable plays nothing and asks nothing: the log says so, or the outcome is invisible.
+        const unplayed =
+          mustPlayCardIn(deps.abilities[event.abilityId]) &&
+          !burst?.events
+            .slice(burst.at + 1)
+            .some((later) => later.type === "cardPlayed" || later.type === "choiceRequested");
+        return {
+          text: `${card(event.instanceId)}: Forced Action used${short ? ` (${short})` : ""}.${unplayed ? " No card could be played." : ""}`,
+          voice: "player",
+        };
+      }
       if (!short) return null;
       // A Special that blanked a text box (Blizzard) names whose, from the lasting effect it just added.
       const blanked = blankedBy(burst, state, event.instanceId);
@@ -727,6 +810,58 @@ function describe(
       return { text: `${card(event.instanceId)} — ${short}${blankedNote}.`, voice: "player" };
     }
 
+    // Forced Actions still owed when the last turn ended (RRG 1.8 "Action", p. 6): each is put to its player before the
+    // phase can end.
+    case "forcedActionsRequired": {
+      const owed = event.actions.map((action) => `${who(action.playerId)}: ${card(action.instanceId)}`);
+      return { text: `Forced Action owed, ${owed.join("; ")}. Use it to end the phase.`, voice: "scenario" };
+    }
+    // Double-sided cards whose other side nobody may read until each flips (Hypnotic Gaze). Only the front's name is
+    // told: the event names the instances, and they all share one front.
+    case "reversesHidden": {
+      const names = [...new Set(event.instanceIds.map((id) => card(id)))];
+      return { text: `${names.join(", ")}: other side hidden until it flips.`, voice: "scenario" };
+    }
+    // The pod's shared record (docs/phase7-wave9.md section 3.66; God of Lies): Loki's hit points and Worlds Collide's
+    // threat live in the pod, not on their cards, so these two events are the only trace of a change to either. A
+    // `sharedStateChanged` carries the same change as the event before it and stays silent.
+    case "sharedEventEmitted": {
+      const neutral = state.pod?.neutral;
+      if (event.event.type === "sharedVillainDamaged") {
+        const loki = neutral ? card(neutral.villainInstanceId) : "The shared villain";
+        return {
+          text: `${loki} takes ${event.event.amount} damage.`,
+          voice: "villain",
+        };
+      }
+      const worlds = neutral ? card(neutral.mainSchemeInstanceId) : "The shared scheme";
+      const n = event.event.amount;
+      return {
+        text:
+          event.event.cause === "identityDefeated"
+            ? `${worlds} gets ${n} threat instead of a hero's defeat.`
+            : `${worlds} gets ${n} threat instead of the scheme completing.`,
+        voice: "villain",
+      };
+    }
+    case "sharedResultApplied": {
+      const neutral = state.pod?.neutral;
+      const loki = neutral ? card(neutral.villainInstanceId) : "The shared villain";
+      const worlds = neutral ? card(neutral.mainSchemeInstanceId) : "The shared scheme";
+      if (event.result === "sharedVillainFlipped")
+        return { text: `${loki} flips: defeat him to win the game.`, voice: "scenario" };
+      if (event.result === "sharedVillainDefeated") return { text: `${loki} is defeated.`, voice: "scenario" };
+      return { text: `${worlds} is complete: defeat ${loki} or the players lose.`, voice: "loss" };
+    }
+    // A dial set rather than damaged or healed: an Avatar swapped in starts at its printed hit points.
+    case "hitPointsSet":
+      return { text: `${card(event.instanceId)}'s hit points are set to ${event.remaining}.`, voice: "villain" };
+    // A counter limit ("Max 1 synergy counter here"): the counters that did not fit are not placed.
+    case "countersNotPlaced":
+      return {
+        text: `${event.amount} ${event.counterType} counter${event.amount === 1 ? "" : "s"} not placed on ${card(event.instanceId)} (its limit).`,
+        voice: "player",
+      };
     // A double-sided card turned over by a card (Phoenix Force, RRG 1.8 "Flip", p. 20): without a line its face, its
     // traits and its text changed with nothing in the log to say so.
     case "cardFlipped": {
@@ -971,6 +1106,174 @@ function describe(
         ? { text: `${card(event.instanceId)} — Temporary: discarded at the end of the round.`, voice: "player" }
         : null;
 
+    // Wave 9 (docs/phase7-wave9.md). `card()` names a card only as far as this table may see it, so a facedown card
+    // in a line below reads "a facedown card".
+
+    // §3.31: an extra cost to attack, thwart or defend with a character.
+    case "additionalPowerCostPaid":
+      return {
+        text: `${who(event.playerId)} paid an extra cost to ${event.power} with ${card(event.characterInstanceId)}.`,
+        voice: "player",
+      };
+    case "additionalPowerCostAsked":
+      return {
+        text: `${card(event.characterInstanceId)} needs an extra cost to defend. ${who(event.playerId)} ${verb(event.playerId, "choose", "chooses")} whether to pay.`,
+        voice: "player",
+      };
+    case "additionalPowerCostNotPaid":
+      return {
+        text: `${card(event.characterInstanceId)} does not defend: the extra cost was not paid.`,
+        voice: "player",
+      };
+
+    // §3.29 (b): Baron Zemo's accusation. The guess and the mole are open to every player (the pile was turned faceup
+    // just before `moleIdentified`), so the board members may be named.
+    case "accusationMade":
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "accuse", "accuses")} ${cardIdName(state, event.accused.boardMember)}.`,
+        voice: "player",
+      };
+    case "moleIdentified": {
+      if (!event.mole) return { text: `The ${pileLabel(event.pile)} cards match no board member.`, voice: "scenario" };
+      const mole = `The mole is ${cardIdName(state, event.mole.boardMember)}.`;
+      if (!event.accused) return { text: mole, voice: "scenario" };
+      return {
+        text:
+          event.wrong.length === 0
+            ? `${mole} The accusation was correct.`
+            : `${mole} ${event.wrong.length} of 4 guesses ${event.wrong.length === 1 ? "was" : "were"} wrong.`,
+        voice: "scenario",
+      };
+    }
+
+    // §3.29 (a): hidden piles. `hiddenPilesDealt` carries sizes only, so only sizes are said; the other two carry card
+    // ids because the engine has already made those cards open to every player.
+    case "hiddenPilesDealt":
+      if (event.kept) return null;
+      return {
+        text: `Hidden piles dealt: ${event.piles.map((p) => `${pileLabel(p.pile)} ${p.size}`).join(", ")}.`,
+        voice: "scenario",
+      };
+    case "hiddenPileCardsGained":
+      return {
+        text:
+          event.cardIds.length === 0
+            ? `The ${pileLabel(event.pile)} pile is empty.`
+            : `The players gain ${event.cardIds.map((id) => cardIdName(state, id)).join(", ")} from the ${pileLabel(event.pile)} pile.`,
+        voice: "player",
+      };
+    case "hiddenPileRevealed":
+      return {
+        text:
+          event.cardIds.length === 0
+            ? `The ${pileLabel(event.pile)} pile is turned faceup: it is empty.`
+            : `The ${pileLabel(event.pile)} pile is turned faceup: ${event.cardIds.map((id) => cardIdName(state, id)).join(", ")}.`,
+        voice: "scenario",
+      };
+
+    // §3.26: a card that turned over to another card and kept its counters.
+    case "cardFlippedToOtherFace": {
+      const kept = Object.entries(event.keptCounters ?? {}).filter(([, n]) => n > 0);
+      const keeps = kept.map(([type, n]) => `${n} ${type} counter${n === 1 ? "" : "s"}`).join(", ");
+      return {
+        text: `${card(event.instanceId)} turns over${keeps ? ` and keeps ${keeps}` : ""}.`,
+        voice: "scenario",
+      };
+    }
+    // §3.6: counters moved between cards; an all-purpose counter takes the type of its new card.
+    case "countersMoved": {
+      const words = (type: string): string => type.replace(/_/g, " ");
+      const noun = (type: string, n: number): string => `${words(type)} counter${n === 1 ? "" : "s"}`;
+      const became =
+        event.toCounterType && event.toCounterType !== event.counterType
+          ? ` and become${event.amount === 1 ? "s" : ""} ${words(event.toCounterType)}`
+          : "";
+      return {
+        text: `${event.amount} ${noun(event.counterType, event.amount)} move${event.amount === 1 ? "s" : ""} from ${card(event.from)} to ${card(event.to)}${became}.`,
+        voice: "player",
+      };
+    }
+
+    // §3.19, §3.21: an ally held captive, a minion held by an environment.
+    case "controlReleased":
+      return {
+        text: `${card(event.instanceId)} is held captive by ${faceUpName(state, event.hostInstanceId)}.`,
+        voice: "villain",
+      };
+    case "minionHeld":
+      // The holder by the face that is up: Thunderbolt Backup is the flipped side of its card, which `cardName` would not name.
+      return {
+        text: `${card(event.instanceId)} is held by ${faceUpName(state, event.hostInstanceId)}.`,
+        voice: "villain",
+      };
+    // §3.24
+    case "engagementRotated":
+      return {
+        text: `Engaged minions pass to the next player (${event.moves.length}).`,
+        voice: "villain",
+      };
+    // §3.17: the top card of a scenario deck comes into play.
+    case "scenarioDeckTopEnteredPlay":
+      return { text: `${card(event.instanceId)} enters play from ${event.name}.`, voice: "villain" };
+
+    // §3.42: the encounter deck's top card shown to everyone while a rule says so (`deckTopShown`'s sibling).
+    case "encounterTopShown":
+      return { text: `The encounter deck's top card is faceup: ${cardIdName(state, event.cardId)}.`, voice: "villain" };
+    case "encounterTopHidden":
+      return { text: `The encounter deck's top card is facedown again.`, voice: "villain" };
+    // §3.43: discards from the top of the encounter deck. The card went to the discard pile faceup; one shuffled into
+    // a reset deck is named by `card()` only if this table can see it.
+    case "cardDiscardedFromEncounterDeck":
+      return {
+        text: `${card(event.instanceId)} is discarded from the encounter deck.`,
+        voice: "villain",
+      };
+    case "encounterDiscardCostSettled": {
+      const n = event.discarded.length;
+      const by = event.playerId ? `${who(event.playerId)} ${verb(event.playerId, "discard", "discards")}` : "Discard";
+      return {
+        text: event.paid
+          ? `${by} ${n} card${n === 1 ? "" : "s"} from the encounter deck.`
+          : `${by} nothing: the encounter deck cost was not paid.`,
+        voice: "player",
+      };
+    }
+    // §3.46 (c): a tucked card spent as if from hand.
+    case "tuckedCardSpent":
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "spend", "spends")} ${card(event.instanceId)} from under ${card(event.hostInstanceId)}.`,
+        voice: "player",
+      };
+    // §3.41: a reveal replaced by other reveals (each logs its own `encounterCardRevealed`).
+    case "revealReplaced":
+      return {
+        text: `${card(event.instanceId)} is replaced: ${who(event.playerId)} ${verb(event.playerId, "reveal", "reveals")} ${event.withInstanceIds.length} other card${event.withInstanceIds.length === 1 ? "" : "s"} instead.`,
+        voice: "villain",
+      };
+    // §3.1: Vulnerable discards a character that became stunned or confused.
+    case "vulnerableDiscarded":
+      return {
+        text: `${card(event.instanceId)} is ${event.status} and Vulnerable: it is discarded.`,
+        voice: "player",
+      };
+    // §3.12: a look-at that put the cards back in an order of the player's choosing. Which card went where is not on
+    // the event, and not said here: the cards are facedown.
+    case "cardsRearranged":
+      return {
+        text:
+          event.moved === 0
+            ? `${who(event.playerId)} put the cards back in the same order.`
+            : `${who(event.playerId)} rearranged ${event.instanceIds.length} cards.`,
+        voice: "player",
+      };
+
+    // Skipped on purpose (wave 9), no line:
+    // - `scenarioDeckTopLeft`: the card's own move or flip says where it went, and the next top card's
+    //   `scenarioDeckTopEnteredPlay` follows.
+    // - `threatCostSettled`: the `threatRemoved` before it is the line.
+    // - `damageBeyondZeroLost`: a dial correction; the damage was already logged in full and the card shows its hit points.
+    // - `abilityGained.grantedByInstanceId`: rules bookkeeping on an event already skipped; Inspect shows the ability.
+
     // Bookkeeping the player never reads: the stack, timing windows, trigger
     // announcements, per-card zone moves, and choice plumbing. The Inspect
     // overlay and the replay log carry these instead.
@@ -1040,6 +1343,13 @@ const swapRefusedReason = (
       return "a card to swap was missing";
   }
 };
+
+/** A card's printed name from its id; only for cards an event has already made open to every player. */
+const cardIdName = (state: GameState, cardId: Parameters<typeof getCard>[1]): string =>
+  getCard(state, cardId)?.name ?? "a card";
+
+/** A hidden pile's table name: the pile ids are scenario-defined, so only the known envelopes are dressed up. */
+const pileLabel = (pile: string): string => (pile === "aim" ? "A.I.M." : pile === "shield" ? "S.H.I.E.L.D." : pile);
 
 /** An encounter set's display name, or its id when the pool doesn't know it. */
 const setLabel = (id: string): string => POOL_ENCOUNTER_SETS.find((set) => (set.id as string) === id)?.name ?? id;

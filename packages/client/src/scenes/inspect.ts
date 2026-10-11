@@ -90,15 +90,18 @@ import {
   type CardFaceContent,
   type InspectLayout,
 } from "../view/inspect-layout.js";
+import type { ArtSource } from "../art/art-source.js";
 import { OverlayMotion } from "../ui/transitions.js";
 import { emptyCardHistoryLog } from "../view/card-history.js";
 import {
   cardInspectModel,
+  referenceInspectModel,
   inspectModel,
   type CampaignNotice,
   type InspectModel,
   type InspectPayment,
 } from "../view/inspect-model.js";
+import { tuckedSiblings, type CardLink } from "../view/inspect-notes.js";
 import type { GamepadIntent } from "../view/gamepad.js";
 import { PressArm } from "../view/press-arm.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
@@ -121,6 +124,8 @@ export interface InspectData {
    * hero's on its hero side.
    */
   readonly card?: { readonly cardId: CardId; readonly face: CardFace };
+  /** A scenario's printed rules card (`Scenario.referenceCards`): no card record, no game behind the sheet. */
+  readonly reference?: { readonly title: string; readonly text: string; readonly art: ArtSource | null };
   /** Cards the ◂ ▸ keys step through — the hand, when inspect was opened from it. */
   readonly siblings?: readonly InstanceId[];
   /**
@@ -171,9 +176,19 @@ function extraNotesOf(model: InspectModel): readonly { readonly title: string; r
   return [
     ...(model.hitPointFloorNote ? [{ title: "hit points", lines: [model.hitPointFloorNote] }] : []),
     ...(model.resourceIconNote ? [{ title: "resource icons", lines: [model.resourceIconNote] }] : []),
+    ...(model.attackBarNote ? [{ title: "attacks", lines: [model.attackBarNote] }] : []),
+    ...(model.reverseNote ? [{ title: "other side", lines: [model.reverseNote] }] : []),
+    ...(model.forcedNote ? [{ title: "forced action", lines: [model.forcedNote] }] : []),
     ...(model.areaNotes.length > 0 ? [{ title: "where it is", lines: model.areaNotes }] : []),
   ];
 }
+/** One outlined chip on the sheet: a keyword or trait that opens its rules, or a card that opens in Inspect. */
+interface ChipItem {
+  readonly text: string;
+  readonly glossaryId?: string | null;
+  readonly onTap?: () => void;
+}
+
 /** The "cost" section for a per player icon: its label row, then a 52px badge beside the two lines of words. */
 const COST_SECTION_HEIGHT = 16 + 52;
 
@@ -242,6 +257,7 @@ export class InspectOverlay extends Phaser.Scene {
   #siblings: readonly InstanceId[] = [];
   #choice: InspectData["choice"] = undefined;
   #card: InspectData["card"] = undefined;
+  #reference: InspectData["reference"] = undefined;
   #note: string | undefined = undefined;
   #buttons: McButton[] = [];
   #scrollPanels: McScrollPanel[] = [];
@@ -290,9 +306,14 @@ export class InspectOverlay extends Phaser.Scene {
 
   create(data: InspectData): void {
     this.#instanceId = data.instanceId ?? null;
-    this.#siblings = data.siblings ?? [];
+    // Opened on a card with cards under it (or on one of those): ◂ ▸ step through the host and what is tucked under it.
+    const game = appSession().store.state.game;
+    this.#siblings =
+      data.siblings ??
+      (game && data.instanceId && !data.choice && !data.card ? [...tuckedSiblings(game, data.instanceId)] : []);
     this.#choice = data.choice;
     this.#card = data.card;
+    this.#reference = data.reference;
     this.#note = data.note;
     this.#expanded = false;
     this.#sheetScroll = new VariableListScroll();
@@ -300,7 +321,7 @@ export class InspectOverlay extends Phaser.Scene {
 
     const { store } = appSession();
     // Only a card in a game can change underneath the sheet.
-    if (!this.#card) this.#unsubscribe = store.subscribe(() => this.#rebuild());
+    if (!this.#card && !this.#reference) this.#unsubscribe = store.subscribe(() => this.#rebuild());
     const onResize = (): void => this.#rebuild();
     /**
      * The resize listener MUST be removed on shutdown.
@@ -380,6 +401,31 @@ export class InspectOverlay extends Phaser.Scene {
       default:
         break;
     }
+  }
+
+  /**
+   * The cards attached to this one, and the one it is attached to, as rows of chips that open them: a touch screen has
+   * no ◂ ▸ key, so a tap is how the second attachment on a small tile is reached, and the way back to the host.
+   */
+  #linkRows(model: InspectModel): readonly { readonly heading: string; readonly items: readonly ChipItem[] }[] {
+    const links = model.attached;
+    if (!links) return [];
+    const item = (link: CardLink): ChipItem => ({ text: link.name, onTap: () => this.#openCard(link.instanceId) });
+    return [
+      ...(links.host ? [{ heading: "attached to", items: [item(links.host)] }] : []),
+      ...(links.attachments.length > 0 ? [{ heading: "attached", items: links.attachments.map(item) }] : []),
+    ];
+  }
+
+  /** Opens another card's sheet in place (a link from the host to an attachment, or back), stepping through its group. */
+  #openCard(id: InstanceId): void {
+    if (id === this.#instanceId) return;
+    const game = appSession().store.state.game;
+    if (!this.#siblings.includes(id) && game) this.#siblings = [...tuckedSiblings(game, id)];
+    this.#instanceId = id;
+    this.#expanded = false;
+    this.#sheetScroll = new VariableListScroll();
+    this.#rebuild();
   }
 
   /** ◂ ▸ through whatever list the overlay was opened from. */
@@ -538,6 +584,7 @@ export class InspectOverlay extends Phaser.Scene {
    * Null when there is neither, which is the one case worth drawing nothing for.
    */
   #model(): InspectModel | null {
+    if (this.#reference) return referenceInspectModel(this.#reference);
     if (this.#card) return cardInspectModel(CARDS_BY_ID.get(this.#card.cardId as string), this.#card.face);
     const { store } = appSession();
     const state = store.state;
@@ -569,9 +616,7 @@ export class InspectOverlay extends Phaser.Scene {
     this.#drawCardPanel(layout.card, model);
     this.#drawRulesPanel(layout.rules, model);
     const hint =
-      this.#siblings.length > 1
-        ? "◂ previous card in hand · next ▸ · click anywhere to dismiss"
-        : "click anywhere to dismiss";
+      this.#siblings.length > 1 ? "◂ previous card · next ▸ · click anywhere to dismiss" : "click anywhere to dismiss";
     label(
       this,
       layout.hint.x + layout.hint.width / 2,
@@ -873,6 +918,15 @@ export class InspectOverlay extends Phaser.Scene {
     if (model.threatNote) heights.push(DAMAGE_SECTION_HEIGHT);
     if (model.counterNote) heights.push(DAMAGE_SECTION_HEIGHT);
     for (const note of extraNotesOf(model)) heights.push(noteSectionHeight(inner, note.lines));
+    for (const row of this.#linkRows(model))
+      heights.push(
+        16 +
+          estimateChipRows(
+            row.items.map((item) => item.text),
+            inner,
+          ) *
+            28,
+      );
     if (model.keywordChips.length > 0)
       heights.push(
         16 +
@@ -1153,6 +1207,11 @@ export class InspectOverlay extends Phaser.Scene {
       y += noteSectionHeight(inner, note.lines) + RULES_SECTION_GAP;
     }
 
+    // "Attached" / "Attached to": the cards hanging on this one, each a chip that opens it, and the host a chip back.
+    for (const row of this.#linkRows(model)) {
+      y = this.#drawChips(rect, y, inner, row.heading, row.items) + RULES_SECTION_GAP;
+    }
+
     // "Keywords on this card" / "Traits" — chips a tap opens the Rules overlay at.
     if (model.keywordChips.length > 0) {
       y =
@@ -1340,13 +1399,7 @@ export class InspectOverlay extends Phaser.Scene {
    * activated by the release of the gesture that opened this sheet (the exact hazard `#dismissArm`'s own comment
    * documents for the scrim).
    */
-  #drawChips(
-    rect: Rect,
-    top: number,
-    inner: number,
-    heading: string,
-    items: readonly { readonly text: string; readonly glossaryId: string | null }[],
-  ): number {
+  #drawChips(rect: Rect, top: number, inner: number, heading: string, items: readonly ChipItem[]): number {
     if (items.length === 0) return top;
     label(this, rect.x + RULES_PAD, top, heading, typeRole.label, surface.paper.hex, ink.meta);
     let x = rect.x + RULES_PAD;
@@ -1369,14 +1422,16 @@ export class InspectOverlay extends Phaser.Scene {
       const chip = this.add.graphics();
       chip.lineStyle(2, surface.paper.hex, 1).strokeRect(x, y, chipWidth, 22);
       this.children.bringToTop(text);
-      if (item.glossaryId) {
-        const glossaryId = item.glossaryId;
+      if (item.glossaryId || item.onTap) {
+        const glossaryId = item.glossaryId ?? null;
         const arm = new PressArm();
         const zone = this.add.zone(x, y, chipWidth, 22).setOrigin(0, 0).setInteractive({ useHandCursor: true });
         zone.on("pointerdown", () => arm.down());
         zone.on("pointerout", () => arm.cancel());
         zone.on("pointerup", () => {
-          if (arm.up()) this.#openRulesAt(glossaryId, item.text);
+          if (!arm.up()) return;
+          if (item.onTap) item.onTap();
+          else if (glossaryId) this.#openRulesAt(glossaryId, item.text);
         });
       }
       x += chipWidth + 7;
@@ -1661,6 +1716,11 @@ export class InspectOverlay extends Phaser.Scene {
       ty += note.height + 7;
     }
 
+    for (const row of this.#linkRows(model)) {
+      label(this, textLeft, ty, row.heading, typeRole.label, accent.heroRed.hex, ink.body);
+      ty = this.#drawSheetHeaderChips(textLeft, ty + 14, textWidth, row.items) + 7;
+    }
+
     if (model.keywordChips.length > 0) {
       ty = this.#drawSheetHeaderChips(textLeft, ty, textWidth, model.keywordChips) + 7;
     }
@@ -1752,7 +1812,7 @@ export class InspectOverlay extends Phaser.Scene {
    * sheet could sit exactly where the dimmed board's "tap anywhere to dismiss" scrim is, and win the tap instead of
    * it (the same "clip" hazard `McButton`'s own `clip` option exists for, in a virtualized list).
    */
-  #drawSheetHeaderChips(x: number, y: number, width: number, chips: InspectModel["keywordChips"]): number {
+  #drawSheetHeaderChips(x: number, y: number, width: number, chips: readonly ChipItem[]): number {
     let cx = x;
     let cy = y;
     for (const chip of chips) {
@@ -1768,8 +1828,8 @@ export class InspectOverlay extends Phaser.Scene {
       const box = this.add.graphics();
       box.lineStyle(border.detail, surface.ink.hex, 1).strokeRect(cx, cy, chipWidth, 18);
       this.children.bringToTop(text);
-      if (chip.glossaryId) {
-        const glossaryId = chip.glossaryId;
+      if (chip.glossaryId || chip.onTap) {
+        const glossaryId = chip.glossaryId ?? null;
         const arm = new PressArm();
         const zone = this.add.zone(cx, cy, chipWidth, 18).setOrigin(0, 0).setInteractive({ useHandCursor: true });
         zone.on("pointerdown", () => arm.down());
@@ -1778,7 +1838,8 @@ export class InspectOverlay extends Phaser.Scene {
           if (!arm.up()) return;
           const clip = this.#sheetRegion?.rect ?? null;
           if (clip && !pointInRect(pointer.x, pointer.y, clip)) return;
-          this.#openRulesAt(glossaryId, chip.text);
+          if (chip.onTap) chip.onTap();
+          else if (glossaryId) this.#openRulesAt(glossaryId, chip.text);
         });
       }
       cx += chipWidth + 6;

@@ -15,8 +15,11 @@ import {
   poolTotal,
   type EngineDeps,
   type GameState,
+  type InstanceId,
   type PendingChoice,
+  type ResourceRequirement,
 } from "@mc/engine";
+import { cardName } from "./names.js";
 
 export interface PaymentSheetView {
   /** What the prompt asks the player to pay. */
@@ -45,7 +48,37 @@ export function chosenResourcesNoteOf(prompt: PendingChoice["prompt"]): string |
 }
 
 export const isPaymentSheet = (choice: Pick<PendingChoice, "prompt">): boolean =>
-  choice.prompt.kind === "payForCard" || choice.prompt.kind === "payForAbility";
+  choice.prompt.kind === "payForCard" ||
+  choice.prompt.kind === "payForAbility" ||
+  (choice.prompt.kind === "spendResources" && choice.prompt.required === true);
+
+/** The total of a payment requirement (a tally for the words). */
+const requirementTotal = (requirement: ResourceRequirement): number =>
+  (requirement.generic ?? 0) +
+  (requirement.physical ?? 0) +
+  (requirement.mental ?? 0) +
+  (requirement.energy ?? 0) +
+  (requirement.wild ?? 0);
+
+/**
+ * The card a required payment is for, read off the effects frame that asked (`_play.card`, `playFromHand.mustPay`):
+ * "Alluring Call" and "Trance of Greed" make the player play a card, and this is that card.
+ */
+function playedCardOf(state: GameState, choice: PendingChoice): InstanceId | null {
+  const frame = choice.frameId === null ? undefined : state.stack?.find((entry) => entry.frameId === choice.frameId);
+  const bound = frame && "bindings" in frame ? frame.bindings["_play.card"]?.[0] : undefined;
+  return bound ?? null;
+}
+
+/**
+ * The line a required payment (`spendResources` with `required`, a `mustPay` play) shows under its title: the card
+ * has to be played, so the sheet says so in a few words and has no way to skip it. The full text stays in Inspect.
+ */
+export function requiredPaymentNoteOf(state: GameState, choice: PendingChoice): string | null {
+  if (choice.prompt.kind !== "spendResources" || choice.prompt.required !== true) return null;
+  const card = playedCardOf(state, choice);
+  return card ? `You must play ${cardName(state, card)}. Pick what pays.` : "You must play this card. Pick what pays.";
+}
 
 export function paymentSheetView(
   state: GameState,
@@ -54,6 +87,9 @@ export function paymentSheetView(
   deps: EngineDeps,
 ): PaymentSheetView | null {
   const { prompt } = choice;
+  if (prompt.kind === "spendResources" && prompt.required === true) {
+    return requiredPaymentView(state, choice, prompt.requirement, selected, deps);
+  }
   if (prompt.kind !== "payForCard" && prompt.kind !== "payForAbility") return null;
   let paid = 0;
   for (const optionId of selected) {
@@ -84,6 +120,40 @@ export function paymentSheetView(
           : "Pay"
       : `Pay ${missing} more`,
     declineLabel: prompt.kind === "payForCard" ? "Don't play it" : "Don't use it",
+  };
+}
+
+/**
+ * A payment nobody may skip: Confirm is live only when the engine would take the selection (it refuses a short or
+ * empty one), and says what is still missing. There is no decline: `canDeclineChoice` is false for it (`minSelections`
+ * is the cheapest full payment) and `declineLabel` is never drawn.
+ */
+function requiredPaymentView(
+  state: GameState,
+  choice: PendingChoice,
+  requirement: ResourceRequirement,
+  selected: readonly string[],
+  deps: EngineDeps,
+): PaymentSheetView {
+  const cost = requirementTotal(requirement);
+  const card = playedCardOf(state, choice);
+  let paid = 0;
+  for (const optionId of selected) {
+    const option = choice.options.find((candidate) => candidate.optionId === optionId);
+    if (!option) continue;
+    paid +=
+      option.ref.kind === "card" && card
+        ? poolTotal(handCardResources(state, deps, option.ref.instanceId, choice.playerId, card))
+        : 1;
+  }
+  const canConfirm = selected.length > 0 && pays(state, choice, selected, deps);
+  return {
+    note: requiredPaymentNoteOf(state, choice),
+    cost,
+    paid,
+    canConfirm,
+    confirmLabel: canConfirm ? `Pay ${cost}` : `Pay ${Math.max(1, cost - paid)} more`,
+    declineLabel: "",
   };
 }
 

@@ -57,6 +57,24 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "crazy_gang",
           "hellfire",
         ],
+        "Agents of S.H.I.E.L.D.": [
+          "a.i.m._abduction",
+          "a.i.m._science",
+          "batrocs_brigade",
+          "gravitational_pull",
+          "hard_sound",
+          "pale_little_spider",
+          "power_of_the_atom",
+          "s.h.i.e.l.d.",
+          "scientist_supreme",
+          "supersonic",
+          "the_leaper",
+          "extreme_risk",
+          "growing_strong",
+          "techno",
+          "whiteout",
+          "trickster_magic",
+        ],
         "Core Set": [
           "legions_of_hydra",
           "masters_of_evil",
@@ -177,6 +195,24 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "arcade",
           "crazy_gang",
           "hellfire",
+        ],
+        "Agents of S.H.I.E.L.D.": [
+          "a.i.m._abduction",
+          "a.i.m._science",
+          "batrocs_brigade",
+          "gravitational_pull",
+          "hard_sound",
+          "pale_little_spider",
+          "power_of_the_atom",
+          "s.h.i.e.l.d.",
+          "scientist_supreme",
+          "supersonic",
+          "the_leaper",
+          "extreme_risk",
+          "growing_strong",
+          "techno",
+          "whiteout",
+          "trickster_magic",
         ],
         "Core Set": [
           "bomb_scare",
@@ -354,7 +390,7 @@ describe("what counts as modular", () => {
     for (const g of groups) if (seen[seen.length - 1] !== g) seen.push(g);
     expect(new Set(seen).size, "each group is one run").toBe(seen.length);
     expect(seen.slice(0, 3)).toEqual([RECOMMENDED_GROUP_ID, "core", "wave1"]);
-    expect(seen[seen.length - 1]).toBe("cycle8");
+    expect(seen[seen.length - 1]).toBe("cycle9");
   });
 });
 
@@ -466,6 +502,7 @@ describe("the exclusions table", () => {
   test("holds only the rule-based pairings left after the matrix fixes", () => {
     expect(MODULAR_SET_EXCLUSIONS.map((e) => `${e.scenarioId}+${e.setId}`)).toEqual([
       "tower-defense+infinity_gauntlet",
+      "baron-zemo+s.h.i.e.l.d._executive_board",
     ]);
   });
 
@@ -515,8 +552,33 @@ describe("the exclusions table (rule-based pairings left after the matrix fixes)
       ).toBe(true);
       expect(sets.has(entry.setId), entry.setId).toBe(true);
       expect(entry.reason.length, entry.reason).toBeLessThanOrEqual(40);
-      expect(modularCandidatesFor(scenarioOf(entry.scenarioId)).map((c) => c.id)).toContain(entry.setId);
+      // Listed (disabled) for that scenario: as a candidate, or as an extra modular set.
+      const extra = POOL_ENCOUNTER_SETS.some((set) => set.extraModular && (set.id as string) === entry.setId);
+      if (!extra) expect(modularCandidatesFor(scenarioOf(entry.scenarioId)).map((c) => c.id)).toContain(entry.setId);
     }
+  });
+
+  test("an extra modular set a scenario already shuffles in is barred there, shown disabled, and cannot be added", () => {
+    // Drift guard: every scenario whose own sets include an extra set must name it in the table.
+    for (const scenario of POOL_SCENARIOS) {
+      for (const id of scenario.encounterSetIds) {
+        const set = POOL_ENCOUNTER_SETS.find((s) => s.id === id);
+        if (set?.extraModular)
+          expect(modularExclusionReason(scenario.id as string, id as string), `${scenario.id}/${id}`).toBe(
+            "Already in play",
+          );
+      }
+    }
+    const zemo = scenarioOf("baron-zemo");
+    const board = modularSetOptionsFor(draftFor("baron-zemo"), zemo, CARDS_BY_ID).find(
+      (o) => o.id === "s.h.i.e.l.d._executive_board",
+    );
+    expect(board?.kind).toBe("extra");
+    expect(board?.disabledReason).toBe("Already in play");
+    const toggled = toggleModularSet(draftFor("baron-zemo"), zemo, "s.h.i.e.l.d._executive_board");
+    expect(toggled.extraModularSetIds).toEqual([]);
+    // Any other scenario may still take it.
+    expect(modularExclusionReason("rhino", "s.h.i.e.l.d._executive_board")).toBeNull();
   });
 
   test("the Infinity Gauntlet set cannot be used at Tower Defense, which starts with two villains (MC21 p. 16)", () => {

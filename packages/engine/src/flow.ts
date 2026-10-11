@@ -1,4 +1,5 @@
 import type { CampaignWindow } from "./campaign.js";
+import { displayNameOf } from "./visibility.js";
 import type { ChoiceOption } from "./choices.js";
 import { emit, pushFrames, requestChoice, setStep, updatePlayer, type Ctx } from "./ctx.js";
 import {
@@ -23,12 +24,14 @@ import {
 } from "./effects.js";
 import { readyOrAnnounce } from "./resolve/event.js";
 import type { LastingEffect } from "./lasting.js";
-import { EngineInvariantError } from "./errors.js";
+import { EngineInvariantError, type EngineError } from "./errors.js";
+import { forcedActionOptionId, outstandingForcedActions } from "./legal.js";
+import { useLateForcedAction } from "./actions.js";
 import type { InstanceId, PlayerId } from "./ids.js";
 import {
   getPlayer,
   handSize,
-  mustCardOf,
+  mustInstance,
   mustPlayer,
   playerOrder,
   scenarioPlayAreaOf,
@@ -45,15 +48,21 @@ import {
   pushEvent,
 } from "./resolve/index.js";
 import { resetEmptySeparateDecks } from "./resolve/separate-decks.js";
+import { settleScenarioDeckTops } from "./resolve/scenario-deck-top.js";
 import {
   announceCardsLeftPlay,
   announceDeckRunOuts,
+  announceEncounterCardsDealt,
+  announceEncounterDealsWaiting,
   announceCardsEnteredHand,
   announceEncounterCardsFromDecks,
   resetEmptyScenarioDecks,
 } from "./resolve/cards.js";
 import { announceDeckDiscards, settleDeckDiscards } from "./resolve/deck-discard.js";
+import { announceTuckedDiscards } from "./resolve/tuck.js";
+import { announceBoostCardsGiven } from "./resolve/enemy-activation.js";
 import { checkStateTriggers } from "./resolve/state-checks.js";
+import { settlePod } from "./resolve/pod.js";
 import { cannotChooseToDiscard, playerPhaseTurnOrder } from "./rules.js";
 import { cardsInPlay, controllerOf, handCountTowardHandSize } from "./select.js";
 import { describeFrame } from "./stack.js";
@@ -83,16 +92,31 @@ export function runFlow(ctx: Ctx): void {
     resetEmptySeparateDecks(ctx);
     // …and so does a scenario deck whose rules say so (the side-scheme deck; docs/phase7-wave2.md §3.3).
     resetEmptyScenarioDecks(ctx);
+    // "The top card of this deck is in play" (the Holding Cell deck, MC50 p. 13; docs/phase7-wave9.md §3.17): a top card
+    // that left play or flipped to a face the deck is not made of gives way to the next, whose entering play goes on
+    // the stack above whatever was about to resolve.
+    settleScenarioDeckTops(ctx);
     // A card a response took away from where its discard from a deck left it is no longer counted by the ability that
     // discarded it (docs/phase7-wave7.md §4.1 Q32), settled as soon as that response window has closed.
     settleDeckDiscards(ctx);
+    // "After a player is dealt an encounter card" (docs/phase7-wave9.md §3.12). Looked at first, so its frames sit under
+    // whatever else the same step announces and resolve last: being dealt a card is the last thing a deck that ran
+    // out does (RRG 1.8 "Player Deck", p. 33).
+    if (announceEncounterCardsDealt(ctx)) continue;
     // "After your deck runs out of cards" / "After the infinity stone deck runs out" (docs/phase7-wave4.md §3.11).
     if (announceDeckRunOuts(ctx)) continue;
+    // "When a player would be dealt an encounter card" for a deck that ran out (docs/phase7-wave9.md §3.45). Looked at
+    // after the run-out, so the deal's frame sits above it and resolves first: the deal is part of running out.
+    if (announceEncounterDealsWaiting(ctx)) continue;
     // "After this card is discarded from the top of your deck" (docs/phase7-wave7.md §3.55). Looked at after the deck
     // run-outs, so when a discard emptied the deck its frame sits above the reset's and resolves first: the discard
     // came first. Announcements of the same step looked at below (a card entering a hand, leaving play) resolve
     // before it.
     if (announceDeckDiscards(ctx)) continue;
+    // "After a player card effect discards this card from under an identity" (docs/phase7-wave9.md §3.40 (b)).
+    if (announceTuckedDiscards(ctx)) continue;
+    // "After an attacking enemy is given a facedown boost card" (docs/phase7-wave9.md §3.44).
+    if (announceBoostCardsGiven(ctx)) continue;
     // "After this card enters your hand" (docs/phase7-wave6.md §3.10). Looked at first, so its frame resolves after the
     // `encounterCardFromPlayerDeck` frame of the same draw, pushed on top of it next.
     if (announceCardsEnteredHand(ctx)) continue;
@@ -111,9 +135,17 @@ export function runFlow(ctx: Ctx): void {
       executeFrame(ctx);
       continue;
     }
+    // Nothing is resolving: what a shared event of the pod brought about is applied now (docs/phase7-wave9.md §3.66;
+    // MC55 p. 20: "first finishing any actions or abilities that are currently resolving"). No pod, nothing done.
+    if (settlePod(ctx)) continue;
     const step = ctx.state.step;
     if (step.phase === "gameOver") return;
-    if (step.phase === "player" && step.kind === "turn") return;
+    if (step.phase === "player" && step.kind === "turn") {
+      if (!step.ended) return;
+      // The forced action the phase waited on has resolved: look again, then begin the end-of-phase steps (§3.53).
+      advanceAfterTurn(ctx, step.remainingPlayerIds);
+      continue;
+    }
     executeStep(ctx);
   }
   throw new EngineInvariantError(
@@ -177,7 +209,7 @@ const handOptions = (ctx: Ctx, playerId: PlayerId): readonly ChoiceOption[] =>
     .hand.filter((id) => !cannotChooseToDiscard(ctx.state, ctx.deps, id))
     .map((id) => ({
       optionId: id,
-      label: mustCardOf(ctx.state, id).name,
+      label: displayNameOf(ctx.state, id),
       ref: { kind: "card", instanceId: id },
     }));
 
@@ -203,6 +235,8 @@ function executeScenarioSetupStep(ctx: Ctx): void {
 // (maintainer decision 2026-09-23, docs/campaign-mode-design.md Q20).
 function executeDrawStartingHands(ctx: Ctx): void {
   for (const player of ctx.state.players) {
+    // A seat that sat the scenario out during setup draws no hand (`EffectSpec sitOutScenario`).
+    if (player.eliminated) continue;
     const size = handSize(ctx.state, player.playerId, ctx.deps);
     // "(This card counts towards your hand size.)": a card an earlier setup instruction put in the hand is part of the
     // starting hand, so the draw is that much smaller, and the credit is spent by it (`countTowardStartingHand`,
@@ -430,11 +464,59 @@ export function advanceAfterTurn(ctx: Ctx, remainingPlayerIds: readonly PlayerId
     beginTurn(ctx, next, rest);
     return;
   }
+  if (requestLateForcedAction(ctx)) return;
   setStep(ctx, {
     phase: "player",
     kind: "endPhaseDiscard",
     remainingPlayerIds: playerOrder(ctx.state).map((p) => p.playerId),
   });
+}
+
+/**
+ * RRG 1.8 "Action" (p. 6): "Each 'Forced Action' ability must be resolved before the player phase can end." A player's
+ * own are resolved before their turn ends (`endTurn` is refused); one that became outstanding afterwards (its card was
+ * readied during a later turn) is put to its player here, once the last turn has ended and before the end-of-phase
+ * steps: the first such player in player order is asked to resolve one of theirs, and the flow comes back when it has
+ * resolved (`GameStep turn.ended`). Returns false when none is outstanding. docs/phase7-wave9.md §3.53.
+ */
+function requestLateForcedAction(ctx: Ctx): boolean {
+  const step = ctx.state.step;
+  if (step.phase !== "player" || step.kind !== "turn") return false;
+  const outstanding = playerOrder(ctx.state).flatMap((player) =>
+    outstandingForcedActions(ctx.state, player.playerId, ctx.deps),
+  );
+  const first = outstanding[0];
+  if (!first) return false;
+  if (!step.ended) {
+    emit(ctx, {
+      type: "forcedActionsRequired",
+      actions: outstanding.map(({ playerId, instanceId, abilityId }) => ({ playerId, instanceId, abilityId })),
+    });
+    setStep(ctx, { ...step, ended: true });
+  }
+  const theirs = outstanding.filter((action) => action.playerId === first.playerId);
+  requestChoice(ctx, {
+    playerId: first.playerId,
+    prompt: { kind: "chooseOption", forcedAction: true },
+    options: theirs.map(({ instanceId, abilityId }) => ({
+      optionId: forcedActionOptionId(instanceId, abilityId),
+      label: displayNameOf(ctx.state, instanceId),
+      ref: { kind: "ability", instanceId, abilityId },
+    })),
+    minSelections: 1,
+    maxSelections: 1,
+  });
+  return true;
+}
+
+/** The answer to `requestLateForcedAction`'s prompt: the chosen forced action is triggered now, its cost paid. */
+export function resolveLateForcedAction(ctx: Ctx, playerId: PlayerId, optionId: string): EngineError | null {
+  const chosen = outstandingForcedActions(ctx.state, playerId, ctx.deps).find(
+    ({ instanceId, abilityId }) => forcedActionOptionId(instanceId, abilityId) === optionId,
+  );
+  // It was outstanding when asked and nothing has happened since.
+  if (!chosen) throw new EngineInvariantError(`forced action ${optionId} is no longer outstanding`);
+  return useLateForcedAction(ctx, chosen.example);
 }
 
 // RRG "End of Player Phase" step 1: each player may discard any number, and must discard down to hand size.
@@ -484,7 +566,8 @@ function executeEndPhaseReady(ctx: Ctx, readied: boolean): void {
 }
 
 /**
- * RRG 1.8 "End of Player Phase" (p. 18) step 4: every card readies. Returns true when that put something on the stack
+ * RRG 1.8 "End of Player Phase" (p. 18) step 3: every card readies ("Each player simultaneously readies all of their
+ * cards. Ready each exhausted encounter card."). Returns true when that put something on the stack
  * (an additional cost to ready, `RuleSpec readyCost`; a "would ready" interrupt), after marking the step `readied`, so
  * step 5 runs only once it has resolved (docs/phase7-wave4.md §3.19). With nothing pushed, step 5 follows at once, as
  * it always has.
@@ -513,6 +596,13 @@ function readyEveryCard(ctx: Ctx): boolean {
   if (ctx.state.scenarioPlayAreas)
     for (const id of cardsInPlay(ctx.state)) if (scenarioPlayAreaOf(ctx.state, id) !== null) ready(id);
   for (const villain of undefeatedVillains(ctx.state)) ready(villain.instanceId);
+  // "Ready each exhausted encounter card" (RRG 1.8 "End of Player Phase", step 3): whatever the lists above did not
+  // name, wherever it is in play. An encounter card attached to an identity, an ally or a minion is in its host's
+  // `attachments` and under no player's control (a Trance exhausted by its Forced Action, MC55 p. 22), and so is one
+  // attached to a card in the villain area. Last, so every card the lists name readies in the order it always has.
+  // An encounter card is a card no player owns: a player's card that nobody controls (a captive ally,
+  // docs/phase7-wave8.md §3.19) is neither "their card" nor an encounter card, and stays as it is.
+  for (const id of cardsInPlay(ctx.state)) if (mustInstance(ctx.state, id).ownerId === null) ready(id);
   const pushed = ctx.state.stack.length - depth;
   if (pushed === 0) return false;
   // Each push went on top of the last, so the last card readied would be asked first; put them back in ready order

@@ -11,6 +11,7 @@ import { changeFormButtonLabel } from "../../view/change-form-label.js";
 import type { BasicAction } from "../../view/highlights.js";
 import type { Rect } from "../../view/layout.js";
 import type { BoardDrawContext } from "./context.js";
+import { FORCED_ACTION_CODE } from "../../view/forced-actions.js";
 import { basicKindOf, focusKey } from "./selection.js";
 
 const BASICS: readonly BasicAction[] = ["attack", "thwart", "recover", "changeForm"];
@@ -113,6 +114,7 @@ export function drawActionBar(ctx: BoardDrawContext, rect: Rect, model: BoardMod
 
   // The one red fill in the bar: the forward action of the table.
   const endTurn = marks?.basics.find((basic) => basic.action === "endTurn");
+  const owedReason = endTurn?.code === FORCED_ACTION_CODE && endTurn.reason ? endTurn.reason : null;
   const endTurnRect: Rect = stacked
     ? { x: rect.x + 10, y: rect.y + hit.target, width: endTurnWidth, height: hit.primary - 6 }
     : { x: rect.x + rect.width - endTurnWidth - 10, y: rect.y + 4, width: endTurnWidth, height: hit.primary - 10 };
@@ -120,7 +122,8 @@ export function drawActionBar(ctx: BoardDrawContext, rect: Rect, model: BoardMod
   ctx.frame.buttons.push(
     new McButton(scene, {
       kind: "primary",
-      label: "End turn",
+      // A Forced Action still owed (a Trance, a Temptation): End turn waits for it, and says which card.
+      label: stacked && owedReason ? owedReason : "End turn",
       type: typeRole.barTitle,
       rect: endTurnRect,
       enabled: endTurn?.enabled ?? false,

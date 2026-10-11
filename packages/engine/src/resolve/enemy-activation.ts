@@ -1,6 +1,18 @@
 /** Enemy attack and scheme procedures: boost cards, defenders, damage and threat. */
 
+import { displayNameOf } from "../visibility.js";
 import { type AbilityDefinition, DEFAULT_DEPS, type EngineDeps } from "../abilities.js";
+import {
+  announceResourcesSpent,
+  isPriceFault,
+  joinSpent,
+  NOTHING_SPENT,
+  paymentOptions,
+  paymentsFromOptionIds,
+  payPayment,
+  priceOf,
+  type SpentPayment,
+} from "../actions.js";
 import {
   type Ctx,
   emit,
@@ -23,26 +35,30 @@ import {
   characterProfile,
   discardZoneFor,
   getInstance,
+  isMinion,
   locateCard,
-  mustCardOf,
   mustInstance,
   mustPlayer,
   playerOrder,
   areaOfCard,
   mainSchemeFor,
 } from "../query.js";
+import { canPaySpend } from "../payable.js";
+import { satisfies } from "../resources.js";
 import {
+  additionalPowerCostFor,
   attacksDealIndirectDamage,
   attacksDividedEvenly,
   boostIgnored,
   mustDefendWithAlly,
   schemeActivationDestination,
   cannotDefend,
+  defendsWithoutExhausting,
 } from "../rules.js";
-import { cardsInPlay, controllerOf, DEFENDER_SLOT, isAlly } from "../select.js";
+import { cardsInPlay, controllerOf, DEFENDER_SLOT, evaluate, isAlly } from "../select.js";
 import { currentActivationFrameId, type Vars } from "../stack.js";
-import type { GameState, ZoneId } from "../state.js";
-import { TOTAL_ATK_RESULT, type TriggerEvent } from "../trigger-events.js";
+import type { BoostGiven, GameState, ZoneId } from "../state.js";
+import { type SchemeThreatDivert, TOTAL_ATK_RESULT, type TriggerEvent } from "../trigger-events.js";
 import {
   addFrameSlots,
   addFrameVars,
@@ -66,8 +82,9 @@ const getsBoostCard = (state: GameState, deps: EngineDeps, enemyId: InstanceId):
   const card = cardOf(state, enemyId);
   if (!card) return false;
   if (card.type === "villain") return true;
-  if (card.type === "minion") return hasKeyword(state, enemyId, "villainous", deps);
-  return false;
+  // A card in play as a minion counts (`isMinion`): a hero an attachment treats as one, with the keyword that
+  // attachment gives it (Reluctant Foe, docs/phase7-wave9.md §3.30).
+  return isMinion(state, enemyId) && hasKeyword(state, enemyId, "villainous", deps);
 };
 
 /**
@@ -113,6 +130,108 @@ export function dealBoostCard(ctx: Ctx, enemyId: InstanceId, outsideActivation =
     instanceId: id,
     ...(outsideActivation ? { outsideActivation: true } : {}),
   });
+  recordBoostGiven(ctx, enemyId, id);
+}
+
+const LISTENS_FOR_BOOST_GIVEN = new WeakMap<EngineDeps, boolean>();
+
+/**
+ * Whether any ability in the registry triggers on `boostCardGiven` (docs/phase7-wave9.md §3.44); cached per registry.
+ * A boost card is given in every villain phase, so nothing is recorded or announced, and the give-boost step is taken
+ * in one go as it always was, for a registry with no such ability: its games keep their state and their log.
+ */
+export function listensForBoostGiven(deps: EngineDeps): boolean {
+  const cached = LISTENS_FOR_BOOST_GIVEN.get(deps);
+  if (cached !== undefined) return cached;
+  const listens = Object.values(deps.abilities).some((definition) => {
+    const trigger = definition.trigger;
+    if (!("on" in trigger) || !trigger.on) return false;
+    const kinds = typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on;
+    return kinds.includes("boostCardGiven");
+  });
+  LISTENS_FOR_BOOST_GIVEN.set(deps, listens);
+  return listens;
+}
+
+/**
+ * The one place a facedown boost card given to a card is recorded for its `boostCardGiven` announcement
+ * (docs/phase7-wave9.md §3.44; `GameState.pendingBoostGiven`, announced between frames by `announceBoostCardsGiven`).
+ * Called by both ways a boost card is given, `dealBoostCard` (the activation's own cards and a card ability's, off the
+ * deck) and `dealChosenBoostCard` (a named card). The activation read is the innermost one of `enemyId` in progress:
+ * the procedure giving its own card, or the one a card ability gives a card during; a card given to an enemy that is
+ * not activating has none. Nothing is recorded in a game with no ability that hears one.
+ */
+function recordBoostGiven(ctx: Ctx, enemyId: InstanceId, boostId: InstanceId): void {
+  if (!listensForBoostGiven(ctx.deps)) return;
+  const procedure = ctx.state.stack.find(
+    (f): f is Frame<"enemyAttack"> | Frame<"enemyScheme"> =>
+      (f.kind === "enemyAttack" || f.kind === "enemyScheme") && f.enemyInstanceId === enemyId && f.stage !== "done",
+  );
+  const given: BoostGiven = {
+    enemyInstanceId: enemyId,
+    boostInstanceId: boostId,
+    activation: procedure ? (procedure.kind === "enemyAttack" ? "attack" : "scheme") : null,
+    playerId: procedure ? (procedure.kind === "enemyAttack" ? procedure.attackedPlayerId : procedure.playerId) : null,
+  };
+  ctx.state = { ...ctx.state, pendingBoostGiven: [...(ctx.state.pendingBoostGiven ?? []), given] };
+}
+
+/**
+ * Announces each facedown boost card given since the last look (`TriggerEvent boostCardGiven`, recorded by
+ * `recordBoostGiven`; docs/phase7-wave9.md §3.44), when an ability hears it, and empties the list. Each card is an
+ * occurrence of its own, so each has its own response window, the first given resolving first: a response to one may
+ * be used again for the next ("each … ability can only be triggered once per occurrence of its triggering
+ * condition", RRG 1.8 "Triggering Condition", p. 45). A card that is no longer a facedown boost card on that enemy by
+ * now is not announced. The flow looks here between frames. Returns true when it pushed a frame.
+ */
+export function announceBoostCardsGiven(ctx: Ctx): boolean {
+  const pending = ctx.state.pendingBoostGiven;
+  if (!pending || pending.length === 0) return false;
+  const { pendingBoostGiven: _, ...rest } = ctx.state;
+  ctx.state = rest;
+  const events = pending
+    .filter((given) => {
+      const holder = getInstance(ctx.state, given.enemyInstanceId);
+      return (
+        holder?.boostCards.includes(given.boostInstanceId) && !getInstance(ctx.state, given.boostInstanceId)?.faceup
+      );
+    })
+    .map((given): TriggerEvent => ({ kind: "boostCardGiven", ...given }))
+    .filter((event) => heard(ctx.state, ctx.deps, event));
+  if (events.length === 0) return false;
+  pushEvents(ctx, events);
+  return true;
+}
+
+/**
+ * The give-boost step of an activation (RRG 1.8 "Attack (Enemy Activation)" step 1, p. 8; "Scheme (Enemy Activation)"
+ * step 1): the activation's own boost card and each additional one (`extraBoost`). Returns true once the step is over
+ * and the procedure moves to `next`.
+ *
+ * In a game where an ability hears a boost card being given (`listensForBoostGiven`, docs/phase7-wave9.md §3.44) the
+ * cards are given one at a time, the frame staying on this step (`boostsGiven`) while each one's response window
+ * resolves, so a card a response put on top of the deck is the next one given. In every other game they are given in
+ * one go, as before those events existed.
+ */
+function giveBoostStep(
+  ctx: Ctx,
+  frame: Frame<"enemyAttack"> | Frame<"enemyScheme">,
+  next: "declareDefender" | "flipBoosts",
+  activation: "attack" | "scheme",
+): void {
+  const { boostsGiven: given = 0, ...rest } = frame;
+  const advance = () => setFrame(ctx, { ...rest, stage: next } as typeof frame);
+  // "That attack does not get a boost card": no boost card at all, additional ones included.
+  if (frame.noBoost || boostWithheld(ctx, frame, activation)) return advance();
+  const total = 1 + (activationVars(ctx, frame.eventFrameId).extraBoost ?? 0);
+  if (!listensForBoostGiven(ctx.deps)) {
+    advance();
+    for (let i = 0; i < total; i++) giveBoostCard(ctx, frame.enemyInstanceId);
+    return;
+  }
+  if (given >= total) return advance();
+  setFrame(ctx, { ...frame, boostsGiven: given + 1 });
+  giveBoostCard(ctx, frame.enemyInstanceId);
 }
 
 /**
@@ -158,6 +277,7 @@ export function dealChosenBoostCard(ctx: Ctx, holderId: InstanceId, cardId: Inst
   updateInstance(ctx, cardId, (i) => ({ ...i, faceup: false }));
   moveCard(ctx, cardId, { kind: "boost", hostInstanceId: holderId });
   emit(ctx, { type: "boostCardDealt", enemyInstanceId: holderId, instanceId: cardId, outsideActivation: true });
+  recordBoostGiven(ctx, holderId, cardId);
 }
 
 /** The activation procedure's own boost card: only a villain or a villainous minion is dealt one (p. 11). */
@@ -578,6 +698,68 @@ export function declareDefenderByEffect(ctx: Ctx, defenderId: InstanceId, exhaus
   if (!alreadyBasic && (basic || !already)) announceBasicDefense(ctx, defenderId, defenderPlayer);
 }
 
+/**
+ * The additional cost to defend with the character an effect is about to declare the defender (`RuleSpec
+ * additionalPowerCost`, docs/phase7-wave9.md §4.1 Q48 = B), settled on the effect's own frame before the declaration:
+ * - `"notOwed"`: no rule asks, the character already defends this attack, or the declaration would not happen (no
+ *   enemy attack, or the attack is closed to its controller). The effect resolves as written.
+ * - `"asked"`: the controller has been asked for the payment (`ChoicePrompt spendResources`); the frame waits.
+ * - `"unpaid"`: the controller cannot or did not pay. The character is not declared the defender and the instruction
+ *   does nothing to it (RRG 1.8 "Cost", p. 13: unpaid, "the effect associated with the costs does not occur").
+ * - a payment: paid; the caller declares the defender and then announces what was spent.
+ */
+export function settleDeclaredDefenderCost(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  defenderId: InstanceId,
+): "notOwed" | "asked" | "unpaid" | SpentPayment {
+  const payer = controllerOf(ctx.state, defenderId);
+  const ruled = additionalPowerCostFor(ctx.state, ctx.deps, defenderId, "defend");
+  if (!ruled || payer === null || defenseBarFor(ctx.state, payer) !== null) return "notOwed";
+  const attack = currentEnemyAttackFrame(ctx.state);
+  if (!attack) return "notOwed";
+  const procedure = ctx.state.stack.find(
+    (f): f is Frame<"enemyAttack"> => f.kind === "enemyAttack" && f.eventFrameId === attack.frameId,
+  );
+  const defending = procedure ? procedure.defenderInstanceId : ((attack.slots[DEFENDER_SLOT] ?? [])[0] ?? null);
+  if (defending === defenderId) return "notOwed";
+  const notPaid = (): "unpaid" => {
+    emit(ctx, {
+      type: "additionalPowerCostNotPaid",
+      playerId: payer,
+      characterInstanceId: defenderId,
+      power: "defend",
+    });
+    return "unpaid";
+  };
+  if (frame.answer === null) {
+    emit(ctx, { type: "additionalPowerCostAsked", playerId: payer, characterInstanceId: defenderId, power: "defend" });
+    const options = paymentOptions(ctx, payer, null);
+    if (options.length === 0 || !canPaySpend(ctx.state, ctx.deps, payer, ruled.resources)) return notPaid();
+    requestChoice(ctx, {
+      playerId: payer,
+      prompt: { kind: "spendResources", requirement: ruled.resources },
+      options,
+      minSelections: 0,
+      maxSelections: options.length,
+      frameId: frame.frameId,
+    });
+    return "asked";
+  }
+  const payment = paymentsFromOptionIds(frame.answer);
+  const pool = priceOf(ctx, payer, payment, null, null);
+  if (isPriceFault(pool) || !satisfies(pool, ruled.resources)) return notPaid();
+  const spent = payPayment(ctx, payer, payment);
+  emit(ctx, {
+    type: "additionalPowerCostPaid",
+    playerId: payer,
+    characterInstanceId: defenderId,
+    power: "defend",
+    sourceInstanceIds: ruled.sourceInstanceIds,
+  });
+  return spent;
+}
+
 export function pushEnemyAttackFrame(
   ctx: Ctx,
   event: Extract<TriggerEvent, { kind: "enemyAttack" }>,
@@ -621,13 +803,17 @@ export function legalDefenders(
 ): readonly InstanceId[] {
   const defenders: InstanceId[] = [];
   for (const player of playerOrder(state)) {
+    // Ready, or under a rule that has it defend without exhausting (`RuleSpec defendsWithoutExhausting`,
+    // docs/phase7-wave9.md §3.47; RRG 1.8 "Defend, Defense", p. 15: such an ability "can be used on an exhausted hero").
+    const canDeclare = (id: InstanceId, exhausted: boolean): boolean =>
+      !exhausted || defendsWithoutExhausting(state, deps, id);
     const identity = getInstance(state, player.identity.instanceId);
-    if (identity && player.identity.form === "hero" && !identity.exhausted) {
+    if (identity && player.identity.form === "hero" && canDeclare(identity.instanceId, identity.exhausted)) {
       defenders.push(identity.instanceId);
     }
     for (const id of player.playArea) {
       if (!isAlly(state, id)) continue;
-      if (!mustInstance(state, id).exhausted) defenders.push(id);
+      if (canDeclare(id, mustInstance(state, id).exhausted)) defenders.push(id);
     }
   }
   const attacked = mustPlayer(state, attackedPlayerId);
@@ -648,8 +834,80 @@ export const declarableDefenders = (
   attackerId: InstanceId | null = null,
 ): readonly InstanceId[] =>
   legalDefenders(state, attackedPlayerId, deps, attackerId).filter(
-    (id) => defenseBarFor(state, controllerOf(state, id)) === null,
+    (id) => defenseBarFor(state, controllerOf(state, id)) === null && defenseCostPayable(state, deps, id),
   );
+
+/**
+ * Whether the additional cost to defend with this character (`RuleSpec additionalPowerCost`, docs/phase7-wave9.md
+ * §3.31) can be paid by its controller right now; true when there is none. A character whose controller cannot pay is
+ * not offered at the Declare Defender step: the cost is paid with the exhaust or the defense is not made (RRG 1.8
+ * "Cost", p. 13).
+ */
+export function defenseCostPayable(state: GameState, deps: EngineDeps, defenderId: InstanceId): boolean {
+  const ruled = additionalPowerCostFor(state, deps, defenderId, "defend");
+  if (!ruled) return true;
+  const payer = controllerOf(state, defenderId);
+  return payer !== null && canPaySpend(state, deps, payer, ruled.resources);
+}
+
+/**
+ * The Declare Defender step's question for a declared defender whose defense has an additional cost
+ * (`Frame<"enemyAttack">.defenderCostFor`): its controller is asked for the payment, and the answer is judged here.
+ * Returns true once the cost is paid (the caller then declares the defender, and announces `spent` last); false when
+ * the step has been handed back (a prompt is open, or the cost went unpaid and the step asks again without the
+ * character).
+ */
+function settleDefenseCost(
+  ctx: Ctx,
+  frame: Frame<"enemyAttack">,
+  defenderId: InstanceId,
+  spentOut: SpentPayment[],
+): boolean {
+  const payer = controllerOf(ctx.state, defenderId);
+  const ruled = additionalPowerCostFor(ctx.state, ctx.deps, defenderId, "defend");
+  // The rule ended, or the character left play, while the question stood: nothing is owed.
+  if (!ruled || payer === null) return true;
+  const notPaid = (): false => {
+    emit(ctx, {
+      type: "additionalPowerCostNotPaid",
+      playerId: payer,
+      characterInstanceId: defenderId,
+      power: "defend",
+    });
+    const { defenderCostFor: _asked, ...rest } = frame;
+    setFrame(ctx, {
+      ...rest,
+      answer: null,
+      defendersNotPaidFor: [...(frame.defendersNotPaidFor ?? []), defenderId],
+    });
+    return false;
+  };
+  if (frame.answer === null) {
+    const options = paymentOptions(ctx, payer, null);
+    if (options.length === 0) return notPaid();
+    requestChoice(ctx, {
+      playerId: payer,
+      prompt: { kind: "spendResources", requirement: ruled.resources },
+      options,
+      minSelections: 0,
+      maxSelections: options.length,
+      frameId: frame.frameId,
+    });
+    return false;
+  }
+  const payment = paymentsFromOptionIds(frame.answer);
+  const pool = priceOf(ctx, payer, payment, null, null);
+  if (isPriceFault(pool) || !satisfies(pool, ruled.resources)) return notPaid();
+  spentOut.push(payPayment(ctx, payer, payment));
+  emit(ctx, {
+    type: "additionalPowerCostPaid",
+    playerId: payer,
+    characterInstanceId: defenderId,
+    power: "defend",
+    sourceInstanceIds: ruled.sourceInstanceIds,
+  });
+  return true;
+}
 
 /** RRG 1.8 "Activation" (p. 6): an enemy that left play mid-activation ends it; nothing further resolves. */
 function endedByLeavingPlay(
@@ -721,17 +979,17 @@ function defenderLeftPlay(ctx: Ctx, frame: Frame<"enemyAttack">): Frame<"enemyAt
 export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): void {
   if (endedByLeavingPlay(ctx, frame, "attack")) return;
   switch (frame.stage) {
-    case "giveBoost": {
-      setFrame(ctx, { ...frame, stage: "declareDefender" });
-      // "That attack does not get a boost card": no boost card at all, additional ones included.
-      if (frame.noBoost || boostWithheld(ctx, frame, "attack")) return;
-      const extra = activationVars(ctx, frame.eventFrameId).extraBoost ?? 0;
-      for (let i = 0; i < 1 + extra; i++) giveBoostCard(ctx, frame.enemyInstanceId);
-      return;
-    }
+    case "giveBoost":
+      return giveBoostStep(ctx, frame, "declareDefender", "attack");
     case "declareDefender": {
-      if (frame.answer) {
-        const [picked] = frame.answer;
+      // A declared defender whose defense has an additional cost (`RuleSpec additionalPowerCost`,
+      // docs/phase7-wave9.md §3.31): the cost is settled first, and the declaration below is made only once it is paid,
+      // so the resources and the exhaust are paid together or not at all (RRG 1.8 "Cost", p. 13).
+      const costFor = frame.defenderCostFor;
+      const spent: SpentPayment[] = [];
+      if (costFor !== undefined && !settleDefenseCost(ctx, frame, costFor, spent)) return;
+      if (costFor !== undefined || frame.answer) {
+        const [picked] = costFor !== undefined ? [costFor] : (frame.answer ?? []);
         if (!picked || picked === "decline") {
           emit(ctx, {
             type: "defenseDeclined",
@@ -744,20 +1002,40 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
         }
         const defenderId = asInstanceId(picked);
         const defenderPlayer = controllerOf(ctx.state, defenderId) ?? frame.targetPlayerId;
+        if (costFor === undefined && additionalPowerCostFor(ctx.state, ctx.deps, defenderId, "defend")) {
+          emit(ctx, {
+            type: "additionalPowerCostAsked",
+            playerId: defenderPlayer,
+            characterInstanceId: defenderId,
+            power: "defend",
+          });
+          setFrame(ctx, { ...frame, answer: null, defenderCostFor: defenderId });
+          return;
+        }
+        // "[It] does not exhaust to defend" (`RuleSpec defendsWithoutExhausting`, docs/phase7-wave9.md §3.47): read
+        // as it is declared, so a rule that ended earlier in the phase no longer spares it.
+        const withoutExhausting = defendsWithoutExhausting(ctx.state, ctx.deps, defenderId);
         emit(ctx, {
           type: "defenderDeclared",
           attackInstanceId: frame.enemyInstanceId,
           defenderInstanceId: defenderId,
           playerId: frame.attackedPlayerId,
+          ...(withoutExhausting ? { withoutExhausting: true as const } : {}),
         });
-        exhaustCard(ctx, defenderId);
-        const next = { ...frame, answer: null, stage: "flipBoosts" } as const;
+        if (!withoutExhausting) exhaustCard(ctx, defenderId);
+        const { defenderCostFor: _asked, defendersNotPaidFor: _notPaid, ...declaring } = frame;
+        const next = { ...declaring, answer: null, stage: "flipBoosts" } as const;
         // The hero a "(defense)" ability already made the defender: the basic defense subtracts DEF, and it is the
         // same defense of this attack, announced when the ability made the hero the defender, not a second one
         // (owner ruling 2026-10-06; `declareDefenderByEffect` reads an effect's declaration the same way).
         if (frame.defenderInstanceId === defenderId) setFrame(ctx, { ...next, basicDefense: true });
         else setDefender(ctx, next, defenderId, defenderPlayer, true);
         announceBasicDefense(ctx, defenderId, defenderPlayer);
+        // What the additional cost spent is announced on top, so "after you spend this card" resolves first, as a
+        // basic power's is (`withSpentAnnounced`, `actions.ts`).
+        if (spent.length > 0) {
+          announceResourcesSpent(ctx, defenderPlayer, spent.reduce(joinSpent, NOTHING_SPENT), defenderId, "ability");
+        }
         return;
       }
       // A defender an effect declared (`declareDefender`, §3.22): an ally, or a hero already making a basic defense,
@@ -772,7 +1050,10 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       // RRG "Defend, Defense": with a "(defense)" defender already set, only that
       // hero may still make a basic defense; nobody else can defend this attack.
       const existing = frame.defenderInstanceId;
-      const all = declarableDefenders(ctx.state, frame.attackedPlayerId, ctx.deps, frame.enemyInstanceId);
+      // Less a character whose controller was asked for its additional cost during this step and did not pay it.
+      const all = declarableDefenders(ctx.state, frame.attackedPlayerId, ctx.deps, frame.enemyInstanceId).filter(
+        (id) => !frame.defendersNotPaidFor?.includes(id),
+      );
       // "Must defend with an ally they control, if able" (Melter): only the engaged player's ready allies, no declining.
       const forcedAllies = mustDefendWithAlly(ctx.state, ctx.deps, frame.enemyInstanceId)
         ? all.filter((id) => isAlly(ctx.state, id) && controllerOf(ctx.state, id) === frame.attackedPlayerId)
@@ -799,7 +1080,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
             : [{ optionId: "decline", label: "No defense", ref: { kind: "none" } } as const]),
           ...defenders.map((id) => ({
             optionId: id,
-            label: mustCardOf(ctx.state, id).name,
+            label: displayNameOf(ctx.state, id),
             ref: { kind: "card", instanceId: id } as const,
           })),
         ],
@@ -1056,13 +1337,8 @@ export function pushEnemySchemeFrame(
 export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): void {
   if (endedByLeavingPlay(ctx, frame, "scheme")) return;
   switch (frame.stage) {
-    case "giveBoost": {
-      setFrame(ctx, { ...frame, stage: "flipBoosts" });
-      if (frame.noBoost || boostWithheld(ctx, frame, "scheme")) return;
-      const extra = activationVars(ctx, frame.eventFrameId).extraBoost ?? 0;
-      for (let i = 0; i < 1 + extra; i++) giveBoostCard(ctx, frame.enemyInstanceId);
-      return;
-    }
+    case "giveBoost":
+      return giveBoostStep(ctx, frame, "flipBoosts", "scheme");
     case "flipBoosts": {
       const icons = stepBoostCard(ctx, frame, frame.playerId, "scheme");
       if (icons === "busy") return;
@@ -1093,6 +1369,8 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
       // player card's (§4.1 Q17), so `threatRemovalBlocked` reads a crisis icon against it and, if one is in play,
       // nothing is removed; the placing is replaced either way.
       const removes = (vars.removesThreat ?? 0) > 0;
+      const divert = removes ? null : schemeDivertOf(ctx, frame.eventFrameId, schemeInstanceId);
+      const diverted = divert ? Math.min(divert.amount, amount) : 0;
       // The mirror of `attackResolved`: every term of the total separately, so nothing downstream has to re-derive it.
       emit(ctx, {
         type: "schemeResolved",
@@ -1101,8 +1379,9 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
         baseSch: sch,
         boostIcons: frame.boostIcons,
         threatBonus,
-        threatPlaced: removes ? 0 : amount,
+        threatPlaced: removes ? 0 : amount - diverted,
         ...(removes ? { removesThreat: true as const } : {}),
+        ...(divert && diverted > 0 ? { diverted: { toInstanceId: divert.toInstanceId, amount: diverted } } : {}),
       });
       if (removes) {
         const removerInstanceId = activationSlot(ctx, frame.eventFrameId, "threatRemover")[0] ?? null;
@@ -1132,17 +1411,91 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
         });
         return;
       }
-      pushEvent(ctx, {
+      const onScheme: Extract<TriggerEvent, { kind: "placeThreat" }> = {
         kind: "placeThreat",
         schemeInstanceId,
-        amount,
+        amount: amount - diverted,
         sourceInstanceId: frame.enemyInstanceId,
         parentFrameId: frame.eventFrameId,
-      });
+      };
+      if (!divert || diverted <= 0) {
+        resolveWouldPlaceThreat(ctx, frame.eventFrameId, onScheme, pushEvent(ctx, onScheme));
+        return;
+      }
+      // The diverted part first, then the rest on the main scheme: both are this activation's placement by the enemy
+      // and both report to it, so its `threatPlaced` is the whole and `threatDiverted` the part that left the scheme.
+      addFrameVars(ctx, frame.eventFrameId, { threatDiverted: diverted });
+      const placements = pushEvents(ctx, [
+        {
+          kind: "placeThreat",
+          schemeInstanceId: divert.toInstanceId,
+          amount: diverted,
+          sourceInstanceId: frame.enemyInstanceId,
+          parentFrameId: frame.eventFrameId,
+        },
+        onScheme,
+      ]);
+      resolveWouldPlaceThreat(ctx, frame.eventFrameId, onScheme, placements[1]);
       return;
     }
     case "done":
       popFrame(ctx);
       return;
   }
+}
+
+/**
+ * `EffectSpec enemyScheme.wouldPlaceThreat`: the activation's own placement on a main scheme has just been pushed
+ * (`placementFrameId`), and the effects the initiating ability carries for it go on top, so they resolve first, with
+ * the placement as their triggering event: `preventThreat` lowers it and `cancelTriggeringEvent` cancels it before its
+ * interrupt window opens. Nothing is pushed for a placement of 0 or one that is not going on a main scheme.
+ */
+function resolveWouldPlaceThreat(
+  ctx: Ctx,
+  eventFrameId: FrameId | null,
+  placement: Extract<TriggerEvent, { kind: "placeThreat" }>,
+  placementFrameId: FrameId | undefined,
+): void {
+  const activation = eventFrameId ? ctx.state.stack.find((f) => f.frameId === eventFrameId) : undefined;
+  const would =
+    activation?.kind === "event" && activation.event.kind === "enemyScheme"
+      ? activation.event.wouldPlaceThreat
+      : undefined;
+  if (!would || !placementFrameId || placement.amount <= 0) return;
+  if (cardOf(ctx.state, placement.schemeInstanceId)?.type !== "main_scheme") return;
+  pushEffects(ctx, {
+    effects: would.effects,
+    selfInstanceId: would.selfInstanceId,
+    controllerId: would.controllerId,
+    abilityId: would.abilityId,
+    bindings: would.bindings,
+    vars: would.vars,
+    event: placement,
+    eventFrameId: placementFrameId,
+  });
+}
+
+/**
+ * `EffectSpec enemyScheme.divert` as this activation's place-threat step reads it (docs/phase7-wave9.md §3.9), or null
+ * when nothing is diverted: the threat is not going on a main scheme (a `schemeThreatDestination` rule sends it to
+ * another scheme), the card left play or is that main scheme, or its condition does not hold now.
+ */
+function schemeDivertOf(ctx: Ctx, eventFrameId: FrameId | null, destination: InstanceId): SchemeThreatDivert | null {
+  const frame = eventFrameId ? ctx.state.stack.find((f) => f.frameId === eventFrameId) : undefined;
+  const event = frame?.kind === "event" && frame.event.kind === "enemyScheme" ? frame.event : null;
+  const divert = event?.divert;
+  if (!event || !divert) return null;
+  if (cardOf(ctx.state, destination)?.type !== "main_scheme") return null;
+  if (divert.toInstanceId === destination || !cardsInPlay(ctx.state).includes(divert.toInstanceId)) return null;
+  const holds =
+    divert.if === undefined ||
+    evaluate(ctx.state, divert.if, {
+      selfInstanceId: divert.selfInstanceId,
+      controllerId: divert.controllerId,
+      event,
+      bindings: divert.bindings,
+      vars: divert.vars,
+      deps: ctx.deps,
+    });
+  return holds ? divert : null;
 }

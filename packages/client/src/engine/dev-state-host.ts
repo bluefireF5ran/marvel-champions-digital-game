@@ -20,6 +20,7 @@ import {
   type LegalActions,
   type PlayerId,
 } from "@mc/engine";
+import { sealForTable } from "../view/hidden-reverse.js";
 import { actingPlayer } from "./acting-player.js";
 import { emptyRecord, recordEvents, type GameRecord } from "./game-record.js";
 import type { SaveMeta } from "./game-storage.js";
@@ -95,7 +96,8 @@ export class DevStateHost implements EngineHost {
     const toAct = actingPlayer(state);
     const update: EngineUpdate = {
       version: this.#version,
-      state,
+      // Sealed as the engine session's snapshot is (`sealForTable`); the legal actions are read from the full state.
+      state: sealForTable(state),
       events,
       legal: toAct ? { playerId: toAct, actions: queryLegalActions(state, toAct, this.#deps) } : null,
       record: this.#record,

@@ -34,6 +34,8 @@ import { cssOf } from "../ui/theme.js";
 import { McSelectionRing, McTabs, paintDotGrid } from "../ui/widgets.js";
 import { boardModel, type BoardModel } from "../view/board-model.js";
 import { highlights, type Highlights } from "../view/highlights.js";
+import { withAttackBarWording } from "../view/attack-bar.js";
+import { withForcedActions } from "../view/forced-actions.js";
 import { withDefenseLockout } from "../view/defense-lockout.js";
 import { appendCardHistory, emptyCardHistoryLog, type CardHistoryLog } from "../view/card-history.js";
 import { appendEvents, emptyLog, type LogState } from "../view/log-lines.js";
@@ -77,6 +79,7 @@ import { addTapTarget } from "./board/tap-target.js";
 import { LogPanel } from "./board/log.js";
 import { setAsideFooterHeight, setAsideLines, splitSetAside } from "../view/encounter-pile-layout.js";
 import { TEAM_UP_ART, teamUpArtFor } from "../art/team-up-art.js";
+import { evidenceInputOf } from "../view/evidence-model.js";
 import type { TeamUpSplashData } from "./team-up-splash.js";
 import type { TeamUpInfoData } from "./team-up-info.js";
 import type { TeamUpBadge, TeamUpRings } from "./board/team-up-badge.js";
@@ -96,7 +99,9 @@ import {
   type TeamUpWatch,
 } from "../view/team-up-model.js";
 import { drawEncounter, drawEnemies, drawPlayArea, drawScenarioPlayAreas, drawTeam } from "./board/zones.js";
-import { splitMissionArea } from "../view/mission-area-layout.js";
+import { avatarSwapAnnouncements } from "../view/avatar-swap-banner.js";
+import { splitMissionArea, splitNeutralTab } from "../view/mission-area-layout.js";
+import { referenceCardViews, type ReferenceCardView } from "../view/reference-cards.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { campaignBeatFor } from "../view/campaign-beat-model.js";
 import type { CampaignBeatData } from "./campaign/routes.js";
@@ -336,6 +341,7 @@ export class BoardScene extends Phaser.Scene {
         this.scene.isActive(SCENES.roundDebrief) ||
         this.scene.isActive(SCENES.teamUpSplash) ||
         this.scene.isActive(SCENES.teamUpInfo) ||
+        this.scene.isActive(SCENES.evidence) ||
         // "Hold on!" owns Escape (it dismisses with nothing sent); without this the board's own Escape opened Pause
         // on top of it.
         this.scene.isActive(SCENES.holdOn),
@@ -345,6 +351,10 @@ export class BoardScene extends Phaser.Scene {
     // T opens the Team-Up panel for the first active pair: the keyboard route to the badge's click.
     this.input.keyboard?.on("keydown-T", () => {
       if (!binding.blocked() && this.#teamUps.length > 0) this.#openTeamUpInfo(this.#teamUps[0]!);
+    });
+    // E opens Baron Zemo's Evidence view, the keyboard route to the chrome's EVIDENCE button.
+    this.input.keyboard?.on("keydown-E", () => {
+      if (!binding.blocked() && this.#hasEvidence()) this.#openEvidence();
     });
     // 1 to 3 answer "Which one?" (a played event with several usable Action abilities).
     ["ONE", "TWO", "THREE"].forEach((key, index) => {
@@ -494,13 +504,21 @@ export class BoardScene extends Phaser.Scene {
       // A hero going down is the one change nobody may miss. The last one
       // standing falling is the game ending instead, and Game Over says that.
       if (!state.game.outcome) {
+        // A seat that sits a scenario out is eliminated with no defeat; its `playerSatOut` follows in the same batch.
+        const satOut = new Set(
+          state.lastEvents.flatMap((event) => (event.type === "playerSatOut" ? [event.playerId] : [])),
+        );
         for (const event of state.lastEvents) {
-          if (event.type !== "playerEliminated") continue;
+          if (event.type !== "playerEliminated" || satOut.has(event.playerId)) continue;
           this.#motion.announce(
             `${playerName(state.game, event.playerId)} is down`,
             "Defeated — out of the game. The rest of the team fights on",
           );
         }
+      }
+      // An Avatar of Loki shattering and another taking the villain slot: the panel would change its name unexplained.
+      for (const swap of avatarSwapAnnouncements(state.lastEvents, state.game)) {
+        this.#motion.announce(swap.title, swap.detail);
       }
       // Saving failing is silent otherwise — the game plays on — and a refresh
       // would then lose it. Said once, loudly; the chrome chip keeps saying it.
@@ -518,7 +536,17 @@ export class BoardScene extends Phaser.Scene {
     const mine = state.legal?.playerId === state.perspectiveId ? state.legal.actions : null;
     this.#model = this.#withDebugSideSchemes(boardModel(state.game, state.perspectiveId, POOL_DEPS, mine));
     this.#marks = state.legal
-      ? withDefenseLockout(highlights(state.legal.actions), state.game, state.perspectiveId, POOL_DEPS)
+      ? withDefenseLockout(
+          withForcedActions(
+            withAttackBarWording(highlights(state.legal.actions), state.legal.actions, state.game, POOL_DEPS),
+            state.legal.actions,
+            state.game,
+            POOL_DEPS,
+          ),
+          state.game,
+          state.perspectiveId,
+          POOL_DEPS,
+        )
       : null;
     const present = presentTeamUps(state.game, TEAM_UP_PAIRS);
     this.#teamUps = present.map((entry) => entry.pair);
@@ -774,6 +802,18 @@ export class BoardScene extends Phaser.Scene {
     return roles;
   }
 
+  /** Whether this game gathers evidence (Baron Zemo): its piles or faceup evidence are in the state. */
+  #hasEvidence(): boolean {
+    const game = appSession().store.state.game;
+    return game !== null && evidenceInputOf(game) !== null;
+  }
+
+  /** The Evidence view (`scenes/evidence.ts`), over the table. */
+  #openEvidence(): void {
+    if (this.scene.isActive(SCENES.evidence)) return;
+    this.scene.launch(SCENES.evidence, { from: SCENES.board });
+  }
+
   /** The Team-Up panel for `pair`, over the table. */
   #openTeamUpInfo(pair: TeamUpPair): void {
     const game = appSession().store.state.game;
@@ -952,6 +992,7 @@ export class BoardScene extends Phaser.Scene {
     const guideRail = this.#guide?.railOptionFor(viewport) ?? undefined;
     const layout = boardLayout(viewport, {
       playerCount: model.team.length + 1,
+      neutralArea: model.scenarioPlayAreas.some((area) => area.neutral),
       activeTab: this.#activeTab,
       ...(guideRail ? { guideRail } : {}),
     });
@@ -973,6 +1014,7 @@ export class BoardScene extends Phaser.Scene {
       teamUpRoles: this.#teamUpRoles(model),
       makeTapTarget: (rect, id, onTap, drag) => this.#makeTapTarget(rect, id, onTap, drag),
       inspect: (id, siblings) => this.#inspect(id, siblings),
+      inspectReference: (reference) => this.scene.launch(SCENES.inspect, { reference }),
     };
 
     // The table felt, and nothing else.
@@ -982,17 +1024,27 @@ export class BoardScene extends Phaser.Scene {
     drawChrome(this, zones.chrome!, model, {
       notSaving: appSession().store.state.saveError !== null,
       onMenu: () => this.#openPause(),
+      ...(this.#hasEvidence() ? { onEvidence: () => this.#openEvidence() } : {}),
       buttons: this.#frame.buttons,
       motion: this.#motion,
     });
     if (zones.tabs) this.#drawTabs(zones.tabs, model);
-    if (zones.threat) drawSchemes(ctx, zones.threat, model);
-    // A scenario play area (the mission area) takes the foot of the enemies zone; with none, the zone is whole.
+    // A scenario play area (the mission area) takes the foot of the enemies zone; with none, the zone is whole. The
+    // pod's neutral area (God of Lies) is the pod's shared threat: on a phone it takes the foot of the Threat tab, where
+    // there is room for it, and elsewhere it shares the enemies zone's foot strip with any other area.
+    const neutralAreas = model.scenarioPlayAreas.filter((area) => area.neutral);
+    const neutralOnTab = ctx.tabbed && neutralAreas.length > 0;
+    const stripAreas = neutralOnTab ? model.scenarioPlayAreas.filter((area) => !area.neutral) : model.scenarioPlayAreas;
+    const references = this.#referenceCards();
+    const neutralTab = neutralOnTab && zones.threat ? splitNeutralTab(zones.threat) : null;
+    if (zones.threat) drawSchemes(ctx, neutralTab ? neutralTab.schemes : zones.threat, model);
+    if (neutralTab && neutralTab.area.height > 0)
+      drawScenarioPlayAreas(ctx, neutralTab.area, neutralAreas, references, "stack");
     const missionSplit = zones.enemies
-      ? splitMissionArea(zones.enemies, model.scenarioPlayAreas.length > 0)
+      ? splitMissionArea(zones.enemies, stripAreas.length > 0, { neutral: stripAreas.some((area) => area.neutral) })
       : { enemies: null, area: null };
     if (missionSplit.enemies) drawEnemies(ctx, missionSplit.enemies, model);
-    if (missionSplit.area) drawScenarioPlayAreas(ctx, missionSplit.area, model.scenarioPlayAreas);
+    if (missionSplit.area) drawScenarioPlayAreas(ctx, missionSplit.area, stripAreas, references);
     // The set-aside footer's line comes out of the log's space, never the deck and discard's.
     const setAside =
       model.setAside && zones.encounter
@@ -1027,7 +1079,14 @@ export class BoardScene extends Phaser.Scene {
     this.#motion.startTravels(previous, this.#frame, layout);
     // Last, so beats and traveling ghosts float above the table rather than
     // under a later panel.
-    this.#motion.drawBeats(this.#frame.hitRects);
+    this.#motion.drawBeats(
+      new Map([
+        ...[...this.#frame.focusRects].flatMap(([key, chip]): [InstanceId, Rect][] =>
+          key.startsWith("card:") ? [[key.slice(5) as InstanceId, chip]] : [],
+        ),
+        ...this.#frame.hitRects,
+      ]),
+    );
     this.#motion.renderTravels();
     // Held while the villain-phase walkthrough or the round debrief covers the table: the walkthrough stays up
     // into the next player phase until the player continues or skips it, and every round after the first the
@@ -1113,6 +1172,14 @@ export class BoardScene extends Phaser.Scene {
   }
 
   /** Pulsing rings on the valid targets while a target is being chosen. */
+  /**
+   * Where a card is on the table this draw: its own tile, or, for an attachment (Encased in Ice is a target of attacks),
+   * the chip that stands for it on its host. Rings and damage numbers go here.
+   */
+  #cardRect(id: InstanceId): Rect | undefined {
+    return this.#frame.hitRects.get(id) ?? this.#frame.focusRects.get(focusKey({ kind: "card", instanceId: id }));
+  }
+
   #drawTargetRings(): void {
     for (const ring of this.#targetRings) {
       ring.destroy();
@@ -1124,7 +1191,7 @@ export class BoardScene extends Phaser.Scene {
     if (selection.kind !== "targeting") return;
     const reduced = appSession().settings.reducedMotion;
     for (const target of selection.action.targets) {
-      const rect = this.#frame.hitRects.get(target);
+      const rect = this.#cardRect(target);
       if (!rect) continue;
       const ring = new McSelectionRing(this);
       ring.show(rect, "pulse", reduced);
@@ -1279,6 +1346,19 @@ export class BoardScene extends Phaser.Scene {
       onDragEnd: drag?.onDragEnd,
       key: id as string,
     });
+  }
+
+  /** The scenario's printed rules cards (God of Lies' Shatter the Illusion), looked up once per game. */
+  #referenceCardList: { readonly scenarioId: string | undefined; readonly cards: readonly ReferenceCardView[] } | null =
+    null;
+
+  #referenceCards(): readonly ReferenceCardView[] {
+    const scenarioId = appSession().store.state.config?.scenarioId;
+    const known = this.#referenceCardList;
+    if (known && known.scenarioId === scenarioId) return known.cards;
+    const cards = referenceCardViews(POOL_SCENARIOS.find((scenario) => scenario.id === scenarioId));
+    this.#referenceCardList = { scenarioId, cards };
+    return cards;
   }
 
   /**

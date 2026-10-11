@@ -125,6 +125,36 @@ export function campaignLogContains(value: LogValue | undefined, needle: string)
   }
 }
 
+/** What a `cardState` field recorded for one card: its counters by name and the face it was on, or nothing. */
+export function campaignLogCardState(
+  value: LogValue | undefined,
+  card: string,
+): { readonly counters: Readonly<Record<string, number>>; readonly face?: string } | undefined {
+  if (value?.kind !== "cardState" || !Object.hasOwn(value.cards, card)) return undefined;
+  return value.cards[card];
+}
+
+/**
+ * The number a `cardState` field recorded for one counter on one card (MC50 p. 11); 0 for a card or a counter that
+ * was not recorded and for a field of any other kind, as every other numeric read of the log is total.
+ */
+export const campaignLogCardCounter = (value: LogValue | undefined, card: string, counter: string): number =>
+  campaignLogCardState(value, card)?.counters[counter] ?? 0;
+
+/** The `face` word that asks for a card recorded on the face its field lists (`Predicate campaignLog`). */
+export const CAMPAIGN_LOG_FRONT_FACE = "front";
+
+/**
+ * Whether a `cardState` field recorded `card`, and on `face` when one is asked for (`CAMPAIGN_LOG_FRONT_FACE` for a
+ * card recorded with no face).
+ */
+export function campaignLogCardRecorded(value: LogValue | undefined, card: string, face?: string): boolean {
+  const recorded = campaignLogCardState(value, card);
+  if (!recorded) return false;
+  if (face === undefined) return true;
+  return face === CAMPAIGN_LOG_FRONT_FACE ? recorded.face === undefined : recorded.face === face;
+}
+
 /**
  * The card ids a field names, in recorded order and **with duplicates kept**: ruling June 2, 2026 (3) answer 3,
  * "Record each copy individually (titles can appear multiple times)."

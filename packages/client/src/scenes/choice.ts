@@ -14,8 +14,16 @@
 
 import { triggerCaption, triggerOrdinal } from "../view/trigger-caption.js";
 import Phaser from "phaser";
-import { cardOf, type ChoiceRef, type GameState, type InstanceId, type PendingChoice, type PlayerId } from "@mc/engine";
-import { POOL_DEPS } from "../content/pool.js";
+import {
+  cardOf,
+  evidenceRowId,
+  type ChoiceRef,
+  type GameState,
+  type InstanceId,
+  type PendingChoice,
+  type PlayerId,
+} from "@mc/engine";
+import { CARDS_BY_ID, POOL_DEPS } from "../content/pool.js";
 import { accent, guideTag, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import { cssOf, textStyle } from "../ui/theme.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
@@ -39,7 +47,12 @@ import { decisionLabel } from "../view/villain-walkthrough.js";
 import { abilityShortLabelOf } from "../view/ability-label.js";
 import { choiceTileBarsOf, type TileBar } from "../view/choice-tile-bars.js";
 import { divideSheetOf, shownDivideChoice } from "../view/divide-sheet.js";
-import { chosenResourcesNoteOf, paymentSheetView, type PaymentSheetView } from "../view/payment-sheet.js";
+import {
+  chosenResourcesNoteOf,
+  paymentSheetView,
+  requiredPaymentNoteOf,
+  type PaymentSheetView,
+} from "../view/payment-sheet.js";
 import { choiceHeaderText, choiceInstructionOf, promptTitleOf } from "../view/choice-source.js";
 import { choiceSheetAction, sheetIsCovered, stuckSheetShouldRecover } from "../view/choice-sheet-sync.js";
 import { choiceSourcePanelOf } from "../view/choice-source-panel.js";
@@ -50,7 +63,8 @@ import {
   sourceStripPlacement,
   stripReserve,
 } from "../view/choice-source-panel-layout.js";
-import { drawInstructionSourcePanel, drawSourceCardPanel } from "../ui/source-card-panel.js";
+import { drawInstructionSourcePanel, drawSourceCardPanel, instructionStripHeight } from "../ui/source-card-panel.js";
+import { aosOptionLabelOf, secretTargetNotesOf, wrapOptionLabel } from "../view/board-secret-notes.js";
 import { optionLabelOf, seatIdentityName } from "../view/names.js";
 import { defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
 import {
@@ -104,9 +118,21 @@ import { bindGamepad, bindKeyboard } from "./board/input.js";
 import type { BoardScene } from "./board.js";
 import { SCENES } from "./keys.js";
 import { bindHoldTarget } from "../ui/hold-target.js";
+import {
+  COLLECTION_CAPTION,
+  collectionGrid,
+  collectionPage,
+  collectionPages,
+  collectionRows,
+  collectionSlots,
+  type CollectionRow,
+} from "../view/collection-search.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { OverlayMotion } from "../ui/transitions.js";
 import { McGuideTag } from "../ui/guide-tag.js";
+import { drawBoardMemberKey, drawEvidenceGrid } from "../ui/evidence-grid.js";
+import { evidenceGridWantedHeight } from "../view/evidence-layout.js";
+import { accuseSheetOf } from "../view/evidence-model.js";
 import { drawGuideStrip, GUIDE_STRIP_HEIGHT, type GuideStripContent, type GuideStripRects } from "../ui/guide-strip.js";
 
 /** The sheet's title: one line down to a readable 16px, then two lines at up to 17px, never a shrunken single line. */
@@ -123,6 +149,8 @@ function fitBarTitle(title: Phaser.GameObjects.Text, maxWidth: number): void {
 
 export class ChoiceOverlay extends Phaser.Scene {
   #selected: string[] = [];
+  /** The collection search's page (`view/collection-search.ts`), kept for the choice it belongs to across redraws. */
+  #collectionPage = { choiceId: "", page: 0 };
   /** The target tiles' bars for the sheet being drawn (`view/choice-tile-bars.ts`), rebuilt with every draw. */
   #tileBars: ReadonlyMap<string, TileBar> = new Map();
   /** Break Time: the table chose "Enter minutes instead", so the stepper stands in for the timer on this choice. */
@@ -369,6 +397,12 @@ export class ChoiceOverlay extends Phaser.Scene {
       return;
     }
 
+    // The accusation (Baron Zemo): a grid of combinations, not a list of options (`#drawAccuseChoice`).
+    if (choice.prompt.kind === "accuse") {
+      this.#drawAccuseChoice(choice, width, height, guideRailWidth, stripHeight, guideStrip);
+      return;
+    }
+
     // A decision about cards is made on the cards, so it is decided here —
     // before the sheet is sized, because a row of cards needs a wider sheet
     // than a list of names does. An "ability" ref names a card too — every
@@ -377,7 +411,9 @@ export class ChoiceOverlay extends Phaser.Scene {
     // used to fall through to the bare-list branch below purely because
     // `ref.kind` was "ability", not "card": the option named a card just as
     // concretely, the check just didn't recognize it. See `refInstanceId`.
-    const asCards = choice.options.length > 0 && choice.options.every((option) => refInstanceId(option.ref) !== null);
+    const asCards =
+      (choice.options.length > 0 && choice.options.every((option) => refInstanceId(option.ref) !== null)) ||
+      collectionRows(choice, (cardId) => CARDS_BY_ID.get(cardId)) !== null;
 
     // The card (and, where it can be pinned down, the ability and cost) this choice is actually about, ready to
     // *show* rather than only name — the reported gap this panel exists to close (`view/choice-source-panel.ts`'s
@@ -389,7 +425,14 @@ export class ChoiceOverlay extends Phaser.Scene {
     const instruction = sourcePanel ? null : choiceInstructionOf(state.game, choice);
     const panelMode = sourcePanel || instruction ? sourcePanelModeFor(formFactor) : null;
     const railWidth = panelMode === "rail" ? railReserve(formFactor) : 0;
-    const extraHeight = panelMode === "strip" ? stripReserve(formFactor) : 0;
+    // The strip holds a setup instruction's whole rule, so it grows to the wrapped text (a card's stays the fixed strip).
+    const stripWidthGuess = Math.max(280, Math.min(width - guideRailWidth - 16, asCards ? 1040 : 560));
+    const extraHeight =
+      panelMode === "strip"
+        ? instruction
+          ? instructionStripHeight(this, instruction, stripWidthGuess, stripReserve(formFactor) - 10) + 10
+          : stripReserve(formFactor)
+        : 0;
 
     // The 70%-ink scrim — clear of the guide rail's own reserved width and the bottom guide strip's own height,
     // same reasoning as `#drawDefendChoice`'s own scrim.
@@ -544,6 +587,7 @@ export class ChoiceOverlay extends Phaser.Scene {
         : isBreakChoice(choice)
           ? ""
           : (chosenResourcesNoteOf(choice.prompt) ??
+            requiredPaymentNoteOf(state.game, choice) ??
             `select ${choice.minSelections === choice.maxSelections ? choice.minSelections : `${choice.minSelections}–${choice.maxSelections}`}${choice.ordered ? " · order matters" : ""}`),
       typeRole.label,
       surface.ink.hex,
@@ -670,8 +714,32 @@ export class ChoiceOverlay extends Phaser.Scene {
     }
 
     const rowHeight = hit.target;
-    const capacity = Math.max(1, Math.floor(listHeight / (rowHeight + 4)));
+    // An option can carry a second line (Agents of S.H.I.E.L.D.'s "Flips a Board Member"), so rows are not all one height.
+    const optionText = (option: (typeof choice.options)[number]): string =>
+      aosOptionLabelOf(
+        state.game,
+        // The engine labels a seat by its id; the table knows it by its hero.
+        option.ref.kind === "player" && state.game
+          ? playerOptionLabel(state.game, option.ref.playerId, state.perspectiveId)
+          : optionLabelOf(state.game, option),
+      );
+    // A long option (an evidence card's Setup runs to 140 characters) wraps over several lines instead of being cut off.
+    const maxChars = Math.floor((sheet.width - 48) / (typeRole.rowTitle.size * 0.62));
+    const texts = choice.options.map((option) => wrapOptionLabel(optionText(option), maxChars));
+    const heights = texts.map(
+      (text) =>
+        rowHeight +
+        (text.split("\n").length > 2 ? text.split("\n").length - 2 : 0) * 15 +
+        (text.includes("\n") ? 8 : 0),
+    );
+    let capacity = 0;
+    for (let used = 0; capacity < heights.length; capacity++) {
+      used += heights[capacity]! + 4;
+      if (used > listHeight && capacity > 0) break;
+    }
+    capacity = Math.max(1, capacity);
     const shown = choice.options.slice(0, capacity);
+    const tops = heights.map((_, index) => listTop + heights.slice(0, index).reduce((sum, h) => sum + h + 4, 0));
     this.#route = choiceFocusOrder(
       shown.map((option) => option.optionId),
       canDeclineChoice(choice),
@@ -679,11 +747,7 @@ export class ChoiceOverlay extends Phaser.Scene {
 
     shown.forEach((option, index) => {
       const order = this.#selected.indexOf(option.optionId);
-      // The engine labels a seat by its id; the table knows it by its hero.
-      const text =
-        option.ref.kind === "player" && state.game
-          ? playerOptionLabel(state.game, option.ref.playerId, state.perspectiveId)
-          : optionLabelOf(state.game, option);
+      const text = texts[index]!;
       const rowLabel = choice.ordered && order >= 0 ? `${order + 1}. ${text}` : text;
       this.#buttons.push(
         new McButton(this, {
@@ -692,9 +756,9 @@ export class ChoiceOverlay extends Phaser.Scene {
           type: typeRole.rowTitle,
           rect: {
             x: sheet.x + 12,
-            y: listTop + index * (rowHeight + 4),
+            y: tops[index]!,
             width: sheet.width - 24,
-            height: rowHeight,
+            height: heights[index]!,
           },
           selected: order >= 0,
           onClick: () => this.#toggle(option.optionId, choice.maxSelections),
@@ -702,9 +766,9 @@ export class ChoiceOverlay extends Phaser.Scene {
       );
       this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: option.optionId }), {
         x: sheet.x + 12,
-        y: listTop + index * (rowHeight + 4),
+        y: tops[index]!,
         width: sheet.width - 24,
-        height: rowHeight,
+        height: heights[index]!,
       });
     });
     if (choice.options.length > capacity) {
@@ -1142,6 +1206,188 @@ export class ChoiceOverlay extends Phaser.Scene {
     this.#motion.enter(this, { scrim: [scrim], panels: this.children.list.slice(panelsFrom) });
   }
 
+  /**
+   * The accuse prompt (`EffectSpec accuse`, MC50 p. 19 "The Accusation"): the whole grid of 27 combinations as three
+   * 3 by 3 blocks, the rows the faceup evidence has crossed out dimmed and marked, and one open row to pick. Every
+   * cell is an option of the engine's own list (`view/evidence-model.ts#accuseSheetOf`), answered with the same
+   * `resolveChoice([optionId])` the bare list sends, so nothing here works out which rows are legal. The grid and the
+   * crossed-out evidence come from the prompt itself; no hidden pile is read.
+   */
+  #drawAccuseChoice(
+    choice: PendingChoice,
+    width: number,
+    height: number,
+    guideRailWidth: number,
+    stripHeight: number,
+    guideStrip: GuideStripContent | null,
+  ): void {
+    const lookup = (id: string): ReturnType<typeof CARDS_BY_ID.get> => CARDS_BY_ID.get(id);
+    const view = accuseSheetOf(choice, this.#selected, lookup);
+    if (!view) return;
+    const inspectCard = (cardId: string): void => {
+      this.scene.launch(SCENES.inspect, { card: { cardId, face: { kind: "front" } } });
+      this.scene.bringToTop(SCENES.inspect);
+    };
+
+    const phone = isTabbed(formFactorFor(width, height));
+    const areaX = guideRailWidth;
+    const areaWidth = width - guideRailWidth;
+    const areaHeight = height - stripHeight;
+    const scrim = this.add.graphics();
+    // Opaque over the villain-phase walkthrough (an accusation is made at the end of the player phase, so it usually
+    // is): its response text bled through a translucent scrim, as it once did behind the defend sheet.
+    const overWalkthrough = this.scene.isActive(SCENES.villainPhase);
+    scrim.fillStyle(surface.ink.hex, overWalkthrough ? 1 : 0.7).fillRect(areaX, 0, areaWidth, areaHeight);
+    // Modal: a tap on no control of this sheet's own must not reach the board underneath.
+    this.add.zone(areaX, 0, areaWidth, areaHeight).setOrigin(0, 0).setInteractive();
+    const panelsFrom = this.children.list.length;
+
+    const margin = phone ? 8 : 24;
+    const sheetWidth = Math.min(areaWidth - margin * 2, 1040);
+    const pad = 12;
+    const innerWidth = sheetWidth - pad * 2;
+    const BAR = 40;
+    const HINT = 20;
+    const LEGEND = 28;
+    const CHIPS = 28;
+    const SUMMARY = 22;
+    const COMMIT = hit.primary;
+    const fixed = BAR + pad + HINT + 6 + LEGEND + 6 + CHIPS + 4 + SUMMARY + 8 + COMMIT + pad;
+    const wantedGrid = evidenceGridWantedHeight(innerWidth);
+    const gridHeight = Math.max(innerWidth < 600 ? 394 : 126, Math.min(wantedGrid, areaHeight - margin * 2 - fixed));
+    const sheetHeight = Math.min(areaHeight - margin * 2, fixed + gridHeight);
+    const sheet: Rect = {
+      x: areaX + (areaWidth - sheetWidth) / 2,
+      y: Math.max(margin / 2, (areaHeight - sheetHeight) / 2),
+      width: sheetWidth,
+      height: sheetHeight,
+    };
+    const g = this.add.graphics();
+    paintPanel(g, sheet, "card", "rest");
+    g.fillStyle(surface.ink.hex, 1).fillRect(sheet.x, sheet.y, sheet.width, BAR);
+    const title = this.add
+      .text(sheet.x + pad, sheet.y + BAR / 2, "MAKE THE ACCUSATION", textStyle(typeRole.barTitle, surface.paper.hex))
+      .setOrigin(0, 0.5)
+      .setLetterSpacing(2);
+    const count = this.add
+      .text(
+        sheet.x + sheet.width - pad,
+        sheet.y + BAR / 2,
+        `${view.openCount} of ${view.total} open`.toUpperCase(),
+        textStyle(typeRole.label, signal.caution.hex),
+      )
+      .setOrigin(1, 0.5);
+    fitBarTitle(title, Math.max(60, count.x - count.width - 16 - title.x));
+
+    let y = sheet.y + BAR + pad / 2;
+    const hint = this.add.text(
+      sheet.x + pad,
+      y + 2,
+      "Pick a combination that no faceup evidence has crossed out.",
+      textStyle(typeRole.body, surface.ink.hex, ink.secondary),
+    );
+    fitText(hint, innerWidth, 12);
+    y += HINT + 6;
+
+    // The grid: open cells are the engine's options; a tap picks one.
+    const optionOrder: string[] = [];
+    const drawn = drawEvidenceGrid(this, { x: sheet.x + pad, y, width: innerWidth, height: gridHeight }, view.grid, {
+      selected: view.selected ? evidenceRowId(view.selected) : null,
+      onCell: (rowId) => this.#toggle(rowId, 1),
+      onInspect: inspectCard,
+    });
+    y += gridHeight + 6;
+    for (const block of view.grid.blocks)
+      for (const line of block.cells)
+        for (const cell of line) {
+          const rect = cell ? drawn.cellRects.get(cell.rowId) : undefined;
+          if (!cell || !rect || !cell.open) continue;
+          this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: cell.rowId }), rect);
+          optionOrder.push(cell.rowId);
+        }
+
+    // Board Member key: the three codes, how many rows each still holds, tap to read the card.
+    const keyRects = drawBoardMemberKey(
+      this,
+      { x: sheet.x + pad, y, width: innerWidth, height: LEGEND },
+      view.grid.members,
+      inspectCard,
+    );
+    for (const [cardId, rect] of keyRects) {
+      const key = `inspect:${cardId}`;
+      this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: key }), rect);
+      optionOrder.push(key);
+    }
+    y += LEGEND + 6;
+
+    // The four cards of the picked row, each opening Inspect.
+    const chipGap = 6;
+    const chipWidth = (innerWidth - chipGap * 3) / 4;
+    for (let index = 0; index < 4; index++) {
+      const rect: Rect = { x: sheet.x + pad + index * (chipWidth + chipGap), y, width: chipWidth, height: CHIPS };
+      const card = view.selectedCards[index];
+      if (!card) continue;
+      g.fillStyle(surface.card.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
+      g.lineStyle(2, surface.ink.hex, 1).strokeRect(rect.x, rect.y, rect.width, rect.height);
+      const word = card.kind ?? "board member";
+      const text = this.add
+        .text(
+          rect.x + 6,
+          rect.y + rect.height / 2,
+          `${word}: ${card.name}`,
+          textStyle(typeRole.emphasis, surface.ink.hex),
+        )
+        .setOrigin(0, 0.5);
+      fitText(text, rect.width - 12, 11);
+      this.add
+        .zone(rect.x, rect.y, rect.width, rect.height)
+        .setOrigin(0, 0)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerup", () => inspectCard(card.cardId));
+      const key = `inspect:${card.cardId}`;
+      if (!this.#focusRects.has(choiceFocusKey({ kind: "option", optionId: key }))) {
+        this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: key }), rect);
+        optionOrder.push(key);
+      }
+    }
+    y += CHIPS + 4;
+    const summary = this.add.text(
+      sheet.x + pad,
+      y + 2,
+      view.selected ? "Accuse this combination" : view.summary,
+      textStyle(typeRole.emphasis, surface.ink.hex, ink.secondary),
+    );
+    fitText(summary, innerWidth, 12);
+    y += SUMMARY + 8;
+
+    const commit: Rect = { x: sheet.x + pad, y, width: innerWidth, height: COMMIT };
+    const accusedName = view.selected ? (CARDS_BY_ID.get(view.selected.boardMember)?.name ?? "") : "";
+    this.#buttons.push(
+      new McButton(this, {
+        kind: "primary",
+        label: view.selected ? `Accuse ${accusedName}` : "Accuse",
+        type: typeRole.barTitle,
+        rect: commit,
+        enabled: view.canConfirm,
+        reason: "pick one open combination",
+        onClick: () => void this.#confirm(),
+      }),
+    );
+    this.#focusRects.set(choiceFocusKey({ kind: "confirm" }), commit);
+    this.#route = [
+      ...optionOrder.map((optionId): ChoiceFocusTarget => ({ kind: "option", optionId })),
+      { kind: "confirm" },
+    ];
+    this.#drawFocusRing();
+
+    this.cameras.main.setBackgroundColor(cssOf(accent.heroRed.hex, 0));
+    const guideStripRects = guideStrip
+      ? drawGuideStrip(this, { x: 0, y: height - stripHeight, width, height: stripHeight }, guideStrip)
+      : null;
+    this.#route = [...this.#route, ...this.#registerGuideStripFocus(guideStripRects)];
+    this.#motion.enter(this, { scrim: [scrim], panels: this.children.list.slice(panelsFrom) });
+  }
+
   /** A card's scan at its current face, with a plain ink plate until (or unless) the image arrives. */
   #drawScan(game: GameState, instanceId: InstanceId, rect: Rect): void {
     const source = artFor(cardOf(game, instanceId), faceOf(game, instanceId));
@@ -1233,6 +1479,8 @@ export class ChoiceOverlay extends Phaser.Scene {
    * one fully visible, so the card you just chose is always the readable one.
    */
   #drawCardChoice(area: Rect, choice: PendingChoice): void {
+    const collection = collectionRows(choice, (cardId) => CARDS_BY_ID.get(cardId));
+    if (collection) return this.#drawCollectionGrid(area, choice, collection);
     const barState = appSession().store.state.game;
     this.#tileBars = barState ? choiceTileBarsOf(barState, choice, this.#selected, POOL_DEPS) : new Map();
     const byId = new Map(choice.options.map((option) => [option.optionId, option] as const));
@@ -1564,6 +1812,147 @@ export class ChoiceOverlay extends Phaser.Scene {
    * One option drawn as the card it names. A selected card wears the red ring
    * and, when the order matters, the number it will resolve in.
    */
+  /**
+   * The collection search (`view/collection-search.ts`): pages of the hero side's scan with its name under it. A tap
+   * picks (one at most), a press-and-hold or right-click reads it in Inspect, and the page buttons are focus stops
+   * like any option, so the pad and keyboard can turn them.
+   */
+  #drawCollectionGrid(area: Rect, choice: PendingChoice, rows: readonly CollectionRow[]): void {
+    const captionHeight = 20;
+    const gap = 6;
+    const gridArea: Rect = { ...area, y: area.y + captionHeight + 4, height: area.height - captionHeight - 4 };
+    const grid = collectionGrid(gridArea, gap);
+    if (this.#collectionPage.choiceId !== String(choice.choiceId))
+      this.#collectionPage = { choiceId: String(choice.choiceId), page: 0 };
+    const pages = collectionPages(rows.length, grid.perPage);
+    // The page is kept across redraws, so a tap never moves the card away from under the finger.
+    const { rows: shown, page } = collectionPage(rows, this.#collectionPage.page, grid.perPage);
+    this.#collectionPage = { choiceId: String(choice.choiceId), page };
+
+    label(
+      this,
+      area.x,
+      area.y + 4,
+      this.#selected.length > 0
+        ? "selected 1 · tap again to put it back"
+        : "tap to select · long press/right click to read it",
+      typeRole.label,
+      surface.ink.hex,
+      ink.label,
+    );
+    const turn = (delta: -1 | 1): void => {
+      this.#collectionPage = { ...this.#collectionPage, page: page + delta };
+      this.#focus = null;
+      this.#rebuild();
+    };
+    const buttonWidth = 36;
+    const prevRect: Rect = {
+      x: area.x + area.width - buttonWidth * 2 - 94,
+      y: area.y - 2,
+      width: buttonWidth,
+      height: captionHeight + 4,
+    };
+    const nextRect: Rect = { ...prevRect, x: area.x + area.width - buttonWidth };
+    // Between the two buttons, so it reads as their label: "page 2 of 3".
+    label(
+      this,
+      (prevRect.x + buttonWidth + nextRect.x) / 2,
+      area.y + 4,
+      `page ${page + 1} of ${pages}`,
+      typeRole.label,
+      surface.ink.hex,
+      ink.label,
+    ).setOrigin(0.5, 0);
+    for (const [rect, text, delta, enabled] of [
+      [prevRect, "\u25C2", -1, page > 0],
+      [nextRect, "\u25B8", 1, page < pages - 1],
+    ] as const) {
+      this.#buttons.push(
+        new McButton(this, {
+          kind: "secondary",
+          label: text,
+          type: typeRole.rowTitle,
+          rect,
+          enabled,
+          reason: delta < 0 ? "this is the first page" : "this is the last page",
+          onClick: () => turn(delta),
+        }),
+      );
+    }
+
+    const slots = collectionSlots(gridArea, grid, shown.length, gap);
+    shown.forEach((row, index) => this.#drawCollectionTile(slots[index]!, row));
+
+    // Only this page's tiles and the page buttons are stops: the rest are not on screen.
+    const stops = [
+      ...shown.map((row) => row.optionId),
+      ...(page > 0 ? [`${PAGE_STOP}-1`] : []),
+      ...(page < pages - 1 ? [`${PAGE_STOP}1`] : []),
+    ];
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: `${PAGE_STOP}-1` }), prevRect);
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: `${PAGE_STOP}1` }), nextRect);
+    this.#route = choiceFocusOrder(stops, canDeclineChoice(choice));
+  }
+
+  /** One collection tile: the scan whole, its name under it, a ring and "selected" in words when it is the pick. */
+  #drawCollectionTile(slot: Rect, row: CollectionRow): void {
+    const picked = this.#selected.includes(row.optionId);
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: row.optionId }), slot);
+    const g = this.add.graphics();
+    paintPanel(g, slot, "card", picked ? "selected" : "rest");
+    const scan: Rect = {
+      x: slot.x + 3,
+      y: slot.y + 3,
+      width: slot.width - 6,
+      height: slot.height - COLLECTION_CAPTION - 4,
+    };
+    const card = CARDS_BY_ID.get(row.cardId);
+    const key = cardArt(this).request(this, artFor(card, row.face));
+    if (!drawArt(this, key, scan, { fit: "contain" })) {
+      this.add
+        .text(
+          scan.x + scan.width / 2,
+          scan.y + scan.height / 2,
+          row.name,
+          textStyle(typeRole.rowTitle, surface.ink.hex),
+        )
+        .setOrigin(0.5)
+        .setWordWrapWidth(scan.width - 8)
+        .setMaxLines(3);
+    }
+    const caption = label(
+      this,
+      slot.x + slot.width / 2,
+      slot.y + slot.height - COLLECTION_CAPTION / 2 - 1,
+      picked ? `\u2713 ${row.name}` : row.name,
+      typeRole.label,
+      surface.ink.hex,
+      1,
+    )
+      .setOrigin(0.5)
+      .setAlign("center")
+      .setLetterSpacing(0);
+    // Two lines, tracking off: "Black Panther (Shuri)" is the name that tells two heroes apart.
+    fitWrapped(caption, slot.width - 6, 2, typeRole.label.size);
+    const zone = this.add
+      .zone(slot.x, slot.y, slot.width, slot.height)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+    bindHoldTarget(this, zone, {
+      key: row.optionId,
+      onTap: () => this.#toggle(row.optionId, this.#maxSelections),
+      onInspect: () => this.#inspectCollection(row, picked),
+    });
+  }
+
+  #inspectCollection(row: CollectionRow, picked: boolean): void {
+    this.scene.launch(SCENES.inspect, {
+      card: { cardId: row.cardId, face: row.face },
+      choice: { optionId: row.optionId, label: picked ? "Deselect" : "Select" },
+    });
+    this.scene.bringToTop(SCENES.inspect);
+  }
+
   #drawCardOption(slot: Rect, option: PendingChoice["options"][number], ordered: boolean): void {
     const { store } = appSession();
     const state = store.state.game;
@@ -1669,6 +2058,28 @@ export class ChoiceOverlay extends Phaser.Scene {
         })
         .setOrigin(0.5);
       fitWrapped(caption, inner.width - 8, 4, 11);
+      const bandHeight = Math.max(20, Math.ceil(caption.height) + 8);
+      const band: Rect = {
+        x: inner.x,
+        y: inner.y + inner.height - bandHeight,
+        width: inner.width,
+        height: bandHeight,
+      };
+      this.add.graphics().fillStyle(surface.ink.hex, 0.88).fillRect(band.x, band.y, band.width, band.height);
+      caption.setPosition(band.x + band.width / 2, band.y + band.height / 2);
+      this.children.bringToTop(caption);
+    }
+
+    // Agents of S.H.I.E.L.D.: which Board Member gets a secret counter. Each card says how many it holds and whether
+    // one more flips it (and, for the third flip, that it loses the game): text, never color alone.
+    const secretNote = state?.pendingChoice
+      ? secretTargetNotesOf(state, state.pendingChoice).get(option.optionId)
+      : undefined;
+    if (secretNote) {
+      const caption = this.add
+        .text(0, 0, secretNote, { ...textStyle(typeRole.label, surface.paper.hex), fontSize: "11px", align: "center" })
+        .setOrigin(0.5);
+      fitWrapped(caption, inner.width - 8, 3, 11);
       const bandHeight = Math.max(20, Math.ceil(caption.height) + 8);
       const band: Rect = {
         x: inner.x,
@@ -1801,6 +2212,19 @@ export class ChoiceOverlay extends Phaser.Scene {
       else this.#pairTapCharacter(focus.optionId.slice(PAIR_CHARACTER.length) as InstanceId);
       return;
     }
+    if (focus.kind === "option" && focus.optionId.startsWith(PAGE_STOP)) {
+      this.#collectionPage = {
+        ...this.#collectionPage,
+        page: this.#collectionPage.page + Number(focus.optionId.slice(PAGE_STOP.length)),
+      };
+      this.#focus = null;
+      this.#rebuild();
+      return;
+    }
+    if (focus.kind === "option" && focus.optionId.startsWith(INSPECT_STOP)) {
+      this.#inspectCardId(focus.optionId.slice(INSPECT_STOP.length));
+      return;
+    }
     if (focus.kind === "option") {
       this.#toggle(focus.optionId, choice.maxSelections);
       return;
@@ -1829,8 +2253,21 @@ export class ChoiceOverlay extends Phaser.Scene {
     if (this.#canCommit(choice)) void this.#confirm();
   }
 
+  /** A card definition in Inspect, over this sheet (the accuse grid's evidence and Board Member cards). */
+  #inspectCardId(cardId: string): void {
+    this.scene.launch(SCENES.inspect, { card: { cardId, face: { kind: "front" } } });
+    this.scene.bringToTop(SCENES.inspect);
+  }
+
   #inspectOption(choice: PendingChoice, optionId: string): void {
+    if (optionId.startsWith(INSPECT_STOP)) return this.#inspectCardId(optionId.slice(INSPECT_STOP.length));
+    // An accusation row: the card worth reading is the Board Member it names.
+    const row = choice.options.find((candidate) => candidate.optionId === optionId);
+    if (choice.prompt.kind === "accuse" && row?.ref.kind === "cardDefinition")
+      return this.#inspectCardId(row.ref.cardId);
     const option = choice.options.find((candidate) => candidate.optionId === optionId);
+    const collected = collectionRows(choice, (cardId) => CARDS_BY_ID.get(cardId))?.find((r) => r.optionId === optionId);
+    if (collected) return this.#inspectCollection(collected, this.#selected.includes(optionId));
     const instanceId = option ? refInstanceId(option.ref) : null;
     if (!instanceId) return;
     if (isAcknowledgeOnly(choice)) {
@@ -1953,6 +2390,11 @@ export class ChoiceOverlay extends Phaser.Scene {
   }
 }
 
+/** The accuse sheet's read-only stops (a Board Member key or a chip of the picked row): Enter or I opens that card. */
+const INSPECT_STOP = "inspect:";
+/** A collection search page button's focus stop: `page:-1` and `page:1`. */
+const PAGE_STOP = "page:";
+
 /** Focus keys for the pair sheet's rows: a card and a character can share an instance id space, never a key. */
 const PAIR_CARD = "pair-card:";
 const PAIR_CHARACTER = "pair-character:";
@@ -1979,7 +2421,7 @@ function playerOptionLabel(game: GameState, playerId: PlayerId, perspectiveId: P
     seatIdentityName(game, playerId),
     seat.identity.form === "hero" ? "Hero" : "Alter-ego",
     panel.hp ? `${panel.hp.current}/${panel.hp.max} HP` : null,
-    seat.eliminated ? "eliminated" : null,
+    seat.sittingOut ? "sitting out" : seat.eliminated ? "eliminated" : null,
     playerId === perspectiveId ? "you" : null,
   ]
     .filter(Boolean)

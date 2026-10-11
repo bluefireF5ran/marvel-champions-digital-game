@@ -177,6 +177,19 @@ describe("screen focus routes", () => {
     // A precon (or any non-editable deck) selected: no Edit/Delete stop.
     expect(decksFocusOrder({ ...base, editable: false })).not.toContain("stats-edit");
     expect(decksFocusOrder({ ...base, editable: false })).not.toContain("stats-delete");
+    // A community deck's rail: the link buttons, Check and Add; never Edit, Delete, Duplicate or Play.
+    const community = decksFocusOrder({ ...base, editable: false, community: true });
+    expect(community.filter((key) => key.startsWith("stats-"))).toEqual([
+      "stats-copy-link",
+      "stats-open-link",
+      "stats-check",
+      "stats-add",
+    ]);
+    expect(
+      decksFocusOrder({ ...base, editable: false, community: true, wide: false, activeTab: "stats" }).filter((key) =>
+        key.startsWith("stats-"),
+      ),
+    ).toEqual(["stats-preview", "stats-copy-link", "stats-open-link", "stats-check", "stats-add"]);
     // Nothing selected yet: no pool grid, and the stats pane contributes no stops at all — "ie-export" itself is
     // still always a stop (it's the button, not the effect; the button's own `enabled` reflects the selection).
     const noSelection = decksFocusOrder({ ...base, hasSelection: false });

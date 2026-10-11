@@ -16,6 +16,7 @@ import { caseOf, cssOf, textStyle } from "../../ui/theme.js";
 import { McSelectionRing, fitText, fitWrapped, label, paintPanel } from "../../ui/widgets.js";
 import { faceOf, type BoardModel, type HandCardView } from "../../view/board-model.js";
 import type { DiscardChoiceView } from "../../view/discard-choice-model.js";
+import { FORCED_ACTION_CODE } from "../../view/forced-actions.js";
 import type { IllegalReason } from "../../view/highlights.js";
 import { DEFENSE_LOCKOUT_TAG, isDefenseBarMessage } from "../../view/defense-lockout.js";
 import { handRow, type HandRowLayout } from "../../view/hand-row.js";
@@ -122,6 +123,17 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
       surface.paper.hex,
       ink.label,
     );
+    // A Forced Action still owed: End turn waits for it, and the caption row says which card (words, in caution yellow).
+    const endTurn = ctx.marks?.basics.find((basic) => basic.action === "endTurn");
+    // (The tabbed phone board puts the reason on the End turn button itself.)
+    if (!tabbed && endTurn?.code === FORCED_ACTION_CODE && endTurn.reason) {
+      // A long list steps down to fit the room left of the pile column, never over the hand's own tags.
+      const note = scene.add
+        .text(rect.x + rect.width - 10, rect.y + 3, endTurn.reason, textStyle(typeRole.label, signal.caution.hex))
+        .setOrigin(1, 0)
+        .setMaxLines(1);
+      fitText(note, Math.min(rect.width * 0.6, 520), typeRole.label.size);
+    }
   }
 
   const inner: Rect = { x: rect.x + 10, y: top, width: rect.width - 20, height: rect.y + rect.height - top - 8 };

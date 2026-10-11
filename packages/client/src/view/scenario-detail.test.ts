@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { scenarioDetailLines, scenarioDetailOf, shelfSubtitleOf } from "./scenario-detail.js";
+import { scenarioDetailLines, scenarioDetailOf, shelfSubtitleOf, lockCaptionOf } from "./scenario-detail.js";
+import { randomVillainLabel } from "./random-villain.js";
+import { requiredCardLabel } from "./modular-sets.js";
 import { CARDS_BY_ID, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
 
 const rhino = POOL_SCENARIOS.find((s) => (s.id as string) === "rhino")!;
@@ -157,5 +159,50 @@ describe("a scenario that opens against a random villain", () => {
 
   test("a fixed villain is not marked random", () => {
     expect(detail("rhino").villainIsRandom).toBe(false);
+  });
+});
+
+describe("lockCaptionOf", () => {
+  test("shortens a campaign gate and a scenario gate, keeping the points way in", () => {
+    expect(lockCaptionOf("Complete the Age of Apocalypse campaign to unlock Agents of S.H.I.E.L.D.", 100)).toBe(
+      "Finish Age of Apocalypse · or 100 pts",
+    );
+    expect(lockCaptionOf("Complete The Rise of Red Skull campaign to unlock The Galaxy's Most Wanted", 50)).toBe(
+      "Finish Rise of Red Skull · or 50 pts",
+    );
+    expect(lockCaptionOf("Beat Rhino to unlock The Rise of Red Skull", 30)).toBe("Beat Rhino · or 30 pts");
+  });
+});
+
+describe("a villain drawn at random reads as random everywhere", () => {
+  const bySetup = POOL_SCENARIOS.filter((s) => s.startingVillain === "bySetup" || s.randomVillainName !== undefined);
+
+  test("God of Lies names the Avatar family, so the setup card and the shelf row never name Loki the Rascal", () => {
+    const godOfLies = POOL_SCENARIOS.find((s) => (s.id as string) === "god-of-lies")!;
+    const detail = scenarioDetailOf(godOfLies, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(detail.villainIsRandom).toBe(true);
+    expect(detail.villainName).toBe("Avatar of Loki");
+    expect(detail.displayName).toBe("Avatar of Loki");
+    expect(shelfSubtitleOf(detail)).toBe("Avatar of Loki · random");
+    expect(scenarioDetailLines(detail)[0]).toBe("Villain: Avatar of Loki");
+    expect(requiredCardLabel(detail.displayName, 8)).toBe("Required by Avatar of Loki · 8 cards");
+  });
+
+  test("the Marauders read the same way", () => {
+    const marauders = POOL_SCENARIOS.find((s) => (s.id as string) === "morlock-siege")!;
+    const detail = scenarioDetailOf(marauders, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(detail.villainName).toBe("The Marauders");
+    expect(shelfSubtitleOf(detail)).toBe("The Marauders · random");
+  });
+
+  test("every random-villain scenario in the pool has a label and no fixed card name", () => {
+    expect(bySetup.length).toBeGreaterThan(1);
+    for (const scenario of bySetup) {
+      const label = randomVillainLabel(scenario, CARDS_BY_ID);
+      expect(label, scenario.id as string).toBeTruthy();
+      const detail = scenarioDetailOf(scenario, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+      expect(detail.villainIsRandom).toBe(true);
+      expect(detail.displayName).toBe(label);
+    }
   });
 });

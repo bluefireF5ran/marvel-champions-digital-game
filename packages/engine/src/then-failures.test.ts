@@ -112,7 +112,29 @@ const TWICE_INTERRUPT = stubAbility("twice.forced-interrupt", {
 });
 const TWICE = stubSupport({ id: "twice", cost: 0, abilities: [TWICE_INTERRUPT.ref] });
 
-const EVENTS = [SEARCH, SELECT, DISCARD_UNTIL, REVEAL_UNTIL, ATTACK, EACH_ATTACK, SCHEME, REVEAL];
+/** "Remove 2 gadget counters from the villain. Then, …" (the Board Member actions' "remove 1 secret counter"). */
+const REMOVE_TWO = actionEvent("then-remove-two", [
+  { kind: "removeCounters", target: { kind: "villain" }, counterType: "gadget", amount: n(2) },
+  THEN_THREAT,
+]);
+/** "Remove all gadget counters from the villain. Then, …": no number to fall short of. */
+const REMOVE_ALL = actionEvent("then-remove-all", [
+  { kind: "removeCounters", target: { kind: "villain" }, counterType: "gadget" },
+  THEN_THREAT,
+]);
+
+const EVENTS = [
+  SEARCH,
+  SELECT,
+  DISCARD_UNTIL,
+  REVEAL_UNTIL,
+  ATTACK,
+  EACH_ATTACK,
+  SCHEME,
+  REVEAL,
+  REMOVE_TWO,
+  REMOVE_ALL,
+];
 const deps: EngineDeps = depsOf(
   LOCKED_REVEALED,
   WARD_INTERRUPT,
@@ -311,5 +333,51 @@ describe("'X attacks you' / 'X schemes' that does not happen", () => {
     // The scheme itself adds the villain's SCH (1), then the "Then" adds 7.
     expect(threat(hit.state)).toBe(threat(clear) + 1 + 7);
     expect(skipped(hit.events)).toBe(false);
+  });
+});
+
+describe("'remove N counters' from a card holding fewer", () => {
+  const withGadgets = (state: GameState, count: number): GameState => {
+    const villain = mustInstance(state, state.activeVillainId);
+    return {
+      ...state,
+      instances: {
+        ...state.instances,
+        [villain.instanceId]: { ...villain, counters: count > 0 ? { ...villain.counters, gadget: count } : {} },
+      },
+    };
+  };
+  const gadgets = (state: GameState) => mustInstance(state, state.activeVillainId).counters.gadget ?? 0;
+
+  it("with none there, nothing is removed and the 'Then' is skipped", () => {
+    const state = withGadgets(start(), 0);
+    const { state: after, events } = playFree(state, deps, REMOVE_TWO.card.id);
+    expect(threat(after)).toBe(threat(state));
+    expect(causes(events)).toEqual(["countersNotRemoved"]);
+    expect(skipped(events)).toBe(true);
+  });
+
+  it("with fewer than asked, what is there is removed and the 'Then' is skipped", () => {
+    const state = withGadgets(start(), 1);
+    const { state: after, events } = playFree(state, deps, REMOVE_TWO.card.id);
+    expect(gadgets(after)).toBe(0);
+    expect(threat(after)).toBe(threat(state));
+    expect(causes(events)).toEqual(["countersNotRemoved"]);
+    expect(skipped(events)).toBe(true);
+  });
+
+  it("with as many as asked, they are removed and the 'Then' runs", () => {
+    const state = withGadgets(start(), 3);
+    const { state: after, events } = playFree(state, deps, REMOVE_TWO.card.id);
+    expect(gadgets(after)).toBe(1);
+    expect(threat(after)).toBe(threat(state) + 7);
+    expect(causes(events)).toEqual([]);
+  });
+
+  it("'remove all counters' with none there names no number to fall short of, so the 'Then' runs", () => {
+    const state = withGadgets(start(), 0);
+    const { state: after, events } = playFree(state, deps, REMOVE_ALL.card.id);
+    expect(threat(after)).toBe(threat(state) + 7);
+    expect(causes(events)).toEqual([]);
   });
 });

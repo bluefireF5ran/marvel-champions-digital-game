@@ -127,7 +127,9 @@ function observeShadow(shadow: Shadow, state: GameState, event: GameEvent): void
     case "cardMoved": {
       const type = state.cardPool[event.cardId]?.type;
       if (event.from.kind === "playArea") shadow.engaged.get(event.from.playerId)?.delete(event.instanceId);
-      if (event.to.kind === "playArea" && type === "minion")
+      // An identity card moved to a play area is a hero in play as a minion (docs/phase7-wave9.md §3.30): a seat's
+      // identity is never in one.
+      if (event.to.kind === "playArea" && (type === "minion" || type === "hero_identity"))
         shadow.engaged.get(event.to.playerId)?.add(event.instanceId);
       if (event.from.kind === "villainArea") shadow.sideSchemes.delete(event.instanceId);
       if (event.to.kind === "villainArea" && type === "side_scheme") shadow.sideSchemes.add(event.instanceId);
@@ -199,6 +201,8 @@ class PhaseTracker {
   private readonly boostCards: { enemyInstanceId: InstanceId; instanceId: InstanceId; boostIcons: number | null }[] =
     [];
   private readonly dealt: { playerId: PlayerId; instanceId: InstanceId }[] = [];
+  /** The player of each step-three deal that was replaced (`TriggerEvent encounterCardBeingDealt`, cancelled). */
+  private readonly replacedDeals: PlayerId[] = [];
   /** Cards passed to another player since they were dealt (`encounterCardPassed`). */
   private readonly passed = new Set<InstanceId>();
   private readonly revealed: { playerId: PlayerId; instanceId: InstanceId }[] = [];
@@ -287,6 +291,14 @@ class PhaseTracker {
           this.beforeStepDeal = event.phase === "initiated";
           if (!this.beforeStepDeal) this.expectDeal(shadow);
         }
+        // A step-three deal replaced in its "would be dealt" window (docs/phase7-wave9.md §3.45; RRG 1.8 "Replacement
+        // Effect", p. 37): that player is owed one card fewer by the step.
+        if (
+          trigger.kind === "encounterCardBeingDealt" &&
+          event.phase === "cancelled" &&
+          (trigger.source === "villainPhase" || trigger.source === "hazard")
+        )
+          this.replacedDeals.push(trigger.playerId);
         if (event.phase !== "initiated") return;
         if (
           trigger.kind === "placeThreat" &&
@@ -522,7 +534,8 @@ class PhaseTracker {
     }
     for (const [playerId, count] of expected) {
       const got = this.dealt.filter((d) => d.playerId === playerId).length;
-      if (got !== count)
+      const replaced = this.replacedDeals.filter((p) => p === playerId).length;
+      if (got + replaced !== count)
         this.violate(
           "step3.deal",
           `${playerId} was dealt ${got} encounter card(s); expected ${count} (${hazards} hazard icon(s))`,

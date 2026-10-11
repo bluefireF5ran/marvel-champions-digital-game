@@ -62,6 +62,31 @@ describe("how this works notes", () => {
     expect(note("45170a")).toMatch(/cannot thwart/);
   });
 
+  test("the wave 9 notes sit on the cards the mechanics are on, and say what the owner decided", () => {
+    const byId = new Map(POOL_CARDS.map((card) => [card.id as string, card]));
+    const named = (id: string) => byId.get(id)?.name;
+    expect(named("50028")).toBe("Front Organization");
+    expect(named("50051")).toBe("Intelligence");
+    expect(named("50171")).toBe("Reluctant Foe");
+    expect(named("50173")).toBe("Divided Loyalties");
+    expect(named("53003")).toBe("Bird of Prey");
+    expect(named("53004")).toBe("Bird's-Eye View");
+    expect(named("54014")).toBe("Firepower");
+    expect(named("54017")).toBe("Aggressive Stance");
+    expect(named("52031")).toBe("Hunting the Spider-Bride");
+    const note = (id: string) => howThisWorksFor(byId.get(id));
+    expect(note("50181a")).toMatch(/keeping its secrets, and stays one all campaign/); // Q1 and Q11, A
+    expect(note("50181b")).toBe(note("50181a"));
+    expect(note("50028")).toMatch(/hand or deck/); // Q20, B
+    expect(note("54014")).toMatch(/one attack/i); // Q21, B
+    expect(note("54017")).toMatch(/limits what you control/); // Q37, A
+    expect(note("50051")).toMatch(/dealt facedown|deals its card facedown/); // Q19, B
+    expect(note("53003")).toMatch(/not offered/); // Q6, A
+    expect(note("50034a")).toMatch(/same attack/); // Q17, A
+    expect(note("50132")).toMatch(/identity/);
+    expect(note("50134")).toMatch(/identity/);
+  });
+
   test("a card with no tricky wording has no note, and no card means no note", () => {
     expect(howThisWorksFor(CARDS_BY_ID.get("01001a"))).toBeNull();
     expect(howThisWorksFor(undefined)).toBeNull();

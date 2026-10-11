@@ -413,6 +413,186 @@ const NIGHTCRAWLER: MechanicTryItConfig = {
   },
 };
 
+/**
+ * - Nick Fury (`nick-fury-justice`): he starts as Nick Fury (alter ego) with his Assault / Stealth suit form upgrade
+ *   already attached, Assault side up (Suit Up, `wave9/aos/nick-fury/identity.ts`). The stacked hand is three Under
+ *   Surveillance (an upgrade with a constant ability) and three Global Logistics (an event with an action): none reacts
+ *   to a thwart, an attack or an enemy's activation, so the only offers in the lesson are Stealth and Assault. The lesson
+ *   changes the suit to Stealth (Infiltrate), flips him, ends the turn so Rhino schemes instead of attacking (1 threat
+ *   lands on the suit), then attacks in round 2: Break Cover turns the suit to Assault and Assault spends the threat.
+ */
+const NICK_FURY: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "nick-fury-justice" }],
+    seed: 4901,
+    stack: {
+      players: {
+        0: [
+          cardId("50053"), // Under Surveillance (filler)
+          cardId("50053"),
+          cardId("50053"),
+          cardId("50049"), // Global Logistics (filler)
+          cardId("50049"),
+          cardId("50049"),
+        ],
+      },
+    },
+  },
+};
+
+/**
+ * - Maria Hill (`maria-hill-leadership`): she starts as Maria Hill (alter ego). The stacked hand is Support Staff (cost 1,
+ *   S.H.I.E.L.D., 3 staff counters), Command Team (cost 2, S.H.I.E.L.D., 3 command counters) and three Reinforcements
+ *   (an event with a [physical] resource icon, so spending one reacts to nothing) and On the Double. The lesson plays both supports, flips her (Reassignment is printed on her hero
+ *   side) and moves one counter from Support Staff to Command Team.
+ */
+const MARIA_HILL: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "maria-hill-leadership" }],
+    seed: 5001,
+    stack: {
+      players: {
+        0: [
+          cardId("50008"), // Support Staff
+          cardId("50016"), // Command Team
+          cardId("50005"), // Reinforcements x3: each spent for its [physical] resource
+          cardId("50005"),
+          cardId("50005"),
+          cardId("50004"), // On the Double (spare)
+        ],
+      },
+    },
+  },
+};
+
+/**
+ * - Silk (`silk-protection`): she starts as Cindy Moon. The stacked hand is three Energy Shield and three Stun Gun, upgrades
+ *   that react to nothing in a villain phase. The encounter deck's top two are Armored Rhino Suit (round 1's boost card,
+ *   boost 0) and Advance (a treachery: "When Revealed: The villain schemes"), as the tutorial stacks them. The lesson flips
+ *   her to Silk and ends the turn: Advance resolves, Silk Sense tucks it from the encounter discard pile, then in round 2
+ *   she flips back to Cindy Moon and discards it for 2 cards.
+ */
+const SILK: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "silk-protection" }],
+    seed: 5101,
+    stack: {
+      players: {
+        0: [
+          cardId("52018"), // Energy Shield (filler)
+          cardId("52018"),
+          cardId("52018"),
+          cardId("52020"), // Stun Gun (filler)
+          cardId("52020"),
+          cardId("52020"),
+        ],
+      },
+      encounter: [
+        cardId("01098"), // Armored Rhino Suit: round 1's boost card
+        cardId("01186"), // Advance: the treachery Silk Sense tucks
+      ],
+    },
+  },
+};
+
+/**
+ * - Falcon (`falcon-leadership`): he starts as Sam Wilson. The stacked hand is Redwing (an ally, cost 2) and, as payers and
+ *   filler that react to nothing in round 1, The Triskelion, Resource Reserve, Wingman, Captain America and Bird's-Eye
+ *   View (an event: no thwart is in the lesson). The encounter deck's top card is Charge (boost 2), so once he flips it
+ *   is faceup, and Redwing's action discards it for X = 2: damage to Rhino.
+ */
+const FALCON: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "falcon-leadership" }],
+    seed: 5201,
+    stack: {
+      players: {
+        0: [
+          cardId("53002"), // Redwing
+          cardId("53022"), // The Triskelion: pays [energy]
+          cardId("53021"), // Resource Reserve: pays [physical]
+          cardId("53024"), // Wingman (filler)
+          cardId("53023"), // Captain America (filler)
+          cardId("53004"), // Bird's-Eye View (filler)
+        ],
+      },
+      encounter: [cardId("01099")], // Charge: boost 2, the faceup top card
+    },
+  },
+};
+
+/**
+ * - Black Panther (`bp-justice`): she starts as Shuri. The stacked hand is two Vibranium (resource cards), The Elephant's
+ *   Trunk, Queen Ramonda, Aja-Adanna and Wakanda Forever!, none of which reacts to a basic attack or to Rhino's turn.
+ *   Round 1 uses Inventor (the deck's Black Panther and Tech upgrades are Kimoyo Beads, Panther Claws, Spider Bites and
+ *   Vibranium Suit, all cost 2, so one is played free). Shuri is exhausted by it, so the attack waits for round 2, when
+ *   Black Panther has readied: the basic attack's response resolves the upgrade's Special.
+ */
+const BLACK_PANTHER: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "bp-justice" }],
+    seed: 5301,
+    stack: {
+      players: {
+        0: [
+          cardId("51006"), // Vibranium (filler)
+          cardId("51006"),
+          cardId("51007"), // The Elephant's Trunk (filler)
+          cardId("51008"), // Queen Ramonda (filler)
+          cardId("51009"), // Aja-Adanna (filler)
+          cardId("51005"), // Wakanda Forever! (filler)
+        ],
+      },
+    },
+  },
+};
+
+/**
+ * - Baron Zemo (`baron-zemo`, the one lesson that is not a Rhino game): solo Spider-Man (Justice), the same seed as the
+ *   `?fixture=zemo` dev jump, and the recommended modular sets (omitted). Each Board Member environment starts with 2
+ *   secret counters. The stacked hand is Strength (two [physical]), two Web-Shooters ([physical] each) and three cards
+ *   that react to nothing: the lesson flips him and uses the Chief Tactical Officer twice (two [physical] each) to
+ *   clear it, then ends the turn so stage 1B's Response places 2 secret counters on it and gains 2 evidence cards.
+ *   The same Response offers to advance to stage 2A, and the accusation follows. The seed pins the envelope: the A.I.M.
+ *   envelope holds Security Scanner, Ideology and Authority (`mechanic-lessons.test.ts` checks it against the engine's
+ *   own hidden pile), so the lesson can name the practice answer without the client ever reading a hidden pile.
+ */
+const ZEMO: MechanicTryItConfig = {
+  config: {
+    scenarioId: "baron-zemo",
+    difficulty: "standard",
+    players: [{ starterDeckId: "core-spider-man-justice" }],
+    seed: 1,
+    stack: {
+      players: {
+        0: [
+          cardId("01090"), // Strength: [physical][physical]
+          cardId("01008"), // Web-Shooter: [physical]
+          cardId("01008"), // Web-Shooter: [physical]
+          cardId("01007"), // Spider-Tracer (filler)
+          cardId("01007"),
+          cardId("01063"), // Interrogation Room (filler)
+        ],
+      },
+    },
+  },
+};
+
 export const MECHANIC_TRYIT_CONFIGS: Readonly<Record<MechanicTryItId, MechanicTryItConfig>> = {
   storm: STORM,
   phoenix: PHOENIX,
@@ -430,4 +610,10 @@ export const MECHANIC_TRYIT_CONFIGS: Readonly<Record<MechanicTryItId, MechanicTr
   jubilee: JUBILEE,
   bishop: BISHOP,
   nightcrawler: NIGHTCRAWLER,
+  nickFury: NICK_FURY,
+  mariaHill: MARIA_HILL,
+  silk: SILK,
+  falcon: FALCON,
+  blackPanther: BLACK_PANTHER,
+  zemo: ZEMO,
 };

@@ -33,6 +33,11 @@ export interface SeatRecord {
   readonly cardsPlayed: number;
   /** The round this seat's hero was defeated in, or null if they stood to the end. */
   readonly defeatedInRound: number | null;
+  /**
+   * True for a seat that sat the scenario out (`playerSatOut`; owner decision 66B): not a defeat, and not counted in
+   * the table's per-player numbers. Absent on a record written before the field existed, which reads as false.
+   */
+  readonly satOut?: true;
 }
 
 export interface RoundRecord {
@@ -250,6 +255,17 @@ export function recordEvents(record: GameRecord, events: readonly GameEvent[], s
         lastEliminated = { playerId: event.playerId, round };
         onRound((entry) => ({ ...entry, heroesDefeated: [...entry.heroesDefeated, event.playerId] }));
         break;
+      case "playerSatOut": {
+        // Always follows the seat's `playerEliminated` (sit-out is an elimination with no defeat window): take that
+        // defeat back, so the debrief reads a seat that sat out as neither a loss nor a hero down.
+        onSeat(event.playerId, (seat) => ({ ...seat, defeatedInRound: null, satOut: true }));
+        if (lastEliminated?.playerId === event.playerId) lastEliminated = null;
+        onRound((entry) => ({
+          ...entry,
+          heroesDefeated: entry.heroesDefeated.filter((id) => id !== event.playerId),
+        }));
+        break;
+      }
       case "villainStageAdvanced":
         onRound((entry) => ({ ...entry, villainStageAdvanced: true }));
         break;

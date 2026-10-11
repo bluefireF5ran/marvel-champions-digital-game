@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { CARD_ASPECT } from "./layout.js";
-import { missionSlots, splitMissionArea } from "./mission-area-layout.js";
+import {
+  missionSlots,
+  neutralRow,
+  neutralStack,
+  NEUTRAL_NOTE_HEIGHT,
+  splitMissionArea,
+  splitNeutralTab,
+  VILLAIN_BAND_NEED,
+} from "./mission-area-layout.js";
 
 const zone = { x: 10, y: 50, width: 700, height: 400 };
 
@@ -56,5 +64,76 @@ describe("missionSlots", () => {
 
   test("nothing in the area is no slots", () => {
     expect(missionSlots(inner, [])).toEqual([]);
+  });
+});
+
+const inside = (outer: { x: number; y: number; width: number; height: number }, r: typeof outer): boolean =>
+  r.x >= outer.x - 0.001 &&
+  r.y >= outer.y - 0.001 &&
+  r.x + r.width <= outer.x + outer.width + 0.001 &&
+  r.y + r.height <= outer.y + outer.height + 0.001;
+
+describe("the neutral area's layouts", () => {
+  const strip = { x: 0, y: 0, width: 800, height: 120 };
+
+  test("a wide table: two wide cards from the left, a note's room under each, the rules cards in a column at the right", () => {
+    const { slots, refs } = neutralRow(strip, 2, 2);
+    expect(slots).toHaveLength(2);
+    expect(refs).toHaveLength(2);
+    for (const rect of [...slots, ...refs]) expect(inside(strip, rect)).toBe(true);
+    expect(slots[0]!.height).toBe(strip.height - NEUTRAL_NOTE_HEIGHT);
+    expect(slots[0]!.width).toBeGreaterThan(slots[0]!.height * 2);
+    expect(slots[1]!.x).toBeGreaterThanOrEqual(slots[0]!.x + slots[0]!.width);
+    expect(refs[0]!.x).toBeGreaterThanOrEqual(slots[1]!.x + slots[1]!.width);
+    expect(refs[1]!.y).toBeGreaterThanOrEqual(refs[0]!.y + refs[0]!.height);
+  });
+
+  test("a narrower table shrinks the cards before it drops the rules cards", () => {
+    const narrow = { x: 0, y: 0, width: 520, height: 120 };
+    const { slots, refs } = neutralRow(narrow, 2, 2);
+    for (const rect of [...slots, ...refs]) expect(inside(narrow, rect)).toBe(true);
+    expect(slots[1]!.x + slots[1]!.width).toBeLessThanOrEqual(refs[0]!.x);
+  });
+
+  test("a phone: the cards stacked at full width, the rules cards in a row at the foot, all inside", () => {
+    const tab = { x: 0, y: 0, width: 358, height: 250 };
+    const { slots, refs } = neutralStack(tab, 2, 2);
+    for (const rect of [...slots, ...refs]) expect(inside(tab, rect)).toBe(true);
+    expect(slots[0]!.width).toBe(tab.width);
+    expect(slots[1]!.y).toBeGreaterThanOrEqual(slots[0]!.y + slots[0]!.height + NEUTRAL_NOTE_HEIGHT);
+    expect(refs[0]!.y).toBeGreaterThanOrEqual(slots[1]!.y + slots[1]!.height + NEUTRAL_NOTE_HEIGHT);
+    expect(refs[1]!.x).toBeGreaterThan(refs[0]!.x + refs[0]!.width - 0.001);
+  });
+
+  test("no cards is nothing to lay out", () => {
+    expect(neutralRow(strip, 0, 2)).toEqual({ slots: [], refs: [] });
+    expect(neutralStack(strip, 0, 2)).toEqual({ slots: [], refs: [] });
+  });
+
+  test("the Threat tab keeps its schemes a main scheme's height and gives the area the foot", () => {
+    const tab = { x: 16, y: 175, width: 358, height: 400 };
+    const { schemes, area } = splitNeutralTab(tab);
+    expect(schemes.height).toBeGreaterThanOrEqual(140);
+    expect(area.y + area.height).toBe(tab.y + tab.height);
+    expect(schemes.y + schemes.height).toBeLessThanOrEqual(area.y);
+    const small = splitNeutralTab({ ...tab, height: 120 });
+    expect(small.area.height).toBe(0);
+  });
+});
+
+describe("splitMissionArea with a neutral strip", () => {
+  test("a tablet's short zone leaves the villain and its two rows of environments their room", () => {
+    for (const height of [270, 287]) {
+      const { enemies, area } = splitMissionArea({ ...zone, height }, true, { neutral: true });
+      expect(enemies.height).toBeGreaterThanOrEqual(VILLAIN_BAND_NEED);
+      // The strip still holds its label, a wide card and the line under it.
+      expect(area!.height).toBeGreaterThanOrEqual(104);
+    }
+  });
+
+  test("a tall zone is cut exactly as a mission area is", () => {
+    expect(splitMissionArea(zone, true, { neutral: true })).toEqual(splitMissionArea(zone, true));
+    const desktop = { ...zone, height: 300 };
+    expect(splitMissionArea(desktop, true, { neutral: true })).toEqual(splitMissionArea(desktop, true));
   });
 });

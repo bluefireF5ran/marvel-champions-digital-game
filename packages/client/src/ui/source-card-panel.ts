@@ -17,7 +17,7 @@ import type { ChoiceSourcePanel } from "../view/choice-source-panel.js";
 import { instructionHeaderName } from "../view/choice-source.js";
 import { setupCallCopyFor } from "../campaign/story.js";
 import type { SourcePanelPlacement } from "../view/choice-source-panel-layout.js";
-import { RULES_TEXT_TABLE_LINES, ink, surface, typeRole } from "../tokens.js";
+import { RULES_TEXT_TABLE_LINES, ink, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { bindHoldTarget } from "./hold-target.js";
 import { textStyle } from "./theme.js";
 import { fitText, label, paintPanel } from "./widgets.js";
@@ -135,6 +135,34 @@ const INSTRUCTION_PAD_RAIL = 12;
 const INSTRUCTION_PAD_STRIP = 8;
 
 /**
+ * The strip height (phone) a text-only source panel needs to show its whole rule: the printed text is never cut, so the
+ * sheet gives the strip as much height as the wrapped text takes (`drawInstructionSourcePanel`'s strip case). Never
+ * less than `minHeight`, the room a card strip gets.
+ */
+export function instructionStripHeight(
+  scene: Phaser.Scene,
+  instruction: SetupInstructionSource,
+  stripWidth: number,
+  minHeight: number,
+): number {
+  const textWidth = Math.max(1, stripWidth - INSTRUCTION_PAD_STRIP * 2);
+  const copy = instruction.kind === "campaign" ? setupCallCopyFor(instruction.instructionId) : null;
+  const measure = (text: string, spec: TypeSpec, size?: number): number => {
+    const probe = scene.add
+      .text(0, 0, text, textStyle(size ? { ...spec, size } : spec, surface.ink.hex))
+      .setWordWrapWidth(textWidth);
+    const height = probe.height;
+    probe.destroy();
+    return height;
+  };
+  const header = measure(instructionHeaderName(instruction), typeRole.rowTitle, 13);
+  const citation = measure(instruction.citation, typeRole.label);
+  const body = measure(copy ? copy.explain : instruction.text, typeRole.body);
+  const total = INSTRUCTION_PAD_STRIP * 2 + 13 + header + 3 + citation + 4 + body;
+  return Math.max(minHeight, Math.ceil(total));
+}
+
+/**
  * A pending choice's source panel when there is no card to show — a setup instruction instead (MC27 p. 22's
  * reputation node 9: "Setup: In player order, each player must search…", `view/choice-source.ts`'s
  * `choiceInstructionOf`). Same outer frame and placement as `drawSourceCardPanel`, but text-only throughout: no
@@ -198,7 +226,8 @@ export function drawInstructionSourcePanel(
   }
 
   if (placement.mode === "strip") {
-    // The compact strip: the design's own table cap on rules text, same as `drawSourceCardPanel`'s own strip case.
+    // The compact strip: the whole rule, wrapped. The sheet sized this strip to it (`instructionStripHeight`), so
+    // nothing is cut mid-sentence; a card's rules text has Inspect one tap away, a setup instruction has no card.
     scene.add
       .text(
         textX,
@@ -207,8 +236,7 @@ export function drawInstructionSourcePanel(
         textStyle(typeRole.body, surface.ink.hex, ink.secondary),
       )
       .setOrigin(0, 0)
-      .setWordWrapWidth(textWidth)
-      .setMaxLines(RULES_TEXT_TABLE_LINES);
+      .setWordWrapWidth(textWidth);
     return;
   }
 

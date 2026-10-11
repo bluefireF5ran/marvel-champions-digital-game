@@ -606,6 +606,7 @@ Owner: `multiplayer-netcode-engineer`.
 - [ ] Authoritative game state (server or host-authoritative — pick based on Phase 0 stack) with clients as thin views + input senders.
 - [ ] 1–4 player co-op session flow: lobby/matchmaking-lite, turn order enforcement, simultaneous-action windows where the rules allow them (e.g. players may act in any order during their own turns but some effects have priority rules).
 - [ ] Reconnect/resume handling — a dropped player shouldn't corrupt or stall the game state.
+- [ ] Epic Multiplayer Mode (Trickster Takeover, Loki, God of Lies: several groups of 1–4 players in pods, one shared Loki): plan, rules, architecture (a pod coordinator over independent group engines) and wave 9 groundwork in [docs/epic-multiplayer-plan.md](docs/epic-multiplayer-plan.md).
 - [ ] Exit criteria: 2–4 players can complete a full scenario together over a network with correct turn/priority enforcement.
 
 ## Phase 6 — Rules QA & regression testing
@@ -654,6 +655,7 @@ Owner: `rules-qa-engineer`, in collaboration with `game-rules-architect`.
 Owner: `card-data-pipeline` + `ability-scripting-engineer`, tracked by `content-release-tracker`.
 
 - [ ] Cycle 1 (The Rise of Red Skull) as the next full content pass, then subsequent cycles/campaign boxes in release order.
+  - **Wave 9 (cycle 9, Agents of S.H.I.E.L.D.: `aos`, `bp`, `silk`, `falcon`, `winter`, and the scenario pack Trickster Takeover `tt`) is done on `feature/wave-9` (PR #109, ships as v0.19.0)**; its working spec is [docs/phase7-wave9.md](docs/phase7-wave9.md). **Status (2026-10-11):** every card in all six packs scripted and tested; rules QA complete with a second full pass before shipping ([docs/phase7-wave9-qa.md](docs/phase7-wave9-qa.md), `wave9/qa-*.qa.test.ts`); six new heroes (Maria Hill, Nick Fury, Black Panther (Shuri), Silk, Falcon, Winter Soldier) and seven scenarios (Black Widow, Batroc, M.O.D.O.K., Thunderbolts, Baron Zemo, Enchantress, Loki God of Lies in Single Group Mode) playable with art, music, Guided mode text and six Try-it lessons; the Agents of S.H.I.E.L.D. campaign (definition, sealed evidence envelope, Executive Board carryover, expert rules with rejoin or sit out, story, Saga shelf, case-file Briefing) built, played end to end in tests and clicked through in the browser; two tested MarvelCDB decklists per new hero and community decks on the Decks screen (#112); the progression row added, Trickster Takeover opening with the wave; 69 owner rulings recorded in the spec's section 4.1. Not built: Epic Multiplayer for Loki, God of Lies (planned in [docs/epic-multiplayer-plan.md](docs/epic-multiplayer-plan.md); engine tasks 48 and 49 deferred with it). Not proven: a win by an automated player in any scenario of any box ([docs/local-ai-plan.md](docs/local-ai-plan.md) Phase A). Left: the owner's own play-through on the deploy preview and the merge.
   - Waves so far: wave 1 (pre-cycle 1), wave 2 (cycle 1, The Rise of Red Skull), wave 3 (cycle 2, The Galaxy's Most Wanted, #30) and wave 4 (cycle 3, The Mad Titan's Shadow, #45, v0.8.0) are merged. **Wave 5 (cycle 4, Sinister Motives: `sm`, `nova`, `ironheart`, `spiderham`, `spdr`) started 2026-09-26 on `feature/wave-5` (PR #64, ships as v0.12.0)**; its working spec is [docs/phase7-wave5.md](docs/phase7-wave5.md). **Wave 5 status (2026-09-29):** every card in all five packs scripted and tested (precon e2e, 2-player and expert games, cross-hero tests); rules QA complete ([docs/phase7-wave5-qa.md](docs/phase7-wave5-qa.md)); a real MarvelCDB decklist per new hero as a fixture; standalone play, art, music and rulebook-page scenario intros wired; the Sinister Motives campaign (definition, campaign cards, expert rules, QA, story file, comic pages, reputation track, S.H.I.E.L.D. Tech pick, collection picker, Deck Edit) built and clicked through in the browser from issue #1's Aftermath back into the run; progression row added. Left: the owner's own play-through on the deploy preview and the merge. Wave 4 (cycle 3, The Mad Titan's Shadow: `mts`, `nebu`, `warm`, `hood`, `valk`, `vision`) started 2026-09-24 on `feature/wave-4`; its working spec is [docs/phase7-wave4.md](docs/phase7-wave4.md). **A wave is done when [docs/wave-definition-of-done.md](docs/wave-definition-of-done.md) is met, which from wave 4 on includes the box's campaign.** **Wave 4 status (2026-09-25, PR #45, ships as v0.8.0):** all six packs scripted with no skips; rules QA complete (docs/phase7-wave4-qa.md); The Mad Titan's Shadow campaign (definition, cards, expert rules, QA, client screens to the #59 designs, comic reader); standalone play and progression wired. Full QA pass for MTS and GMW done (2026-09-26); the campaign was clicked through in the browser from the Saga shelf to issue #1's fold; all music, including the MTS finale, is in. Left: §4 Q22 (Loki's two defeat interrupts, advance-first default) and the owner's own play-through on the deploy preview. **Wave 6 (cycle 5, Mutant Genesis: `mut_gen`, `cyclops`, `phoenix`, `wolv`, `storm`, `gambit`, `rogue`, plus the MojoMania scenario pack `mojo`) is on `feature/wave-6` (PR #94, ships as v0.16.0)**; its working spec is [docs/phase7-wave6.md](docs/phase7-wave6.md) and its live state is [docs/phase7-wave6-handoff.md](docs/phase7-wave6-handoff.md). **Wave 6 status (2026-10-03):** every card in all eight packs scripted with no skips (precon e2e, 2-player and expert games, cross-hero tests, a real MarvelCDB decklist per hero); rules QA complete for every pack, both box campaigns included ([docs/phase7-wave6-qa.md](docs/phase7-wave6-qa.md)); the Mutant Genesis campaign (roles and role upgrades, Future Past, Captive allies, expert rules, story file, briefing reworked to the owner's feedback) and the three-scenario MojoMania campaign; standalone play for all eight scenarios with art for every villain; Guided mode coverage (glossary, tips, Inspect notes, six Try-it lessons, and a "New in each box" section in How to play); Team-Up splash, ring, card tags and Inspect alert built from the `teamUp` keyword, with pictures for all eleven playable pairs ([docs/team-ups.md](docs/team-ups.md)). The owner walked through every pending rules default on 2026-10-03; where an answer conflicted with RRG 1.8 the rules were followed. Left: music for six scenarios and the two campaign finales, a MarvelCDB import seen in the browser, and the owner's own play-through. **Wave 8 (cycle 7, Age of Apocalypse: `aoa`, `bishop`, `magik`, `iceman`, `jubilee`, `ncrawler`, `magneto`) is built on `feature/wave-8` (PR #103), status 2026-10-08:** every card in all seven packs scripted and tested (precon e2e, scenario games, custom and MarvelCDB decks, cross-hero tests); rules QA and two rules-check passes recorded ([docs/phase7-wave8-qa.md](docs/phase7-wave8-qa.md), [docs/phase7-wave8-rules-check.md](docs/phase7-wave8-rules-check.md), [docs/phase7-wave8-rules-check-2.md](docs/phase7-wave8-rules-check-2.md)); standalone play, art, music, Guided mode and the Age of Apocalypse campaign wired and played in a browser; its working spec is [docs/phase7-wave8.md](docs/phase7-wave8.md) and the owner's rulings are its §4.1 table.
 - [ ] Each new cycle's new keywords get added to `game-rules-architect`'s keyword set before that cycle's cards are scripted.
 - [ ] Ongoing: `content-release-tracker` watches for new releases/errata/taboo changes and files content-pipeline work rather than letting the card pool go stale.
@@ -1235,7 +1237,7 @@ All ten rulebooks and log sheets are in `docs/campaign-modes/`. "Cards scripted"
 | MC32 | Mutant Genesis           | `mut_gen`   | 5         | 25             | ✅ (wave 6, #94)                          |
 | MC40 | NeXt Evolution           | `next_evol` | 5         | 14             | ✅ (wave 7, #98)                          |
 | MC45 | Age of Apocalypse        | `aoa`       | 5         | 6              | ✅ (wave 8, #103)                         |
-| MC50 | Agents of S.H.I.E.L.D.   | `aos`       | 5         | 0              | ❌ data only                              |
+| MC50 | Agents of S.H.I.E.L.D.   | `aos`       | 5         | 9              | ✅ (wave 9, #109)                         |
 | MC60 | Fear No Evil             | `fne`       | 6         | 0              | ❌ data only                              |
 
 **Civil War (MC56) is not in this table.** MC56 p. 3: "the Civil War expansion does not include five interconnected
@@ -1312,6 +1314,27 @@ Today a game can only be seated from the six hardcoded `CORE_STARTER_DECKS`. Thr
   - **Resolved (2026-09-25):** `validateDeck` reads the identity's `IdentityDeckbuilding.aspectCount` (1 unless the
     identity says otherwise; Spider-Woman 2, Adam Warlock 4) and checks the deck's chosen aspects against it
     (`packages/engine/src/deck.ts`; `deck.test.ts`, "aspect_choice").
+
+### Community decks (2026-10-10, PR 112)
+
+The saved, tested public MarvelCDB decklists (`docs/custom-deck-testing.md`, "Community decks") are recommended on
+the Decks screen: credited to their authors, previewed, and added as an editable copy. Owner decisions (2026-10-10):
+no like counts; the copy keeps the decklist's own name, with the author's credit in its details; authors are found
+through search, with no filter chip; a deck is locked while its hero or any card's wave is locked, and says what
+opens it; the published date and version are shown, not MarvelCDB's update date.
+
+**After the Fear No Evil wave (MC60) is in place**, as a follow-up PR:
+
+- [ ] **More decks by Brian-V and Web-Warrior Fanatic**: save further decklists of theirs as fixtures (each one
+      proved by `playable/marvelcdb-decklists.test.ts`), once the pool covers the cards their newer decks use.
+- [ ] **Community decks on Take your seats**: offer a hero's community decks beside its precon when a seat is taken,
+      under the same "community deck" label and the same progression gate.
+- [ ] **Community decks inside the deck builder**: list the chosen hero's community decks as a starting point when a
+      new deck is begun.
+
+**Also after the Fear No Evil wave**, as its own PRs: the optional on-device helper (move suggestions in a game, deck
+rating and card suggestions in the deck builder), planned in [docs/local-ai-plan.md](docs/local-ai-plan.md). It starts
+with a search player that needs no training and doubles as the proof that every scenario is winnable.
 
 ### Decisions to settle before building
 

@@ -6,12 +6,14 @@
  * stack frames as every other game action (`resolve/`).
  */
 
+import { displayNameOf } from "../visibility.js";
 import { emit, requestChoice, setStep, type Ctx } from "../ctx.js";
 import {
-  dealEncounterCardTo,
+  dealEncounterCardOrAnnounce,
   discardStatusCards,
   expireNextVillainPhaseEffects,
   setActiveVillain,
+  settleAwaitingAttackEffects,
 } from "../effects.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { statusActive } from "../keywords.js";
@@ -24,7 +26,6 @@ import {
   isMinion,
   mainSchemeValue,
   sharedMainSchemes,
-  mustCardOf,
   mustPlayer,
   nextClockwisePlayer,
   nextVillainInActivationOrder,
@@ -41,7 +42,8 @@ import {
   pushRevealFrame,
 } from "../resolve/index.js";
 import { cardsInPlay, gliderMainSchemeId, offSchemeAccelerationTokens } from "../select.js";
-import type { TriggerEvent } from "../trigger-events.js";
+import type { CardCausedActivation, TriggerEvent } from "../trigger-events.js";
+import type { ReportTarget } from "../stack.js";
 import type { GameState, GameStep } from "../state.js";
 
 const livePlayers = (state: GameState, ids: readonly PlayerId[]): readonly PlayerId[] =>
@@ -195,7 +197,7 @@ export function executeEnemyActivations(ctx: Ctx, step: Extract<GameStep, { kind
       prompt: { kind: "chooseMinionToActivate" },
       options: minions.map((id) => ({
         optionId: id,
-        label: mustCardOf(ctx.state, id).name,
+        label: displayNameOf(ctx.state, id),
         ref: { kind: "card", instanceId: id } as const,
       })),
       minSelections: 1,
@@ -275,32 +277,84 @@ function initiateActivation(ctx: Ctx, enemyId: InstanceId, playerId: PlayerId, a
  * 'Ambush!' ability. Continue that activation." A villain the interrupt put into play enters with no status card, so
  * the activation is initiated at once; with still no villain in play nothing activates.
  */
-export function continueActivation(ctx: Ctx, event: Extract<TriggerEvent, { kind: "enemyActivating" }>): void {
+export function continueActivation(
+  ctx: Ctx,
+  event: Extract<TriggerEvent, { kind: "enemyActivating" }>,
+  reportTo: ReportTarget | null = null,
+): boolean {
   if (event.enemyInstanceId) {
-    if (!cardsInPlay(ctx.state).includes(event.enemyInstanceId)) return;
+    if (!cardsInPlay(ctx.state).includes(event.enemyInstanceId)) return false;
     const enemyId = event.enemyInstanceId;
     // RRG 1.8 "Activation" (p. 6): the activation is an attack on a player in hero form and a scheme against one in
     // alter-ego form, and an interrupt to "when the enemy would activate" can change the form before it begins (Armor
     // Up's erratum, p. 68: Colossus flips to hero form and is attacked, not schemed against). So the kind is read again
     // here, after those interrupts, and the stun or confuse that would replace the activation is checked for the kind
-    // that is actually happening.
+    // that is actually happening. A card's "X attacks you" or "X schemes" is that kind whatever the form.
     const player = getPlayer(ctx.state, event.playerId);
-    const activation = player ? (player.identity.form === "hero" ? "attack" : "scheme") : event.activation;
+    const made = event.cardCaused;
+    if (made && (!player || player.eliminated)) return false;
+    const byForm = player ? (player.identity.form === "hero" ? "attack" : "scheme") : event.activation;
+    const activation = made && made.kind !== "byForm" ? made.kind : byForm;
     if (activation !== event.activation) {
       if (activation === "attack" && statusActive(ctx.state, enemyId, "stunned", ctx.deps)) {
         announceStatusDiscarded(ctx, discardStatusCards(ctx, enemyId, "stunned", "cancelledAttack"));
-        return;
+        return false;
       }
       if (activation === "scheme" && statusActive(ctx.state, enemyId, "confused", ctx.deps)) {
         announceStatusDiscarded(ctx, discardStatusCards(ctx, enemyId, "confused", "cancelledSchemeOrThwart"));
-        return;
+        return false;
       }
     }
+    if (made && player) {
+      initiateCardCausedActivation(ctx, enemyId, event.playerId, activation, made, reportTo);
+      return true;
+    }
     initiateActivation(ctx, enemyId, event.playerId, activation);
-    return;
+    return true;
   }
   const villainId = activeVillainIdFor(ctx.state, areaOfPlayer(ctx.state, event.playerId));
-  if (villainId && villainOf(ctx.state, villainId)?.defeated === false) activateEnemy(ctx, villainId, event.playerId);
+  if (villainId && villainOf(ctx.state, villainId)?.defeated === false) {
+    activateEnemy(ctx, villainId, event.playerId);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The attack or scheme a card effect made, initiated once its "when [enemy] activates" interrupts are done: the same
+ * event, frame vars and report target the effect would have pushed with nothing listening (`EffectSpec enemyAttack`).
+ */
+function initiateCardCausedActivation(
+  ctx: Ctx,
+  enemyId: InstanceId,
+  playerId: PlayerId,
+  activation: "attack" | "scheme",
+  made: CardCausedActivation,
+  reportTo: ReportTarget | null,
+): void {
+  const noBoost = made.noBoost ? { noBoost: true } : {};
+  const event: TriggerEvent =
+    activation === "attack"
+      ? {
+          kind: "enemyAttack",
+          enemyInstanceId: enemyId,
+          attackedPlayerId: playerId,
+          targetPlayerId: playerId,
+          targetInstanceId: made.targetInstanceId ?? mustPlayer(ctx.state, playerId).identity.instanceId,
+          ...(made.additionalResolution ? { additionalResolution: true } : {}),
+          ...noBoost,
+        }
+      : {
+          kind: "enemyScheme",
+          enemyInstanceId: enemyId,
+          playerId,
+          ...noBoost,
+          ...(made.divert ? { divert: made.divert } : {}),
+          ...(made.wouldPlaceThreat ? { wouldPlaceThreat: made.wouldPlaceThreat } : {}),
+        };
+  const [frameId] = pushEvents(ctx, [event], reportTo, made.vars);
+  if (made.settlesAwaitingAttack && reportTo && activation === "attack" && frameId)
+    settleAwaitingAttackEffects(ctx, reportTo.frameId, frameId);
 }
 
 // RRG "Villain Phase" step 3 + "Hazard Icon": one card each, then one per hazard icon in player order.
@@ -323,7 +377,17 @@ export function executeDealEncounterCards(ctx: Ctx, step: Extract<GameStep, { ki
   const total = order.length === 0 ? 0 : order.length + hazards;
   for (let index = step.dealt ?? 0; index < total; index++) {
     const player = order[index % order.length];
-    if (player) dealEncounterCardTo(ctx, player.playerId);
+    // "When a player would be dealt an encounter card" (docs/phase7-wave9.md §3.45): each card has its own interrupt
+    // window, in the order the cards are dealt. The step is run again from `dealt` once that frame has left the stack
+    // (the card dealt, or the deal replaced and the card still on the deck for the next deal), the last card's too: it
+    // is dealt in step three, before the step ends.
+    const waits =
+      player !== undefined &&
+      dealEncounterCardOrAnnounce(ctx, player.playerId, index < order.length ? "villainPhase" : "hazard", null);
+    if (waits) {
+      setStep(ctx, { ...step, dealt: index + 1 });
+      return;
+    }
     // RRG 1.8 "Encounter Deck" (p. 17): "If the encounter deck empties during the resolution of any other type of game
     // effect (for example, the dealing of encounter cards), that effect finishes resolving after the encounter deck has
     // been reset." Owner decision, 2026-10-03 (docs/phase7-wave6.md §4.1 Q58): a response to the reset resolves right

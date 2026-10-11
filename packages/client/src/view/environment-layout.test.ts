@@ -7,6 +7,8 @@ import {
   environmentCompactLayout,
   environmentSlots,
   environmentStripRoom,
+  MINION_BESIDE_TILE_MAX,
+  minionRoomBesideEnvironments,
   isCompactEnvironment,
 } from "./environment-layout.js";
 import { rectsOverlap, type Rect } from "./layout.js";
@@ -58,6 +60,23 @@ describe("environmentSlots", () => {
   it("returns nothing for no environments or no room", () => {
     expect(environmentSlots({ x: 0, y: 0, width: 400, height: 128 }, 0)).toEqual([]);
     expect(environmentSlots({ x: 0, y: 0, width: 0, height: 128 }, 2)).toEqual([]);
+  });
+});
+
+describe("environmentCompactLayout, a two-line name", () => {
+  const tile = { x: 0, y: 0, width: 150, height: 80 };
+
+  it("grows the title band into what the counters leave, and the chips stay clear of it", () => {
+    const one = environmentCompactLayout(tile, ["secret"], false);
+    const two = environmentCompactLayout(tile, ["secret"], false, 30);
+    expect(two.title.height).toBeGreaterThan(one.title.height);
+    expect(two.title.height).toBe(30);
+    expect(rectsOverlap(two.title, two.counters[0]!)).toBe(false);
+  });
+
+  it("never takes more than the counters leave", () => {
+    const layout = environmentCompactLayout({ ...tile, height: 56 }, ["secret"], false, 60);
+    expect(rectsOverlap(layout.title, layout.counters[0]!)).toBe(false);
   });
 });
 
@@ -127,5 +146,44 @@ describe("environmentStripRoom", () => {
         }
       }
     }
+  });
+});
+
+describe("minionRoomBesideEnvironments", () => {
+  const zone: Rect = { x: 455, y: 62, width: 811, height: 283 };
+  const slots = environmentSlots({ x: 757, y: 72, width: 200, height: 142 }, 1);
+
+  it("is the free space right of the environments, the zone's full height", () => {
+    const room = minionRoomBesideEnvironments(zone, slots, 90)!;
+    expect(room.x).toBeGreaterThanOrEqual(slots[0]!.x + slots[0]!.width);
+    expect(room.x + room.width).toBe(zone.x + zone.width - 10);
+    expect(room.y).toBe(zone.y + 10);
+    expect(room.height).toBe(zone.height - 20);
+    expect(rectsOverlap(room, slots[0]!)).toBe(false);
+  });
+
+  it("seats two held minions at a tile as tall as the zone allows, up to the cap, where the row under the band gave 112", () => {
+    const room = minionRoomBesideEnvironments(zone, slots, 90)!;
+    const tile = (count: number): number => {
+      const width = (room.width - 8 * (count - 1)) / count;
+      return Math.min(MINION_BESIDE_TILE_MAX, room.height, width / (5 / 7));
+    };
+    expect(tile(1)).toBe(MINION_BESIDE_TILE_MAX);
+    expect(tile(2)).toBeGreaterThan(112);
+    expect(tile(4)).toBeLessThanOrEqual(112);
+  });
+
+  it("is null when less than the minimum width is left (1024 wide) or no environment is drawn", () => {
+    const narrow: Rect = { x: 325, y: 57, width: 562, height: 237 };
+    const tight = environmentSlots({ x: 625, y: 67, width: 170, height: 130 }, 1);
+    expect(minionRoomBesideEnvironments(narrow, tight, 90)).toBeNull();
+    expect(minionRoomBesideEnvironments(zone, [], 90)).toBeNull();
+  });
+
+  it("starts right of the widest of several environment tiles", () => {
+    const two = environmentSlots({ x: 757, y: 72, width: 400, height: 142 }, 2);
+    const room = minionRoomBesideEnvironments(zone, two, 90);
+    const right = Math.max(...two.map((slot) => slot.x + slot.width));
+    expect(room === null || room.x > right).toBe(true);
   });
 });

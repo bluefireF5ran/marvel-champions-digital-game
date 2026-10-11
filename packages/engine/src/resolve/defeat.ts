@@ -9,6 +9,7 @@ import {
   applyToughness,
   leavePlay,
   leavePlayAtOnce,
+  recordTuckedDiscard,
   setActiveVillain,
   updateMainSchemeState,
   waitsForHostStep,
@@ -16,9 +17,12 @@ import {
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { hasKeyword, isPermanent } from "../keywords.js";
 import {
+  cardOf,
   characterProfile,
   discardZoneFor,
+  encounterDeckOf,
   getInstance,
+  getPlayer,
   isMinion,
   mainSchemeStageOf,
   mainSchemeStates,
@@ -36,7 +40,7 @@ import {
 } from "../query.js";
 import { defeatHeldOff, leavingPlayLoses } from "../rules.js";
 import { nextInt, shuffle } from "../rng.js";
-import { cardsInPlay, isCaptiveAlly } from "../select.js";
+import { cardsInPlay, isCaptiveAlly, isHeldMinion } from "../select.js";
 import type { StackFrame } from "../stack.js";
 import {
   NO_STATUSES,
@@ -48,7 +52,7 @@ import {
 } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { defeatedTogetherDefeated, defeatedTogetherPending, defeatFrames } from "./defeated-together.js";
-import { base, eventFrame, gameAbilityFrames } from "./frames.js";
+import { addFrameVars, base, eventFrame, gameAbilityFrames } from "./frames.js";
 import { mainSchemeStageFrames } from "./main-scheme-side.js";
 import { flipMainSchemeStage, leaveAreaOnDefeat, leaveVillainRow, passActiveCounter } from "./game-areas.js";
 import { attachmentHostCandidates, inciteFrames, revealNewFaceFrame } from "./reveal.js";
@@ -534,7 +538,7 @@ interface DefeatHint {
  * damage to the engaged player's identity") sweeps again while the defeated card is still in play at zero remaining hit
  * points, and it must not be defeated a second time.
  */
-const defeatPending = (state: GameState, id: InstanceId): boolean =>
+export const defeatPending = (state: GameState, id: InstanceId): boolean =>
   state.stack.some(
     (f) =>
       (f.kind === "event" &&
@@ -681,7 +685,10 @@ export function checkDefeats(ctx: Ctx, hints?: DefeatHint | readonly DefeatHint[
   // …then each in-play scenario area's cards: allies and minions no player controls or is engaged with, defeated at
   // zero hit points like any character in play (MC45 p. 5: "in play"; docs/phase7-wave8.md §3.33).
   const inScenarioAreas = Object.values(ctx.state.scenarioPlayAreas ?? {}).map((area) => area.cards);
-  for (const ids of [...playerOrder(ctx.state).map((player) => player.playArea), captives, ...inScenarioAreas]) {
+  // …then each minion an environment holds, which is defeated as any minion in play (`isHeldMinion`, MC50 p. 15;
+  // docs/phase7-wave9.md §3.21).
+  const held = cardsInPlay(ctx.state).filter((id) => isHeldMinion(ctx.state, id));
+  for (const ids of [...playerOrder(ctx.state).map((player) => player.playArea), captives, ...inScenarioAreas, held]) {
     for (const id of [...ids]) {
       const profile = characterProfile(ctx.state, id, ctx.deps);
       const instance = getInstance(ctx.state, id);
@@ -752,9 +759,30 @@ export function checkDefeats(ctx: Ctx, hints?: DefeatHint | readonly DefeatHint[
       pushFrames(ctx, [eventFrame(ctx, defeat)]);
       continue;
     }
+    recordIdentityDefeat(ctx, identityId, hint?.parentFrameId, hint?.reportFrameId);
     eliminatePlayer(ctx, player.playerId);
     if (ctx.state.outcome) return;
   }
+}
+
+/**
+ * An identity is defeated (RRG 1.8 "Defeat", p. 15: a character with zero or fewer remaining hit points "is defeated";
+ * "Character", p. 12: identities are characters), recorded as an ally's or minion's defeat is before its player is
+ * eliminated ("Player Elimination", p. 34): the log line, and `defeated` on the damage that did it (`parentFrameId`)
+ * and on the attack that damage belongs to (`reportFrameId`), so "after [enemy] attacks and defeats a character"
+ * answers a hero's defeat in a game that goes on.
+ */
+export function recordIdentityDefeat(
+  ctx: Ctx,
+  identityId: InstanceId,
+  parentFrameId: FrameId | null | undefined,
+  reportFrameId: FrameId | null | undefined,
+): void {
+  const instance = getInstance(ctx.state, identityId);
+  if (!instance) return;
+  emit(ctx, { type: "characterDefeated", instanceId: identityId, cardId: instance.cardId });
+  addFrameVars(ctx, parentFrameId, { defeated: 1 });
+  if (reportFrameId && reportFrameId !== parentFrameId) addFrameVars(ctx, reportFrameId, { defeated: 1 });
 }
 
 /** An identity at zero remaining hit points that can be defeated: the sweep defeats it. */
@@ -900,6 +928,7 @@ function removeDefeatedVillain(ctx: Ctx, villainId: InstanceId): StackFrame | nu
     // Faceup first: a discard into an emptied deck's discard pile can reset that deck at once (`settlePlayerDecks`).
     updateInstance(ctx, tucked, (i) => ({ ...i, faceup: true }));
     moveCard(ctx, tucked, discardZoneFor(ctx.state, tucked), "top");
+    recordTuckedDiscard(ctx, tucked, villainId);
   }
 
   const scheme = villain.signatureSideSchemeId;
@@ -1118,4 +1147,37 @@ export function eliminatePlayer(ctx: Ctx, playerId: PlayerId): void {
   if (ctx.state.players.every((p) => p.eliminated)) {
     endGame(ctx, { result: "loss", reason: "allPlayersDefeated" });
   }
+}
+
+/**
+ * `EffectSpec sitOutScenario` for one player (owner decision 66B, docs/phase7-wave9.md §4.1). The elimination is the
+ * ordinary one, so everything that skips an eliminated player skips this seat: no hand, no encounter cards, no turn,
+ * not a target or a chooser. During setup the seat also leaves `GameState.startingPlayerCount`, the one count per
+ * player values read, and a pod's own count of the players in the game (`PodState.playersInGameAtStart`); a remote
+ * pod coordinator is not told (no campaign plays in a pod today). When it was the last seat, `eliminatePlayer` has
+ * already ended the game as a loss and the count is left alone, so it never reads 0.
+ */
+export function sitOutScenario(ctx: Ctx, playerId: PlayerId): void {
+  const player = getPlayer(ctx.state, playerId);
+  if (!player || player.eliminated) return;
+  eliminatePlayer(ctx, playerId);
+  if (ctx.state.step.phase !== "setup" || ctx.state.players.every((p) => p.eliminated)) return;
+  const identity = cardOf(ctx.state, player.identity.instanceId);
+  const obligationCardId = identity?.type === "hero_identity" ? identity.obligationCardId : undefined;
+  if (obligationCardId !== undefined) {
+    for (const deckId of ctx.state.encounterDeckOrder) {
+      for (const id of [...encounterDeckOf(ctx.state, deckId).deck]) {
+        if (getInstance(ctx.state, id)?.cardId === obligationCardId) moveCard(ctx, id, { kind: "removedFromGame" });
+      }
+    }
+  }
+  const startingPlayerCount = ctx.state.startingPlayerCount - 1;
+  const pod = ctx.state.pod;
+  ctx.state = {
+    ...ctx.state,
+    startingPlayerCount,
+    ...(pod ? { pod: { ...pod, playersInGameAtStart: pod.playersInGameAtStart - 1 } } : {}),
+  };
+  updatePlayer(ctx, playerId, (p) => ({ ...p, sittingOut: true }));
+  emit(ctx, { type: "playerSatOut", playerId, startingPlayerCount });
 }

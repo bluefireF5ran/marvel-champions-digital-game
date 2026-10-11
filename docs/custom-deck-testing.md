@@ -16,6 +16,35 @@ runs. Decided 2026-09-26.
 | **One real MarvelCDB decklist per new hero.** A saved public decklist (MarvelCDB JSON, as a test fixture) imports, is legal, and plays a seeded greedy game (`playToOutcome`) that replays deep-equal. | Yes: setup refuses a deck with unscripted cards      | End of the wave (step 4), once every hero is scripted             | Medium. Finding decklists that use only cards in the pool is the hard part, since many public decks use later packs. Fetching them from marvelcdb.com is confirmed with the user first.                                                       |
 | **Random-deck coverage.** Seeded random legal decks from the whole playable pool, greedy games solo and 2-player, no stuck prompt, no uncaught error, deep-equal replay.                               | Only for the cards it uses; it skips unscripted ones | Any time; a backfill task in PLAN.md Phase 6, not per wave        | Largest. The generator and harness are one medium task (`playToOutcome` and `validateDeck` exist). Triage is the real cost: expect a batch of interaction bugs, each needing a ruling check and a fix, so budget it as a small QA wave.       |
 
+## Community decks (the same fixtures, offered to players)
+
+Decided 2026-10-10. Every saved decklist fixture is also a **community deck**: a recommendation on the Decks screen,
+credited to its MarvelCDB author, that a player can preview and add to their own decks as an editable copy. It is a
+recommendation only; building from scratch and importing any other MarvelCDB deck work as before.
+
+- **The catalog is the fixture files.** `packages/cards/src/playable/community-decks.ts` globs
+  `playable/fixtures/*.json` and every `wave<N>/**/fixtures/**/*.json`, so a new wave's decklists join by being saved
+  there. Nothing is copied.
+- **A deck cannot be listed without being tested.** `playable/marvelcdb-decklists.test.ts` proves every catalog
+  entry against the playable pool (imports, legal, a seeded game that replays deep-equal) and fails if the catalog
+  holds a deck it did not prove.
+- **Author names are kept by hand and never guessed.** MarvelCDB's public decklist JSON has `user_id` but no name.
+  Read the name from the decklist's own page (`marvelcdb.com/decklist/view/<id>`; the author link is
+  `/user/profile/<user id>/<name>`) and add one line to `COMMUNITY_DECK_AUTHORS` in that file. Without a line the deck
+  is credited to "MarvelCDB user <id>", and `community-decks.test.ts` fails until the author is named.
+- **Keep `description_md` when saving a fixture.** The Decks screen shows it as the author's notes on how the deck
+  plays. The wave 7, 8 and 9 fixtures were first saved with it emptied; it was restored on 2026-10-10 from a re-fetch
+  (only that field written, every other field compared equal). The whole file must stay under the importer's
+  20,000-character cap (`MAX_IMPORT_TEXT_LENGTH`), which is why Magik's decklist (37117, a 34,640-character
+  write-up) has none.
+- **The screen shows the published date (`date_creation`) and the version, not `date_update`.** `date_update` moves
+  without the deck changing: the 2026-10-10 re-fetch returned later dates for decklists whose contents were
+  identical.
+- To keep a saved decklist out of the recommendations, add its id to `NOT_RECOMMENDED` in the same file.
+
+The client side is `packages/client/src/view/community-decks-model.ts` (offers, the progression gate, the credit and
+notes text) and the Decks scene's community group.
+
 ## Wave 5 status
 
 Tracked in PR #64, step 4b.

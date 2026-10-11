@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { badgeLabelRect, columnRings, ringDiameterFor, rowRings, splashLayout } from "./team-up-layout.js";
+import { badgeLabelRect, columnRings, panelRings, ringDiameterFor, rowRings, splashLayout } from "./team-up-layout.js";
 
 const IMAGE = { width: 719, height: 1111 };
 
@@ -90,5 +90,34 @@ describe("badgeLabelRect", () => {
     expect(rect.x).toBeGreaterThanOrEqual(4);
     expect(rect.x + rect.width).toBeLessThanOrEqual(386);
     expect(rect.y).toBeGreaterThan(slot.cy + slot.radius);
+  });
+});
+
+describe("panelRings", () => {
+  const art = { x: 20, y: 80, width: 180, height: 250 };
+
+  test("a gap with room keeps the ring in the text column", () => {
+    const free = { x: 220, y: 300, width: 100, height: 60 };
+    expect(panelRings(free, art, ["a"], 64)).toEqual(columnRings(free, ["a"], 64));
+  });
+
+  test("a closed gap (three chips) moves the ring onto the card picture, inside it, clear of the text column", () => {
+    const free = { x: 220, y: 330, width: 100, height: -4 };
+    const slots = panelRings(free, art, ["a", "b"], 64);
+    expect(slots).toHaveLength(2);
+    for (const slot of slots) {
+      expect(slot.cx - slot.radius).toBeGreaterThanOrEqual(art.x);
+      expect(slot.cx + slot.radius).toBeLessThanOrEqual(art.x + art.width);
+      expect(slot.cy - slot.radius).toBeGreaterThanOrEqual(art.y);
+      // Above the printed text box, which starts at about 60% of the scan.
+      expect(slot.cy + slot.radius).toBeLessThanOrEqual(art.y + art.height * 0.62);
+    }
+    expect(slots[0]!.cx - slots[1]!.cx).toBeGreaterThan(slots[0]!.radius * 2);
+    expect(slots[1]!.cx - slots[1]!.radius).toBeGreaterThan(art.x + art.width * 0.25);
+  });
+
+  test("without a card column the old placement stands", () => {
+    const free = { x: 220, y: 330, width: 100, height: 5 };
+    expect(panelRings(free, null, ["a"], 64)).toEqual(columnRings(free, ["a"], 64));
   });
 });

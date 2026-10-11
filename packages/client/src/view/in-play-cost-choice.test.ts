@@ -84,7 +84,7 @@ describe("Mutant Peacekeepers: any number of X-MEN allies", () => {
 
     const second = toggleInPlayPick(choice, allies[1]!);
     expect(isLastSlot(second)).toBe(true);
-    expect(slotAnswered(second)).toBe(true);
+    expect(slotAnswered(second, game, POOL_DEPS)).toBe(true);
     const costChoices = costChoicesOf(second);
     expect(costChoices).toEqual({ exhausted: [allies[1]] });
     const command = {
@@ -185,6 +185,6 @@ describe("Team Strike: any number of X-MEN allies, damage by their total ATK", (
   test("advancing a single-slot cost does nothing, and an unanswered slot cannot advance", async () => {
     const { game, entry } = await started(startTeamStrikeDevGame, TEAM_STRIKE_CARD, ["35003", "35014"]);
     const choice = beginInPlayCostChoice(game, POOL_DEPS, entry)!;
-    expect(advanceInPlayCostChoice(choice)).toBe(choice);
+    expect(advanceInPlayCostChoice(choice, game, POOL_DEPS)).toBe(choice);
   });
 });

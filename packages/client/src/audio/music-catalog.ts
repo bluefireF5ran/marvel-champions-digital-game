@@ -226,6 +226,21 @@ export function interludeTrackFor(
   return pickTrack(tracks, null, random);
 }
 
+/**
+ * The track the between-scenario campaign screens should start: null when the box has no interlude track (what plays
+ * now stays) or when one of its interlude tracks is already the current target (moving between screens never restarts it).
+ */
+export function interludeToStart(
+  catalog: MusicCatalog,
+  campaignId: string,
+  playingKey: string | null,
+  random: () => number = Math.random,
+): Track | null {
+  const tracks = catalog.campaigns.get(campaignId)?.interlude ?? [];
+  if (playingKey !== null && tracks.some((track) => track.key === playingKey)) return null;
+  return pickTrack(tracks, null, random);
+}
+
 const files = {
   ...(import.meta.glob("../../../../music/title/*.{mp3,ogg,m4a}", {
     eager: true,

@@ -174,6 +174,9 @@ function newRun(
     composedEncounterSets: { deck: [], setAside: [] },
     setAsideCards: [],
     slots: new Map(),
+    sealedSlots: new Set(),
+    sealedUse: null,
+    sealedRead: false,
     instructionId: "",
     writes: [],
     choices: [],
@@ -273,6 +276,8 @@ function fieldsReadBy(effects: unknown, found: Set<string> = new Set()): Readonl
   if (effects !== null && typeof effects === "object") {
     const record = effects as Record<string, unknown>;
     if (record.kind === "campaignLog" && typeof record.field === "string") found.add(record.field);
+    // The sealed reader's spelling (`EffectSpec seedHiddenPiles`, docs/phase7-wave9.md §3.75).
+    if (typeof record.campaignLogField === "string") found.add(record.campaignLogField);
     for (const value of Object.values(record)) fieldsReadBy(value, found);
   }
   return found;
@@ -284,6 +289,10 @@ function fieldsReadBy(effects: unknown, found: Set<string> = new Set()): Readonl
  * A `hidden` field (MC50 p. 5's A.I.M. envelope) is included only when one of *this* game's instructions reads
  * it: the envelope stays shut otherwise, and the view lands in the save's replay baseline, so anything put here
  * is readable forever.
+ *
+ * A hidden field holding a **sealed** value (`LogValueSeal`, docs/phase7-wave9.md §3.75) goes to `hidden` and nowhere
+ * else, where no ordinary in-game read reaches it. A hidden field holding an ordinary value is a box's own scratch
+ * and goes to `shared` as it always has, so the boxes that read one in a game are unchanged.
  */
 function logViewFor(
   definition: CampaignDefinition,
@@ -292,12 +301,16 @@ function logViewFor(
 ): CampaignLogView {
   const read = fieldsReadBy(instructions.map((instruction) => instruction.effects));
   const shared: Record<string, LogValue> = { ...working.shared };
+  const hidden: Record<string, LogValue> = {};
   for (const field of read) {
     const value = working.hidden[field];
-    if (value !== undefined && fieldDefOf(definition, field).hidden) shared[field] = value;
+    if (value === undefined || !fieldDefOf(definition, field).hidden) continue;
+    if (value.sealed === true) hidden[field] = value;
+    else shared[field] = value;
   }
   return {
     shared,
+    ...(Object.keys(hidden).length > 0 ? { hidden } : {}),
     perSeat: working.seats.map((seat) => ({ seatNumber: seat.seatNumber, fields: { ...seat.fields } })),
   };
 }
@@ -779,6 +792,11 @@ function advanceAfterWin(run: CampaignRun): void {
  * it, a side scheme picked for it — is rolled back, which is half of MC40 p. 7's "they must choose the same player
  * side scheme … even if they defeated it during a game they lost"; the other half, not offering the choice again, is
  * `choose.repeatOnRetry` reading this attempt's entry in the history written below.
+ *
+ * The campaign's RNG is rolled back with the rest, unless the DEFEAT block itself draws (MC50 p. 19 prepares the
+ * evidence again). Such a block draws on from the RNG as it stood when the lost game was composed, and the log keeps
+ * the RNG where the block left it. Its draws are therefore never the values that made the lost game's seed, and a
+ * second loss of the same node starts its block from another state than the first did.
  */
 export function applyCampaignResult(
   definition: CampaignDefinition,
@@ -804,6 +822,11 @@ export function applyCampaignResult(
     const removed = [...working.removedFromCampaign];
     working = workingOfSnapshot(attempt.logBefore, log.status);
     working.removedFromCampaign = removed;
+    // The DEFEAT block draws on from where the RNG stood when the game was composed, not from the node's start: the
+    // values between the two already made this node's setup draws and the lost game's seed (which the game's own
+    // log names), and a block that read them again would tie its draws to those (docs/phase7-wave9.md §3.76: a
+    // sealed draw must not be readable off a seed). Put back to the node's start below when the block draws nothing.
+    working.rng = { ...log.rng };
   }
   expireThisGameGrants(working);
   applyInGameWrites(definition, working, result);
@@ -828,6 +851,12 @@ export function applyCampaignResult(
       : [];
   runCampaignInstructions(run, instructions);
   if (run.pending) return { kind: "pending", choice: run.pending };
+  // A loss whose DEFEAT block drew nothing leaves the RNG at the node's start, as `retryBaseline` says: a retry's
+  // plain setup draws then repeat (`random.perAttempt` is what makes one fresh). A block that drew keeps the RNG it
+  // advanced, which is part of what the block wrote.
+  if (!won && run.working.rng.value === log.rng.value && run.working.rng.draws === log.rng.draws) {
+    run.working.rng = { ...attempt.logBefore.rng };
+  }
 
   if (won) advanceAfterWin(run);
   else if (run.working.status === "active") {

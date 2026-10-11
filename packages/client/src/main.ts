@@ -63,6 +63,7 @@ import { CampaignFrozenDeckScene } from "./scenes/campaign/frozen-deck.js";
 import { CampaignBeatOverlay } from "./scenes/campaign/beat.js";
 import { TeamUpSplashOverlay } from "./scenes/team-up-splash.js";
 import { TeamUpInfoOverlay } from "./scenes/team-up-info.js";
+import { EvidenceOverlay } from "./scenes/evidence.js";
 import { MusicScene } from "./audio/music-controller.js";
 import { ExtrasScene } from "./scenes/extras.js";
 import { ExtrasViewerScene } from "./scenes/extras-viewer.js";
@@ -174,6 +175,7 @@ const game = new Phaser.Game({
     CampaignBeatOverlay,
     TeamUpSplashOverlay,
     TeamUpInfoOverlay,
+    EvidenceOverlay,
     ExtrasViewerScene,
     MusicScene,
   ],
@@ -289,6 +291,12 @@ if (import.meta.env.DEV) {
         stop?: Parameters<typeof fixtures.seedAoaRun>[1],
         options?: Parameters<typeof fixtures.seedAoaRun>[2],
       ) => fixtures.seedAoaRun(session.campaignService(), stop, options),
+      seedAos: (
+        stop?: Parameters<typeof fixtures.seedAosRun>[1],
+        options?: Parameters<typeof fixtures.seedAosRun>[2],
+      ) => fixtures.seedAosRun(session.campaignService(), stop, options),
+      seedAosWon: (stop?: Parameters<typeof fixtures.seedAosWonGame>[1]) =>
+        seedWon(() => fixtures.seedAosWonGame(session.campaignService(), stop)),
       seedNextEvolWon: (stop?: Parameters<typeof fixtures.seedNextEvolWonGame>[1]) =>
         seedWon(() => fixtures.seedNextEvolWonGame(session.campaignService(), stop)),
       seedAoaWon: (stop?: Parameters<typeof fixtures.seedAoaWonGame>[1]) =>

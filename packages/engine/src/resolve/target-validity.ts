@@ -41,7 +41,7 @@ import type { AbilityDefinition, EngineDeps } from "../abilities.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { ATTACK_KEYWORDS, attackKeywordsOf, hasKeyword, isPermanent, statusActive } from "../keywords.js";
 import { permanentStopsLeaving } from "../effects.js";
-import { areaOfPlayer, getInstance, getPlayer } from "../query.js";
+import { areaOfPlayer, getInstance, getPlayer, isScheme } from "../query.js";
 import {
   cannotFlip,
   cannotLeavePlay,
@@ -53,8 +53,8 @@ import {
 import {
   activeRules,
   canAttack,
+  isAttackTarget,
   cardsInPlay,
-  categoriesOf,
   type EffectContext,
   resolveRef,
   resolveValue,
@@ -65,6 +65,7 @@ import type { CardSelector, EffectSpec, TargetRef } from "../spec.js";
 import type { GameState } from "../state.js";
 import { carriedByEvent, type TriggerEvent } from "../trigger-events.js";
 import { createCtx } from "../ctx.js";
+import { hiddenPileSize } from "../hidden-pile-state.js";
 import { selectCards } from "./cards.js";
 import { alreadyDefeated, anyAlreadyDefeated } from "./defeat.js";
 import { threatRemovalBlocked, thwartForbiddenOn } from "./event.js";
@@ -232,6 +233,18 @@ function attacksThroughSlot(value: unknown, slot: string, found: EffectSpec[] = 
   return found;
 }
 
+/**
+ * The context a target choice's query is read in. When an effect after the choice attacks the chosen card (an `attack`
+ * instruction, or a damage instruction of an "(attack)"-labeled ability: `attacksThroughSlot`), the choice is that of
+ * an attack's target, so a card players may attack "as if it were a minion" (`RuleSpec attackableAsMinion`,
+ * docs/phase7-wave9.md §3.50) is read as one (`EffectContext.choosingAttackTarget`). Any other choice gets `context`
+ * back: such a card is no candidate for an ability that is not an attack.
+ */
+export function attackChoiceContext(rest: readonly EffectSpec[], slot: string, context: EffectContext): EffectContext {
+  const attacks = attacksThroughSlot(rest, slot).some((effect) => effect.kind === "attack" || context.attackLabeled);
+  return attacks ? { ...context, choosingAttackTarget: true } : context;
+}
+
 /** The identity an "(attack)" ability's damage attacks with: its controller's (RRG 1.8 "Labeled Ability", p. 26). */
 const labeledAttacker = (state: GameState, context: EffectContext): InstanceId | null =>
   context.controllerId == null ? null : (getPlayer(state, context.controllerId)?.identity.instanceId ?? null);
@@ -255,7 +268,7 @@ export function attackTargetAllowed(
   id: InstanceId,
   context: EffectContext,
 ): boolean {
-  if (!context.attackLabeled || !categoriesOf(state, id).includes("enemy")) return true;
+  if (!context.attackLabeled || !isAttackTarget(state, id, deps)) return true;
   return attacksThroughSlot(rest, slot).every((effect) => {
     const attacker = effect.kind === "attack" ? attackerOf(state, effect, context) : labeledAttacker(state, context);
     return attacker === null || canAttack(state, attacker, id, deps);
@@ -272,7 +285,7 @@ function judgedCanAffect(
 ): boolean {
   if (effect.kind === "dealDamage") {
     // An "(attack)" ability's damage to an enemy attacks it (owner rulings Q48 and Q49): not one it may not attack.
-    if (context.attackLabeled && isAttackInstruction(effect) && categoriesOf(state, id).includes("enemy")) {
+    if (context.attackLabeled && isAttackInstruction(effect) && isAttackTarget(state, id, deps)) {
       const attacker = labeledAttacker(state, context);
       if (attacker !== null && !canAttack(state, attacker, id, deps)) return false;
     }
@@ -288,7 +301,8 @@ function judgedCanAffect(
   if (effect.kind === "defeat") return !alreadyDefeated(state, id);
   if (effect.kind === "removeThreat") {
     // A "(thwart)"-labeled ability's removal is a thwart by its controller's identity (`EffectContext.thwartLabeled`).
-    if (context.thwartLabeled) return canThwartScheme(state, deps, id, context, { ignoreCrisis: effect.ignoreCrisis });
+    if (context.thwartLabeled && isScheme(state, id))
+      return canThwartScheme(state, deps, id, context, { ignoreCrisis: effect.ignoreCrisis });
     return canRemoveThreatFrom(state, deps, id, context.selfInstanceId, effect.ignoreCrisis === true);
   }
   return canThwartScheme(state, deps, id, context, effect);
@@ -503,7 +517,7 @@ function choiceCandidates(
   judge: boolean,
 ): readonly InstanceId[] {
   if (effect.kind === "chooseCards") return selectCards(createCtx(state, deps), effect.from, context);
-  const candidates = selectTargets(state, effect.query, context).filter((id) =>
+  const candidates = selectTargets(state, effect.query, attackChoiceContext(rest, effect.slot, context)).filter((id) =>
     attackTargetAllowed(state, deps, rest, effect.slot, id, context),
   );
   return judge ? candidates.filter((id) => slotTargetValid(state, deps, rest, effect.slot, id, context)) : candidates;
@@ -591,6 +605,7 @@ export function abilityTargetFault(
   if (moves && moveThreatLacksSource(state, deps, effects, context)) return "moveSource";
   if (dead.length > 0 && !hasIndependentPart(effects, dead)) return "target";
   if (tuckNamesNoCard(state, deps, effects, context)) return "target";
+  if (gainNamesEmptyPile(state, effects)) return "target";
   if (judge && attackThreatRemovalInvalid(state, deps, effects, context)) return "target";
   if (judge && context.thwartLabeled && thwartNamesNoValidScheme(state, deps, effects, context)) return "target";
   if (context.attackLabeled && attackNamesNoAttackableEnemy(state, deps, effects, context)) return "target";
@@ -702,7 +717,11 @@ function nestedEffects(effect: EffectSpec): readonly (readonly EffectSpec[])[] {
       return [effect.then, effect.otherwise ?? []];
     case "then":
     case "repeatWhile":
+    case "repeatTimes":
     case "forEachPlayer":
+    case "forEachCard":
+    case "forEachCardPass":
+    case "inGroup":
       return [effect.effects];
     case "chooseOne":
       return effect.options.map((option) => option.effects);
@@ -856,7 +875,7 @@ function attackNamesNoAttackableEnemy(
   const among = (named: readonly InstanceId[], attacker: InstanceId | null): Verdict | null => {
     const present = named.filter((id) => inPlay.includes(id));
     if (present.length === 0) return "unknown";
-    const enemies = present.filter((id) => categoriesOf(state, id).includes("enemy"));
+    const enemies = present.filter((id) => isAttackTarget(state, id, deps));
     // Damage to the player's own characters only is not an attack on anything.
     if (enemies.length === 0) return null;
     if (enemies.length !== present.length || attacker === null) return "unknown";
@@ -877,7 +896,10 @@ function attackNamesNoAttackableEnemy(
           const choice = all.find((other) => other.kind === "chooseTarget" && other.slot === slot);
           if (choice?.kind !== "chooseTarget" || !isRequiredChoice(choice) || readsBindings(choice.query)) {
             verdicts.push("unknown");
-          } else note(among(selectTargets(state, choice.query, context), attacker));
+          } else {
+            // The choice of this attack's target: a card attacked "as if it were a minion" is a candidate too.
+            note(among(selectTargets(state, choice.query, { ...context, choosingAttackTarget: true }), attacker));
+          }
         } else if (readsBindings(effect.target)) verdicts.push("unknown");
         else note(among(resolveRef(state, effect.target, context), attacker));
       } else if (effect.kind === "dealDamage") {
@@ -920,6 +942,17 @@ function tuckNamesNoCard(
       resolveRef(state, effect.cards.ref, context).length > 0 &&
       selectCards(createCtx(state, deps), effect.cards, context).length === 0,
   );
+}
+
+/**
+ * "Gain 2 cards from the S.H.I.E.L.D. envelope" with the envelope empty (`EffectSpec gainFromHiddenPile`,
+ * docs/phase7-wave9.md §3.29 (a)): an ability that does nothing but gain cards from hidden piles has those piles as
+ * what it acts on, so with no card in any of them it cannot be initiated and no cost is paid (RRG 1.8 "Cost", p. 13).
+ * A pile's size is open information, so judging this reads nothing a player may not know.
+ */
+function gainNamesEmptyPile(state: GameState, effects: readonly EffectSpec[]): boolean {
+  if (effects.length === 0) return false;
+  return effects.every((effect) => effect.kind === "gainFromHiddenPile" && hiddenPileSize(state, effect.pile) === 0);
 }
 
 /**

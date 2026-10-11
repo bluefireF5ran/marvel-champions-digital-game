@@ -18,6 +18,9 @@ export const MODULAR_SET_EXCLUSIONS: readonly ModularSetExclusion[] = [
   // MC21 p. 16: "If there is more than one villain (or no villain) in play at the start of the game, The Infinity
   // Gauntlet set cannot be used." Tower Defense starts with two (`EncounterSet.singleVillainOnly`).
   { scenarioId: "tower-defense", setId: "infinity_gauntlet", reason: "Needs one villain (MC21 p. 16)" },
+  // MC50 p. 18: Baron Zemo's encounter deck already holds the S.H.I.E.L.D. Executive Board (an extra modular set that
+  // any other scenario may take), so offering it again would shuffle in a second copy of every Board Member.
+  { scenarioId: "baron-zemo", setId: "s.h.i.e.l.d._executive_board", reason: "Already in play" },
 ];
 
 /** The reason `setId` may not be used with `scenarioId`, or null when the pairing is allowed. */

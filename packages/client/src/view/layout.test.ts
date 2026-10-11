@@ -697,3 +697,24 @@ describe("logWriteRowHeight", () => {
     expect(long).toBeGreaterThan(short);
   });
 });
+
+describe("a neutral play area (God of Lies)", () => {
+  const villainBand = (width: number, height: number, neutralArea: boolean) =>
+    boardLayout({ x: 0, y: 0, width, height }, { playerCount: 1, ...(neutralArea ? { neutralArea } : {}) }).zones;
+
+  test("a tablet landscape table gives the villain band the room for the strip, from the player band", () => {
+    const plain = villainBand(1024, 768, false);
+    const neutral = villainBand(1024, 768, true);
+    expect(neutral.enemies!.height).toBeGreaterThan(plain.enemies!.height);
+    expect(neutral.me!.height).toBeLessThan(plain.me!.height);
+    // The hand and the action bar do not move.
+    expect(neutral.hand).toEqual(plain.hand);
+  });
+
+  test.each([
+    [1440, 900],
+    [1920, 1080],
+  ])("a %i by %i table is laid out as it always was", (width, height) => {
+    expect(villainBand(width, height, true)).toEqual(villainBand(width, height, false));
+  });
+});

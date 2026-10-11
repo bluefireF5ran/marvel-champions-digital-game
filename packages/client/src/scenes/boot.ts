@@ -244,6 +244,36 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
     return { key: SCENES.board, data: {} };
   }
 
+  // `&fixture=zemo[&bare=all|none]`: a Baron Zemo game at the first player turn with the Tactical Board Member bare, for the
+  // evidence view and the accusation (`store/dev-zemo-game.ts`).
+  if (screen === "board" && params.get("fixture") === "zemo") {
+    const { startDevZemoGame } = await import("../store/dev-zemo-game.js");
+    const bare = params.get("bare");
+    await startDevZemoGame(bare === "all" || bare === "none" ? bare : "tactical");
+    return { key: SCENES.board, data: {} };
+  }
+
+  // `&fixture=enchantress`: a real Enchantress game stopped at round 3's turn with a Kiss of Temptation owed, the Crown
+  // on Enchantress and the Gaze still hidden (`store/dev-enchantress-game.ts`).
+  if (screen === "board" && params.get("fixture") === "enchantress") {
+    const { startEnchantressGame } = await import("../store/dev-enchantress-game.js");
+    const { store } = appSession();
+    const at = params.get("at");
+    const variant = at === "call-pay" || at === "call-none" || at === "greed-pay" || at === "greed-none" ? at : "start";
+    if (!gameRunning(store)) await startEnchantressGame(store, variant);
+    return { key: SCENES.board, data: {} };
+  }
+
+  // `&fixture=god-of-lies`: a real God of Lies game at round 1's turn; `&at=ready` is the Avatar one hit from
+  // falling, `&at=swap` plays on until it is shattered and swapped (`store/dev-god-of-lies-game.ts`).
+  if (screen === "board" && params.get("fixture") === "god-of-lies") {
+    const { startGodOfLiesGame } = await import("../store/dev-god-of-lies-game.js");
+    const { store } = appSession();
+    const at = params.get("at");
+    if (!gameRunning(store)) await startGodOfLiesGame(store, at === "swap" || at === "ready" ? at : "start");
+    return { key: SCENES.board, data: {} };
+  }
+
   // `&fixture=grounded`: Jubilee on round 2 with Grounded in play, for Flip to hero's additional cost.
   if (screen === "board" && params.get("fixture") === "grounded") {
     const { startDevGroundedGame } = await import("../store/dev-mission-game.js");

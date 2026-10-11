@@ -95,6 +95,7 @@ export type GlossaryBoxId =
   | "mojo"
   | "cycle7"
   | "cycle8"
+  | "cycle9"
   | "later";
 
 /** Which "New in this box" group a concept belongs under: a hero's own mechanic, or a scenario's. Keywords have their own group. */
@@ -251,7 +252,39 @@ export type ConceptId =
   | "overseers"
   | "missionOutcomes"
   | "campaignRewards"
-  | "allySearch";
+  | "allySearch"
+  | "shieldSupports"
+  | "allPurposeCounters"
+  | "suitForm"
+  | "stealthSuit"
+  | "teamUpPairs"
+  | "tuckedCards"
+  | "encounterTopFaceup"
+  | "discardedIcons"
+  | "falconDeckTricks"
+  | "linkedTakeover"
+  | "shuriInventor"
+  | "encasedInIce"
+  | "maxPerPlayer"
+  | "afterYouAttack"
+  | "controlledMinions"
+  | "surgeDealt"
+  | "attackOnAlly"
+  | "preparationAbility"
+  | "nonScalingVillain"
+  | "embassyCaptives"
+  | "alertLevel"
+  | "holdingCell"
+  | "thunderboltBackup"
+  | "citizenV"
+  | "executiveBoard"
+  | "evidenceCards"
+  | "accusation"
+  | "wrongAccusation"
+  | "grantedPreparation"
+  | "reluctantFoe"
+  | "persistentDamage"
+  | "additionalAllyCost";
 
 export const CONCEPT_IDS: readonly ConceptId[] = [
   "threat",
@@ -346,6 +379,38 @@ export const CONCEPT_IDS: readonly ConceptId[] = [
   "missionOutcomes",
   "campaignRewards",
   "allySearch",
+  "shieldSupports",
+  "allPurposeCounters",
+  "suitForm",
+  "stealthSuit",
+  "teamUpPairs",
+  "tuckedCards",
+  "encounterTopFaceup",
+  "discardedIcons",
+  "falconDeckTricks",
+  "linkedTakeover",
+  "shuriInventor",
+  "encasedInIce",
+  "maxPerPlayer",
+  "afterYouAttack",
+  "controlledMinions",
+  "surgeDealt",
+  "attackOnAlly",
+  "preparationAbility",
+  "nonScalingVillain",
+  "embassyCaptives",
+  "alertLevel",
+  "holdingCell",
+  "thunderboltBackup",
+  "citizenV",
+  "executiveBoard",
+  "evidenceCards",
+  "accusation",
+  "wrongAccusation",
+  "grantedPreparation",
+  "reluctantFoe",
+  "persistentDamage",
+  "additionalAllyCost",
 ];
 
 export type GlossaryId = KeywordName | StatusName | ConceptId;
@@ -398,7 +463,7 @@ const INTRODUCED_IN: Record<GlossaryId, Intro> = {
   linked: { box: "cycle7" },
   prerequisite: { box: "later" },
   starting: { box: "later" },
-  vulnerable: { box: "later" },
+  vulnerable: { box: "cycle9" },
   // Status cards: all three are in the Core Set.
   confused: { box: "core" },
   stunned: { box: "core" },
@@ -500,6 +565,39 @@ const INTRODUCED_IN: Record<GlossaryId, Intro> = {
   missionOutcomes: { box: "cycle8", group: "scenario" },
   campaignRewards: { box: "cycle8", group: "scenario" },
   allySearch: { box: "cycle8", group: "scenario" },
+  // Agents of S.H.I.E.L.D. and the cycle 9 hero packs (Black Panther / Shuri, Silk, Falcon, Winter Soldier). Surge and "after you" wordings were in Core's cards already.
+  shieldSupports: { box: "cycle9", group: "hero" },
+  allPurposeCounters: { box: "cycle9", group: "hero" },
+  suitForm: { box: "cycle9", group: "hero" },
+  stealthSuit: { box: "cycle9", group: "hero" },
+  teamUpPairs: { box: "cycle9", group: "hero" },
+  tuckedCards: { box: "cycle9", group: "hero" },
+  encounterTopFaceup: { box: "cycle9", group: "hero" },
+  discardedIcons: { box: "cycle9", group: "hero" },
+  falconDeckTricks: { box: "cycle9", group: "hero" },
+  linkedTakeover: { box: "cycle9", group: "hero" },
+  shuriInventor: { box: "cycle9", group: "hero" },
+  encasedInIce: { box: "cycle9", group: "hero" },
+  maxPerPlayer: { box: "cycle9", group: "hero" },
+  afterYouAttack: { box: "cycle9", group: "hero", alsoCore: true },
+  controlledMinions: { box: "cycle9", group: "hero" },
+  surgeDealt: { box: "cycle9", group: "scenario", alsoCore: true },
+  attackOnAlly: { box: "cycle9", group: "scenario" },
+  preparationAbility: { box: "cycle9", group: "scenario" },
+  nonScalingVillain: { box: "cycle9", group: "scenario" },
+  embassyCaptives: { box: "cycle9", group: "scenario" },
+  alertLevel: { box: "cycle9", group: "scenario" },
+  holdingCell: { box: "cycle9", group: "scenario" },
+  thunderboltBackup: { box: "cycle9", group: "scenario" },
+  citizenV: { box: "cycle9", group: "scenario" },
+  executiveBoard: { box: "cycle9", group: "scenario" },
+  evidenceCards: { box: "cycle9", group: "scenario" },
+  accusation: { box: "cycle9", group: "scenario" },
+  wrongAccusation: { box: "cycle9", group: "scenario" },
+  grantedPreparation: { box: "cycle9", group: "scenario" },
+  reluctantFoe: { box: "cycle9", group: "scenario" },
+  persistentDamage: { box: "cycle9", group: "scenario" },
+  additionalAllyCost: { box: "cycle9", group: "scenario" },
 };
 
 function tagged<Id extends GlossaryId>(raw: Record<Id, UntaggedEntry<Id>>): Record<Id, GlossaryEntry<Id>> {
@@ -809,7 +907,10 @@ const KEYWORD_RAW: Record<KeywordName, UntaggedEntry<KeywordName>> = {
     displayName: "Vulnerable",
     definition:
       "A character with this keyword is discarded the instant it becomes stunned or confused, rather than picking up the status card — and this discard isn't counted as that character being defeated.",
-    sources: [{ kind: "rrg", page: 48 }],
+    sources: [
+      { kind: "rrg", page: 48 },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 3" },
+    ],
   },
   discount: {
     id: "discount",
@@ -1783,6 +1884,389 @@ const CONCEPT_RAW: Record<ConceptId, UntaggedEntry<ConceptId>> = {
     sources: [
       { kind: "card", cards: "Protect the Professor 45170a-b" },
       { kind: "rulebook", label: "Age of Apocalypse rulebook pp. 12, 20" },
+    ],
+  },
+  // Agents of S.H.I.E.L.D. (MC50) and the cycle 9 hero packs.
+  shieldSupports: {
+    id: "shieldSupports",
+    kind: "concept",
+    displayName: "Maria Hill's S.H.I.E.L.D. supports",
+    definition:
+      "Every ally Maria Hill controls gains the S.H.I.E.L.D. trait. Her deck may hold the maximum copies of exactly 3 S.H.I.E.L.D. supports from other aspects. That is all or nothing: 3 titles, each at its full copy limit, or none. Her Reassignment action, once per round, moves 1 all-purpose counter from a support to another S.H.I.E.L.D. support.",
+    sources: [
+      { kind: "card", cards: "Maria Hill 50001a-b" },
+      { kind: "rrg", page: 64 },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 7" },
+    ],
+  },
+  allPurposeCounters: {
+    id: "allPurposeCounters",
+    kind: "concept",
+    displayName: "All-purpose counters",
+    definition:
+      "An all-purpose counter is a plain counter that takes the type of the card it sits on. When a card places one or moves one, it loses its old type and becomes the type that card defines, such as a bird or lock counter. A card that defines no type holds plain all-purpose counters. A card that says all-purpose counter can use any counter, whatever its type.",
+    sources: [
+      { kind: "rrg", page: 6 },
+      { kind: "ruling", date: "January 26, 2026 - Ruling 2" },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 4" },
+    ],
+  },
+  suitForm: {
+    id: "suitForm",
+    kind: "concept",
+    displayName: "Nick Fury's suit form",
+    definition:
+      "Nick's Assault / Stealth upgrade is permanent and gives him a suit form. Changing it does not use your once-per-turn form change, but it counts as a form change for card effects. Threat collects on it. Break Cover turns it to Assault when you attack, and Assault may spend up to 3 threat on that same attack. Infiltrate turns it to Stealth.",
+    sources: [
+      { kind: "card", cards: "Nick Fury 50034a-b; Assault / Stealth 50035a-b" },
+      { kind: "rrg", page: 21 },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 3 and 7" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  stealthSuit: {
+    id: "stealthSuit",
+    kind: "concept",
+    displayName: "Stealth",
+    definition:
+      "In hero form with Stealth up, when an enemy would attack Nick himself, it schemes instead. Up to 1 threat from that scheme goes onto the Stealth upgrade instead of the main scheme, while it holds 5 or less. A stunned or confused enemy loses its status card first and does not activate. Defending for another player, or an attack on his ally, does not trigger it.",
+    sources: [
+      { kind: "card", cards: "Stealth 50035b" },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 22" },
+      { kind: "ruling", date: "December 17, 2025 - Ruling 3" },
+    ],
+  },
+  teamUpPairs: {
+    id: "teamUpPairs",
+    kind: "concept",
+    displayName: "Team-Up pairs in this box",
+    definition:
+      "Super Spies names Maria Hill and Nick Fury: each hero's deck holds the other as an ally, so the card plays once both are in play. Heart of the Panther, Investigative Journalism, Super-Soldiers and Winter, Widow, Soldier, Spy are the same idea with other pairs. An ally counts if its title or subtitle matches. Team-Up cards with Max 1 per deck allow one copy in a deck.",
+    sources: [
+      { kind: "rrg", page: 43 },
+      { kind: "card", cards: "Super Spies 50024; Winter, Widow, Soldier, Spy 54023" },
+    ],
+  },
+  tuckedCards: {
+    id: "tuckedCards",
+    kind: "concept",
+    displayName: "Tucked cards (Silk)",
+    definition:
+      "A tucked card sits faceup under another card, not in play and not attached. When that card leaves play, its tucked cards are discarded. Silk keeps at most 4 encounter cards under her identity. Silk Sense tucks a minion, side scheme or treachery you dealt with from the encounter discard pile. Cindy Moon discards one to draw 2. Hunting the Spider-Bride deals your identity 2 if a player card discards it.",
+    sources: [
+      { kind: "rrg", page: 45 },
+      { kind: "card", cards: "Silk 52001a; Cindy Moon 52001b; Spectrum 53018; Resource Reserve 53021" },
+      { kind: "ruling", date: "January 26, 2026 - Ruling 6" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  encounterTopFaceup: {
+    id: "encounterTopFaceup",
+    kind: "concept",
+    displayName: "Falcon's faceup encounter card",
+    definition:
+      "In hero form, during the player phase, the top card of the encounter deck is faceup for every player. It is not revealed and nothing triggers. It is facedown again in the villain phase and in alter-ego form. When it is discarded, the next card shows at once. Redwing, Battlefield Awareness and Talon Line read the icons in its boost area.",
+    sources: [
+      { kind: "card", cards: "Falcon 53001a-b; Redwing 53002; Battlefield Awareness 53010" },
+      { kind: "rrg", page: 65 },
+      { kind: "ruling", date: "March 19, 2026 - Ruling 5" },
+    ],
+  },
+  discardedIcons: {
+    id: "discardedIcons",
+    kind: "concept",
+    displayName: "Discarding for boost icons",
+    definition:
+      "Redwing and similar cards discard the top card of the encounter deck and count its icons: stars and boost icons both count, and amplify icons add nothing. A faceup card with no icons has nothing to give, so Redwing cannot start and Bird of Prey and Bird's-Eye View do not offer the discard. A facedown card can still be discarded.",
+    sources: [
+      { kind: "rrg", page: 65 },
+      { kind: "rrg", page: 7 },
+      { kind: "ruling", date: "January 26, 2026 - Ruling 6" },
+      { kind: "ruling", date: "March 19, 2026 - Ruling 5" },
+      { kind: "card", cards: "Redwing 53002; Bird of Prey 53003; Bird's-Eye View 53004" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  falconDeckTricks: {
+    id: "falconDeckTricks",
+    kind: "concept",
+    displayName: "Boost cards and dealt cards (Falcon)",
+    definition:
+      "Up, Up, and Away looks at a boost card just given to an attacking enemy and the top card of the encounter deck. You may swap them, then draw 1 card for each printed icon on the boost card. Aerial Recon can answer a player being dealt an encounter card: it removes a recon counter instead, and the card is not dealt.",
+    sources: [
+      { kind: "card", cards: "Up, Up, and Away 53005; Aerial Recon 53009" },
+      { kind: "rrg", page: 15 },
+    ],
+  },
+  linkedTakeover: {
+    id: "linkedTakeover",
+    kind: "concept",
+    displayName: "Linked cards you take over",
+    definition:
+      "A linked card is never in a deck. It is set aside when a deck holds the card it names. Redemption is linked to Show of Empathy and joins a minion that reaches its threat. Captain America's Shield is linked to the Captain America upgrade. Falcon can take Steve Rogers' Shield into his hand and play it. If it is discarded, it returns to Steve's discard pile.",
+    sources: [
+      { kind: "rrg", page: 27 },
+      { kind: "ruling", date: "June 25, 2026 - Ruling 1" },
+      { kind: "ruling", date: "August 3, 2026 - Ruling 4" },
+      { kind: "card", cards: "Show of Empathy 51017; Redemption 51036; Captain America's Shield 53034" },
+    ],
+  },
+  shuriInventor: {
+    id: "shuriInventor",
+    kind: "concept",
+    displayName: "Shuri's Inventor",
+    definition:
+      "Shuri's Inventor exhausts her, searches your deck for a Black Panther or Tech upgrade and plays it for 2 less. You pay the rest, and you may use it once per round. The search has no may. If an upgrade in your deck qualifies, you take one, and if none does, the search fails.",
+    sources: [
+      { kind: "card", cards: "Shuri 51001b" },
+      { kind: "rrg", page: 39 },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  encasedInIce: {
+    id: "encasedInIce",
+    kind: "concept",
+    displayName: "Encased in Ice",
+    definition:
+      "Blizzard attaches Encased in Ice to the character he attacks. That character cannot attack enemies other than the card. Any player can attack it as if it were a minion: damage lands on it, and at 3 or more it moves the extra damage to the character and is discarded. It is discarded, not defeated. If there is no copy to find, Blizzard stuns the character instead.",
+    sources: [
+      { kind: "card", cards: "Encased in Ice 54035; Blizzard 54034" },
+      { kind: "rrg", page: 30 },
+    ],
+  },
+  maxPerPlayer: {
+    id: "maxPerPlayer",
+    kind: "concept",
+    displayName: "Max 1 per player",
+    definition:
+      "This limits what you may control, not only what you may play. A card that puts a second copy into play for you, such as Winter, Widow, Soldier, Spy with Aggressive Stance, does not bring it in while you control one. Max 1 per deck limits a deck's copies instead.",
+    sources: [
+      { kind: "rrg", page: 28 },
+      { kind: "card", cards: "Aggressive Stance 54017; Winter, Widow, Soldier, Spy 54023" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  afterYouAttack: {
+    id: "afterYouAttack",
+    kind: "concept",
+    displayName: '"After you attack" means your identity',
+    definition:
+      "When a card says you attacked, it means your identity (or an event or resource you played), not an ally. An ally's attack does not answer Citizen V's Sword or Innocent Bystanders. The exception is \"after an enemy attacks you\": that means you, even when an ally defended.",
+    sources: [
+      { kind: "rrg", page: 49 },
+      { kind: "ruling", date: "December 17, 2025 - Ruling 3" },
+      { kind: "card", cards: "Citizen V's Sword 50132; Innocent Bystanders 50134" },
+    ],
+  },
+  controlledMinions: {
+    id: "controlledMinions",
+    kind: "concept",
+    displayName: "Controlled minions",
+    definition:
+      "Controller and Diabolical Discs, with Controlled Innocents in play, put the top card of your deck into play facedown as a Controlled minion engaged with you. Controlled Innocents gives each one 1 SCH, 1 ATK and 1 hit point. When one is defeated, the card goes to its owner's discard pile and 1 threat goes on the main scheme.",
+    sources: [{ kind: "card", cards: "Controller 50030; Controlled Innocents 50032; Diabolical Discs 50033" }],
+  },
+  surgeDealt: {
+    id: "surgeDealt",
+    kind: "concept",
+    displayName: "Surge deals a facedown card",
+    definition:
+      "Surge deals the revealing player a facedown encounter card. That card is dealt, not revealed. It waits facedown until the reveal step, and a surge outside the villain phase waits there too. Finish the first card and its responses before the next is revealed. A response to being dealt a card, such as Intelligence, can answer it. Surge can be canceled as a When Revealed.",
+    sources: [
+      { kind: "rrg", page: 42 },
+      { kind: "rrg", page: 15 },
+      { kind: "ruling", date: "August 3, 2026 - Ruling 3" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  attackOnAlly: {
+    id: "attackOnAlly",
+    kind: "concept",
+    displayName: "Attacks on allies",
+    definition:
+      'Some cards make an enemy attack an ally directly. Undefended damage lands on that ally. Boost abilities that say "you" mean the ally\'s controller, and a hero or ally may defend as usual. Overkill spills to the controller\'s identity. Ruling for this game: "after an enemy attacks you" abilities do answer, for that controller.',
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 4" },
+      { kind: "rrg", page: 8 },
+      { kind: "ruling", date: "December 17, 2025 - Ruling 3" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  preparationAbility: {
+    id: "preparationAbility",
+    kind: "concept",
+    displayName: "Preparation abilities (Black Widow)",
+    definition:
+      "Black Widow's cards print Preparation where a boost ability would be, and it does not resolve as a boost. When a hero or ally attacks her, she removes 1 threat from the main scheme. If none was removed, nothing more happens. Otherwise the attacker discards the top encounter card, resolves its Preparation, then the attack resolves.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 9 and 22" },
+      { kind: "card", cards: "Black Widow 50064-50066; Night Vision Goggles 50070; Automated Defenses 50074" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  nonScalingVillain: {
+    id: "nonScalingVillain",
+    kind: "concept",
+    displayName: "Villains that reset",
+    definition:
+      "Batroc, M.O.D.O.K. and Baron Zemo have fixed hit points. When they would be defeated, a Forced Interrupt gives the players a benefit and resets their hit points instead. They have not been defeated for other cards. Status cards and attachments stay. M.O.D.O.K. with no Holding Cell in play is the exception: the players win.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 4 and 22" },
+      { kind: "rrg", page: 22 },
+      { kind: "card", cards: "Batroc 50086a; M.O.D.O.K. 50103a; Baron Zemo 50165a" },
+    ],
+  },
+  embassyCaptives: {
+    id: "embassyCaptives",
+    kind: "concept",
+    displayName: "The embassy and the captives",
+    definition:
+      "Batroc is not beaten by damage. You advance through three main scheme stages by removing all threat. At stage 2, each time its threat reaches zero you gain a set-aside Rescued Captive, then reset the threat to 3 per player for another or advance. At stage 3, remove all threat before every captive is defeated. Rescued Captives are Victory -1 and do not count against your ally limit.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 11" },
+      { kind: "card", cards: "Rescued Captive 50091; Extract Captives 50089a-b" },
+    ],
+  },
+  alertLevel: {
+    id: "alertLevel",
+    kind: "concept",
+    displayName: "Alert Level",
+    definition:
+      "Alert Level is an environment that gathers threat. After Batroc attacks, and after any character is defeated except by consequential damage, 1 threat goes on it. At 4 per player it clears and flips to High, where Batroc gets +1 SCH and +1 ATK. At 4 per player on High you lose. Spend 1 resource to remove 1 threat. In a campaign it starts with the count recorded in scenario 1.",
+    sources: [
+      { kind: "card", cards: "Alert Level 50090a-b; Batroc 50086a" },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 2 and 11" },
+    ],
+  },
+  holdingCell: {
+    id: "holdingCell",
+    kind: "concept",
+    displayName: "The Holding Cell deck",
+    definition:
+      "Four Holding Cells form a deck by the main scheme. The top one is in play with 2 lock counters per player. Spend 2 energy or 3 resources to remove one. At the last, it flips and its Inhuman ally joins any player, then the next cell enters. A freed ally that leaves play flips and goes to the bottom of this deck. M.O.D.O.K. loses 2 lock counters when he would be defeated, or you win if no cell is in play.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 13 and 22" },
+      { kind: "card", cards: "Holding Cell 50105a-50108b; M.O.D.O.K. 50103a" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  thunderboltBackup: {
+    id: "thunderboltBackup",
+    kind: "concept",
+    displayName: "A minion held by Thunderbolt Backup",
+    definition:
+      "Thunderbolt Backup holds a Thunderbolt minion. It is in play with its tokens, status cards and attachments, and can be attacked or targeted, but it is engaged with nobody and does not activate. A player who attacks a Thunderbolt minion becomes engaged with it. As each round ends, the most damaged minion is held and heals. The first player breaks a tie. If the environment leaves play, the held minion is discarded.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 15 and 22" },
+      { kind: "rrg", page: 8 },
+      { kind: "card", cards: "Justice, Like Lightning 50131a-b; Apprehending Rogue Agents 50130b" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  citizenV: {
+    id: "citizenV",
+    kind: "concept",
+    displayName: "Citizen V",
+    definition:
+      "Citizen V cannot be defeated until at least 1 per player Thunderbolt minions are in the victory display. At 0 hit points he stays in play. In step two of the villain phase, if you are engaged with a Thunderbolt minion, he does not activate against you and heals 4 (6 in expert mode). A stunned or confused Citizen V uses up its status card first.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 2 and 22" },
+      { kind: "card", cards: "Citizen V 50129a-b" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  executiveBoard: {
+    id: "executiveBoard",
+    kind: "concept",
+    displayName: "The Executive Board",
+    definition:
+      "Three Board Member environments hold secret counters. Each has a hero action that removes one for a benefit. At 4 secret counters (3 in expert mode) a member flips to an attachment on the villain and punishes you whenever a secret is placed on it. If all three flip, you lose. A.I.M. Interference adds secrets. In a campaign, counters carry over and a flipped member stays an attachment.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 5-6 and 19" },
+      { kind: "card", cards: "Board Members 50181a-50183b; A.I.M. Interference 50184" },
+      { kind: "rrg", page: 20 },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  evidenceCards: {
+    id: "evidenceCards",
+    kind: "concept",
+    displayName: "Evidence",
+    definition:
+      "Nine evidence cards are means, motive or opportunity, three of each. One of each is hidden in the A.I.M. envelope and the other six are in the S.H.I.E.L.D. envelope. Gaining evidence crosses out every combination with its icon. If a board member has no secrets as a campaign scenario ends, you gain one. Evidence stays out of your deck, and its Setup resolves in later scenarios after mulligans.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 5-6 and 18" },
+      { kind: "card", cards: "Executive Board Evidence 50185-50193" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  accusation: {
+    id: "accusation",
+    kind: "concept",
+    displayName: "The accusation",
+    definition:
+      "At Zemo's stage 1B you may advance to The Accusation and choose an uncrossed combination of means, motive and opportunity, which names the accused. The A.I.M. envelope names the mole. Each wrong guess of the four puts a secret counter on every board member. Then Zemo flips Unmasked and the mole attaches to him.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 18-19" },
+      { kind: "card", cards: "The Accusation 50168a-b; Fighting Zemo 50169a-b" },
+    ],
+  },
+  grantedPreparation: {
+    id: "grantedPreparation",
+    kind: "concept",
+    displayName: "Granted Preparation",
+    definition:
+      "Night Vision Goggles and Automated Defenses give a Preparation to each encounter card without a printed one. Damage that is not from an attack never triggers Black Widow. A Preparation that says this attack means the whole attack. In player card text, a Preparation card is a trait, not this ability.",
+    sources: [
+      { kind: "card", cards: "Night Vision Goggles 50070; Automated Defenses 50074" },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 9 and 22" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  wrongAccusation: {
+    id: "wrongAccusation",
+    kind: "concept",
+    displayName: "A wrong accusation",
+    definition:
+      "The rulebook says a wrong accusation does not lose the game. But the secret counters it adds can flip all three board members, which does lose it. A wrongly accused member gets extra counters, and the mole's attachment sets the threat on the main scheme. The game follows the cards.",
+    sources: [
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook pp. 5 and 19" },
+      { kind: "card", cards: "The Accusation 50168b; Board Members 50181b-50183b; Fighting Zemo 50169b" },
+    ],
+  },
+  reluctantFoe: {
+    id: "reluctantFoe",
+    kind: "concept",
+    displayName: "Reluctant Foe",
+    definition:
+      "Reluctant Foe puts a hero from your collection into play as an Elite minion engaged with you, with SCH equal to its THW and the text Villainous. The hero keeps its traits, and its title must not match a character in play. Its hero face is the one the hero starts a game on. Entering play and engaging count as a minion arriving. When it is defeated, or when Reluctant Foe leaves play, the hero is removed from the game.",
+    sources: [
+      { kind: "card", cards: "Reluctant Foe 50171" },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 22" },
+      { kind: "owner-ruling", date: "Oct 10, 2026" },
+    ],
+  },
+  persistentDamage: {
+    id: "persistentDamage",
+    kind: "concept",
+    displayName: "Persistent damage (expert campaign)",
+    definition:
+      "In an expert campaign, each player records their remaining hit points after a win, never more than their base. Each Setup offers a way to restore your identity at a cost. A player defeated in a won scenario sits out its victory steps, and rejoins at the next Setup by following that scenario's healing bullet. Ruling for this game: they are recorded at 0 until then.",
+    sources: [
+      { kind: "card", cards: "Setup bullets marked Expert Campaign Only in scenarios 2 to 5" },
+      { kind: "rulebook", label: "Agents of S.H.I.E.L.D. rulebook p. 6" },
+      { kind: "owner-ruling", date: "Oct 9, 2026" },
+    ],
+  },
+  additionalAllyCost: {
+    id: "additionalAllyCost",
+    kind: "concept",
+    displayName: "A cost to use your allies",
+    definition:
+      "Divided Loyalties adds a cost to attack, thwart or defend with an ally: spend 1 resource of any type. You pay as you declare it. If you do not pay, the ally does not act and does not exhaust. With nothing to spend, the ally is not offered. Your hero is not taxed.",
+    sources: [
+      { kind: "card", cards: "Divided Loyalties 50173" },
+      { kind: "rrg", page: 13 },
     ],
   },
 };

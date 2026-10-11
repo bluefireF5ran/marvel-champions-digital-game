@@ -26,6 +26,7 @@ import {
   type PlayerId,
   isVillain,
   legalActions,
+  outstandingForcedActions,
   wildDeclarationFault,
   wildDeclarations,
 } from "@mc/engine";
@@ -105,7 +106,9 @@ function nextCommand(state: GameState, deps: EngineDeps, memory: TurnMemory): Co
       return candidate.command;
     }
   }
-  return endTurn;
+  // A Forced Action still owed (a Trance) must be used before the turn can end: the engine's own example command.
+  const owed = outstandingForcedActions(state, playerId, deps)[0];
+  return owed ? owed.example : endTurn;
 }
 
 interface Candidate {

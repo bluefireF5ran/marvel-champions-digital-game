@@ -20,6 +20,8 @@ export interface ChromeOptions {
   readonly onMenu: () => void;
   /** The menu button is a real `McButton` (it needs a click/hover/focus state), so it's handed back for the caller's own frame bookkeeping — same reason `drawActionBar` pushes onto `ctx.frame.buttons` instead of owning its own list. */
   readonly buttons: McButton[];
+  /** Baron Zemo's EVIDENCE button (`scenes/evidence.ts`), left of MENU; absent in every other game. */
+  readonly onEvidence?: () => void;
   /** Drives the round chip's pop and the phase toggle's fade-in when either just changed. */
   readonly motion: BoardMotion;
 }
@@ -67,6 +69,25 @@ export function drawChrome(scene: Phaser.Scene, rect: Rect, model: BoardModel, o
       onClick: options.onMenu,
     }),
   );
+
+  // The Evidence view's button sits just left of MENU, in a game that has evidence.
+  let evidenceRect: Rect | null = null;
+  if (options.onEvidence) {
+    const evidenceWidth = wide ? 96 : 52;
+    evidenceRect = { x: menuRect.x - 8 - evidenceWidth, y: menuRect.y, width: evidenceWidth, height: menuRect.height };
+    options.buttons.push(
+      new McButton(scene, {
+        kind: "onInk",
+        label: wide ? "EVIDENCE" : "EVID.",
+        type: typeRole.label,
+        rect: evidenceRect,
+        enabled: true,
+        onClick: options.onEvidence,
+      }),
+    );
+  }
+  // Where the standing chips on the right edge stop: MENU, or the Evidence button when there is one.
+  const anchorX = evidenceRect ? evidenceRect.x - 2 : menuRect.x;
 
   // The live round chip is the one red besides the forward action.
   const chip: Rect = { x: rect.x + 8, y: rect.y + 5, width: 54, height: rect.height - 10 };
@@ -120,11 +141,11 @@ export function drawChrome(scene: Phaser.Scene, rect: Rect, model: BoardModel, o
 
   const notSaving = options.notSaving ?? false;
   const firstPlayer = !notSaving && model.firstPlayerId === model.perspectiveId && rect.width >= 520;
-  let rightEdge = menuRect.x - 10 - (firstPlayer ? 86 : 0);
+  let rightEdge = anchorX - 10 - (firstPlayer ? 86 : 0);
   if (notSaving) {
     // A glyph as well as the hue, so the warning never rests on color alone.
     const warning = scene.add
-      .text(menuRect.x - 8, rect.y + rect.height / 2, "⚠ NOT SAVING", textStyle(typeRole.label, surface.ink.hex))
+      .text(anchorX - 8, rect.y + rect.height / 2, "⚠ NOT SAVING", textStyle(typeRole.label, surface.ink.hex))
       .setOrigin(1, 0.5)
       .setPadding(6, 3, 6, 3)
       .setBackgroundColor(cssOf(signal.caution.hex));
@@ -143,7 +164,7 @@ export function drawChrome(scene: Phaser.Scene, rect: Rect, model: BoardModel, o
 
   if (firstPlayer) {
     scene.add
-      .text(menuRect.x - 10, rect.y + rect.height / 2, "1ST PLAYER", textStyle(typeRole.label, signal.caution.hex))
+      .text(anchorX - 10, rect.y + rect.height / 2, "1ST PLAYER", textStyle(typeRole.label, signal.caution.hex))
       .setOrigin(1, 0.5);
   }
 }

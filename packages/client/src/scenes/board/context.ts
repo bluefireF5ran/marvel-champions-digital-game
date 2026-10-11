@@ -7,6 +7,7 @@
  * through the controller.
  */
 
+import type { ReferenceCardView } from "../../view/reference-cards.js";
 import type Phaser from "phaser";
 import type { InstanceId, PlayerId } from "@mc/engine";
 import type { CardArt } from "../../art/card-art.js";
@@ -108,4 +109,6 @@ export interface BoardDrawContext {
   makeTapTarget(rect: Rect, id: InstanceId, onTap?: () => void, drag?: RowDrag): void;
   /** Opens a card. `siblings` is the list ◂ ▸ steps through; without it, the hand when the card is in it. */
   inspect(id: InstanceId, siblings?: readonly InstanceId[]): void;
+  /** Opens one of the scenario's printed rules cards (`Scenario.referenceCards`), which has no instance. */
+  inspectReference(reference: ReferenceCardView): void;
 }
