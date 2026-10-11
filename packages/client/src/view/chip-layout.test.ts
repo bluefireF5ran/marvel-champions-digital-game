@@ -26,6 +26,7 @@ function realHeroChips(): readonly ChipLabel[] {
     { id: "source:precon", text: "Precon" },
     { id: "source:imported", text: "Imported" },
     { id: "source:userBuilt", text: "Built" },
+    { id: "source:tested", text: "Tested" },
   ];
   return [...aspectChips, ...sourceChips, { id: "playable-now", text: "Playable now" }];
 }

@@ -47,7 +47,11 @@ export default defineConfig({
         ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
         : process.platform === "darwin"
           ? ["--use-angle=metal"]
-          : [],
+          : process.platform === "win32"
+            ? // Windows headless Chromium also defaults to SwiftShader, which pegs every core with eight workers and
+              // times specs out however large the machine is (measured 2026-10-11). Direct3D puts WebGL on the GPU.
+              ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"]
+            : [],
     },
   },
   projects: [

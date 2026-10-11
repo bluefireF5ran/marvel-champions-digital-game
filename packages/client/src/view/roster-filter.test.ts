@@ -6,6 +6,8 @@ import {
   deckSourcesOf,
   heroAspectsOf,
   heroRosterMatches,
+  heroSourceMatches,
+  TESTED_COUNTS_AS_BUILT,
   matchesSearch,
   normalizeSearch,
   scenarioProductsOf,
@@ -262,5 +264,39 @@ describe("withSelectionPinned", () => {
   test("an empty query keeps everything, selection included, with no duplicates", () => {
     const result = withSelectionPinned(items, () => true, isSelected);
     expect(result).toEqual(items);
+  });
+});
+
+describe("heroSourceMatches (the TESTED chip and BUILT's reading of it)", () => {
+  const stored = (kind: "precon" | "imported" | "userBuilt", id = "d1") =>
+    ({ id, source: { kind } }) as unknown as Pick<Deck, "id" | "source">;
+  const tested = stored("imported", "community:103");
+
+  test("no chip shows every deck", () => {
+    for (const deck of [stored("precon"), stored("imported"), stored("userBuilt"), tested])
+      expect(heroSourceMatches(deck, null)).toBe(true);
+  });
+
+  test("TESTED narrows to the community decks and nothing else", () => {
+    expect(heroSourceMatches(tested, "tested")).toBe(true);
+    for (const kind of ["precon", "imported", "userBuilt"] as const)
+      expect(heroSourceMatches(stored(kind), "tested")).toBe(false);
+  });
+
+  test("BUILT includes the tested decks (TESTED_COUNTS_AS_BUILT) beside the player's own", () => {
+    expect(TESTED_COUNTS_AS_BUILT).toBe(true);
+    expect(heroSourceMatches(stored("userBuilt"), "userBuilt")).toBe(true);
+    expect(heroSourceMatches(tested, "userBuilt")).toBe(true);
+    expect(heroSourceMatches(stored("imported"), "userBuilt")).toBe(false);
+  });
+
+  test("IMPORTED is the player's own imports, not the community offers (which carry kind imported)", () => {
+    expect(heroSourceMatches(stored("imported"), "imported")).toBe(true);
+    expect(heroSourceMatches(tested, "imported")).toBe(false);
+  });
+
+  test("PRECON is unchanged", () => {
+    expect(heroSourceMatches(stored("precon"), "precon")).toBe(true);
+    expect(heroSourceMatches(tested, "precon")).toBe(false);
   });
 });

@@ -48,8 +48,8 @@ export interface RosterFilter {
   readonly text: string;
   /** Heroes only: the deck's own chosen aspect(s) (`Deck.aspects`). `null`/absent = every aspect. */
   readonly aspect?: CoreAspect | null;
-  /** Heroes only: `Deck.source.kind`. `null`/absent = every source. */
-  readonly source?: DeckSourceKind | null;
+  /** Heroes only: a source chip (`heroSourceMatches`). `null`/absent = every source. */
+  readonly source?: HeroSourceFilter | null;
   /** Heroes only: hide a deck the engine currently blocks (`heroRosterMatches`'s own `blockedBy` argument carries the actual reason). */
   readonly playableOnly?: boolean;
   /** Scenarios only: `Scenario.packCode`. `null`/absent = every product. */
@@ -65,8 +65,34 @@ export const EMPTY_ROSTER_FILTER: RosterFilter = { text: "" };
 // ---------------------------------------------------------------------------------------------------------------
 import type { AnyCard, CoreAspect, Deck, DeckSource, HeroIdentityCard, Scenario } from "@mc/content";
 import { CHOOSABLE_ASPECTS } from "@mc/engine";
+import { isCommunityDeckId } from "./community-deck-id.js";
 
 export type DeckSourceKind = DeckSource["kind"];
+
+/** The hero list's source chips: a deck's stored kind, plus "tested" for the community MarvelCDB decks (never stored, so no `Deck.source.kind` of their own: they carry "imported"). */
+export type HeroSourceFilter = DeckSourceKind | "tested";
+
+/**
+ * Do the tested community decks also show under the BUILT chip? They are ready-made decks nobody on this device
+ * imported or built, so they sit with BUILT (labelled "by <author> · MarvelCDB") and the TESTED chip narrows to them.
+ * Flip to false to keep them behind TESTED alone.
+ */
+export const TESTED_COUNTS_AS_BUILT = true;
+
+/**
+ * Does `deck` pass the source chip? PRECON: the six-plus starter decks. IMPORTED: the player's own imports, not the
+ * community offers. BUILT: decks built here, plus the tested decks while `TESTED_COUNTS_AS_BUILT`. TESTED: only those.
+ */
+export function heroSourceMatches(
+  deck: Pick<Deck, "id" | "source">,
+  source: HeroSourceFilter | null | undefined,
+): boolean {
+  if (!source) return true;
+  const tested = isCommunityDeckId(deck.id as string);
+  if (source === "tested") return tested;
+  if (source === "userBuilt") return deck.source.kind === "userBuilt" || (TESTED_COUNTS_AS_BUILT && tested);
+  return !tested && deck.source.kind === source;
+}
 
 /**
  * S8: "hero name, alter-ego name, deck name, aspect and source", narrowed by
@@ -89,7 +115,7 @@ export function heroRosterMatches(
   )
     return false;
   if (filter.aspect && !deck.aspects.includes(filter.aspect)) return false;
-  if (filter.source && deck.source.kind !== filter.source) return false;
+  if (!heroSourceMatches(deck, filter.source)) return false;
   if (filter.playableOnly && blockedBy !== null) return false;
   return true;
 }

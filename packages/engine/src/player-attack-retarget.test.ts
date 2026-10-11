@@ -368,11 +368,14 @@ describe("§3.66 an event's attack redirected: same damage, keywords and source"
       },
     };
     const { table: t, command } = playBlast({ ...placed, state: withTough(hurt, placed.hero(P2)) });
-    const { state } = run(t, [command], t.hero(P2));
+    const { state, events } = run(t, [command], t.hero(P2));
     expect(mustInstance(state, t.hero(P2)).statuses.tough).toBe(0);
     // 10 hit points, 7 damage already: 5 more is 2 beyond them, and RRG 1.8 "Overkill" (p. 31) names only allies
-    // and minions.
-    expect(damageOn(state, t.hero(P2))).toBe(12);
+    // and minions. The 5 are dealt in full; the eliminated hero's dial stops at zero (RRG 1.8 "Hit Points", p. 22).
+    expect(
+      events.flatMap((e) => (e.type === "damageDealt" && e.targetInstanceId === t.hero(P2) ? [e.amount] : [])),
+    ).toEqual([5]);
+    expect(damageOn(state, t.hero(P2))).toBe(10);
     expect(damageOn(state, t.hero(P1))).toBe(0);
     expect(damageOn(state, villainOf(state))).toBe(0);
     expect(damageOn(state, t.goon)).toBe(0);

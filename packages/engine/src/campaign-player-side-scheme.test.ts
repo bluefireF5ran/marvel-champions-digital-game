@@ -373,7 +373,8 @@ describe("a player is eliminated (RRG 1.8 'Player Elimination', p. 33): it stays
   it("the remaining player still thwarts and defeats it, and its environment enters play", () => {
     const put = inPlay(start(2), STOCK_UP);
     const alone = play(put.state, DOOM.card, P1);
-    const turn = withThreat(endTurn(alone.state), put.id, 2);
+    // P1's turn ended with their elimination (RRG 1.8 "Player Elimination", p. 34): it is P2's already.
+    const turn = withThreat(alone.state, put.id, 2);
     const after = run(turn, thwart(P2, hero(turn, P2), put.id));
     expect(mustInstance(after.state, put.id)).toMatchObject({ cardId: DEPOT.id, counters: { supply: 1 } });
   });

@@ -158,7 +158,10 @@ test.describe("Deadpool, 'Pool aspect: flows 1, 7 and 8", () => {
       "export status",
       10000,
     );
-    const exported = await page.evaluate(() => navigator.clipboard.readText());
+    // Windows hands clipboard text back with CRLF line ends.
+    const clipboardText = async (): Promise<string> =>
+      (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n");
+    const exported = await clipboardText();
     expect(exported.split("\n").slice(0, 2)).toEqual(["Hero: Deadpool", "Aspect: Pool"]);
     const lines = exported.split("\n").slice(2);
     expect(
@@ -184,12 +187,8 @@ test.describe("Deadpool, 'Pool aspect: flows 1, 7 and 8", () => {
     expect(back).toMatchObject({ status: "Legal", legal: true, cardCount: 40, problems: [] });
     await press(page, "Decks", `deck:${back.id}`);
     await press(page, "Decks", "ie-export");
-    await waitFor(
-      async () => ((await page.evaluate(() => navigator.clipboard.readText())) !== exported ? null : true),
-      "re-export",
-      10000,
-    );
-    expect(await page.evaluate(() => navigator.clipboard.readText()), "the round trip is identical").toBe(exported);
+    await waitFor(async () => ((await clipboardText()) !== exported ? null : true), "re-export", 10000);
+    expect(await clipboardText(), "the round trip is identical").toBe(exported);
     await shot(page, "7-roundtrip");
 
     // 8. Seat it solo against Rhino from Title: Table setup lists the Dreadpool set as added; the board reaches round 1.

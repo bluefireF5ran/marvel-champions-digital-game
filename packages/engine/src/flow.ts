@@ -141,6 +141,7 @@ export function runFlow(ctx: Ctx): void {
     const step = ctx.state.step;
     if (step.phase === "gameOver") return;
     if (step.phase === "player" && step.kind === "turn") {
+      if (endEliminatedPlayersTurn(ctx)) continue;
       if (!step.ended) return;
       // The forced action the phase waited on has resolved: look again, then begin the end-of-phase steps (§3.53).
       advanceAfterTurn(ctx, step.remainingPlayerIds);
@@ -454,6 +455,29 @@ export function finishTurn(ctx: Ctx, playerId: PlayerId): void {
     ...(ctx.state.attacksThisTurn ? { attacksThisTurn: [] } : {}),
   };
   advanceAfterTurn(ctx, step.remainingPlayerIds);
+}
+
+/**
+ * The active player was eliminated during their own turn: the turn ends, as it would on their `endTurn`. RRG 1.8
+ * "Player Elimination" (p. 34): "Eliminated players no longer participate in the game", so nobody is left to take the
+ * rest of the turn or to end it, and "the remaining players continue to play the game".
+ *
+ * Called by `runFlow` only once nothing is resolving, not from `eliminatePlayer`: "If a player is eliminated partway
+ * through the resolution of an ability, resolve the entire ability" (same entry), and that ability, its windows and
+ * whatever else was on the stack belong to the turn they began in. Its "until the end of the turn" effects and its
+ * per-turn records and limits are therefore still in force while they resolve, and end here.
+ *
+ * The RRG gives no separate procedure for a turn cut short, so its end is the ordinary one: the `turnEnding` windows
+ * open if a card still in play answers a turn ending (the eliminated player's own have left play with them), then
+ * `finishTurn`. Returns true when it ended the turn or put that event on the stack.
+ */
+function endEliminatedPlayersTurn(ctx: Ctx): boolean {
+  const step = ctx.state.step;
+  if (step.phase !== "player" || step.kind !== "turn" || step.ended) return false;
+  if (getPlayer(ctx.state, step.activePlayerId)?.eliminated !== true) return false;
+  if (pushIfHeard(ctx, { kind: "turnEnding", playerId: step.activePlayerId })) return true;
+  finishTurn(ctx, step.activePlayerId);
+  return true;
 }
 
 /** Called by the `endTurn` command once the active player is done. */

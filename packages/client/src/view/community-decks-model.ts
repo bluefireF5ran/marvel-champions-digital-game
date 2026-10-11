@@ -16,6 +16,7 @@ import { aspectName } from "./aspect-stamp.js";
 import { uniqueDeckName } from "./deck-import-model.js";
 import { deckOptionOf, type DeckOption } from "./deck-list-model.js";
 import { matchesSearch } from "./roster-filter.js";
+import { communityDeckIdOf, isCommunityDeckId } from "./community-deck-id.js";
 
 /** The part of `progression/unlocks.ts`'s `Unlocks` this module asks. */
 export interface CommunityDeckGate {
@@ -33,10 +34,7 @@ export interface CommunityOffer {
   readonly added: boolean;
 }
 
-const COMMUNITY_ID_PREFIX = "community:";
-
-export const communityDeckIdOf = (marvelcdbId: number): string => `${COMMUNITY_ID_PREFIX}${marvelcdbId}`;
-export const isCommunityDeckId = (id: string): boolean => id.startsWith(COMMUNITY_ID_PREFIX);
+export { communityDeckIdOf, isCommunityDeckId };
 
 const cardsById = (pool: CardPool): ((id: string) => AnyCard | undefined) => {
   if (!Array.isArray(pool)) return (id) => (pool as Record<string, AnyCard>)[id];
@@ -122,6 +120,49 @@ export function communityOfferMatches(offer: CommunityOffer, filter: CommunityFi
   if (filter.aspect && !entry.aspects.includes(filter.aspect as CommunityDeck["aspects"][number])) return false;
   if (filter.availableOnly && (offer.lock !== null || !offer.option.legal)) return false;
   return true;
+}
+
+/**
+ * Every community deck as a seatable option (Take your seats), in catalog order. Pure: no saved decks and no gate, since
+ * a seat asks the engine for legality (`deckOptionOf`) and the progression gate separately (`testedDeckLockOf`).
+ */
+export function testedDeckOptions(
+  catalog: readonly CommunityDeck[],
+  pool: CardPool,
+  poolVersion: string,
+  deps: EngineDeps,
+): readonly DeckOption[] {
+  return catalog.map((entry) => deckOptionOf(communityDeckAsDeck(entry, poolVersion), pool, poolVersion, deps));
+}
+
+/** The catalog entry behind a deck that is a community offer itself (its id is `community:<id>`), not a saved copy of one. */
+export function testedEntryOf(deck: Pick<Deck, "id">, catalog: readonly CommunityDeck[]): CommunityDeck | null {
+  const id = deck.id as string;
+  if (!isCommunityDeckId(id)) return null;
+  return catalog.find((entry) => communityDeckIdOf(entry.marvelcdbId) === id) ?? null;
+}
+
+/** What opens a tested deck's hero or card wave, or null when it may sit at a table (or the deck is not a tested one). */
+export function testedDeckLockOf(
+  deck: Pick<Deck, "id">,
+  catalog: readonly CommunityDeck[],
+  pool: CardPool,
+  gate: CommunityDeckGate,
+): string | null {
+  const entry = testedEntryOf(deck, catalog);
+  return entry ? communityDeckLock(entry, pool, gate) : null;
+}
+
+/** A hero tile's second line for a tested deck: "by andyr · MarvelCDB". Null for any other deck. */
+export function testedSubtitleOf(deck: Pick<Deck, "id">, catalog: readonly CommunityDeck[]): string | null {
+  const entry = testedEntryOf(deck, catalog);
+  return entry ? `${communityCredit(entry)} · MarvelCDB` : null;
+}
+
+/** What the hero search box also looks in for a tested deck: its author, its hero, and the words "tested" and "MarvelCDB". */
+export function testedSearchFieldsOf(deck: Pick<Deck, "id">, catalog: readonly CommunityDeck[]): readonly string[] {
+  const entry = testedEntryOf(deck, catalog);
+  return entry ? [entry.author, entry.heroName, "tested", "marvelcdb"] : [];
 }
 
 /** The decks of one hero, for a screen that already knows which hero is being built or seated. */

@@ -85,6 +85,8 @@ import {
   type PlayerCardType,
 } from "../view/deck-stats.js";
 import { deckOptionOf } from "../view/deck-list-model.js";
+import { addCommunityDeck, testedEntryOf } from "../view/community-decks-model.js";
+import { testedCatalog } from "../view/seatable-decks.js";
 import { deckStatusOf, type DeckStatusTone } from "../view/deck-status.js";
 import { aspectLabelOf } from "../view/seat-slots.js";
 import { deckCheckFocusOrder } from "../view/screen-focus.js";
@@ -170,6 +172,22 @@ const TYPE_FILTERS: readonly { readonly id: string; readonly label: string; read
 function truncate(text: string, maxChars: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > maxChars ? `${flat.slice(0, maxChars - 1)}…` : flat;
+}
+
+/**
+ * What "Edit deck" opens. A tested community deck is an offer, never stored, so the builder gets the player's own
+ * editable copy of it (a new id, credited to its MarvelCDB decklist) rather than a deck it would save under the
+ * offer's id. Any other deck is edited as it is.
+ */
+function editableCopyOf(deck: Deck): Deck {
+  const entry = testedEntryOf(deck, testedCatalog());
+  return entry
+    ? addCommunityDeck(entry, {
+        poolVersion: POOL_VERSION,
+        now: () => new Date().toISOString(),
+        newId: () => crypto.randomUUID(),
+      })
+    : deck;
 }
 
 export class DeckCheckScene extends Phaser.Scene {
@@ -326,7 +344,7 @@ export class DeckCheckScene extends Phaser.Scene {
       const footerBg = this.add.graphics();
       paintPanel(footerBg, layout.footer!, "onInk", "rest");
       const openEdit = (): void => {
-        goToScreen(this, SCENES.deckBuilder, { deck: this.#deck } satisfies DeckBuilderSceneData);
+        goToScreen(this, SCENES.deckBuilder, { deck: editableCopyOf(this.#deck) } satisfies DeckBuilderSceneData);
       };
       this.#buttons.push(
         new McButton(this, {
@@ -559,7 +577,7 @@ export class DeckCheckScene extends Phaser.Scene {
     drawGroupedCardList(this, left, rect.y + 36, column, groups, PANEL_LIST_ENTRY_CAP, true);
 
     const openEdit = (): void => {
-      goToScreen(this, SCENES.deckBuilder, { deck: this.#deck } satisfies DeckBuilderSceneData);
+      goToScreen(this, SCENES.deckBuilder, { deck: editableCopyOf(this.#deck) } satisfies DeckBuilderSceneData);
     };
     this.#buttons.push(
       new McButton(this, {

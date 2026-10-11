@@ -259,3 +259,27 @@ export function azShelvesOf<T>(
   }
   return shelves;
 }
+
+/** Id of the shelf the tested community decks sit on. */
+export const TESTED_DECKS_SHELF_ID = "tested-decks";
+
+/**
+ * "Your decks" holds every deck with no pack of its own, which now includes the community decks the player never made.
+ * Moves those onto a shelf of their own at the very end, so a shelf's title never claims a deck is the player's when it
+ * is a MarvelCDB author's, and the 60-odd community decks do not push the precons off the first screen.
+ */
+export function withTestedShelf<T>(shelves: readonly Shelf<T>[], isTested: (item: T) => boolean): readonly Shelf<T>[] {
+  const out: Shelf<T>[] = [];
+  const tested: T[] = [];
+  for (const shelf of shelves) {
+    if (shelf.id !== YOUR_DECKS_SHELF_ID) {
+      out.push(shelf);
+      continue;
+    }
+    const mine = shelf.items.filter((item) => !isTested(item));
+    tested.push(...shelf.items.filter(isTested));
+    if (mine.length > 0) out.push({ ...shelf, items: mine });
+  }
+  if (tested.length > 0) out.push({ id: TESTED_DECKS_SHELF_ID, title: "Tested community decks", items: tested });
+  return out;
+}
