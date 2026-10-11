@@ -120,7 +120,9 @@ describe("registry", () => {
   const cardOf = (code: string) => TT_CARDS.find((c) => (c.id as string) === code) as never;
 
   it("registers the 37 refs of the frame, each a valid definition", () => {
-    expect(Object.keys(GOD_OF_LIES).sort()).toEqual([...REFS].sort());
+    // The encounter cards 55035 to 55051 are the second half, registered and tested in god-of-lies-encounter.test.ts.
+    const frame = Object.keys(GOD_OF_LIES).filter((id) => !/^550(3[5-9]|4\d|50|51)\./.test(id));
+    expect(frame.sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(GOD_OF_LIES)) expect(validateDefinition(def), id).toEqual([]);
   });
 
@@ -130,13 +132,8 @@ describe("registry", () => {
     expect([...refs].sort()).toEqual([...REFS].sort());
   });
 
-  it("skips exactly the encounter cards 55035 to 55051 (the second half), each with its reason", () => {
-    const encounter = Array.from({ length: 17 }, (_, i) => String(55035 + i)).flatMap((code) =>
-      abilityRefIds(cardOf(code)),
-    );
-    expect(Object.keys(GOD_OF_LIES_SKIPPED).sort()).toEqual([...encounter].sort());
-    for (const reason of Object.values(GOD_OF_LIES_SKIPPED)) expect(reason).toBe("second half, not scripted yet");
-    expect(Object.keys(GOD_OF_LIES_SKIPPED).filter((id) => id in GOD_OF_LIES)).toEqual([]);
+  it("skips nothing: the encounter cards 55035 to 55051 are scripted in god-of-lies-encounter.test.ts", () => {
+    expect(Object.keys(GOD_OF_LIES_SKIPPED)).toEqual([]);
   });
 });
 

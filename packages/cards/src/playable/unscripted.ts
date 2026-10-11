@@ -25,6 +25,8 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
  * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
  */
 export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
+  god_of_lies:
+    "Scripted in full; waits on the client: the board does not yet draw the neutral play area, the shared villain dial or the Synergy environments' counters. Un-gate once those are in and the scenario game (spec 8.4 item 71) passes.",
   enchantress_villain:
     "Scripted in full; waits on the client: a Hypnotic Gaze's hidden reverse side must not be shown (`otherFaceVisible`), and Forced Actions need their prompt and the End Turn refusal. Un-gate with trickster_magic once those are in and the scenario game (spec 8.4 item 70) passes.",
   trickster_magic:

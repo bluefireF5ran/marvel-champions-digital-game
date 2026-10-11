@@ -1,11 +1,16 @@
 import { trait } from "@mc/content";
 import type { AbilityRegistry, EffectSpec, EventPattern } from "@mc/engine";
 import {
-  FRIENDLY_CHARACTER,
   addCounters,
   addVillain,
+  after,
+  anyOf,
   attachCard,
+  boost,
+  cannotBeCanceled,
   changeForm,
+  choiceFoundNothing,
+  chooseCards,
   chooseGroup,
   chooseOneBy,
   chooseTarget,
@@ -14,30 +19,45 @@ import {
   constant,
   controllerOf,
   counterLimit,
+  countOf,
   coveredByEngineRule,
   damageSharedVillain,
   dealAsEncounterCard,
   dealDamage,
   dealEncounterCard,
+  dealIndirectDamage,
+  defeatingPlayer,
   defineAbilities,
+  discard,
   discardEncounterCards,
   each,
+  eachGroupInPod,
   eachPlayer,
   encounterCards,
   encounterSetAside,
   endGame,
+  enemyActivates,
+  enemyAttack,
+  enemyScheme,
   eventPlayer,
+  eventSource,
   eventTarget,
+  exhaust,
   exists,
+  faceNamed,
   find,
   flipCard,
-  forEachPlayer,
   forcedInterrupt,
   forcedResponse,
+  forEachPlayer,
+  FRIENDLY_CHARACTER,
   gainsKeyword,
+  gainsKeywordX,
   gets,
   giveTough,
   groupPlayerCount,
+  heroAction,
+  heroResponse,
   identityOf,
   ifThen,
   inGroup,
@@ -58,26 +78,33 @@ import {
   preventDamage,
   putIntoPlay,
   query,
+  reachableFromPod,
   refCount,
   refMatches,
   removeCounter,
+  removeCountersFrom,
   removeEachCounterFrom,
   removeThreat,
   resource,
   revealCard,
+  rule,
   selectCards,
   self,
   setRemainingHitPoints,
   setup,
   shuffleEncounterDeck,
   spendResources,
+  spendSameType,
+  stun,
   swapVillainByTrait,
+  takeDamage,
   thatPlayer,
   theMainScheme,
   theVillain,
   threatOn,
   valueAtLeast,
   varOf,
+  whenDefeated,
   whenRevealed,
   you,
   zone,
@@ -134,15 +161,42 @@ const avatarWouldBeDefeated = () =>
  */
 const treacheryResolved: EventPattern = { on: "encounterCardResolved", targetIs: { categories: ["treachery"] } };
 
+/** "A character you control": your identity and your allies. */
+const CHARACTER_YOU_CONTROL = query("character", { controller: "you" });
+
+/** "Choose a group in your pod, then place 1 synergy counter on their [environment]" after "Place 3 shatter counters". */
+const shatterThenSynergy = (environment: string): EffectSpec[] => [
+  addCounters("shatter", 3, theVillain),
+  chooseGroup(),
+  inGroup(chosenGroup(), addCounters("synergy", 1, each(query("environment", { name: environment })))),
+];
+
+/**
+ * The Mangog and Door Between Worlds: "Each group in your pod places 3 shatter counters on their Avatar of Loki villain
+ * and 1 synergy counter on one of their Synergy environments." The environment is the group's first player's choice
+ * (every one is offered, full or not: the card does not say "that can hold one").
+ */
+const eachGroupShattersAndAddsSynergy = (): EffectSpec =>
+  eachGroupInPod(
+    addCounters("shatter", 3, theVillain),
+    chooseTarget("theirs", SYNERGY_ENVIRONMENT),
+    addCounters("synergy", 1, chosen("theirs")),
+  );
+
+/** Aura of Stasis: discard the top `n` cards of the encounter deck; a treachery among them exhausts your identity. */
+const auraDiscard = (n: number): EffectSpec[] => [
+  discardEncounterCards(n, { bind: "discarded" }),
+  ifThen(refMatches(chosen("discarded"), query("treachery"), { anywhere: true }), exhaust(identityOf(you))),
+];
+
 /** "Max 1 [per player] synergy counters here." */
 const synergyLimit = () => constant(counterLimit("synergy", perHero(1)));
 
 /**
  * Wave 9 scripting module `tt/god-of-lies` (docs/phase7-wave9.md section 8.4 items 68 and 69; MC55 pp. 10 and 18 to 23). Single
  * Group Mode only: one table, the engine its own pod coordinator (`wave9Scenario("god-of-lies")` passes the pod). The
- * first half (item 68) is the scenario's frame, scripted below; the second half (item 69) is the encounter cards 55035
- * to 55051, whose refs are in `GOD_OF_LIES_SKIPPED` until that half lands, in this file. `card-groups.ts` maps this
- * module to the ids below; keep the two in step.
+ * first half (item 68) is the scenario's frame; the second half (item 69) is the encounter cards 55035 to 55051, at the
+ * end of the registry. Nothing is skipped. `card-groups.ts` maps this module to the ids below; keep the two in step.
  *
  * **Frame**: Loki, God of Lies and Worlds Collide sit in the closed `neutral` area, `createGame` makes it and the shared
  * record (Worlds Collide A's Setup), and no script here changes a neutral card directly. The only things that reach the
@@ -367,42 +421,143 @@ export const GOD_OF_LIES: AbilityRegistry = defineAbilities({
   ),
   "55055.unified-front-constant": synergyLimit(),
   "55055.unified-front-resource": resource({ wild: 2 }, { cost: removeCounter("synergy"), forAnyPlayer: true }),
+
+  // ---- The encounter cards (docs/phase7-wave9.md section 8.4 item 69) ----
+
+  // Wrapped in Chains: attaches to your identity (data). The identity cannot ready; it is exhausted on reveal. "Spend 2
+  // resources of the same type" is a cost; discarding the card and the shatter counter are the effect.
+  "55035.wrapped-in-chains-constant": constant(rule({ kind: "cannotReady", target: { hostOfSelf: true } })),
+  "55035.when-revealed": whenRevealed(exhaust(identityOf(you))),
+  "55035.wrapped-in-chains-action": heroAction(
+    { cost: spendSameType(2) },
+    discard(self),
+    addCounters("shatter", 1, theVillain),
+  ),
+
+  // Dark Scepter (attached to the Avatar through the data attach rule; +1 ATK is data). Treacheries cannot be canceled.
+  // Its Hero Response is offered to the player who resolved the treachery (an encounter card has no controller).
+  "55036.dark-scepter-constant": constant(gainsKeyword({ name: "stalwart" }, AVATAR_VILLAIN)),
+  "55036.dark-scepter-constant-2": constant(cannotBeCanceled(query("treachery"))),
+  "55036.dark-scepter-response": heroResponse(
+    treacheryResolved,
+    { cost: spendSameType(2), triggerableBy: eventPlayer },
+    discard(self),
+  ),
+
+  // Draugr Buddy (Guard is data): dealt, not discarded, when the card discarded is a treachery (Dreadpool's precedent).
+  "55037.when-defeated": whenDefeated(
+    discardEncounterCards(1, { bind: "discarded" }),
+    ifThen(
+      refMatches(chosen("discarded"), query("treachery"), { anywhere: true }),
+      dealAsEncounterCard(self, defeatingPlayer),
+    ),
+  ),
+
+  // Grendell (Guard is data): +1 ATK for each treachery among the 3 discarded, for this attack.
+  "55038.grendell-forced-interrupt": forcedInterrupt(
+    on.enemyAttacks("self"),
+    discardEncounterCards(3, {
+      forEachDiscarded: {
+        slot: "card",
+        effects: [
+          ifThen(
+            refMatches(chosen("card"), query("treachery"), { anywhere: true }),
+            modifyStat("atk", 1, self, "endOfAttack"),
+          ),
+        ],
+      },
+    }),
+  ),
+  "55038.when-defeated": whenDefeated(addCounters("shatter", 3, theVillain)),
+
+  // Malekith (Retaliate is data).
+  "55039.malekith-forced-response": forcedResponse(
+    after.enemyAttacks("self", { againstYou: true }),
+    discardEncounterCards(1, { bind: "discarded" }),
+    ifThen(
+      refMatches(chosen("discarded"), query("treachery"), { anywhere: true }),
+      dealAsEncounterCard(chosen("discarded"), you),
+    ),
+  ),
+  "55039.when-defeated": whenDefeated(addCounters("shatter", 2, theVillain)),
+
+  // Minotaur (Toughness is data).
+  "55040.when-revealed": whenRevealed(
+    selectCards("treacheries", encounterCards(["discard"], query("treachery"))),
+    ifThen(valueAtLeast(refCount(chosen("treacheries")), 5), enemyActivates(self, { against: you })),
+  ),
+  "55040.when-defeated": whenDefeated(addCounters("shatter", 2, theVillain)),
+
+  // The Mangog (Victory is data; 10 hit points per group is data): attackable from the whole pod, which at one group is
+  // the table. "Each group in your pod places ... on their Avatar" and "one of their Synergy environments".
+  "55041.the-mangog-constant": constant(reachableFromPod("attack")),
+  "55041.when-defeated": whenDefeated(eachGroupShattersAndAddsSynergy()),
+
+  // Fenris Wolf (Guard and Patrol are data), Hraesvelgr, Laufey, New Jotunheim: 3 shatter counters, then a group in the
+  // pod gets 1 synergy counter on the named environment.
+  "55042.when-defeated": whenDefeated(...shatterThenSynergy("Mounting Resistance")),
+  "55043.when-revealed": whenRevealed(
+    discardEncounterCards(3, { bind: "discarded" }),
+    ifThen(refMatches(chosen("discarded"), query("treachery"), { anywhere: true }), dealIndirectDamage(you, 2)),
+  ),
+  "55043.when-defeated": whenDefeated(...shatterThenSynergy("Domineering Force")),
+  "55044.laufey-forced-response": forcedResponse(
+    on.attacks(FRIENDLY_CHARACTER, { target: { self: true } }),
+    discardEncounterCards(1, { bind: "discarded" }),
+    ifThen(refMatches(chosen("discarded"), query("treachery"), { anywhere: true }), stun(eventSource)),
+  ),
+  "55044.when-defeated": whenDefeated(...shatterThenSynergy("Unified Front")),
+
+  // Aura of Stasis: 2 cards (3 in expert mode); a treachery among them exhausts your identity.
+  "55045.when-revealed": whenRevealed(ifThen(inMode("expert"), auraDiscard(3), auraDiscard(2))),
+
+  // Door Between Worlds (Victory and 7 threat per group are data).
+  "55046.door-between-worlds-constant": constant(reachableFromPod("thwart")),
+  "55046.when-defeated": whenDefeated(eachGroupShattersAndAddsSynergy()),
+
+  // Lofty Goals.
+  "55047.when-defeated": whenDefeated(addCounters("shatter", 2, theVillain)),
+  "55047.boost": boost(dealIndirectDamage(you, countOf(CHARACTER_YOU_CONTROL))),
+
+  // New Jotunheim.
+  "55048.when-defeated": whenDefeated(...shatterThenSynergy("Feigned Retreat")),
+
+  // Dark Arts: "Otherwise" is the search finding no minion in the discard pile.
+  "55049.dark-arts-constant": constant(gainsKeywordX("incite", 1, { self: true }, { while: inMode("expert") })),
+  "55049.when-revealed": whenRevealed(
+    chooseCards("found", encounterCards(["discard"], query("minion")), { min: 1, max: 1 }),
+    ifThen(choiceFoundNothing(), placeThreat(3, theMainScheme), revealCard(chosen("found"), you)),
+  ),
+  "55049.boost": boost(placeThreat(countOf(CHARACTER_YOU_CONTROL), theMainScheme)),
+
+  // Dirty Trick.
+  "55050.when-revealed": whenRevealed(
+    removeCountersFrom(theVillain, "shatter", 1),
+    ifThen(inMode("expert"), takeDamage(3), takeDamage(2)),
+  ),
+  "55050.boost": boost(dealIndirectDamage(you, countOf(CHARACTER_YOU_CONTROL))),
+
+  // Stories and Lies: the swap keeps the dial (Shatter's swap sets it), then the Avatar now in play acts by its name.
+  "55051.when-revealed": whenRevealed(
+    swapVillainByTrait(AVATAR_OF_LOKI),
+    ifThen(
+      anyOf(faceNamed(theVillain, "Loki the Knave"), faceNamed(theVillain, "Loki the Miscreant")),
+      ifThen(
+        inMode("expert"),
+        enemyScheme(theVillain, { against: you, schBonus: 1 }),
+        enemyScheme(theVillain, { against: you }),
+      ),
+    ),
+    ifThen(
+      anyOf(faceNamed(theVillain, "Loki the Rascal"), faceNamed(theVillain, "Loki the Wretch")),
+      ifThen(
+        inMode("expert"),
+        enemyAttack(theVillain, { against: you, atkBonus: 1 }),
+        enemyAttack(theVillain, { against: you }),
+      ),
+    ),
+  ),
 });
 
-const SECOND_HALF = "second half, not scripted yet";
-
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const GOD_OF_LIES_SKIPPED: Readonly<Record<string, string>> = {
-  "55035.wrapped-in-chains-constant": SECOND_HALF,
-  "55035.when-revealed": SECOND_HALF,
-  "55035.wrapped-in-chains-action": SECOND_HALF,
-  "55036.dark-scepter-constant": SECOND_HALF,
-  "55036.dark-scepter-constant-2": SECOND_HALF,
-  "55036.dark-scepter-response": SECOND_HALF,
-  "55037.when-defeated": SECOND_HALF,
-  "55038.grendell-forced-interrupt": SECOND_HALF,
-  "55038.when-defeated": SECOND_HALF,
-  "55039.malekith-forced-response": SECOND_HALF,
-  "55039.when-defeated": SECOND_HALF,
-  "55040.when-revealed": SECOND_HALF,
-  "55040.when-defeated": SECOND_HALF,
-  "55041.the-mangog-constant": SECOND_HALF,
-  "55041.when-defeated": SECOND_HALF,
-  "55042.when-defeated": SECOND_HALF,
-  "55043.when-revealed": SECOND_HALF,
-  "55043.when-defeated": SECOND_HALF,
-  "55044.laufey-forced-response": SECOND_HALF,
-  "55044.when-defeated": SECOND_HALF,
-  "55045.when-revealed": SECOND_HALF,
-  "55046.door-between-worlds-constant": SECOND_HALF,
-  "55046.when-defeated": SECOND_HALF,
-  "55047.when-defeated": SECOND_HALF,
-  "55047.boost": SECOND_HALF,
-  "55048.when-defeated": SECOND_HALF,
-  "55049.dark-arts-constant": SECOND_HALF,
-  "55049.when-revealed": SECOND_HALF,
-  "55049.boost": SECOND_HALF,
-  "55050.when-revealed": SECOND_HALF,
-  "55050.boost": SECOND_HALF,
-  "55051.when-revealed": SECOND_HALF,
-};
+export const GOD_OF_LIES_SKIPPED: Readonly<Record<string, string>> = {};
