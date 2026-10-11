@@ -37,7 +37,8 @@ import { McScrollRegion } from "../ui/scroll-region.js";
 import { progressionScope } from "../progression/progression-scope.js";
 import { estimateWrappedLines, type Rect } from "../view/layout.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
-import { deckOptionsOf, type DeckOption } from "../view/deck-list-model.js";
+import { type DeckOption } from "../view/deck-list-model.js";
+import { seatableDeckOptionsOf } from "../view/seatable-decks.js";
 import { corePlayerForSeat } from "../view/deck-seat.js";
 import {
   compactModularEntriesFor,
@@ -256,7 +257,7 @@ export class TableSetupScene extends Phaser.Scene {
   }
 
   #deckOptions(): readonly DeckOption[] {
-    return deckOptionsOf(this.#savedDecks, POOL_CARDS, POOL_VERSION, POOL_DEPS);
+    return seatableDeckOptionsOf(this.#savedDecks, POOL_CARDS, POOL_VERSION, POOL_DEPS);
   }
 
   /** The seed field's own `onChange`, shared by the standard (wide/tablet portrait) and compact (phone) paths — one `McTextInput` instance persists across both, so the handler has to be identical either way. */

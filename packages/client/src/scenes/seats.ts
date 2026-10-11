@@ -49,13 +49,28 @@ import { McButton, McTextInput, dashedRect, fitText, label, paintDotGrid } from 
 import { McShelfRoster } from "../ui/shelf-roster.js";
 import { McChipRail } from "../ui/chip-rail.js";
 import { McVirtualList } from "../ui/virtual-list.js";
-import { deckOptionsOf, shortWarningOf, type DeckOption } from "../view/deck-list-model.js";
-import { heroAspectsOf, matchesSearch, withSelectionPinned, type DeckSourceKind } from "../view/roster-filter.js";
+import { shortWarningOf, type DeckOption } from "../view/deck-list-model.js";
+import { seatableDeckOptionsOf, testedCatalog } from "../view/seatable-decks.js";
+import {
+  testedDeckLockOf,
+  isCommunityDeckId,
+  testedSearchFieldsOf,
+  testedSubtitleOf,
+  testedEntryOf,
+} from "../view/community-decks-model.js";
+import {
+  heroAspectsOf,
+  heroSourceMatches,
+  matchesSearch,
+  withSelectionPinned,
+  type HeroSourceFilter,
+} from "../view/roster-filter.js";
 import { packCompactChipsToRows, type ChipInfoToggle } from "../view/chip-layout.js";
 import {
   azShelvesOf,
   cycleShelvesOf,
   flattenShelves,
+  withTestedShelf,
   type Shelf,
   type ShelfCandidate,
 } from "../view/roster-shelves.js";
@@ -148,6 +163,11 @@ interface HeroChipDef {
 /** `{ info }` when there is one — spread into a chip def, which may not carry an explicit `info: undefined`. */
 function withInfo(info: ChipInfoToggle | undefined): { readonly info?: ChipInfoToggle } {
   return info ? { info } : {};
+}
+
+/** What shuts a deck to this player: a precon's hero, or a tested community deck's hero or card wave. Null when it may be seated. */
+function deckLockOf(deck: Deck): string | null {
+  return testedDeckLockOf(deck, testedCatalog(), POOL_CARDS, unlocks()) ?? unlocks().deckLock(deck);
 }
 
 /** The pool's Team-Up pairs, derived once: the pool never changes under a running app. */
@@ -380,7 +400,7 @@ export class SeatsScene extends Phaser.Scene {
     if (this.#deckOptionsFor?.saved !== this.#savedDecks) {
       this.#deckOptionsFor = {
         saved: this.#savedDecks,
-        options: deckOptionsOf(this.#savedDecks, POOL_CARDS, POOL_VERSION, POOL_DEPS),
+        options: seatableDeckOptionsOf(this.#savedDecks, POOL_CARDS, POOL_VERSION, POOL_DEPS),
       };
     }
     return this.#deckOptionsFor.options;
@@ -400,7 +420,7 @@ export class SeatsScene extends Phaser.Scene {
     return seatOptions(deckOptions, seatsExcludingActive, CARDS_BY_ID, MAX_SEATS).map((option) => {
       if (option.seated) return option;
       const deck = deckOptions.find((candidate) => (candidate.deck.id as string) === option.deckId);
-      const lock = deck ? unlocks().deckLock(deck.deck) : null;
+      const lock = deck ? deckLockOf(deck.deck) : null;
       return lock ? { ...option, blockedBy: lock } : option;
     });
   }
@@ -409,7 +429,7 @@ export class SeatsScene extends Phaser.Scene {
   #tableLock(deckOptions: readonly DeckOption[]): string | null {
     for (const deckId of this.#draft.seats) {
       const deck = deckOptions.find((candidate) => (candidate.deck.id as string) === deckId);
-      const lock = deck ? unlocks().deckLock(deck.deck) : null;
+      const lock = deck ? deckLockOf(deck.deck) : null;
       if (lock) return `${deck!.identityName ?? deck!.deck.name}: ${lock}`;
     }
     return null;
@@ -1224,14 +1244,15 @@ export class SeatsScene extends Phaser.Scene {
     const artUrl = picture?.url ?? (identity ? artFor(identity, { kind: "hero" }) : null)?.url ?? null;
     const entry = active.get(option.deck.id as string);
     const sourceText =
-      option.deck.source.kind === "precon" ? "Precon" : option.deck.source.kind === "imported" ? "Imported" : "Built";
+      testedSubtitleOf(option.deck, testedCatalog()) ??
+      (option.deck.source.kind === "precon" ? "Precon" : option.deck.source.kind === "imported" ? "Imported" : "Built");
     const seatedElsewhere = entry?.seatIndex !== null && entry?.seatIndex !== undefined && !entry.isActiveSeat;
     // Second-pass item 12/cosmetic: a deck seated elsewhere gets only its short "SEAT N" tag (no truncated
     // "ALREADY SEATED · SEA…" string); a genuinely illegal/duplicate deck gets "AT THE TABLE" instead of its own
     // full sentence ("Captain Marvel is already at the table"), which used to truncate in the subtitle line — the
     // full reason is still one Inspect away (`#inspectOption`'s own `note`).
     const blockedBy = seatedElsewhere ? null : (entry?.blockedBy ?? null);
-    const lock = seatedElsewhere ? null : unlocks().deckLock(option.deck);
+    const lock = seatedElsewhere ? null : deckLockOf(option.deck);
     const tag = entry?.isActiveSeat
       ? `SEAT ${this.#draft.activeSeatIndex + 1}`
       : seatedElsewhere
@@ -1318,6 +1339,17 @@ export class SeatsScene extends Phaser.Scene {
     name.setFontSize(22);
     name.setWordWrapWidth(rect.width - 32);
     y += name.height + 6;
+    const credit = testedSubtitleOf(option.deck, testedCatalog());
+    if (credit) {
+      const line = this.add.text(
+        rect.x + 16,
+        y,
+        `${option.deck.name} · ${credit}`,
+        textStyle(typeRole.label, surface.paper.hex, ink.label),
+      );
+      line.setWordWrapWidth(rect.width - 32);
+      y += line.height + 6;
+    }
     const stat = this.add.text(
       rect.x + 16,
       y,
@@ -1385,6 +1417,7 @@ export class SeatsScene extends Phaser.Scene {
       hero?.alterEgo.faceName,
       ...option.deck.aspects,
       option.deck.source.kind,
+      ...testedSearchFieldsOf(option.deck, testedCatalog()),
     ];
   }
 
@@ -1514,20 +1547,22 @@ export class SeatsScene extends Phaser.Scene {
     // land on the same shelf, replacing the old one-shelf-per-single-hero-pack "Hero packs" catch-all.
     // "A–Z": the same candidates, flattened into one letter-headed run by hero name (the roster's own sort
     // toggle) — see `azShelvesOf`'s own doc comment for why letter shelves over a single long row or a grid.
-    return this.#draft.heroSortMode === "az"
-      ? azShelvesOf(
-          candidates,
-          this.#draft.heroFilter.text,
-          (option) => option.identityName ?? option.deck.name,
-          (option) => option.deck.name,
-        )
-      : cycleShelvesOf(candidates, POOL_HERO_SHELF_PACKS, this.#draft.heroFilter.text);
+    const shelves =
+      this.#draft.heroSortMode === "az"
+        ? azShelvesOf(
+            candidates,
+            this.#draft.heroFilter.text,
+            (option) => option.identityName ?? option.deck.name,
+            (option) => option.deck.name,
+          )
+        : cycleShelvesOf(candidates, POOL_HERO_SHELF_PACKS, this.#draft.heroFilter.text);
+    return withTestedShelf(shelves, (option) => isCommunityDeckId(option.deck.id as string));
   }
 
   #heroPassesChips(option: DeckOption, blockedBy: string | null): boolean {
     const filter = this.#draft.heroFilter;
     if (filter.aspect && !option.deck.aspects.includes(filter.aspect)) return false;
-    if (filter.source && option.deck.source.kind !== filter.source) return false;
+    if (!heroSourceMatches(option.deck, filter.source)) return false;
     if (filter.playableOnly && blockedBy !== null) return false;
     return true;
   }
@@ -1576,10 +1611,11 @@ export class SeatsScene extends Phaser.Scene {
         this.#rebuild();
       },
     }));
-    const sources: readonly { kind: DeckSourceKind; text: string }[] = [
+    const sources: readonly { kind: HeroSourceFilter; text: string }[] = [
       { kind: "precon", text: "Precon" },
       { kind: "imported", text: "Imported" },
       { kind: "userBuilt", text: "Built" },
+      { kind: "tested", text: "Tested" },
     ];
     const sourceChips = sources.map(({ kind, text }) => ({
       id: `source:${kind}`,
@@ -1638,7 +1674,10 @@ export class SeatsScene extends Phaser.Scene {
    * it's paid for. False when the deck isn't locked, so the tap goes on as usual.
    */
   #offerUnlock(option: DeckOption): boolean {
-    if (!unlocks().deckLock(option.deck)) return false;
+    if (!deckLockOf(option.deck)) return false;
+    // A tested deck can also be shut by a card's wave, which champion points on its hero do not open: it stays blocked.
+    if (testedEntryOf(option.deck, testedCatalog()) && !unlocks().heroLock(option.deck.identityCardId as string))
+      return false;
     const deckId = option.deck.id as string;
     unlockOrAsk(this, { kind: "hero", identityCardId: option.deck.identityCardId as string }, () => {
       if (!this.sys.isActive()) return;
