@@ -120,21 +120,21 @@ describe("wave 9 ability registry", () => {
 });
 
 const PACK_STATUS: Readonly<Record<string, "scripted" | "in progress" | "not started">> = {
-  aos: "not started",
-  bp: "not started",
-  silk: "not started",
-  falcon: "not started",
-  winter: "not started",
-  tt: "not started",
+  aos: "scripted",
+  bp: "scripted",
+  silk: "scripted",
+  falcon: "scripted",
+  winter: "scripted",
+  tt: "scripted",
 };
 
 /** Refs a started pack deliberately leaves unscripted, each with its written reason. Pinned exactly. */
 const KNOWN_SKIPPED: Readonly<Record<string, readonly string[]>> = {};
 
 /**
- * Scripted modules of a pack still marked "not started": the smallest partial state (modeled on wave 8's). Each names the
- * printed ids it covers and its registry; every ref of those cards is registered or in `skipped` with a reason, and the
- * pack's whole registry is exactly the union of these modules. Remove the entry when the pack is marked scripted.
+ * The scripted modules of each pack (modeled on wave 8's partial state, kept after the packs were marked scripted).
+ * Each names the printed ids it covers and its registry; every ref of those cards is registered or in `skipped` with a
+ * reason.
  */
 const SCRIPTED_MODULES: Readonly<
   Record<
@@ -664,9 +664,9 @@ describe("wave 9 pack ability coverage", () => {
     const allRefs = cards.flatMap(abilityRefIds);
     const missing = allRefs.filter((id) => !(id in WAVE9_ABILITIES));
 
+    const modules = SCRIPTED_MODULES[code] ?? [];
+    const scripted = modules.flatMap((m) => Object.keys(m.registry));
     if (PACK_STATUS[code] === "not started") {
-      const modules = SCRIPTED_MODULES[code] ?? [];
-      const scripted = modules.flatMap((m) => Object.keys(m.registry));
       it("is not started: nothing resolves beyond what an earlier wave already scripted and its scripted modules", () => {
         // Refs an earlier wave already registered resolve (Silk's Quick Quip 52034 was scripted in wave 5, ahead of its pack).
         expect(missing).toEqual(allRefs.filter((id) => !(id in WAVE8_ABILITIES) && !scripted.includes(id)));
@@ -675,18 +675,6 @@ describe("wave 9 pack ability coverage", () => {
           `${code} is marked not started but its registry holds more than its scripted modules`,
         ).toEqual([...scripted].sort());
       });
-      it.each(modules.map((m) => [m.module, m] as const))(
-        "scripted module %s: every ref registered or skipped",
-        (_, m) => {
-          const refs = cards.filter((c) => m.cardIds.includes(c.id as string)).flatMap(abilityRefIds);
-          expect(refs.length).toBeGreaterThan(0);
-          expect(refs.filter((id) => !(id in m.registry) && !(id in m.skipped))).toEqual([]);
-          expect(Object.keys(m.skipped).filter((id) => id in m.registry || !refs.includes(id))).toEqual([]);
-          expect(Object.keys(m.registry).filter((id) => !refs.includes(id) && !m.registryOnly?.includes(id))).toEqual(
-            [],
-          );
-        },
-      );
     } else {
       it("every ability reference resolves, except its documented skips", () => {
         const skipped = KNOWN_SKIPPED[code] ?? [];
@@ -697,6 +685,17 @@ describe("wave 9 pack ability coverage", () => {
         expect(missing).toHaveLength(skipped.length);
       });
     }
+    // The per-module checks stay on for a scripted pack: each module's skipped map stays honest.
+    it.each(modules.map((m) => [m.module, m] as const))(
+      "scripted module %s: every ref registered or skipped",
+      (_, m) => {
+        const refs = cards.filter((c) => m.cardIds.includes(c.id as string)).flatMap(abilityRefIds);
+        expect(refs.length).toBeGreaterThan(0);
+        expect(refs.filter((id) => !(id in m.registry) && !(id in m.skipped))).toEqual([]);
+        expect(Object.keys(m.skipped).filter((id) => id in m.registry || !refs.includes(id))).toEqual([]);
+        expect(Object.keys(m.registry).filter((id) => !refs.includes(id) && !m.registryOnly?.includes(id))).toEqual([]);
+      },
+    );
   });
 });
 
