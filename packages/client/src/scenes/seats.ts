@@ -1393,6 +1393,9 @@ export class SeatsScene extends Phaser.Scene {
     const candidates = deckOptions
       // Only a hero the player could actually take: legal, unlocked, not already at the table.
       .filter((option) => option.seatable && !seating.get(option.deck.id as string)?.blockedBy)
+      // A tested community deck is recommended only while the list is narrowed to them (TESTED): otherwise a hero's
+      // many community decks would take the shelf from the precon or the player's own deck for that hero.
+      .filter((option) => this.#draft.heroFilter.source === "tested" || !isCommunityDeckId(option.deck.id as string))
       .map((option) => ({
         deck: option.deck,
         shown: this.#heroPassesChips(option, null) && matchesSearch(this.#haystacksOf(option), text),
