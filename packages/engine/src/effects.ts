@@ -3,6 +3,7 @@ import { shownCardId } from "./hidden-reverse.js";
 import { announceDeckTops } from "./deck-top.js";
 import type { EngineDeps } from "./abilities.js";
 import { ALL_PURPOSE_COUNTER, ANY_COUNTER, anyCounterTake, definedCounterTypeOrNull } from "./counter-types.js";
+import { counterRoom } from "./counter-limit.js";
 import type { EncounterDeckId, FrameId, InstanceId, PlayerId } from "./ids.js";
 import {
   emit,
@@ -372,13 +373,23 @@ export function pierceTough(ctx: Ctx, id: InstanceId): readonly StatusDiscarded[
   return discardStatusCards(ctx, id, "tough", "piercing");
 }
 
-export function addCounters(ctx: Ctx, id: InstanceId, counterType: string, amount: number): void {
-  if (amount <= 0) return;
+/**
+ * Places `amount` counters of `counterType` on a card, up to the maximum the card may hold (`RuleSpec counterLimit`,
+ * docs/phase7-wave9.md §3.61): the counters past it are not placed and are logged as such (`countersNotPlaced`).
+ * Returns the number really placed, which is what a caller announces.
+ */
+export function addCounters(ctx: Ctx, id: InstanceId, counterType: string, amount: number): number {
+  if (amount <= 0) return 0;
+  const placed = Math.min(amount, counterRoom(ctx.state, ctx.deps, id, counterType));
+  if (placed < amount)
+    emit(ctx, { type: "countersNotPlaced", instanceId: id, counterType, amount: amount - placed, reason: "limit" });
+  if (placed <= 0) return 0;
   updateInstance(ctx, id, (i) => ({
     ...i,
-    counters: { ...i.counters, [counterType]: (i.counters[counterType] ?? 0) + amount },
+    counters: { ...i.counters, [counterType]: (i.counters[counterType] ?? 0) + placed },
   }));
-  emit(ctx, { type: "counterAdded", instanceId: id, counterType, amount });
+  emit(ctx, { type: "counterAdded", instanceId: id, counterType, amount: placed });
+  return placed;
 }
 
 /** What one type's worth of a move did: `amount` counters of `fromCounterType` arrived on `to` as `counterType`. */
@@ -448,10 +459,23 @@ export function moveCounters(
           .map(([type, amount]) => [type, Math.min(amount, most)] as const);
   // The type the destination defines, read once: the counters arriving do not change it.
   const defined = definedCounterTypeOrNull(ctx.state, to, ctx.deps);
-  for (const [type, amount] of going) {
-    if (amount <= 0) continue;
+  for (const [type, wanted] of going) {
+    if (wanted <= 0) continue;
     const arrivesAs =
       type === ACCELERATION_COUNTER ? type : (defined ?? (counterType === ANY_COUNTER ? ALL_PURPOSE_COUNTER : type));
+    // A maximum on the destination (`RuleSpec counterLimit`, docs/phase7-wave9.md §3.61): only the counters it has room
+    // for move. The rest have no valid destination, so they are not moved and stay on this card (RRG 1.8 "Move", p. 30).
+    const amount = Math.min(wanted, counterRoom(ctx.state, ctx.deps, to, arrivesAs));
+    if (amount < wanted)
+      emit(ctx, {
+        type: "countersNotPlaced",
+        instanceId: to,
+        counterType: arrivesAs,
+        amount: wanted - amount,
+        reason: "limit",
+        fromInstanceId: from,
+      });
+    if (amount <= 0) continue;
     updateInstance(ctx, from, (i) => {
       const { [type]: had = 0, ...rest } = i.counters;
       return { ...i, counters: amount < had ? { ...rest, [type]: had - amount } : rest };

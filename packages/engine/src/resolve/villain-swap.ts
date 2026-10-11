@@ -5,7 +5,7 @@
  * and counters simply stay on it — and give it the other card; the card it had moves to the set-aside card's place.
  */
 
-import type { CardId } from "@mc/content";
+import type { CardId, Trait } from "@mc/content";
 import { type Ctx, emit, moveCard, pushFrames, updateInstance } from "../ctx.js";
 import { applyToughness } from "../effects.js";
 import type { InstanceId } from "../ids.js";
@@ -27,9 +27,31 @@ function setAsideVillainsTitled(ctx: Ctx, title: string | undefined): readonly I
   });
 }
 
+/**
+ * The set-aside villain cards whose **starting face** has `trait`, in set-aside order (docs/phase7-wave9.md §3.60: "a
+ * random set-aside Avatar of Loki villain"). A set-aside card shows its starting side, whichever side it had up when
+ * it was swapped out (`exchangeCards`), so a card that left play as a Fading Figment is in the pool again by the trait
+ * of its other side. The card in play is not set aside, so it is never among them.
+ */
+function setAsideVillainsWithTrait(ctx: Ctx, trait: Trait): readonly InstanceId[] {
+  return ctx.state.encounterSetAside.filter((id) => {
+    const card = cardOf(ctx.state, id);
+    if (card?.type !== "villain") return false;
+    const side = card.sides.find((s) => s.side === (card.startingSide ?? card.sides[0].side)) ?? card.sides[0];
+    return side.stages.some((stage) => stage.traits.includes(trait));
+  });
+}
+
+/** What a villain is swapped with: the set-aside villains of its own title, or those with a trait (`VillainSwapPool`). */
+export interface VillainSwapPool {
+  readonly setAsideTrait: Trait;
+}
+
 /** One of them at random, from the game's seeded RNG; null with none. */
-function randomSetAsideVillain(ctx: Ctx, villainId: InstanceId): InstanceId | null {
-  const candidates = setAsideVillainsTitled(ctx, currentName(ctx.state, villainId));
+function randomSetAsideVillain(ctx: Ctx, villainId: InstanceId, pool?: VillainSwapPool): InstanceId | null {
+  const candidates = pool
+    ? setAsideVillainsWithTrait(ctx, pool.setAsideTrait)
+    : setAsideVillainsTitled(ctx, currentName(ctx.state, villainId));
   if (candidates.length === 0) return null;
   const [pick, rng] = nextInt(ctx.state.rng, candidates.length);
   ctx.state = { ...ctx.state, rng };
@@ -72,17 +94,34 @@ function exchangeCards(ctx: Ctx, villainId: InstanceId, setAsideId: InstanceId):
  * `EffectSpec swapVillain`: RRG 1.8 "'Swap'" (p. 42), two cards sharing a title — "neither card is considered to enter or
  * leave play", everything on the in-play card is transferred, and "that dial remains at the same value". The swapped-out
  * card is set aside (MC21 p. 24). Returns false when there was nothing to swap with.
+ *
+ * `pool`: the set-aside villains with a trait instead of the villain's own title (docs/phase7-wave9.md §3.60). The
+ * exchange is the same one, whatever the titles: RRG 1.8 erratum (p. 70, "Swapping Avatars of Loki") and ruling
+ * February 28, 2026 – Ruling 3 ("Scenario intent takes precedence … They attach to the swapped-in Avatar of Loki")
+ * have every such swap transfer everything with nothing leaving or entering play.
+ *
+ * `dial: "printed"`: "then set the hit point dial of that villain to its printed hit point value". No damage is left on
+ * the new card, so its remaining hit points are its printed value with every modifier in force on it (owner decision,
+ * docs/phase7-wave9.md §4.1 Q8 = A: an attachment's "+2 [per player] hit points" is in effect on the villain it is
+ * attached to). Absent or `"keep"`, the dial keeps its value.
  */
-export function swapVillain(ctx: Ctx, villainId: InstanceId): boolean {
-  const setAsideId = randomSetAsideVillain(ctx, villainId);
+export function swapVillain(
+  ctx: Ctx,
+  villainId: InstanceId,
+  options: { readonly pool?: VillainSwapPool | undefined; readonly dial?: "keep" | "printed" | undefined } = {},
+): boolean {
+  const setAsideId = randomSetAsideVillain(ctx, villainId, options.pool);
   if (setAsideId === null) return false;
   const before = characterProfile(ctx.state, villainId, ctx.deps);
   const remaining = before ? before.maxHp - mustInstance(ctx.state, villainId).damage : 0;
   const { from, to } = exchangeCards(ctx, villainId, setAsideId);
   const after = characterProfile(ctx.state, villainId, ctx.deps);
-  // The dial shows remaining hit points; keeping its value keeps the villain's remaining hit points.
-  if (before && after && Number.isFinite(after.maxHp))
+  if (options.dial === "printed") {
+    updateInstance(ctx, villainId, (i) => ({ ...i, damage: 0 }));
+  } else if (before && after && Number.isFinite(after.maxHp) && Number.isFinite(remaining)) {
+    // The dial shows remaining hit points; keeping its value keeps the villain's remaining hit points.
     updateInstance(ctx, villainId, (i) => ({ ...i, damage: Math.max(0, after.maxHp - remaining) }));
+  }
   emit(ctx, { type: "villainReplaced", instanceId: villainId, fromCardId: from, toCardId: to, reason: "swap" });
   const swapped = { kind: "villainSwapped" as const, villainInstanceId: villainId, fromCardId: from, toCardId: to };
   if (heard(ctx.state, ctx.deps, swapped)) pushFrames(ctx, [eventFrame(ctx, swapped)]);

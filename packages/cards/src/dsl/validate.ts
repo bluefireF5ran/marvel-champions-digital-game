@@ -179,6 +179,18 @@ function checkCost(definition: AbilityDefinition, problems: string[]): void {
   // The engine asks for the player a cost deals to only as an action is initiated (`AbilityCost.dealEncounterCardsTo`).
   if (definition.trigger.kind !== "action" && looks.some((part) => part.dealEncounterCardsTo))
     problems.push("cost dealEncounterCardsTo: only on an action (a window cannot ask which player is dealt the card)");
+  // "Each player exhausts their identity and takes 1 damage →" (`AbilityCost.eachPlayer`, docs/phase7-wave9.md §3.58).
+  for (const part of looks) {
+    const each = part.eachPlayer;
+    if (!each) continue;
+    if (!each.exhaustIdentity && each.damageSelf === undefined)
+      problems.push("cost eachPlayer: needs exhaustIdentity or damageSelf");
+    if (each.damageSelf !== undefined && (!Number.isInteger(each.damageSelf) || each.damageSelf < 1))
+      problems.push("cost eachPlayer: damageSelf must be a whole number of at least 1");
+    if (each.exhaustIdentity && part.exhaustIdentity)
+      problems.push("cost eachPlayer: exhaustIdentity already exhausts the payer's identity; drop the cost's own");
+    if (definition.trigger.kind === "resource") problems.push("cost eachPlayer: not on a resource ability");
+  }
   for (const part of looks) {
     const floor = part.resolveAbility?.asIf?.remainingHpAtLeast;
     if (floor !== undefined && (!Number.isInteger(floor) || floor < 1))

@@ -130,6 +130,12 @@ import {
 } from "./attach-cost.js";
 import { dealToCostPlayer, planDealToCost } from "./deal-to-cost.js";
 import {
+  EACH_PLAYER_COST_SLOT,
+  eachPlayerCostDamageEffects,
+  eachPlayerCostFault,
+  eachPlayerCostIdentities,
+} from "./each-player-cost.js";
+import {
   REMOVE_THREAT_FROM_SLOT,
   REMOVE_THREAT_MAX_VAR,
   REMOVE_THREAT_MIN_VAR,
@@ -218,6 +224,7 @@ import {
   activeRules,
   basicThwartTargetAllowed,
   attackableAsMinion,
+  attackForbiddenBy,
   canAttack,
   cardsInPlay,
   cardTypeOf,
@@ -2619,6 +2626,12 @@ export function planCost(
   if (cost.exhaustIdentity && identity.exhausted) {
     return { code: "already_exhausted", message: "your identity is already exhausted" };
   }
+  // "Each player exhausts their identity and takes 1 damage →" (`each-player-cost.ts`, docs/phase7-wave9.md §3.58): one
+  // player who cannot pay their part makes the whole cost unpayable (RRG 1.8 "Cost", p. 13).
+  if (cost.eachPlayer) {
+    const fault = eachPlayerCostFault(state, deps, sourceId, cost.eachPlayer);
+    if (fault) return fault;
+  }
   // A heal cost can only be paid if there is that much damage to heal (RRG "Cost": costs are paid in full).
   if (cost.healIdentity !== undefined && identity.damage < cost.healIdentity) {
     return { code: "insufficient_resources", message: "not enough damage to heal as a cost" };
@@ -2882,6 +2895,7 @@ export function planCost(
   const spentInPlay = [
     ...(cost.exhaustSelf ? [sourceId] : []),
     ...(cost.exhaustIdentity ? [identity.instanceId] : []),
+    ...(cost.eachPlayer?.exhaustIdentity ? eachPlayerCostIdentities(state) : []),
     ...inPlayIds,
     // An attach cost's card, when it is in play (moved from one host to another), pays only that part (§3.49).
     ...(cost.attach
@@ -3448,21 +3462,37 @@ export function payCost(
   if (cost.placeCounters) {
     const { counterType, amount, target } = cost.placeCounters;
     const holderId = target === "identity" ? identityId : sourceId;
-    addCounters(ctx, holderId, counterType, amount);
+    // The number really placed: a maximum on the card (`RuleSpec counterLimit`, wave 9 §3.61) may leave some unplaced.
+    const placed = addCounters(ctx, holderId, counterType, amount);
     const event: TriggerEvent = {
       kind: "countersPlaced",
       targetInstanceId: holderId,
       counterType,
-      amount,
+      amount: placed,
       playerId,
       paidAsCost: true,
     };
-    if (amount > 0 && heard(ctx.state, ctx.deps, event)) {
+    if (placed > 0 && heard(ctx.state, ctx.deps, event)) {
       if (collectCounterEvents) collectCounterEvents.push(event);
       else pushEvents(ctx, [event]);
     }
   }
   if (cost.exhaustIdentity) exhaustCard(ctx, identityId);
+  // "Each player exhausts their identity and takes 1 damage →" (`each-player-cost.ts`): every identity exhausts now, and
+  // the damage is one deal to all of them above the frame being paid for, settled as any damage taken as a cost.
+  if (cost.eachPlayer) {
+    const identities = eachPlayerCostIdentities(ctx.state);
+    if (cost.eachPlayer.exhaustIdentity) for (const id of identities) exhaustCard(ctx, id);
+    const each = cost.eachPlayer.damageSelf ?? 0;
+    if (each > 0 && identities.length > 0) {
+      pushEffects(ctx, {
+        effects: eachPlayerCostDamageEffects(each, identities.length, paidFor),
+        selfInstanceId: sourceId,
+        controllerId: playerId,
+        bindings: { [EACH_PLAYER_COST_SLOT]: identities },
+      });
+    }
+  }
   if (cost.healIdentity) healDamage(ctx, identityId, cost.healIdentity, sourceId);
   // "Deal yourself 1 facedown encounter card →" (docs/phase7-wave3.md §3.20). A cost is paid in one piece: should one
   // of several cards dealt here reset the encounter deck, the response to the reset follows the whole payment (no
@@ -5593,8 +5623,17 @@ function basicAttackPaying(
     if (!sameGameArea(areaOfPlayer(ctx.state, command.playerId), areaOfCard(ctx.state, targetInstanceId))) {
       return engineError("no_valid_target", "that enemy is in another game area", command);
     }
-    if (!canAttack(ctx.state, command.attackerInstanceId, targetInstanceId, ctx.deps)) {
-      return engineError("no_valid_target", "a guard minion blocks attacks against the villain", command);
+    if (!canAttack(ctx.state, command.attackerInstanceId, targetInstanceId, ctx.deps, true)) {
+      // "You cannot make basic attacks" (`cannotAttack.basicOnly`, docs/phase7-wave9.md §3.72) is refused in its card's
+      // name. Every other refusal keeps the one message clients match on (guard, and a `cannotAttack` rule on any
+      // attack, which `attackForbiddenBy` can name for them).
+      const by = attackForbiddenBy(ctx.state, command.attackerInstanceId, targetInstanceId, ctx.deps, true);
+      const named = by?.basicOnly && by.byInstanceId ? cardOf(ctx.state, by.byInstanceId)?.name : undefined;
+      return engineError(
+        "no_valid_target",
+        named ? `${named}: you cannot make basic attacks` : "a guard minion blocks attacks against the villain",
+        command,
+      );
     }
     // RRG 1.8 "Target" (p. 43): "A target that 'cannot take damage' is not a valid target for an ability or game
     // function whose only effect on that target is to deal it damage." Ruling Mar 19, 2026 (2): that "applies equally

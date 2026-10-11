@@ -1788,6 +1788,18 @@ export const putIntoPlayFromSetAside = (
   ...(opts.attachTo ? [attachCard(chosen(slot), opts.attachTo)] : []),
   ...(opts.facedown ? [turnFacedown(chosen(slot))] : []),
 ];
+/**
+ * "The player who defeated this minion puts the set-aside [title] ally into play under their control." (Absorbing Man
+ * 55056, Titania 55057, Whirlwind 55058, Zzzax 55059, `tt`; docs/phase7-wave9.md §3.57): the set-aside ally that shares
+ * this card's title, the linked card setup set aside for it ("Linked ([title] minion)", RRG 1.8 p. 27), bound to `slot`
+ * and put into play under `controller`, who becomes its owner. Pass the minion's When Defeated
+ * `putLinkedAllyIntoPlay(defeatingPlayer)`. `controller` names nobody when no player defeated the minion (an encounter
+ * card's damage), and then the ally stays set aside: name a fallback with `playerOrElse` if the card should not.
+ */
+export const putLinkedAllyIntoPlay = (controller: PlayerRef, slot = "linkedAlly"): EffectSpec[] => [
+  selectCards(slot, encounterSetAside(query("ally", { sharesTitleWith: self }))),
+  putIntoPlay(chosen(slot), controller),
+];
 /** "Put the top card of your deck into play facedown, engaged with you as a [Drone] minion." */
 export const putIntoPlayFacedown = (player: PlayerRef, as: FacedownRole, count?: Amount): EffectSpec => ({
   kind: "putIntoPlayFacedown",
@@ -2842,6 +2854,25 @@ export const putMainSchemeStageIntoPlay = (stageNumber: number, name?: string): 
  * `tt`): RRG 1.8 "'Swap'" (p. 42), everything on the villain stays, dial included (docs/phase7-wave4.md §3.7).
  */
 export const swapVillain = (villain: TargetRef = { kind: "villain" }): EffectSpec => ({ kind: "swapVillain", villain });
+/**
+ * "Swap the Avatar of Loki villain in play with a random set-aside Avatar of Loki villain" (Stories and Lies, `tt`
+ * 55051) → `swapVillainByTrait(trait("AVATAR OF LOKI"))`; Shatter the Illusion's step 2, "Swap the Fading Figment in
+ * play with a random set-aside villain, Avatar of Loki side faceup, then set the hit point dial of that Avatar of Loki
+ * villain to its printed hit point value" → `swapVillainByTrait(trait("AVATAR OF LOKI"), { dial: "printed" })`
+ * (docs/phase7-wave9.md §3.60). The pool is the set-aside villain cards whose starting face has the trait; everything
+ * on the villain stays on it and nothing leaves or enters play (RRG 1.8 erratum, p. 70; ruling February 28, 2026 –
+ * Ruling 3). `dial: "printed"` leaves no damage on the new card (§4.1 Q8 = A); the default keeps the dial.
+ */
+export const swapVillainByTrait = (
+  setAsideTrait: Trait,
+  opts: { readonly villain?: TargetRef; readonly dial?: "keep" | "printed" } = {},
+): EffectSpec => ({
+  kind: "swapVillain",
+  villain: opts.villain ?? { kind: "villain" },
+  with: { setAsideTrait },
+  face: "starting",
+  ...(opts.dial ? { dial: opts.dial } : {}),
+});
 /**
  * Raises a named moment other cards answer with `on.moment(name)` (docs/phase7-wave8.md §3.39): "After you resolve a
  * mission attempt", "After you resolve Bishop's 'Energy Absorption' ability". Put it where the thing it names is done:

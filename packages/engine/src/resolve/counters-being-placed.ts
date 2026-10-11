@@ -10,7 +10,8 @@
  */
 
 import type { EngineDeps } from "../abilities.js";
-import type { Ctx } from "../ctx.js";
+import { counterRoom } from "../counter-limit.js";
+import { type Ctx, emit } from "../ctx.js";
 import { addCounters } from "../effects.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardsInPlay } from "../select.js";
@@ -67,23 +68,30 @@ export function placeCountersOrAnnounce(
   let placed = 0;
   for (const { instanceId, counterType, count } of placements) {
     if (count <= 0) continue;
-    const landed: CountersPlaced = {
+    const announced = (amount: number): CountersPlaced => ({
       kind: "countersPlaced",
       targetInstanceId: instanceId,
       counterType,
-      amount: count,
+      amount,
       playerId,
-    };
-    const imminent: CountersPlaced = { ...landed, imminent: countOn ? { countOn } : {} };
-    if (waiting || (listens && hasCandidates(ctx.state, ctx.deps, imminent, "interrupt"))) {
+    });
+    // Only the counters the card has room for would be placed (`RuleSpec counterLimit`, docs/phase7-wave9.md §3.61):
+    // the window is for those, and a placement the limit stops entirely is not imminent. The rest are logged as not
+    // placed where the placement is made (`addCounters`), or here when all of it waits for the window.
+    const room = counterRoom(ctx.state, ctx.deps, instanceId, counterType);
+    const wouldPlace = Math.min(count, room);
+    const imminent: CountersPlaced = { ...announced(wouldPlace), imminent: countOn ? { countOn } : {} };
+    if (wouldPlace > 0 && (waiting || (listens && hasCandidates(ctx.state, ctx.deps, imminent, "interrupt")))) {
       waiting = true;
+      if (wouldPlace < count)
+        emit(ctx, { type: "countersNotPlaced", instanceId, counterType, amount: count - wouldPlace, reason: "limit" });
       events.push(imminent);
       continue;
     }
-    addCounters(ctx, instanceId, counterType, count);
-    placed += count;
-    // One announcement per placement, with the number placed (docs/phase7-wave6.md §3.2, §4.1 Q8).
-    if (heard(ctx.state, ctx.deps, landed)) events.push(landed);
+    const landed = addCounters(ctx, instanceId, counterType, count);
+    placed += landed;
+    // One announcement per placement, with the number placed (docs/phase7-wave6.md §3.2, §4.1 Q8); none for none.
+    if (landed > 0 && heard(ctx.state, ctx.deps, announced(landed))) events.push(announced(landed));
   }
   if (events.length > 0) pushEvents(ctx, events);
   return placed;
@@ -95,10 +103,13 @@ export function placeCountersOrAnnounce(
  */
 export function applyCountersBeingPlaced(ctx: Ctx, event: CountersPlaced): boolean {
   if (!cardsInPlay(ctx.state).includes(event.targetInstanceId)) return false;
-  addCounters(ctx, event.targetInstanceId, event.counterType, event.amount);
+  // The card's maximum is read again: the window may have filled it (`RuleSpec counterLimit`).
+  const placed = addCounters(ctx, event.targetInstanceId, event.counterType, event.amount);
+  if (placed <= 0) return false;
   const countOn = event.imminent?.countOn;
-  if (countOn) addFrameVars(ctx, countOn.frameId, { [countOn.name]: event.amount });
-  const { imminent: _made, ...landed } = event;
+  if (countOn) addFrameVars(ctx, countOn.frameId, { [countOn.name]: placed });
+  const { imminent: _made, ...made } = event;
+  const landed = { ...made, amount: placed };
   if (heard(ctx.state, ctx.deps, landed)) pushEvents(ctx, [landed]);
   return true;
 }

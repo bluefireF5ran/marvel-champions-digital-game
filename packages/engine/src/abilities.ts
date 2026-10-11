@@ -1061,6 +1061,15 @@ export type RuleSpec =
        * the attacking character itself, before `player` (if also given) narrows further by controller.
        */
       readonly attacker?: TargetQuery;
+      /**
+       * "You cannot make basic attacks" (docs/phase7-wave9.md §3.72): only a **basic** attack is forbidden, read as
+       * `attackKeywords.basicOnly` reads it (RRG 1.8 "Basic Power", p. 10). An attack made by a card's ability, an
+       * "(attack)"-labeled one included, is not asked, whoever makes it. A basic attack a card effect has a character
+       * make is still that character's basic attack, so it is forbidden too (RRG 1.8 "'Cannot'", p. 11). "You" on an
+       * attachment is its identity, so the printed sentence is `attacker` (the host) with every enemy as `target`:
+       * the player's allies still make basic attacks (RRG 1.8 "You, Your", p. 49).
+       */
+      readonly basicOnly?: true;
     }
   /**
    * "Any player can attack this card as if it were a minion." (docs/phase7-wave9.md §3.50): each card in play matching
@@ -1109,6 +1118,30 @@ export type RuleSpec =
    * check (RRG 1.8 "Player Side Scheme Limit", p. 34), not an ability that resolves.
    */
   | { readonly kind: "excludedFromPlayerSideSchemeLimit"; readonly target: TargetQuery; readonly while?: Predicate }
+  /**
+   * "Max 1 [per player] synergy counters here." (docs/phase7-wave9.md §3.61; `counter-limit.ts`): each card in play
+   * matching `card` (the rule's own card: `{ self: true }`) holds at most `max` counters of `counterType`, the type as
+   * the card stores it. `max` is read at each placement with the rule's card as `self`.
+   *
+   * - **Every placement is bound**, not one ability's (RRG 1.8 "Max, Maximum", p. 28, read for a sentence on the card
+   *   that holds the counters): an effect's `addCounters`, a counter cost, a card's entering-play counters and counters
+   *   arriving by `moveCounters` all place `min(amount, max − held)`.
+   * - **The rest is not placed.** It is logged (`GameEvent countersNotPlaced`, reason `limit`) and announces nothing:
+   *   `countersPlaced` carries the number really placed, and is not announced for none. A placement the limit stops
+   *   entirely is not imminent either, so no "would be placed" interrupt answers it.
+   * - **A moved counter that cannot arrive does not move** (RRG 1.8 "Move", p. 30: "If there is no valid source or
+   *   destination for a move, the move cannot be made"): it stays on the card it was on.
+   * - A choice of where to place a counter still offers a full card (the cards do not say "that can hold one");
+   *   choosing it places nothing.
+   * - Counters already over the limit when the rule comes into force stay; nothing is removed.
+   */
+  | {
+      readonly kind: "counterLimit";
+      readonly card: TargetQuery;
+      readonly counterType: string;
+      readonly max: ValueSpec;
+      readonly while?: Predicate;
+    }
   /**
    * "Your allies, upgrades, and supports enter play exhausted." (docs/phase7-wave7.md §3.36 gap 1): a constant on one
    * card that makes other cards enter play exhausted. `target` is read as each card enters play, by any route (played,
@@ -2591,6 +2624,21 @@ export interface AbilityCost {
   readonly discardRandomFromHandFilter?: TargetQuery;
   /** "Exhaust your hero →" / "Exhaust your identity →" (encounter-card Hero Actions). */
   readonly exhaustIdentity?: boolean;
+  /**
+   * "Each player exhausts their identity and takes 1 damage →" (docs/phase7-wave9.md §3.58; `each-player-cost.ts`):
+   * the inner cost is checked and paid for every player still in the game, the payer included, in player order.
+   *
+   * - **One player who cannot pay makes the whole cost unpayable** (RRG 1.8 "Cost", p. 13: paid in full or not at
+   *   all): an identity already exhausted, or one that could not take all the damage. The other players' forms are
+   *   not asked about; a form the card asks of its user is the trigger's (`form`).
+   * - **`damageSelf` is damage taken as a cost** (RRG 1.8 "Cost", p. 14; FAQ "Focused Rage (#27)", p. 57): a player
+   *   holding a tough status card, one that cannot take damage and one a constant would reduce it for cannot pay, as
+   *   for the payer's own `damageSelf`; damage an interrupt prevents as it is paid leaves the effects unresolved.
+   * - The payer's identity is paid with here, so `exhaustIdentity` beside it (the same card twice) cannot be paid.
+   *
+   * Only these two components: both are things every player has (an identity), with nothing to pick.
+   */
+  readonly eachPlayer?: { readonly exhaustIdentity?: boolean; readonly damageSelf?: number };
   /**
    * "Choose and discard 1 card from your hand →" (min 1, max 1) / "Choose and
    * discard up to 5 cards" (min 0, max 5) / "Discard X cards from your hand →" with no printed cap (Shield Toss:
