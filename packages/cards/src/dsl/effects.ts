@@ -1366,6 +1366,26 @@ export const dealHiddenPiles = (
   restTo: piles.restTo,
 });
 /**
+ * "Set the A.I.M. and S.H.I.E.L.D. envelopes aside so that you can access them during the scenario" (MC50 p. 19;
+ * docs/phase7-wave9.md §3.75): in a campaign game, each hidden pile of `piles` is the cards of the campaign-log field
+ * it names (a sealed field is read from the sealed part of the frozen log, which nothing else in a game reads), the
+ * cards of the shared field `revealedField` start faceup as cards that came out of `rest.to`, and every other
+ * evidence card of the encounter set `rest.set` is shuffled into the hidden pile `rest.to`. Logged with sizes only.
+ * Does nothing in a standalone game: gate the scenario's own `dealHiddenPiles` on `not(inCampaign)`.
+ *
+ * `seedHiddenPiles({ aim: "aimEnvelope" }, "evidence", { set: "executive_board_evidence", to: "shield" })`.
+ */
+export const seedHiddenPiles = (
+  piles: Readonly<Record<string, string>>,
+  revealedField: string,
+  rest: { readonly set: string; readonly to: string },
+): EffectSpec => ({
+  kind: "seedHiddenPiles",
+  piles: Object.fromEntries(Object.entries(piles).map(([pile, field]) => [pile, { campaignLogField: field }])),
+  revealed: { campaignLogField: revealedField },
+  rest: { set: rest.set, to: rest.to },
+});
+/**
  * "Gain N cards from the [pile] envelope" (Zemo's Manipulations 1B, `aos` 50167b; docs/phase7-wave9.md §3.29 (a)): that
  * many cards of the hidden pile at random, or every card left when fewer are there, are turned faceup for every
  * player (MC50 p. 18). `bind`: `<bind>.count` is how many were gained. An ability whose only effect is this cannot be
@@ -2059,7 +2079,8 @@ export const giveBoostCard = (
   enemy: TargetRef = theVillain,
   countOrCard: Amount | { readonly card: TargetRef } = 1,
 ): EffectSpec => {
-  if (typeof countOrCard === "object" && "card" in countOrCard)
+  // A value has a `kind` and the card option does not (a `campaignLog` value may itself name a `card`).
+  if (typeof countOrCard === "object" && !("kind" in countOrCard))
     return { kind: "giveBoostCard", enemy, card: countOrCard.card };
   return countOrCard === 1
     ? { kind: "giveBoostCard", enemy }
@@ -2170,6 +2191,13 @@ export const searchCollection = (
  * campaign cards (the Deadpool insert's FAQ on Armed to the Teeth; §4.1 Q47 = A).
  */
 export const fromAnyAspect: readonly string[] = ["aggression", "justice", "leadership", "protection", "pool"];
+/**
+ * "Search their collection for **a different** Justice ally" (Wiretap, `aos` 50186, and the eight other evidence
+ * cards; docs/phase7-wave9.md §3.77, §4.1 Q12 = A): the "a different" half of a collection search filter, spread into
+ * it. No card is found whose title is the title of a card in the searching player's deck, hand, discard pile or play
+ * area. `searchCollection({ categories: ["ally"], aspects: ["justice"], ...aDifferentCard }, "found", player)`.
+ */
+export const aDifferentCard: Pick<CollectionSearchFilter, "notAmongOwnCards"> = { notAmongOwnCards: true };
 /**
  * "Search your collection for a hero whose title does not match a character in play" (Reluctant Foe, `aos` 50171;
  * docs/phase7-wave9.md §3.30; MC50 p. 22) → `searchCollection(heroNoCharacterIsTitledAs, "hero")`: an identity card

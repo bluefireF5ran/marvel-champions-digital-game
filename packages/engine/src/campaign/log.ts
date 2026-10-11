@@ -172,6 +172,65 @@ const numberOf = (value: LogValue | undefined): number => {
   }
 };
 
+/** How many entries a value holds: what a sealed value's stand-in says in its place (`LogValueSeal.sealedSize`). */
+export const logValueSize = (value: LogValue): number => {
+  switch (value.kind) {
+    case "cardList":
+      return value.cardIds.length;
+    case "strikeList":
+      return value.struck.length;
+    case "instructionList":
+      return value.ids.length;
+    case "cardState":
+      return Object.keys(value.cards).length;
+    case "cardRef":
+      return value.cardId === "" ? 0 : 1;
+    case "choice":
+      return value.option === "" ? 0 : 1;
+    case "text":
+      return value.value === "" ? 0 : 1;
+    case "number":
+    case "flag":
+      return 1;
+  }
+};
+
+/**
+ * A sealed value with its contents taken out (docs/phase7-wave9.md §3.75): the same kind, nothing in it, and how many
+ * entries the real one holds. What a trace, a history entry and a copy of the log sent to a player hold in its place.
+ * A value that is not sealed comes back as it is.
+ */
+export function withoutSealedContents(value: LogValue): LogValue {
+  if (value.sealed !== true) return value;
+  const seal = { sealed: true as const, sealedSize: value.sealedSize ?? logValueSize(value) };
+  switch (value.kind) {
+    case "number":
+      return { kind: "number", value: 0, ...seal };
+    case "flag":
+      return { kind: "flag", value: false, ...seal };
+    case "cardList":
+      return { kind: "cardList", cardIds: [], ...seal };
+    case "cardRef":
+      return { kind: "cardRef", cardId: "" as CardId, ...seal };
+    case "choice":
+      return { kind: "choice", option: "", ...seal };
+    case "strikeList":
+      return { kind: "strikeList", struck: [], ...seal };
+    case "cardState":
+      return { kind: "cardState", cards: {}, ...seal };
+    case "instructionList":
+      return { kind: "instructionList", ids: [], ...seal };
+    case "text":
+      return { kind: "text", value: "", ...seal };
+  }
+}
+
+/** A record of fields with every sealed value's contents taken out; the same object when none is sealed. */
+export function withoutSealedFields(fields: Readonly<Record<string, LogValue>>): Readonly<Record<string, LogValue>> {
+  if (!Object.values(fields).some((value) => value.sealed === true)) return fields;
+  return Object.fromEntries(Object.entries(fields).map(([field, value]) => [field, withoutSealedContents(value)]));
+}
+
 /** The option strings a value names, for `mode: "strike"` and for appending to a list of names. */
 const optionsOf = (value: LogValue): readonly string[] => {
   switch (value.kind) {
@@ -275,7 +334,8 @@ function combine(
 }
 
 /**
- * Folds one resolved write into the working log.
+ * Folds one resolved write into the working log, and returns it as the history traces it: the value the field now
+ * holds, or, for a sealed value (docs/phase7-wave9.md §3.75), its stand-in with no contents (`withoutSealedContents`).
  *
  * A write naming a per-seat field with no seat, or a seat the log does not have, is dropped rather than guessed at:
  * a record instruction with `seat: "each"` is expanded by the caller, so a seatless per-seat write can only come
@@ -288,18 +348,41 @@ export function applyLogWrite(
 ): LogWrite | null {
   const declared = fieldDefOf(definition, write.field);
   if (declared.type.kind === "cardState") {
-    // Flagged, not guessed (design §4.2): MC50 p. 6's Board Members carry counters *and a face* between scenarios,
-    // and neither `CampaignGameQuery` nor `CampaignValue` can compose that value. The foundation has the storage
-    // shape and no way to fill it, so refusing is the honest behavior until the write half is designed.
+    // MC50 p. 6's Board Members carry counters *and a face* between scenarios. One thing composes that value: a
+    // `record` instruction's `cardStateOf` query (`campaign/result.ts`, docs/phase7-wave9.md §3.74), which sets the
+    // field whole. `CampaignValue` cannot spell one, so the between-games ops never get this far (`ops.ts` refuses
+    // first), and any other shape arriving here is refused rather than coerced.
+    const listed = declared.type.cardIds as readonly string[];
+    if (write.mode !== "set" || write.value.kind !== "cardState") {
+      throw new EngineInvariantError(
+        `campaign log field "${declared.id}" is a cardState field, which the between-games vocabulary cannot yet write`,
+      );
+    }
+    const stray = Object.keys(write.value.cards).find((cardId) => !listed.includes(cardId));
+    if (stray !== undefined) {
+      throw new EngineInvariantError(
+        `campaign log field "${declared.id}" records the state of ${listed.join(", ")}, not of ${stray}`,
+      );
+    }
+  }
+  if (write.value.sealed === true && !declared.hidden) {
     throw new EngineInvariantError(
-      `campaign log field "${declared.id}" is a cardState field, which the between-games vocabulary cannot yet write`,
+      `campaign log field "${declared.id}" is not a hidden field, and a sealed value can be written to a hidden field only`,
     );
   }
   const record = recordFor(definition, working, write.field, write.seatNumber);
   if (!record) return null;
-  const combined = combine(declared, write.mode, record[write.field], write.value, write.distinct === true);
-  record[write.field] = combined;
-  return { ...write, value: combined };
+  const existing = record[write.field];
+  const {
+    sealed: _sealed,
+    sealedSize: _size,
+    ...combined
+  } = combine(declared, write.mode, existing, write.value, write.distinct === true);
+  // A sealed value stays sealed whatever is added to it: a set replaces it, anything else builds on it.
+  const sealed = write.value.sealed === true || (write.mode !== "set" && existing?.sealed === true);
+  const stored: LogValue = sealed ? { ...combined, sealed: true } : combined;
+  record[write.field] = stored;
+  return { ...write, value: withoutSealedContents(stored) };
 }
 
 /** `clearField`: the field goes back to "nothing recorded", which is absence rather than an empty value. */

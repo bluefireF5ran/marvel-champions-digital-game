@@ -1239,8 +1239,21 @@ export type ValueSpec =
    * absent reads the shared field. `of: "count"` asks for the *number of entries* in a list-valued field
    * ("the number of Rescued Captive allies recorded"), which is the only way to get a number out of one — without
    * it, only a `number` field (its value) and a `flag` field (1/0) read as anything but 0.
+   *
+   * `card` with `counter` reads a `cardState` field instead (docs/phase7-wave9.md §3.74; MC50 p. 11: "Place secret
+   * counters on each Board Member environment equal to the number of secret counters recorded for that environment"):
+   * the number recorded for the counter `counter` on the card `card`, which is the card id the field lists (the
+   * card's front face). 0 for a card not recorded, a counter not recorded, or a field of another kind. `of` is not
+   * read then.
    */
-  | { readonly kind: "campaignLog"; readonly field: string; readonly seat?: PlayerRef; readonly of?: "count" };
+  | {
+      readonly kind: "campaignLog";
+      readonly field: string;
+      readonly seat?: PlayerRef;
+      readonly of?: "count";
+      readonly card?: CardId;
+      readonly counter?: string;
+    };
 
 export type StatName = "atk" | "thw" | "def" | "rec" | "sch";
 
@@ -1270,6 +1283,12 @@ export type Predicate =
    * identified a mole against an accusation.
    */
   | { readonly kind: "accusedWrong" }
+  /**
+   * "If not playing campaign mode" / "(1 card instead in campaign mode)" (Zemo's Manipulations, `aos` 50167a/b;
+   * docs/phase7-wave9.md §3.75): this game is a scenario of a campaign, which is `GameState.campaign` being present
+   * (the input the campaign runner froze into the game). False in a standalone game.
+   */
+  | { readonly kind: "inCampaign" }
   /**
    * `player` could pay a `spendResources` effect asking for `resources` (and `distinctTypes`) right now: some payment
    * from the hand cards and resource abilities that spend would offer them prices to enough (`canPaySpend`, priced as
@@ -1574,6 +1593,16 @@ export type Predicate =
       readonly atLeast?: number;
       readonly of?: "count";
       readonly isSet?: boolean;
+      /**
+       * A card a `cardState` field holds a state for (docs/phase7-wave9.md §3.74), named by the card id the field
+       * lists. Alone it asks whether the card was recorded at all. With `face` it asks which face it was recorded on:
+       * a string is the recorded face (`LogValue` `cardState`: the other face's card id, or its printed name), and
+       * `"front"` is a card recorded with no face, which is one recorded on the listed face or one recorded by a
+       * query that did not ask for the face. MC50 p. 6: "once a board member flips to its attachment side, it remains
+       * an attachment for the rest of the campaign." False for a field of another kind.
+       */
+      readonly card?: CardId;
+      readonly face?: string;
     }
   /**
    * "If this activation is an attack/scheme" (Badoon Warlord, Badoon Lieutenant, `gmw` 16121/16119): reads the
@@ -3083,7 +3112,10 @@ export type EffectSpec =
    * copies already fetched, and copies removed from the game (ruling, December 17, 2025 - Ruling 4, answer 1: a
    * removed card "does not become a part of the collection"). `filter` is the whole criteria, read from printed card
    * data, because a collection card is no card in the game and has no state to ask a `TargetQuery` about. A scenario-
-   * or campaign-specific card is never found (RRG 1.8 "Campaign-Specific Card", p. 11).
+   * or campaign-specific card is never found (RRG 1.8 "Campaign-Specific Card", p. 11). Nor is a card with the linked
+   * keyword (RRG 1.8 "Linked (Card Title)", p. 27: "Cards with the linked keyword cannot be included in any deck",
+   * and only the card its parentheses name brings it into the game; ruling August 3, 2026 - Ruling 4, answer 3:
+   * "Linked cards cannot be included in decks", asked about a campaign reward).
    *
    * A `searchCollection` choice of at most one card definition, in title order; a search may find nothing (p. 39: "If
    * the player finds a card …"), so choosing none is allowed. The pick creates one new card instance (the next id
@@ -3790,6 +3822,29 @@ export type EffectSpec =
    * nothing; inside a longer effect list an empty pile gains nothing and the rest resolves.
    */
   | { readonly kind: "gainFromHiddenPile"; readonly pile: string; readonly count: ValueSpec; readonly bind?: string }
+  /**
+   * "Set the A.I.M. and S.H.I.E.L.D. envelopes aside so that you can access them during the scenario" (MC50 p. 19;
+   * p. 18: "If you are playing in campaign mode, simply place the A.I.M. and S.H.I.E.L.D. envelopes within reach";
+   * docs/phase7-wave9.md §3.75): the hidden piles of a campaign game, filled from the campaign log instead of dealt.
+   *
+   * - `piles`: each named hidden pile is the cards of that campaign-log field, in recorded order. The field is read
+   *   from the sealed part of the frozen log (`CampaignLogView.hidden`) and, for a field that is not sealed, from the
+   *   shared part.
+   * - `revealed`: the cards of that shared field are faceup from the start, as cards that came out of the pile
+   *   `rest.to` (the evidence gained in earlier scenarios, MC50 p. 6).
+   * - `rest`: every other evidence card of the encounter set `rest.set` in the game's card pool, taken in card id
+   *   order and shuffled with the game's seeded RNG, is the hidden pile `rest.to`.
+   *
+   * Each named pile is replaced whole (`placeHiddenPiles`). Logged `hiddenPilesDealt` with the sizes, no card id and
+   * `seeded`. In a game with no campaign nothing happens and nothing is logged: a scenario that also deals its own
+   * piles gates that deal on `Predicate inCampaign`.
+   */
+  | {
+      readonly kind: "seedHiddenPiles";
+      readonly piles: Readonly<Record<string, { readonly campaignLogField: string }>>;
+      readonly revealed: { readonly campaignLogField: string };
+      readonly rest: { readonly set: string; readonly to: string };
+    }
   /**
    * "Use the cards in the A.I.M. envelope" (The Accusation 2B, `aos` 50168b; MC50 p. 19: "the players take the evidence
    * cards from the A.I.M. envelope"): every card left in the hidden pile `pile` is turned faceup, in the pile's order,
@@ -5239,4 +5294,14 @@ export type CollectionSearchFilter = Pick<CollectionFilter, "categories" | "aspe
    * a progressing identity other than the first, and a separated identity, are not found.
    */
   readonly heroTitleNotInPlay?: true;
+  /**
+   * "Search their collection for **a different** [aspect] [type]" (the evidence cards' Setup abilities, `aos` 50185 to
+   * 50193; docs/phase7-wave9.md §3.77, §4.1 Q12 = A): no card whose title is the title of one of the searching
+   * player's cards in this game. Their cards are the cards in their deck, their hand and their discard pile, and the
+   * cards in play that they own or control (their play area, their identity included). Compared by printed title, as
+   * copies are counted (RRG 1.8 "Player Deck", p. 33), so a reprint of a card they hold is left out with it. A card
+   * found by an earlier search of the same setup is one of their cards by then, so a second search finds another
+   * title. With no searching player nothing is left out.
+   */
+  readonly notAmongOwnCards?: true;
 };

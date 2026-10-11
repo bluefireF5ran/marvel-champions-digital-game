@@ -71,6 +71,8 @@ import {
 } from "./query.js";
 import type { LogValue } from "./campaign.js";
 import {
+  campaignLogCardCounter,
+  campaignLogCardRecorded,
   campaignLogContains,
   campaignLogField,
   campaignLogIsSet,
@@ -2780,6 +2782,9 @@ export function resolveValue(
     // A number the campaign recorded, read out of the frozen `GameState.campaign.log` (design §7.1). Not traced:
     // see `campaignLogRead` in `events.ts` for why a pure, re-entrant read must not emit.
     case "campaignLog":
+      // `card` with `counter`: the number a `cardState` field recorded for that counter on that card (§3.74).
+      if (value.card !== undefined && value.counter !== undefined)
+        return campaignLogCardCounter(campaignFieldRead(state, value, context), value.card, value.counter);
       return campaignLogNumber(campaignFieldRead(state, value, context), value.of);
   }
 }
@@ -2875,6 +2880,8 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
       return (context.vars?.[predicate.name] ?? 0) >= predicate.amount;
     case "accusedWrong":
       return accusedWrong(state);
+    case "inCampaign":
+      return state.campaign !== undefined;
     // docs/phase7-wave7.md §3.83: setup input frozen in the state; absent is false.
     case "outsideFact": {
       const [playerId] = resolvePlayers(state, predicate.player, context);
@@ -3126,7 +3133,13 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
       if (predicate.has !== undefined && !campaignLogContains(value, predicate.has)) return false;
       if (predicate.atLeast !== undefined && campaignLogNumber(value, predicate.of) < predicate.atLeast) return false;
       if (predicate.isSet !== undefined && campaignLogIsSet(value) !== predicate.isSet) return false;
-      const asked = predicate.has !== undefined || predicate.atLeast !== undefined || predicate.isSet !== undefined;
+      // A `cardState` field: the card was recorded, on the face asked for (docs/phase7-wave9.md §3.74).
+      if (predicate.card !== undefined && !campaignLogCardRecorded(value, predicate.card, predicate.face)) return false;
+      const asked =
+        predicate.has !== undefined ||
+        predicate.atLeast !== undefined ||
+        predicate.isSet !== undefined ||
+        predicate.card !== undefined;
       return asked || value !== undefined;
     }
   }

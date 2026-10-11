@@ -188,6 +188,20 @@ export interface CampaignRun {
   setAsideCards: CardId[];
   /** Choices made earlier in this same step list, by `${slot}\u0000${seat}` (`CampaignValue` `choice`). */
   slots: Map<string, readonly string[]>;
+  /**
+   * The keys of `slots` a sealed `random` filled (docs/phase7-wave9.md §3.75). Their values are in memory for the
+   * length of this step list and in no trace; `sealedUse` says which reads of them are allowed.
+   */
+  sealedSlots: Set<string>;
+  /**
+   * What the value being evaluated right now is for, as far as sealed values go: `"sink"` while it becomes the value
+   * of a hidden field (a sealed slot and a sealed field may be read, and the result is sealed), `"filter"` while it
+   * names what a draw leaves out (`excludingTitles`: a sealed field may be read), null for every other use, where
+   * reading either is an `EngineInvariantError`.
+   */
+  sealedUse: "sink" | "filter" | null;
+  /** Set when a sealed slot or field was read since a sink last cleared it: the value written is then sealed. */
+  sealedRead: boolean;
   // --- accumulators for the instruction currently resolving ---
   instructionId: string;
   writes: LogWrite[];
@@ -278,8 +292,61 @@ const numeric = (scalar: CampaignScalar | undefined): number => {
 const slotKey = (slot: string, seatNumber: number | null): string =>
   `${slot}\u0000${seatNumber === null ? "" : String(seatNumber)}`;
 
-const slotValues = (run: CampaignRun, slot: string): readonly string[] =>
-  run.slots.get(slotKey(slot, run.seatScope)) ?? run.slots.get(slotKey(slot, null)) ?? [];
+/** The key a slot read resolves to: the scoped seat's own pick, else the group's. Undefined for an unfilled slot. */
+const filledSlotKey = (run: CampaignRun, slot: string): string | undefined =>
+  [slotKey(slot, run.seatScope), slotKey(slot, null)].find((key) => run.slots.has(key));
+
+/** Whether a slot picked anything, sealed or not (`choiceMade`): a count of zero or more gives no card away. */
+const slotFilled = (run: CampaignRun, slot: string): boolean => {
+  const key = filledSlotKey(run, slot);
+  return key !== undefined && (run.slots.get(key) ?? []).length > 0;
+};
+
+/**
+ * What a slot picked. A sealed slot (docs/phase7-wave9.md §3.75) is read only as the value of a hidden field; any
+ * other read would put a card nobody may look at into a trace, a deck, a choice's options or a game.
+ */
+const slotValues = (run: CampaignRun, slot: string): readonly string[] => {
+  const key = filledSlotKey(run, slot);
+  if (key === undefined) return [];
+  if (run.sealedSlots.has(key)) {
+    if (run.sealedUse !== "sink") {
+      throw new EngineInvariantError(
+        `${run.instructionId}: the draw in slot "${slot}" is sealed, and a sealed draw can be written to a hidden log field and read by nothing else`,
+      );
+    }
+    run.sealedRead = true;
+  }
+  return run.slots.get(key) ?? [];
+};
+
+/**
+ * A field as a value. A sealed field (`LogValue.sealed`) is read only into another hidden field or as the cards a
+ * draw leaves out; its size is still open (`CampaignValue` `count`, `fieldAtLeast`, `fieldIsSet`).
+ */
+function fieldValue(run: CampaignRun, field: string, seatNumber: number | null): LogValue | undefined {
+  const value = readField(run.definition, run.working, field, seatNumber);
+  if (value?.sealed === true) {
+    if (run.sealedUse === null) {
+      throw new EngineInvariantError(
+        `${run.instructionId}: campaign log field "${field}" holds a sealed value, which can be counted, written to a hidden field or used to filter a draw, and read by nothing else`,
+      );
+    }
+    if (run.sealedUse === "sink") run.sealedRead = true;
+  }
+  return value;
+}
+
+/** Evaluates `body` with sealed reads allowed for `use`, and puts the outer setting back afterward. */
+function withSealedUse<T>(run: CampaignRun, use: "sink" | "filter", body: () => T): T {
+  const outer = run.sealedUse;
+  run.sealedUse = use;
+  try {
+    return body();
+  } finally {
+    run.sealedUse = outer;
+  }
+}
 
 /** Every value a `CampaignValue` names. Ops that take one card use the first; ops that take a list use them all. */
 export function campaignValues(run: CampaignRun, value: CampaignValue): readonly CampaignScalar[] {
@@ -287,7 +354,7 @@ export function campaignValues(run: CampaignRun, value: CampaignValue): readonly
     case "const":
       return [value.value];
     case "field":
-      return scalarsOfLogValue(readField(run.definition, run.working, value.field, valueSeat(run, value.seat)));
+      return scalarsOfLogValue(fieldValue(run, value.field, valueSeat(run, value.seat)));
     case "count":
       return [fieldNumber(readField(run.definition, run.working, value.field, run.seatScope))];
     case "sum":
@@ -358,10 +425,9 @@ export function evaluateCampaignPredicate(run: CampaignRun, predicate: CampaignP
         return value !== undefined && scalarsOfLogValue(value).length > 0;
       });
     case "fieldContains":
+      // A sealed field is not asked what it holds: the branch taken would say (`fieldValue` refuses).
       return predicateSeats(run, predicate.seat).some((seat) =>
-        scalarsOfLogValue(readField(run.definition, run.working, predicate.field, seat)).some(
-          (scalar) => String(scalar) === predicate.value,
-        ),
+        scalarsOfLogValue(fieldValue(run, predicate.field, seat)).some((scalar) => String(scalar) === predicate.value),
       );
     case "notStruck": {
       // MC45 p. 5: "MISSION side schemes are available unless their name has been struck from the campaign log."
@@ -375,7 +441,7 @@ export function evaluateCampaignPredicate(run: CampaignRun, predicate: CampaignP
     case "choiceMade":
       // The counterpart of `optional` on `choose`/`random`: a seat that declined recorded an empty pick, so this
       // is false for that seat and true for one that took it (MC10 p. 12's "each player … **may** replace").
-      return slotValues(run, predicate.slot).length > 0;
+      return slotFilled(run, predicate.slot);
     case "modes":
       return matchesModes(run.modes, predicate.of);
     case "not":
@@ -637,7 +703,9 @@ export function resolveChoiceSource(
       return usable([...new Set(campaignStrings(run, source.of))]);
     case "excludingTitles": {
       // MC27 p. 11/13/15: "at random that does not have its title recorded in the 'Community Service' section".
-      const recorded = campaignStrings(run, source.titlesIn);
+      // The one read of a sealed field that is not a write to a hidden one: the draw leaves those cards out, and
+      // what it picks is by construction not one of them (MC50 p. 6: a gain comes from the other envelope).
+      const recorded = withSealedUse(run, "filter", () => campaignStrings(run, source.titlesIn));
       const recordedTitles = new Set(recorded.flatMap((id) => titleOf(run, id) ?? []));
       return resolveChoiceSource(run, source.from, seatNumber).filter((id) => {
         if (recorded.includes(id)) return false;
@@ -691,6 +759,22 @@ function logValueFor(run: CampaignRun, field: string, value: CampaignValue): Log
       throw new EngineInvariantError(
         `campaign log field "${field}" is a cardState field, which the between-games vocabulary cannot yet write`,
       );
+  }
+}
+
+/**
+ * `logValueFor` for a `setField` or an `appendToList`. Writing a hidden field is the one place a sealed draw may be
+ * read (docs/phase7-wave9.md §3.75), and a value that read one, or read a sealed field, is sealed in its turn.
+ */
+function writeValueFor(run: CampaignRun, field: string, value: CampaignValue): LogValue {
+  if (!fieldDefOf(run.definition, field).hidden) return logValueFor(run, field, value);
+  const outer = run.sealedRead;
+  run.sealedRead = false;
+  try {
+    const computed = withSealedUse(run, "sink", () => logValueFor(run, field, value));
+    return run.sealedRead ? { ...computed, sealed: true } : computed;
+  } finally {
+    run.sealedRead = outer;
   }
 }
 
@@ -840,8 +924,26 @@ function recordChoice(
   mark?: "random" | "repeated",
   /** A `perAttempt` draw: the attempt it was made for (`CampaignChoiceRecord.attempt`). */
   attempt?: number,
+  /** A sealed draw (docs/phase7-wave9.md §3.75): the slot holds the cards, the trace holds how many. */
+  sealed = false,
 ): void {
-  run.slots.set(slotKey(slot, seatNumber), picked);
+  const key = slotKey(slot, seatNumber);
+  run.slots.set(key, picked);
+  if (sealed) {
+    run.sealedSlots.add(key);
+    run.choices.push({
+      slot,
+      seatNumber,
+      picked: [],
+      random: true,
+      ...(attempt !== undefined ? { attempt } : {}),
+      sealed: true,
+      drawn: picked.length,
+    });
+    return;
+  }
+  // An open draw into a slot a sealed one filled earlier opens the slot again.
+  run.sealedSlots.delete(key);
   const record: CampaignChoiceRecord = { slot, seatNumber, picked };
   run.choices.push(
     mark === "random"
@@ -974,7 +1076,7 @@ function runRandom(
       );
     }
     if (answer.length === 0) {
-      recordChoice(run, op.slot, run.seatScope, [], "random");
+      recordChoice(run, op.slot, run.seatScope, [], "random", undefined, op.sealed === true);
       return;
     }
   }
@@ -983,10 +1085,11 @@ function runRandom(
   if (op.perAttempt && run.nodeId !== "") {
     // A fresh draw for each attempt at the node (docs/phase7-wave8.md §3.45, Q22 = B), traced with its number.
     const before = playedBefore(run);
-    recordChoice(run, op.slot, run.seatScope, drawRandom(run, options, count, before), "random", before + 1);
+    const drawn = drawRandom(run, options, count, before);
+    recordChoice(run, op.slot, run.seatScope, drawn, "random", before + 1, op.sealed === true);
     return;
   }
-  recordChoice(run, op.slot, run.seatScope, drawRandom(run, options, count), "random");
+  recordChoice(run, op.slot, run.seatScope, drawRandom(run, options, count), "random", undefined, op.sealed === true);
 }
 
 /**
@@ -998,7 +1101,9 @@ export function runCampaignOp(run: CampaignRun, op: CampaignOp, instruction: Cam
   switch (op.kind) {
     case "setField":
       for (const seatNumber of targetSeats(run, op.seat)) {
-        withSeat(run, seatNumber, () => write(run, op.field, seatNumber, "set", logValueFor(run, op.field, op.value)));
+        withSeat(run, seatNumber, () =>
+          write(run, op.field, seatNumber, "set", writeValueFor(run, op.field, op.value)),
+        );
       }
       return;
     case "addToField":
@@ -1011,7 +1116,7 @@ export function runCampaignOp(run: CampaignRun, op: CampaignOp, instruction: Cam
     case "appendToList":
       for (const seatNumber of targetSeats(run, op.seat)) {
         withSeat(run, seatNumber, () =>
-          write(run, op.field, seatNumber, "append", logValueFor(run, op.field, op.value)),
+          write(run, op.field, seatNumber, "append", writeValueFor(run, op.field, op.value)),
         );
       }
       return;

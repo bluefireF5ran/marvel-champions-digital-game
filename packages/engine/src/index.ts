@@ -355,6 +355,8 @@ export type {
   LogFieldDef,
   LogFieldType,
   LogValue,
+  LogValueContent,
+  LogValueSeal,
   LogWrite,
   LogWriteMode,
   LogWriteSpec,
@@ -401,12 +403,29 @@ export {
   setCampaignGrantLeftOut,
   startGameFromLog,
 } from "./campaign/runner.js";
-export { removedCardIdsOf, withRemovedCardsOutOfDecks } from "./campaign/log.js";
+export {
+  logValueSize,
+  removedCardIdsOf,
+  withoutSealedContents,
+  withoutSealedFields,
+  withRemovedCardsOutOfDecks,
+} from "./campaign/log.js";
+export { sealCampaignLog } from "./campaign/seal.js";
+export type {
+  SealedCampaignAttempt,
+  SealedCampaignHistoryEntry,
+  SealedCampaignLog,
+  SealedCampaignLogSnapshot,
+} from "./campaign/seal.js";
 
 /** Reading the frozen campaign snapshot a game carries (`GameState.campaign`), for view models and the runner. */
 export {
   campaignFaceOf,
+  CAMPAIGN_LOG_FRONT_FACE,
+  campaignLogCardCounter,
   campaignLogCardIds,
+  campaignLogCardRecorded,
+  campaignLogCardState,
   campaignLogContains,
   campaignLogField,
   campaignLogIsSet,
@@ -466,7 +485,7 @@ export {
   type SealedGameState,
 } from "./visibility.js";
 export { placeHiddenPiles, revealedPileCardsOf } from "./resolve/hidden-piles.js";
-export { evidenceRowId, openEvidenceRows, wrongGuessesOf } from "./accusation.js";
+export { evidenceRowId, evidenceRowsLeft, openEvidenceRows, wrongGuessesOf } from "./accusation.js";
 export type { TableContext, ViewerContext } from "./visibility.js";
 
 /** "What would this command do?" — a probe of the real engine, truncated wherever the answer needs hidden information. */

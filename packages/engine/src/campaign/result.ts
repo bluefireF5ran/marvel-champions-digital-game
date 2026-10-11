@@ -44,6 +44,7 @@ import {
 } from "../query.js";
 import type { TargetQuery } from "../spec.js";
 import type { GameState } from "../state.js";
+import { campaignFaceOf } from "../campaign-state.js";
 import { fieldDefOf } from "./log.js";
 
 /** What one `CampaignGameQuery` answered to. Kept typed so the coercion into a `LogValue` cannot be sloppy. */
@@ -51,7 +52,16 @@ type QueryValue =
   | { readonly kind: "cards"; readonly instanceIds: readonly InstanceId[] }
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
-  | { readonly kind: "string"; readonly value: string };
+  | { readonly kind: "string"; readonly value: string }
+  /** `cardStateOf`: the matching cards in play, with the counters asked for (and whether the face was asked for). */
+  | {
+      readonly kind: "cardState";
+      readonly withFace: boolean;
+      readonly entries: readonly {
+        readonly instanceId: InstanceId;
+        readonly counters: Readonly<Record<string, number>>;
+      }[];
+    };
 
 const contextFor = (state: GameState, playerId: PlayerId | null, deps: EngineDeps): EffectContext => ({
   selfInstanceId: null,
@@ -101,6 +111,8 @@ const countOf = (value: QueryValue): number => {
       return value.value ? 1 : 0;
     case "string":
       return Number.isFinite(Number(value.value)) ? Number(value.value) : 0;
+    case "cardState":
+      return value.entries.length;
   }
 };
 
@@ -165,6 +177,19 @@ function evaluateQuery(
       );
       return { kind: "number", value: total };
     }
+    case "cardStateOf":
+      // One entry for each matching card in play. The key and the face are worked out when the value is written,
+      // against the field's own `cardIds` (`cardStateValueOf`).
+      return {
+        kind: "cardState",
+        withFace: query.withFace === true,
+        entries: matching(state, cardsInPlay(state), query.query, context).map((instanceId) => ({
+          instanceId,
+          counters: Object.fromEntries(
+            query.counters.map((counter) => [counter, getInstance(state, instanceId)?.counters[counter] ?? 0]),
+          ),
+        })),
+      };
     case "threatOn": {
       const total = matching(state, cardsInPlay(state), query.query, context).reduce(
         (sum, id) => sum + (getInstance(state, id)?.threat ?? 0),
@@ -251,17 +276,23 @@ function evaluateQuery(
   }
 }
 
-const cardIdsOf = (state: GameState, value: QueryValue): readonly CardId[] =>
-  value.kind === "cards"
-    ? value.instanceIds.flatMap((id) => {
-        const instance = getInstance(state, id);
-        return instance ? [instance.cardId] : [];
-      })
-    : [];
+const cardIdsOf = (state: GameState, value: QueryValue): readonly CardId[] => {
+  const ids =
+    value.kind === "cards"
+      ? value.instanceIds
+      : value.kind === "cardState"
+        ? value.entries.map((entry) => entry.instanceId)
+        : [];
+  return ids.flatMap((id) => {
+    const instance = getInstance(state, id);
+    return instance ? [instance.cardId] : [];
+  });
+};
 
 const stringOf = (state: GameState, value: QueryValue): string => {
   switch (value.kind) {
     case "cards":
+    case "cardState":
       return (cardIdsOf(state, value)[0] as string | undefined) ?? "";
     case "number":
       return String(value.value);
@@ -271,6 +302,49 @@ const stringOf = (state: GameState, value: QueryValue): string => {
       return value.value;
   }
 };
+
+/**
+ * A `cardStateOf` answer as a `cardState` field holds it (MC50 pp. 9 to 15; docs/phase7-wave9.md §3.74).
+ *
+ * Each card is keyed by the id the field lists for it: its own card id while it is on that face, and the id of its
+ * other face (`BaseCard.otherFaceId`) once it has flipped to a face that is a card record of its own. The face is
+ * named only when the query asked for it and the card is not on the listed face: the showing card's id for a card of
+ * two records, the printed name of the flip side for a card of one (`campaignFaceOf`).
+ *
+ * A card the field does not list is refused, and so are two cards in play that would be written under one key: the
+ * field holds one state for each listed card, and a silent overwrite would lose one of them.
+ */
+function cardStateValueOf(
+  state: GameState,
+  declared: LogFieldDef,
+  cardIds: readonly CardId[],
+  value: Extract<QueryValue, { kind: "cardState" }>,
+): LogValue {
+  const cards: Record<string, { counters: Readonly<Record<string, number>>; face?: string }> = {};
+  for (const entry of value.entries) {
+    const instance = getInstance(state, entry.instanceId);
+    if (!instance) continue;
+    const other = getCard(state, instance.cardId)?.otherFaceId;
+    const key = cardIds.includes(instance.cardId)
+      ? instance.cardId
+      : other !== undefined && cardIds.includes(other)
+        ? other
+        : undefined;
+    if (key === undefined) {
+      throw new EngineInvariantError(
+        `campaign log field "${declared.id}" records the state of ${cardIds.join(", ")}, and a record instruction named ${instance.cardId}, which is not one of them`,
+      );
+    }
+    if (Object.hasOwn(cards, key)) {
+      throw new EngineInvariantError(
+        `campaign log field "${declared.id}" holds one state for ${key}, and a record instruction found two such cards in play`,
+      );
+    }
+    const face = key !== instance.cardId ? (instance.cardId as string) : campaignFaceOf(state, entry.instanceId)?.face;
+    cards[key] = { counters: entry.counters, ...(value.withFace && face !== undefined ? { face } : {}) };
+  }
+  return { kind: "cardState", cards };
+}
 
 /** The `LogValue` a query becomes in a field of the declared kind. Exhaustive, so no field kind is forgotten. */
 function logValueOf(state: GameState, declared: LogFieldDef, mode: LogWriteMode, value: QueryValue): LogValue {
@@ -295,9 +369,14 @@ function logValueOf(state: GameState, declared: LogFieldDef, mode: LogWriteMode,
     case "text":
       return { kind: "text", value: stringOf(state, value) };
     case "cardState":
-      throw new EngineInvariantError(
-        `campaign log field "${declared.id}" is a cardState field, which a record instruction cannot yet write`,
-      );
+      // Only `cardStateOf` composes a card's counters and face (docs/phase7-wave9.md §3.74): any other query has no
+      // such value to give, and guessing one from a count or a card list would record a state nobody read.
+      if (value.kind !== "cardState" || mode !== "set") {
+        throw new EngineInvariantError(
+          `campaign log field "${declared.id}" is a cardState field, which a record instruction writes with mode "set" and a cardStateOf query only`,
+        );
+      }
+      return cardStateValueOf(state, declared, declared.type.cardIds, value);
   }
 }
 

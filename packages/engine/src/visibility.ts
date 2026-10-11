@@ -70,6 +70,7 @@
  */
 
 import type { CardId } from "@mc/content";
+import { withoutSealedFields } from "./campaign/log.js";
 import { otherFaceVisible, standInOf } from "./hidden-reverse.js";
 import type { EngineDeps } from "./abilities.js";
 import { activeEncounterDeck, cardOf, getInstance, getPlayer, locateCard } from "./query.js";
@@ -282,15 +283,32 @@ export type SealedGameState = Omit<GameState, "hiddenPiles"> & {
  * is the full `GameState`, held by whoever is the game's authority. Returns the state itself when it has no pile, so a
  * game without one costs nothing.
  *
- * It closes the piles and nothing else. The cards of a deck or a hand are instances with a zone, and which of those a
- * given seat may read is `faceVisible`'s question (see "Whose eyes").
+ * It closes the piles, and the sealed values of the campaign log the game was built from (the cards a campaign's
+ * piles were seeded with), and nothing else. The cards of a deck or a hand are instances with a zone, and which of
+ * those a given seat may read is `faceVisible`'s question (see "Whose eyes").
  */
 export function sealHiddenPiles(state: GameState): SealedGameState {
-  if (state.hiddenPiles === undefined) return state;
-  const { hiddenPiles, ...rest } = state;
+  const sealed = withoutSealedCampaignLog(state);
+  if (sealed.hiddenPiles === undefined) return sealed;
+  const { hiddenPiles, ...rest } = sealed;
   return {
     ...rest,
     hiddenPileSizes: Object.fromEntries(Object.entries(hiddenPiles).map(([pile, cardIds]) => [pile, cardIds.length])),
+  };
+}
+
+/**
+ * The state with the sealed values of its frozen campaign log emptied (`CampaignLogView.hidden`,
+ * docs/phase7-wave9.md §3.75): each keeps its kind and says how many entries it held, and names none. The piles a
+ * campaign game was seeded with came from there, so closing the piles alone would leave their cards readable in the
+ * game's own campaign input. The state itself when it carries no sealed value.
+ */
+function withoutSealedCampaignLog(state: GameState): GameState {
+  const campaign = state.campaign;
+  if (campaign?.log.hidden === undefined) return state;
+  return {
+    ...state,
+    campaign: { ...campaign, log: { ...campaign.log, hidden: withoutSealedFields(campaign.log.hidden) } },
   };
 }
 

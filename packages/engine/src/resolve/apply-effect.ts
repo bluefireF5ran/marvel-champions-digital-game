@@ -56,7 +56,7 @@ import { ANY_COUNTER, anyCounterPickOf, anyCounterTake, landingCounterType } fro
 import { EngineInvariantError } from "../errors.js";
 import { boundCardTotals, recountDeckDiscardIcons } from "./deck-discard.js";
 import { resolveTuck, tuckInsteadOfLeaving, tuckOrAnnounce } from "./tuck.js";
-import { dealHiddenPiles, gainFromHiddenPile, revealHiddenPile } from "./hidden-piles.js";
+import { dealHiddenPiles, gainFromHiddenPile, revealHiddenPile, seedHiddenPiles } from "./hidden-piles.js";
 import { identifyMole } from "./accusation.js";
 import { giveStatusOrAnnounce } from "./status-being-given.js";
 import { listensForWouldDiscard, pickRandomFromHand, splitWouldDiscard } from "./would-discard.js";
@@ -1773,6 +1773,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       return;
     case "dealHiddenPiles":
       dealHiddenPiles(ctx, effect);
+      return;
+    case "seedHiddenPiles":
+      seedHiddenPiles(ctx, effect);
       return;
     case "gainFromHiddenPile": {
       // docs/phase7-wave9.md §3.29 (a): the gained cards are faceup for every player, so they may be counted.

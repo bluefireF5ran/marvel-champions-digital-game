@@ -73,6 +73,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkRandomPicks(definition, "definition", problems);
   checkEncounterTopIcons(definition, "definition", problems);
   checkHiddenPiles(definition, problems);
+  checkCampaignLogReads(definition, "definition", problems);
   checkPlays(definition, problems);
   checkTuckReplacement(definition, problems);
   checkAttachReplacement(definition, problems);
@@ -853,6 +854,21 @@ function checkHiddenPiles(definition: AbilityDefinition, problems: string[]): vo
       else if (effect.onePerGroupTo === effect.restTo)
         problems.push("dealHiddenPiles: onePerGroupTo and restTo must be two different piles");
     }
+    // §3.75: piles seeded from the campaign log. A pile named twice (as a seeded pile and as the rest) would be
+    // written twice, the second over the first.
+    if (effect.kind === "seedHiddenPiles") {
+      const names = Object.keys(effect.piles);
+      if (names.length === 0) problems.push("seedHiddenPiles: names no pile to fill from the campaign log");
+      if (names.includes("") || effect.rest.to === "") problems.push("seedHiddenPiles: a pile has no name");
+      if (names.includes(effect.rest.to))
+        problems.push("seedHiddenPiles: rest.to must not be one of the piles filled from the campaign log");
+      if (effect.rest.set === "") problems.push("seedHiddenPiles: names no encounter set for the rest of the cards");
+      if (
+        Object.values(effect.piles).some((source) => source.campaignLogField === "") ||
+        effect.revealed.campaignLogField === ""
+      )
+        problems.push("seedHiddenPiles: a campaign log field has no name");
+    }
     if (effect.kind === "gainFromHiddenPile" || effect.kind === "revealHiddenPile") {
       if (effect.pile === "") problems.push(`${effect.kind}: the pile has no name`);
     }
@@ -926,6 +942,30 @@ function checkEncounterTopIcons(value: unknown, path: string, problems: string[]
       problems.push(`${path}: boostAreaIcons atLeast is above atMost`);
   }
   for (const [key, item] of Object.entries(record)) checkEncounterTopIcons(item, `${path}.${key}`, problems);
+}
+
+/**
+ * A `campaignLog` read of a `cardState` field (docs/phase7-wave9.md §3.74): `counter` (a value) and `face` (a
+ * predicate) each say something about one recorded card, so either without `card` reads nothing, and the two together
+ * are a value and a predicate in one spec.
+ */
+function checkCampaignLogReads(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => checkCampaignLogReads(item, `${path}[${i}]`, problems));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (record.kind === "campaignLog" && typeof record.field === "string") {
+    if (record.counter !== undefined && record.card === undefined)
+      problems.push(`${path}: a campaignLog counter read names no card`);
+    if (record.face !== undefined && record.card === undefined)
+      problems.push(`${path}: a campaignLog face read names no card`);
+    if (record.counter !== undefined && record.face !== undefined)
+      problems.push(`${path}: a campaignLog read takes counter (a value) or face (a predicate), not both`);
+    if (record.counter === "") problems.push(`${path}: a campaignLog counter read names no counter`);
+  }
+  for (const [key, item] of Object.entries(record)) checkCampaignLogReads(item, `${path}.${key}`, problems);
 }
 
 /** Whether anything inside `value` is a spec whose `kind` passes `test`. */

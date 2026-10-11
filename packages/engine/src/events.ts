@@ -1848,6 +1848,13 @@ export type GameEvent =
       readonly from: string;
       readonly piles: readonly { readonly pile: string; readonly size: number }[];
       readonly kept: boolean;
+      /**
+       * The piles were filled from the campaign log, not dealt (`EffectSpec seedHiddenPiles`, docs/phase7-wave9.md
+       * §3.75; MC50 p. 18: "simply place the A.I.M. and S.H.I.E.L.D. envelopes within reach"). `faceup` is how many
+       * cards started the game faceup beside them (the evidence gained in earlier scenarios). Still sizes only.
+       */
+      readonly seeded?: true;
+      readonly faceup?: number;
     }
   /**
    * Cards came out of a hidden pile faceup, by id (`EffectSpec gainFromHiddenPile`; MC50 p. 18: "When the players gain

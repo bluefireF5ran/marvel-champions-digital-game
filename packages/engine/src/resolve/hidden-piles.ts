@@ -24,12 +24,14 @@
  */
 
 import { EVIDENCE_KINDS, type CardId } from "@mc/content";
+import { campaignLogCardIds } from "../campaign-state.js";
 import { type Ctx, emit } from "../ctx.js";
 import { nextInt, shuffle } from "../rng.js";
 import type { EffectSpec } from "../spec.js";
 import type { GameState } from "../state.js";
 
 type DealHiddenPiles = Extract<EffectSpec, { kind: "dealHiddenPiles" }>;
+type SeedHiddenPiles = Extract<EffectSpec, { kind: "seedHiddenPiles" }>;
 
 /** The cards in a hidden pile, in the pile's order; none for a pile that was never prepared. Engine eyes only. */
 export const hiddenPileOf = (state: GameState, pile: string): readonly CardId[] => state.hiddenPiles?.[pile] ?? [];
@@ -93,6 +95,45 @@ export function dealHiddenPiles(ctx: Ctx, effect: DealHiddenPiles): void {
   ctx.state = { ...ctx.state, rng: next };
   placeHiddenPiles(ctx, { [effect.onePerGroupTo]: one, [effect.restTo]: rest });
   emit(ctx, { type: "hiddenPilesDealt", from: effect.from, piles: sizes(), kept: false });
+}
+
+/**
+ * `EffectSpec seedHiddenPiles` (docs/phase7-wave9.md §3.75; MC50 pp. 18 and 19): a campaign game's hidden piles, filled
+ * from the frozen campaign log. A named pile's cards come from the sealed part of the log (`CampaignLogView.hidden`),
+ * which nothing else in a game reads, or from the shared part for a field that is not sealed; the faceup cards come
+ * from a shared field; the rest of the set's evidence cards are shuffled on the game's seeded RNG into `rest.to`.
+ * Logged with sizes only. Nothing happens in a game with no campaign.
+ */
+export function seedHiddenPiles(ctx: Ctx, effect: SeedHiddenPiles): void {
+  const log = ctx.state.campaign?.log;
+  if (!log) return;
+  const cardsOf = (field: string): readonly CardId[] => campaignLogCardIds(log.hidden?.[field] ?? log.shared[field]);
+  const piles: Record<string, readonly CardId[]> = {};
+  for (const [pile, source] of Object.entries(effect.piles)) piles[pile] = cardsOf(source.campaignLogField);
+  // Evidence already gained is open information, so it is read from the shared part only.
+  const faceup = campaignLogCardIds(log.shared[effect.revealed.campaignLogField]);
+  const taken = new Set<CardId>([...Object.values(piles).flat(), ...faceup]);
+  const left = Object.values(ctx.state.cardPool)
+    .flatMap((card) =>
+      card.type === "evidence" &&
+      (card.encounterSetIds as readonly string[]).includes(effect.rest.set) &&
+      !taken.has(card.id)
+        ? [card.id]
+        : [],
+    )
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const [rest, rng] = shuffle(left, ctx.state.rng);
+  ctx.state = { ...ctx.state, rng };
+  piles[effect.rest.to] = rest;
+  placeHiddenPiles(ctx, piles, faceup.length > 0 ? { [effect.rest.to]: faceup } : {});
+  emit(ctx, {
+    type: "hiddenPilesDealt",
+    from: effect.rest.set,
+    piles: Object.keys(piles).map((pile) => ({ pile, size: hiddenPileOf(ctx.state, pile).length })),
+    kept: false,
+    seeded: true,
+    faceup: faceup.length,
+  });
 }
 
 /** Moves `cardIds` out of `pile` and onto the end of the cards revealed out of it. */

@@ -1,4 +1,4 @@
-import { trait, type Trait } from "@mc/content";
+import { cardId, trait, type Trait } from "@mc/content";
 import {
   attackPreventedVars,
   labeledResolvedVar,
@@ -809,6 +809,11 @@ export const theMole: Pick<TargetQuery, "accusation"> = { accusation: "mole" };
  * motive, opportunity, board member) differ from the mole's, 0 to 4; 0 before `identifyMole` has resolved.
  */
 export const accusationWrongGuesses: ValueSpec = { kind: "accusationWrongGuesses" };
+/**
+ * "If not playing campaign mode" / "(1 card instead in campaign mode)" (Zemo's Manipulations, `aos` 50167a/b; MC50
+ * pp. 18 and 19; docs/phase7-wave9.md §3.75): the game is a scenario of a campaign. Negate it with `not(inCampaign)`.
+ */
+export const inCampaign: Predicate = { kind: "inCampaign" };
 /** "If you accused the wrong board member" (The Accusation 2B, `aos` 50168b); false before `identifyMole` has resolved. */
 export const accusedWrong: Predicate = { kind: "accusedWrong" };
 /** How many cards have come out of the hidden pile `pile` faceup, or out of every pile when none is named. */
@@ -1458,6 +1463,43 @@ export const campaignLogAtLeast = (field: string, n: number, read: CampaignLogRe
   atLeast: n,
   ...(read.seat ? { seat: read.seat } : {}),
   ...(read.of ? { of: read.of } : {}),
+});
+
+/**
+ * "…equal to the number of secret counters recorded for that environment" (MC50 p. 11; docs/phase7-wave9.md §3.74):
+ * the number a `cardState` field recorded for the counter `counter` on the card `card`, the card id the field lists
+ * (the card's front face). 0 for a card or a counter that was not recorded.
+ */
+export const campaignLogCardCounter = (
+  field: string,
+  card: string,
+  counter: string,
+  read: Pick<CampaignLogRead, "seat"> = {},
+): ValueSpec => ({
+  kind: "campaignLog",
+  field,
+  card: cardId(card),
+  counter,
+  ...(read.seat ? { seat: read.seat } : {}),
+});
+
+/**
+ * "If <card> was recorded on its <face> side" (MC50 p. 6: "once a board member flips to its attachment side, it
+ * remains an attachment for the rest of the campaign"; docs/phase7-wave9.md §3.74, §4.1 Q11 = A): a `cardState`
+ * field recorded `card`, on `face` when one is given. `face` is the other face's card id (or its printed name, for a
+ * card whose faces are one record), or `CAMPAIGN_LOG_FRONT_FACE` for a card recorded on the face the field lists.
+ */
+export const campaignLogCardRecorded = (
+  field: string,
+  card: string,
+  face?: string,
+  read: Pick<CampaignLogRead, "seat"> = {},
+): Predicate => ({
+  kind: "campaignLog",
+  field,
+  card: cardId(card),
+  ...(face !== undefined ? { face } : {}),
+  ...(read.seat ? { seat: read.seat } : {}),
 });
 
 /** "Each <X> recorded in the campaign log", as a query clause narrowing cards to the ones the field names. */

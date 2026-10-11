@@ -15,6 +15,21 @@ export const EVIDENCE_FIELDS = ["means", "motive", "opportunity"] as const;
 export const evidenceRowId = (row: EvidenceCombination): string => `${row.means}+${row.motive}+${row.opportunity}`;
 
 /**
+ * The rows of `grid` left once every row that uses one of the `revealed` evidence cards is crossed out (MC50 p. 6:
+ * "cross out each combination of means, motive, and opportunity in the campaign log that includes the icon on the
+ * evidence card gained"). A pure function of open information, with no game in it: between games the cards are the
+ * campaign log's gained evidence, and inside a game they are the cards that have come out of a hidden pile faceup
+ * (`openEvidenceRows`).
+ */
+export function evidenceRowsLeft(
+  grid: readonly EvidenceCombination[],
+  revealed: readonly CardId[],
+): readonly EvidenceCombination[] {
+  const faceup = new Set<CardId>(revealed);
+  return grid.filter((row) => !EVIDENCE_FIELDS.some((field) => faceup.has(row[field])));
+}
+
+/**
  * The rows of `grid` that are not crossed out: the ones with no card that has come out of a hidden pile faceup. Open
  * information, built from `GameState.revealedPileCards` alone, so a client may draw the grid from it. Once the mole is
  * identified its own cards are faceup and its row is crossed out with the rest; `GameState.accusation` names it.
@@ -23,8 +38,7 @@ export function openEvidenceRows(
   state: Pick<GameState, "revealedPileCards">,
   grid: readonly EvidenceCombination[],
 ): readonly EvidenceCombination[] {
-  const faceup = new Set<CardId>(Object.values(state.revealedPileCards ?? {}).flat());
-  return grid.filter((row) => !EVIDENCE_FIELDS.some((field) => faceup.has(row[field])));
+  return evidenceRowsLeft(grid, Object.values(state.revealedPileCards ?? {}).flat());
 }
 
 /** Which of the four guesses of `accused` differ from `mole`, in the order means, motive, opportunity, board member. */
