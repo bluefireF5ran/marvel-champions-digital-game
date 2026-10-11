@@ -36,7 +36,14 @@ import {
   newLog,
   node,
 } from "../wave9/aos/campaign/testing.js";
-import { HEAL_REC_LABEL, REJOIN_REC_LABEL, SIT_OUT_LABEL, healRecForSecret, hpSet } from "./expert-helpers.js";
+import {
+  HEAL_REC_LABEL,
+  REJOIN_REC_LABEL,
+  SIT_OUT_LABEL,
+  healRecForSecret,
+  hpSet,
+  rejoinOrSitOut,
+} from "./expert-helpers.js";
 
 vi.setConfig({ testTimeout: 300_000 });
 
@@ -50,6 +57,8 @@ const DEFINITION = {
     node("two", "batroc", {
       composition: [between("t.compose", BOARD_SET_ASIDE_OPS)],
       setup: [
+        // Q66 = B: a defeated seat answers before the scenario is set up, so a seat sitting out is not one of its players.
+        rejoinOrSitOut("t.rejoin", "MC50 p. 6", REJOIN_REC_LABEL),
         inGame("t.board", "beforeStartingHands", [...prepareBoard(SCENARIO_ONE_BOARD)]),
         // Q13 = B: the shaded expert bullets resolve after the mulligans, once the board has its counters.
         afterMulligans(hpSet("t.hp-set", "MC50 p. 11")),
@@ -185,28 +194,37 @@ describe("healRecForSecret (MC50 pp. 11 to 19, expert campaign only)", () => {
     expect(hpOf(paid, 0)).toBeLessThanOrEqual(5 + full);
   });
 
-  it("a seat recorded at 0 is asked to rejoin or sit out, and rejoining heals REC for the same counter (Q14 = A)", () => {
+  it("a seat recorded at 0 is asked to rejoin or sit out before the scenario is set up, and rejoining heals REC for the same counter (Q14 = A, Q66 = B)", () => {
     const asked = toOffer(logRecording([5, 0]));
-    // Seat 1 declines, then seat 2 (defeated) is asked the two other answers.
-    const second = step(asked, answering("Decline"));
-    expect(second.pendingChoice!.playerId).toBe(second.players[1]!.playerId);
-    expect(labels(second)).toEqual([REJOIN_REC_LABEL, SIT_OUT_LABEL]);
-    const back = step(second, answering(REJOIN_REC_LABEL));
+    // Seat 2 (defeated) answers first, before Appendix II step 6: nothing is shuffled, placed or drawn yet.
+    expect(asked.pendingChoice!.playerId).toBe(asked.players[1]!.playerId);
+    expect(labels(asked)).toEqual([REJOIN_REC_LABEL, SIT_OUT_LABEL]);
+    expect(asked.players.map((player) => player.hand.length)).toEqual([0, 0]);
+    // It rejoins: seat 1 is then offered its own heal after the mulligans, and seat 2 pays without being asked again.
+    const second = step(asked, answering(REJOIN_REC_LABEL));
+    expect(second.pendingChoice!.playerId).toBe(second.players[0]!.playerId);
+    expect(labels(second)).toEqual([HEAL_REC_LABEL, "Decline"]);
+    const back = step(second, answering("Decline"));
     expect(hpOf(back, 1)).toBe(recOf(back, 1));
     expect(back.players[1]!.eliminated).toBe(false);
+    expect(back.startingPlayerCount).toBe(2);
     expect(secretsOnBoard(back)).toEqual([2, 2, 3]);
   });
 
-  it("a seat that sits out is defeated, pays nothing, and the game goes on with the others", () => {
+  it("a seat that sits out leaves before setup, pays nothing, is not a player of the scenario, and the game goes on with the others", () => {
     const asked = toOffer(logRecording([5, 0]));
-    const out = step(step(asked, answering("Decline")), answering(SIT_OUT_LABEL));
+    const out = step(step(asked, answering(SIT_OUT_LABEL)), answering("Decline"));
     expect(out.players.map((player) => player.eliminated)).toEqual([false, true]);
+    expect(out.players.map((player) => player.sittingOut === true)).toEqual([false, true]);
+    expect(out.startingPlayerCount).toBe(1);
+    expect(out.players[1]!.hand).toEqual([]);
     expect(secretsOnBoard(out)).toEqual([2, 2, 2]);
   });
 
   it("a seat with no record at all is asked the same two answers as one recorded at 0", () => {
     const asked = toOffer(logRecording([5, undefined]));
-    expect(labels(step(asked, answering("Decline")))).toEqual([REJOIN_REC_LABEL, SIT_OUT_LABEL]);
+    expect(asked.pendingChoice!.playerId).toBe(asked.players[1]!.playerId);
+    expect(labels(asked)).toEqual([REJOIN_REC_LABEL, SIT_OUT_LABEL]);
   });
 
   it("is ignored in a standard campaign: no offer is ever made", () => {

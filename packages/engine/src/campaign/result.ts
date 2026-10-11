@@ -220,7 +220,8 @@ function evaluateQuery(
         ),
       };
     case "playersInScenario":
-      return { kind: "number", value: state.players.length };
+      // The players who started it: a seat that sat the scenario out is not one (docs/phase7-wave9.md §4.1 row 66 = B).
+      return { kind: "number", value: state.startingPlayerCount };
     case "keywordValueSum": {
       const total = matching(state, state.victoryDisplay, query.query, context).reduce((sum, id) => {
         const card = cardOf(state, id);

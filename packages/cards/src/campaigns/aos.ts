@@ -70,7 +70,14 @@ import {
   type BoardSource,
 } from "../wave9/aos/campaign/executive-board.js";
 import { EVIDENCE_SETUPS, evidenceSetupOf } from "../wave9/aos/campaign/executive-board-evidence.js";
-import { defeatedSeatRecordsZero, healRecForSecret, hpRecord, hpSet } from "./expert-helpers.js";
+import {
+  REJOIN_REC_LABEL,
+  defeatedSeatRecordsZero,
+  healRecForSecret,
+  hpRecord,
+  hpSet,
+  rejoinOrSitOut,
+} from "./expert-helpers.js";
 
 const AOS_ID = AOS_CAMPAIGN.id;
 
@@ -185,6 +192,8 @@ const evidenceSetups = (n: number, citation: string): readonly CampaignInstructi
 
 /** The two shaded expert bullets of scenarios 2 to 5, after the evidence Setups (Q13 = B). */
 const expertSetups = (n: number, citation: string): readonly CampaignInstruction[] => [
+  // Asked before the scenario is set up, so a seat sitting out is not one of its players (Q66 = B).
+  rejoinOrSitOut(`mc50.s${n}.setup.rejoin`, "MC50 p. 6", REJOIN_REC_LABEL),
   afterMulligans(hpSet(`mc50.s${n}.setup.hp-set`, citation)),
   afterMulligans(healRecForSecret(`mc50.s${n}.setup.heal`, citation)),
 ];

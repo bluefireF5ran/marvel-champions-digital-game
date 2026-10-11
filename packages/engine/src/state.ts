@@ -323,6 +323,12 @@ export interface PlayerState {
   readonly separateDecks: Readonly<Record<string, SeparateDeckState>>;
   readonly eliminated: boolean;
   /**
+   * This seat never took part in the scenario: its player sat it out during setup (`EffectSpec sitOutScenario`), so it
+   * is `eliminated` from the first round on and, unlike a player eliminated during the scenario, was taken out of
+   * `GameState.startingPlayerCount`. Absent for every other player.
+   */
+  readonly sittingOut?: true;
+  /**
    * Mulligans this player may take after the first at setup (`PlayerSetup.extraMulligans`; docs/phase7-wave5.md
    * §3.26). A setup input that never changes; absent when 0. The count taken so far lives on the mulligan step.
    */
@@ -916,7 +922,13 @@ export interface GameState {
   readonly round: number;
   readonly step: GameStep;
   readonly firstPlayerId: PlayerId;
-  /** Fixed at setup: per-player scaling ignores later eliminations (RRG "Player Elimination"). */
+  /**
+   * The number of players who started the scenario, the one count every per player value reads (RRG 1.8 "Per Player
+   * Icon", p. 32). It is the seats of the game less each seat that sat the scenario out during setup
+   * (`PlayerState.sittingOut`, `EffectSpec sitOutScenario`; owner decision 66B, docs/phase7-wave9.md §4.1), and it is
+   * fixed once setup ends: a player eliminated during the scenario started it, so "if a player is eliminated, this
+   * value does not change".
+   */
   readonly startingPlayerCount: number;
   readonly players: readonly PlayerState[];
   /** Every villain of the scenario in printed order, defeated ones included. Single-villain scenarios list one. */

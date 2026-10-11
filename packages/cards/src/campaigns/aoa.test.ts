@@ -262,7 +262,8 @@ describe("AOA_CAMPAIGN_DEFINITION: structure", () => {
       "mc45.setup.ally-search",
       "mc45.setup.ally-search.expert",
     ]);
-    const expert = (n: number) => [`mc45.s${n}.setup.hp-set`, `mc45.s${n}.setup.heal`];
+    // The rejoin question is page 20's, asked before the scenario is set up (wave 9 Q66 = B); the other two are printed.
+    const expert = (n: number) => [`mc45.s${n}.setup.rejoin`, `mc45.s${n}.setup.hp-set`, `mc45.s${n}.setup.heal`];
     expect(nodes.map((node) => node.setup.map((instruction) => instruction.id))).toEqual([
       ["mc45.s1.setup.identity"],
       expert(2),
@@ -871,7 +872,7 @@ describe("AOA campaign §3.45 (7): the expert campaign", () => {
     const first = compose(logDrawing(FIND, EXPERT));
     return apply(first.log, resultOf(first.log, { missionDefeated: true, hp: { 1: 4 }, sittingOut: [2] }), rewardFirst);
   };
-  /** Scenario 2 of that log, settled to the point seat 2 is asked whether to rejoin (seat 1 has declined the heal). */
+  /** Scenario 2 of that log, settled to the point seat 2 is asked whether to rejoin: before the scenario is set up. */
   const askedToRejoin = (log: CampaignLog) => {
     const second = compose(log);
     const built = build(second.log);
@@ -892,17 +893,19 @@ describe("AOA campaign §3.45 (7): the expert campaign", () => {
     expect(struckOf(done.log, "missions")).toEqual([FIND]);
     expect(optionOf(done.log, "resultFind")).toBe(AOA_DEFEATED);
 
-    // Scenario 2: seat 1 is offered the heal and declines; seat 2 is asked whether to rejoin.
-    const atHeal = settled(build(compose(done.log).log).state, isHeal);
-    expect(atHeal.pendingChoice!.playerId).toBe(atHeal.players[0]!.playerId);
-    expect(missionThreat(atHeal)).toBe(10);
-    const asked = step(atHeal, healPick(false));
+    // Scenario 2: seat 2 is asked whether to rejoin before the scenario is set up (wave 9 Q66 = B), so the scenario
+    // is set up for the players who play it.
+    const asked = settled(build(compose(done.log).log).state, (state) => isHeal(state) || isRejoin(state));
     expect(asked.pendingChoice!.playerId).toBe(asked.players[1]!.playerId);
     // Owner decision, 2026-10-08 (row 72): the player may decline, so there are two answers and neither is forced.
     expect(asked.pendingChoice!.options.map((option) => option.label)).toEqual([REJOIN, SIT_OUT]);
-    expect(missionThreat(asked)).toBe(10);
-    // Rejoining: 3 threat on the mission, full hit points, and seat 2 plays the scenario.
-    const after = step(asked, rejoinPick(REJOIN));
+    // It rejoins: the scenario is set up for two players, and seat 1 is offered the heal where it is printed.
+    const atHeal = settled(step(asked, rejoinPick(REJOIN)), isHeal);
+    expect(atHeal.pendingChoice!.playerId).toBe(atHeal.players[0]!.playerId);
+    expect(atHeal.startingPlayerCount).toBe(2);
+    expect(missionThreat(atHeal)).toBe(10);
+    // Seat 1 declines; seat 2 pays its price without being asked again: 3 threat on the mission, full hit points.
+    const after = step(atHeal, healPick(false));
     expect(isHeal(after) || isRejoin(after)).toBe(false);
     expect([hpOf(after, 0), hpOf(after, 1)]).toEqual([4, 10]);
     expect(missionThreat(after)).toBe(13);
@@ -911,10 +914,14 @@ describe("AOA campaign §3.45 (7): the expert campaign", () => {
 
   it("declining to rejoin (owner decision, 2026-10-08): the seat sits this scenario out, pays nothing, and is asked again at the next (interpretation)", () => {
     const { second, built, asked } = askedToRejoin(seatTwoDefeated().log);
-    const out = step(asked, rejoinPick(SIT_OUT));
-    // No threat is placed, the player is out of this game, and the game goes on with seat 1.
-    expect(missionThreat(out)).toBe(10);
+    // To seat 1's own heal offer, where the scenario has been set up.
+    const out = settled(step(asked, rejoinPick(SIT_OUT)), isHeal, rejoinPick(SIT_OUT));
+    // The player never started this scenario (wave 9 Q66 = B): it is set up for one player, so the mission starts with
+    // one player's threat (5 where two players' is 10), no rejoin threat is placed, and the game goes on with seat 1.
+    expect(out.startingPlayerCount).toBe(1);
+    expect(missionThreat(out)).toBe(5);
     expect(out.players.map((player) => player.eliminated)).toEqual([false, true]);
+    expect(out.players.map((player) => player.sittingOut === true)).toEqual([false, true]);
     const playing = firstTurn(out, rejoinPick(SIT_OUT));
     expect(playing.outcome).toBeNull();
     expect(playing.step.phase).toBe("player");
@@ -937,8 +944,10 @@ describe("AOA campaign §3.45 (7): the expert campaign", () => {
     expect(third.second.start.input.seats.map((seat) => seat.seatNumber)).toEqual([1, 2]);
     expect(third.asked.pendingChoice!.playerId).toBe(third.asked.players[1]!.playerId);
     expect(third.asked.pendingChoice!.options.map((option) => option.label)).toEqual([REJOIN, SIT_OUT]);
-    const back = step(third.asked, rejoinPick(REJOIN));
+    // The price is paid where the heal is printed, after seat 1 has answered its own offer.
+    const back = step(settled(step(third.asked, rejoinPick(REJOIN)), isHeal), healPick(false));
     expect(back.players.map((player) => player.eliminated)).toEqual([false, false]);
+    expect(back.startingPlayerCount).toBe(2);
     expect(hpOf(back, 1)).toBe(10);
     expect(missionThreat(back)).toBe(13);
   });
@@ -974,9 +983,10 @@ describe("AOA campaign §3.45 (7): the expert campaign", () => {
     const next = step(first, rejoinPick(SIT_OUT));
     expect(isRejoin(next)).toBe(true);
     expect(next.pendingChoice!.playerId).toBe(next.players[1]!.playerId);
-    // The first player sat out: the token and Mission Team passed to seat 2 (RRG 1.8 "First Player", p. 19).
+    // The first player sat out: the token passed to seat 2 (RRG 1.8 "First Player", p. 19). The question is asked before
+    // the scenario is set up (wave 9 Q66 = B), so Mission Team is not in play yet; it enters under the first player then.
     expect(next.firstPlayerId).toBe(next.players[1]!.playerId);
-    expect(next.players[1]!.playArea.map((id) => codeOf(next, id))).toContain(MISSION_TEAM);
+    expect(next.startingPlayerCount).toBe(1);
     const lost = settled(next, (state) => state.outcome !== null, rejoinPick(SIT_OUT));
     expect(lost.players.map((player) => player.eliminated)).toEqual([true, true]);
     expect(lost.outcome?.result).toBe("loss");

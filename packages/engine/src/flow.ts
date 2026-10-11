@@ -235,6 +235,8 @@ function executeScenarioSetupStep(ctx: Ctx): void {
 // (maintainer decision 2026-09-23, docs/campaign-mode-design.md Q20).
 function executeDrawStartingHands(ctx: Ctx): void {
   for (const player of ctx.state.players) {
+    // A seat that sat the scenario out during setup draws no hand (`EffectSpec sitOutScenario`).
+    if (player.eliminated) continue;
     const size = handSize(ctx.state, player.playerId, ctx.deps);
     // "(This card counts towards your hand size.)": a card an earlier setup instruction put in the hand is part of the
     // starting hand, so the draw is that much smaller, and the credit is spent by it (`countTowardStartingHand`,

@@ -3914,6 +3914,24 @@ export type EffectSpec =
    */
   | { readonly kind: "defeat"; readonly target: TargetRef }
   /**
+   * A player sits the scenario out: a campaign's setup lets a player defeated in the last scenario decline to rejoin
+   * (MC45 p. 20, MC50 p. 6; the printed text says "can rejoin" and nothing about a player who does not, so the sit-out
+   * and what it counts for are owner decisions, docs/phase7-wave8.md §4.1 row 72 and docs/phase7-wave9.md §4.1 row 66
+   * = B). Each named player who is still in the game is eliminated by the steps of RRG 1.8 "Player Elimination"
+   * (p. 34), with no defeat of the identity and so no "would be defeated" window, and is marked
+   * `PlayerState.sittingOut`. Their identity's obligations still in an encounter deck are removed from the game (RRG
+   * 1.8 "Obligation", p. 30: they are shuffled in "if an identity is being played").
+   *
+   * **Setup only, and what makes it different from a defeat:** resolved during setup, the player never started the
+   * scenario, so `GameState.startingPlayerCount` drops by one and every per player value follows (RRG 1.8 "Per Player
+   * Icon", p. 32: "the number of players who started the scenario"). Resolve it in the `beforeScenarioSetup` campaign
+   * window: a value Appendix II steps 6-12 already placed (starting threat, a setup card's counters) was placed for
+   * the old count and is not placed again, while values read live (hit points, target threat, acceleration) follow at
+   * once. Resolved after setup it is a plain elimination and the count does not change, because that player did start.
+   * Log `playerEliminated`, then `playerSatOut` with the new count.
+   */
+  | { readonly kind: "sitOutScenario"; readonly player: PlayerRef }
+  /**
    * "Interrupt: When an ally is defeated by an enemy attack, return it to its owner's hand **instead of discarding
    * it**." (Regroup, `drax` 19032; docs/phase7-wave3.md §3.45): from an interrupt to a `characterDefeated` event, the
    * defeated card goes to `to` instead of its discard pile. `"hand"` and the deck destinations are its owner's. The

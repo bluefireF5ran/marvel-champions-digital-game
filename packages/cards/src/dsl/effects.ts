@@ -323,6 +323,13 @@ export const discard = (target: TargetRef): EffectSpec => ({ kind: "discardFromP
  */
 export const defeat = (target: TargetRef): EffectSpec => ({ kind: "defeat", target });
 /**
+ * A player sits the scenario out (`EffectSpec sitOutScenario`; MC45 p. 20, MC50 p. 6; owner decision 66B,
+ * docs/phase7-wave9.md §4.1): eliminated without a defeat and, during setup, taken out of the count of players who
+ * started the scenario, so every per player value is the remaining players'. Resolve it in a campaign's
+ * `beforeScenarioSetup` window, before anything is placed for the old count.
+ */
+export const sitOut = (player: PlayerRef): EffectSpec => ({ kind: "sitOutScenario", player });
+/**
  * "… return it to its owner's hand **instead of discarding it**" (Regroup, `drax` 19032; docs/phase7-wave3.md §3.45):
  * from an interrupt to a character's defeat, the card goes to `to` instead of its discard pile. It is still defeated.
  */

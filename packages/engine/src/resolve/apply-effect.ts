@@ -180,6 +180,7 @@ import {
   removeMainSchemeStages,
   revealNextVillainStage,
   shuffleMainSchemeStages,
+  sitOutScenario,
 } from "./defeat.js";
 import {
   addVillains,
@@ -2326,6 +2327,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       }
       return;
     }
+    case "sitOutScenario":
+      for (const playerId of resolvePlayers(ctx.state, effect.player, context)) sitOutScenario(ctx, playerId);
+      return;
     case "countTowardStartingHand": {
       // Legal only before RRG 1.8 Appendix II step 14 (docs/phase7-wave8.md §3.44): later there is no draw to count toward.
       if (!beforeStartingHandsDrawn(ctx.state)) return;

@@ -90,7 +90,14 @@ import {
   removeOverseersPrelate,
   theMission,
 } from "../wave8/aoa/campaign/mission-rules.js";
-import { defeatedSeatRecordsZero, healForThreat, hpRecord, hpSet } from "./expert-helpers.js";
+import {
+  defeatedSeatRecordsZero,
+  healForThreat,
+  hpRecord,
+  hpSet,
+  rejoinForThreatLabel,
+  rejoinOrSitOut,
+} from "./expert-helpers.js";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Sets, cards and constants
@@ -511,6 +518,8 @@ const EVERY_NODE_SETUP: readonly CampaignInstruction[] = [
 
 /** MC45 pp. 12, 14, 16, 20: the two Expert Campaign Only bullets that end the Setup of scenarios 2 to 5. */
 const expertSetup = (n: number, page: string): readonly CampaignInstruction[] => [
+  // Asked before the scenario is set up, so a seat sitting out is not one of its players (wave 9 Q66 = B).
+  rejoinOrSitOut(`mc45.s${n}.setup.rejoin`, "MC45 p. 20", rejoinForThreatLabel(3)),
   hpSet(`mc45.s${n}.setup.hp-set`, page),
   healForThreat(`mc45.s${n}.setup.heal`, page, 3, theMission, "[MISSION] side scheme"),
 ];

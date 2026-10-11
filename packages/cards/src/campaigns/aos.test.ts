@@ -480,9 +480,10 @@ describe("scenario 2 (MC50 p. 11)", () => {
 
   it("expert: a seat recorded at 0 is asked to rejoin or sit out", () => {
     const { offers } = opened(logAt(1, { shared, modes: EXPERT, hp: [5, 0] }));
+    // Q66 = B: the defeated seat answers before the scenario is set up; the living seat's heal is after the mulligans.
     expect(offers).toEqual([
-      [HEAL_REC_LABEL, "Decline"],
       [REJOIN_REC_LABEL, SIT_OUT_LABEL],
+      [HEAL_REC_LABEL, "Decline"],
     ]);
   });
 
@@ -576,11 +577,13 @@ describe("scenario 4 (MC50 p. 15)", () => {
     secrets3: members({ [MEDICAL]: { secrets: 2 }, [SURVEILLANCE]: { secrets: 2 }, [TACTICAL]: { secrets: 1 } }),
   };
 
-  it("restores the board from scenario 3 and prints no other Setup bullet", () => {
+  it("restores the board from scenario 3 and prints no other Setup bullet (the rejoin question is page 6's)", () => {
     const { state } = opened(logAt(3, { shared }));
     expect([MEDICAL, SURVEILLANCE, TACTICAL].map((front) => secretsOn(state, front))).toEqual([2, 2, 1]);
     expect(instructionIds(nodes[3]!.setup).filter((id) => !id.includes(".evidence."))).toEqual([
       "mc50.s4.setup.board",
+      // Not a printed bullet: page 6's rejoin, asked before the scenario is set up (Q66 = B).
+      "mc50.s4.setup.rejoin",
       "mc50.s4.setup.hp-set",
       "mc50.s4.setup.heal",
     ]);
@@ -729,9 +732,10 @@ describe("expert campaign: hit points and elimination (MC50 p. 6)", () => {
     const after = apply(composed, result(composed, "won", { records: hpRecords("s1", { 1: 4 }), sittingOut: [2] }));
     expect(after.seats.map((seat) => seat.fields["remainingHp"])).toEqual([num(4), num(0)]);
     const { offers } = opened({ ...after, status: "active" });
+    // Q66 = B: the defeated seat answers before the scenario is set up; the living seat's heal is after the mulligans.
     expect(offers).toEqual([
-      [HEAL_REC_LABEL, "Decline"],
       [REJOIN_REC_LABEL, SIT_OUT_LABEL],
+      [HEAL_REC_LABEL, "Decline"],
     ]);
   });
 

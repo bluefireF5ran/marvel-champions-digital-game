@@ -3,8 +3,10 @@
  * remaining hit points after a win (capped at the base value), set them at the next setup, and the paid heal that
  * lets a player restore their identity to full, which a defeated player must pay to rejoin (wave 6 §4.1 Q11). The
  * heal's price is the box's: an acceleration token on the main scheme (`healToFull`), a facedown encounter card
- * (`healWithFacedownCard`) or threat on a scheme the box names (`healForThreat`). `healForThreat` alone lets a
- * defeated player decline and sit the scenario out (owner decision, 2026-10-08, for MC45).
+ * (`healWithFacedownCard`), threat on a scheme the box names (`healForThreat`) or a secret counter
+ * (`healRecForSecret`). The last two boxes (MC45, MC50) let a defeated player decline and sit the scenario out (owner
+ * decision, 2026-10-08): `rejoinOrSitOut` asks, before the scenario is set up, and the heal is then the price of the
+ * player who chose to rejoin.
  *
  * First used by `next_evol.ts`. `mut_gen.ts`, `mts.ts` and `mojo.ts` still carry their own copies of the same shapes
  * and are not touched here.
@@ -17,12 +19,13 @@ import {
   addCounters,
   campaignLogAtLeast,
   campaignLogValue,
+  not,
+  sitOut,
   chooseOneBy,
   chooseTarget,
   chosen,
   damageOn,
   dealEncounterCard,
-  defeat,
   eachPlayer,
   exists,
   forEachPlayer,
@@ -168,14 +171,17 @@ export function healWithFacedownCard(id: string, citation: string): CampaignInst
  * is how the printed sentence names the scheme.
  *
  * **A seat recorded at 0 or with no record** (it was defeated in a scenario its teammates won and sat out the Victory
- * steps) is asked whether to rejoin (`defeatedSeatRecordsZero` writes the 0, so an older record cannot survive). MC45 p. 20: "during the Setup instructions of the next scenario, the defeated
+ * steps) is asked whether to rejoin, by `rejoinOrSitOut` before the scenario is set up, and pays here without being
+ * asked again if they did (`defeatedSeatRecordsZero` writes the 0, so an older record cannot survive). MC45 p. 20:
+ * "during the Setup instructions of the next scenario, the defeated
  * player can rejoin their teammates by placing 3 threat on that scenario's [MISSION] side scheme to restore their
  * identity to full hit points." Owner decision, 2026-10-08 (docs/phase7-wave8.md §4.1 row 72): the player may decline
  * rather than being made to pay. "Can" in the print allows it; the print does not say what happens to a player who
  * does not rejoin.
  *
  * **Interpretation (not printed, not an FFG ruling): a player who declines sits this scenario out and is asked again
- * at the next one.** Their identity is defeated here, during Setup, so the game goes on without them by the ordinary
+ * at the next one.** They leave the game before it is set up (`sitOut`) and are not one of its players (wave 9 Q66 =
+ * B), and the game goes on without them by the ordinary
  * rules of player elimination (RRG 1.8 "Player Elimination", p. 34): the first player token and what it controls pass
  * on, and if no player is left the game is lost, which the campaign's own loss rule then handles (MC45 p. 4, "they may
  * reset the scenario and try again with no penalty"). Won without them, they again take no part in the Victory steps
@@ -206,11 +212,8 @@ export function healForThreat(
           ifThen(
             campaignLogAtLeast("remainingHp", 1, { seat: thatPlayer }),
             chooseOneBy(thatPlayer, option(`Heal to full · +${threat} threat`, pay, healFull), option("Decline", [])),
-            chooseOneBy(
-              thatPlayer,
-              option(`${REJOIN_LABEL} · +${threat} threat`, pay, healFull),
-              option(SIT_OUT_LABEL, defeat(identityOf(thatPlayer))),
-            ),
+            // A seat recorded at 0 that is still here chose to rejoin (`rejoinOrSitOut`): this is its price.
+            [pay, healFull],
           ),
         ),
       ],
@@ -227,9 +230,11 @@ export function healForThreat(
  * mode); the heal then still resolves unless that third flip lost the game.
  *
  * A seat recorded at 0 or with no record (defeated in a scenario its teammates won) is asked whether to rejoin or sit
- * the scenario out, as `healForThreat` asks (owner decision 2026-10-08 for MC45; docs/phase7-wave9.md section 4.1 Q14 =
- * A, provisional). Rejoining pays the same counter and heals the same REC, so the seat starts at its REC. With no Board
- * Member environment in play there is nothing to pay on, so the rejoin is not offered and the seat sits out.
+ * the scenario out by `rejoinOrSitOut`, before the scenario is set up (owner decision 2026-10-08 for MC45;
+ * docs/phase7-wave9.md section 4.1 Q14 = A and Q66 = B). A seat that rejoined pays here without being asked again: the
+ * same counter, healing the same REC, so it starts at its REC. With no Board Member environment in play there is
+ * nothing to pay on, so that seat sits out after all, late: the count of players drops, but what setup already placed
+ * for the old count stays.
  *
  * The caller chooses the window (Q13 = B: after mulligans, in printed order); the instruction is the default one here,
  * as the other helpers are.
@@ -260,13 +265,63 @@ export function healRecForSecret(id: string, citation: string): CampaignInstruct
           ifThen(
             campaignLogAtLeast("remainingHp", 1, { seat: thatPlayer }),
             chooseOneBy(thatPlayer, pay(HEAL_REC_LABEL), option("Decline", [])),
-            chooseOneBy(thatPlayer, pay(REJOIN_REC_LABEL), option(SIT_OUT_LABEL, defeat(identity))),
+            // A seat recorded at 0 that is still here chose to rejoin (`rejoinOrSitOut`): this is its price. With no
+            // environment to pay on it cannot rejoin after all and sits out here, late (see `sitOut`).
+            ifThen(
+              exists(boardMembers),
+              [
+                chooseTarget("secretOn", boardMembers, { chooser: thatPlayer }),
+                addCounters("secret", 1, chosen("secretOn")),
+                heal(rec, identity),
+              ],
+              sitOut(thatPlayer),
+            ),
           ),
         ),
       ],
     },
   };
 }
+
+/**
+ * The question a defeated player answers at the next scenario: rejoin, or sit this scenario out (MC45 p. 20 and MC50
+ * p. 6: "the defeated player can rejoin their teammates for the next scenario by following that scenario's Setup
+ * instructions for healing their identity"; that a player may decline is the owner's decision of 2026-10-08). Asked of
+ * each seat recorded at 0 or with no record, the seats `defeatedSeatRecordsZero` marks.
+ *
+ * **Asked before the scenario is set up** (the `beforeScenarioSetup` window), not where the heal is printed, because a
+ * player who sits out is not a player of that scenario (owner decision 66B, 2026-10-11, docs/phase7-wave9.md §4.1;
+ * an interpretation, there is no FFG ruling): the scenario is then set up for the players who play it, so its starting
+ * threat, hit points and every other per player value are theirs (RRG 1.8 "Per Player Icon", p. 32: "the number of
+ * players who started the scenario"). The price of rejoining is still paid where it is printed, by the box's heal
+ * instruction, which reads a seat recorded at 0 that is still in the game as one that chose to rejoin.
+ *
+ * `rejoinLabel` is the label of the rejoin answer, which names the price to come.
+ */
+export function rejoinOrSitOut(id: string, citation: string, rejoinLabel: string): CampaignInstruction {
+  return {
+    id,
+    text: "Expert Campaign Only: A defeated player can rejoin their teammates for this scenario by following its Setup instructions for healing their identity.",
+    citation,
+    whenModes: { expertCampaign: true },
+    step: {
+      kind: "inGame",
+      window: "beforeScenarioSetup",
+      effects: [
+        forEachPlayer(
+          eachPlayer,
+          ifThen(
+            not(campaignLogAtLeast("remainingHp", 1, { seat: thatPlayer })),
+            chooseOneBy(thatPlayer, option(rejoinLabel, []), option(SIT_OUT_LABEL, sitOut(thatPlayer))),
+          ),
+        ),
+      ],
+    },
+  };
+}
+
+/** The label of `healForThreat`'s rejoin answer for a price of `threat`. */
+export const rejoinForThreatLabel = (threat: number): string => `${REJOIN_LABEL} · +${threat} threat`;
 
 /** The labels of `healRecForSecret`'s offers (a defeated player's second answer is `SIT_OUT_LABEL`). */
 export const HEAL_REC_LABEL = "Heal REC · +1 secret counter";

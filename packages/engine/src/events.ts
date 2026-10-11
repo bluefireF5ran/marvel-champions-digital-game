@@ -1344,6 +1344,11 @@ export type GameEvent =
       readonly drawn: number;
     }
   | { readonly type: "playerEliminated"; readonly playerId: PlayerId }
+  /**
+   * `EffectSpec sitOutScenario` during setup, after that player's `playerEliminated`: the player never started the
+   * scenario, and `startingPlayerCount` is the count every per player value reads from now on.
+   */
+  | { readonly type: "playerSatOut"; readonly playerId: PlayerId; readonly startingPlayerCount: number }
   | { readonly type: "firstPlayerChanged"; readonly playerId: PlayerId }
   | { readonly type: "choiceRequested"; readonly choice: PendingChoice }
   | {

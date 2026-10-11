@@ -181,15 +181,49 @@ describe("expert campaign, a defeated player sits out the next scenario and the 
     expect(opened3.players[1]!.eliminated, "still sitting out when it declines again").toBe(true);
   });
 
-  it("scenario 2 with seat 2 sitting out still scales [per_hero] by 2 players (RRG 'Per Player Icon': players who started)", () => {
-    // PINNED, a rules question (see the report): the sitting-out seat is eliminated at the start of the game, so whether it
-    // "started the scenario" is open. Today it counts (A).
+  it("scenario 2 with seat 2 sitting out is played with one player's numbers: the seat never started it (owner decision 66B)", () => {
+    // RRG 1.8 "Per Player Icon" (p. 32): "multiplies that value by the number of players who started the scenario". Owner
+    // decision 66B (2026-10-11, docs/phase7-wave9.md section 4.1; an interpretation, no FFG ruling): a seat sitting a
+    // scenario out is not one of its players. It answers before the scenario is set up, so setup itself is for one player.
+    // Printed values of scenario 2 (MC50 p. 11; cards 50087a/b, 50090a, 50086b): stage 1B starts with 6[per_hero] threat;
+    // "In expert mode, place 2[per_hero] threat on Alert Level", which flips at 4[per_hero]; Batroc (B) has 12 hit points,
+    // not per player. Alert Level also holds the minions and side schemes recorded for scenario 1 (p. 11 Setup), a number
+    // that does not depend on the players.
     const first = e1();
+    const recorded = first.after.shared["minionsAndSideSchemes"];
+    const carried = recorded?.kind === "number" ? recorded.value : 0;
+    expect(carried + 2, "the staged record leaves Alert Level under its one-player threshold of 4").toBeLessThan(4);
     const sat = runNode(first.after, picker(["decline", "sitOut"], []), 0);
     const paid = runNode(first.after, picker(["decline", "pay"], []), 0);
     const threat = (s: GameState) => s.instances[s.mainScheme.instanceId]!.threat;
-    expect(sat.opened.startingPlayerCount).toBe(2);
-    expect(threat(sat.opened)).toBe(threat(paid.opened));
+    const alert = (s: GameState) => s.instances[all(s, "50090a")[0]!]!.threat;
+    const villainHp = (s: GameState) => remainingHitPoints(s, s.activeVillainId, WAVE9_DEPS);
+
+    expect(sat.opened.startingPlayerCount, "one player started").toBe(1);
+    expect(sat.opened.players.map((p) => p.sittingOut === true)).toEqual([false, true]);
+    expect(threat(sat.opened), "6[per_hero] starting threat, one player").toBe(6);
+    expect(alert(sat.opened), "2[per_hero] on Alert Level in expert mode, one player").toBe(carried + 2);
+    expect(villainHp(sat.opened), "Batroc (B): 12, fixed").toBe(12);
+    expect(sat.opened.players[1]!.hand, "no hand for the seat sitting out").toEqual([]);
+    expect(sat.events.some((e) => e.type === "cardDrawn" && e.playerId === sat.opened.players[1]!.playerId)).toBe(
+      false,
+    );
+
+    // The same seat rejoining: two players started, so the same cards read twice as much.
+    expect(paid.opened.startingPlayerCount).toBe(2);
+    expect(paid.opened.players.map((p) => p.eliminated)).toEqual([false, false]);
+    expect(threat(paid.opened), "6[per_hero], two players").toBe(12);
+    expect(alert(paid.opened), "2[per_hero], two players").toBe(carried + 4);
+    expect(villainHp(paid.opened)).toBe(12);
+  });
+
+  it("a player eliminated DURING a scenario still counts for it: the count is fixed once setup ends (RRG 'Per Player Icon', p. 32)", () => {
+    // "If a player is eliminated, this value does not change." Both seats start scenario 1; seat 2 is then eliminated.
+    const r = e1();
+    expect(r.opened.startingPlayerCount).toBe(2);
+    expect(r.final.players[1]!.eliminated).toBe(true);
+    expect(r.final.players[1]!.sittingOut).toBeUndefined();
+    expect(r.final.startingPlayerCount).toBe(2);
   });
 });
 

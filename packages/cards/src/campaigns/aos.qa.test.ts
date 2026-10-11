@@ -810,10 +810,14 @@ describe("an expert Agents of S.H.I.E.L.D. campaign: persistent damage, the heal
     // A defeated player (recorded 0) is asked to rejoin; both seats were offered the paid heal.
     expect(e2.offers).toContainEqual([HEAL_REC_LABEL, "Decline"]);
     expect(e2.offers).toContainEqual([REJOIN_REC_LABEL, SIT_OUT_LABEL]);
-    // Printed order (Q13 = B): every evidence Setup offer comes before the two paid heals.
-    const isHeal = (labels: readonly string[]) => labels.includes(HEAL_REC_LABEL) || labels.includes(REJOIN_REC_LABEL);
-    expect(e2.offers.findIndex(isHeal)).toBeGreaterThan(0);
-    expect(e2.offers.slice(e2.offers.findIndex(isHeal)).every(isHeal)).toBe(true);
+    // Q66 = B: the defeated seat answers first, before the scenario is set up, so a seat sitting out is not one of its
+    // players. Its price is paid with the printed heal, without a second question.
+    expect(e2.offers[0]).toEqual([REJOIN_REC_LABEL, SIT_OUT_LABEL]);
+    // Printed order (Q13 = B): every evidence Setup offer comes before the paid heal.
+    const isHeal = (labels: readonly string[]) => labels.includes(HEAL_REC_LABEL);
+    const printed = e2.offers.slice(1);
+    expect(printed.findIndex(isHeal)).toBeGreaterThan(0);
+    expect(printed.slice(printed.findIndex(isHeal)).every(isHeal)).toBe(true);
     // The heal is REC, not the full value (reading A of section 4.1 Q14; p. 6 prints "full hit points"): reported as a question.
     const healedTo = Math.min(seatHp(e1.after)[0]! + recOf(e2.opened, 0), maxHpOf(e2.opened, 0));
     expect(hpOf(e2.opened, 0)).toBe(healedTo);
@@ -838,6 +842,9 @@ describe("an expert Agents of S.H.I.E.L.D. campaign: persistent damage, the heal
     });
     expect(hpOf(e3.opened, 0)).toBe(base0 - 1);
     expect(e3.opened.players[1]!.eliminated).toBe(true);
+    // The seat never started scenario 3, so it is played with one player's numbers (Q66 = B).
+    expect(e3.opened.players[1]!.sittingOut).toBe(true);
+    expect(e3.opened.startingPlayerCount).toBe(1);
     expect(e3.result.outcome).toBe("won");
     expect(e3.result.sittingOut).toEqual([2]);
     expect(seatHp(e3.after)[0]).toBe(base0 - 2);

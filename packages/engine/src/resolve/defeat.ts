@@ -17,9 +17,12 @@ import {
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { hasKeyword, isPermanent } from "../keywords.js";
 import {
+  cardOf,
   characterProfile,
   discardZoneFor,
+  encounterDeckOf,
   getInstance,
+  getPlayer,
   isMinion,
   mainSchemeStageOf,
   mainSchemeStates,
@@ -1144,4 +1147,37 @@ export function eliminatePlayer(ctx: Ctx, playerId: PlayerId): void {
   if (ctx.state.players.every((p) => p.eliminated)) {
     endGame(ctx, { result: "loss", reason: "allPlayersDefeated" });
   }
+}
+
+/**
+ * `EffectSpec sitOutScenario` for one player (owner decision 66B, docs/phase7-wave9.md §4.1). The elimination is the
+ * ordinary one, so everything that skips an eliminated player skips this seat: no hand, no encounter cards, no turn,
+ * not a target or a chooser. During setup the seat also leaves `GameState.startingPlayerCount`, the one count per
+ * player values read, and a pod's own count of the players in the game (`PodState.playersInGameAtStart`); a remote
+ * pod coordinator is not told (no campaign plays in a pod today). When it was the last seat, `eliminatePlayer` has
+ * already ended the game as a loss and the count is left alone, so it never reads 0.
+ */
+export function sitOutScenario(ctx: Ctx, playerId: PlayerId): void {
+  const player = getPlayer(ctx.state, playerId);
+  if (!player || player.eliminated) return;
+  eliminatePlayer(ctx, playerId);
+  if (ctx.state.step.phase !== "setup" || ctx.state.players.every((p) => p.eliminated)) return;
+  const identity = cardOf(ctx.state, player.identity.instanceId);
+  const obligationCardId = identity?.type === "hero_identity" ? identity.obligationCardId : undefined;
+  if (obligationCardId !== undefined) {
+    for (const deckId of ctx.state.encounterDeckOrder) {
+      for (const id of [...encounterDeckOf(ctx.state, deckId).deck]) {
+        if (getInstance(ctx.state, id)?.cardId === obligationCardId) moveCard(ctx, id, { kind: "removedFromGame" });
+      }
+    }
+  }
+  const startingPlayerCount = ctx.state.startingPlayerCount - 1;
+  const pod = ctx.state.pod;
+  ctx.state = {
+    ...ctx.state,
+    startingPlayerCount,
+    ...(pod ? { pod: { ...pod, playersInGameAtStart: pod.playersInGameAtStart - 1 } } : {}),
+  };
+  updatePlayer(ctx, playerId, (p) => ({ ...p, sittingOut: true }));
+  emit(ctx, { type: "playerSatOut", playerId, startingPlayerCount });
 }
