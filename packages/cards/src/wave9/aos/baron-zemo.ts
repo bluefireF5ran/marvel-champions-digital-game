@@ -65,7 +65,8 @@ import {
   searchCollection,
   self,
   setup,
-  spendResources,
+  spend,
+  eitherCost,
   spendXResources,
   superlative,
   theAccused,
@@ -149,16 +150,14 @@ const removePerHero = () =>
   whenDefeated(removeCountersAmong("secret", perHero(1), BOARD_MEMBER_ENVIRONMENTS, { chooser: firstPlayer }));
 
 /**
- * The Sword's Hero Action cost, "[physical][physical][physical] or [energy][energy][energy]", as one option per type:
- * the DSL has no alternative costs (a gap, reported), and a payment made as the chosen option is required in full and
- * not offered to a player who cannot make it, which is a cost's behavior here as nothing else follows the payment.
+ * The Sword's Hero Action: "Spend [physical][physical][physical] or [energy][energy][energy] -> remove 1 secret counter
+ * from a Board Member environment. Discard this card." The payment is the ability's own cost (`eitherCost`), so a player
+ * who can make neither is not offered it and cannot initiate it (RRG 1.8 "Cost", p. 13; "Initiating Abilities" step 5,
+ * p. 49). The environment must hold a counter to be targeted (RRG 1.8 "Target", p. 42).
  */
-const swordPayment = (type: "physical" | "energy") =>
-  option(
-    `Spend three [${type}] resources`,
-    // "Remove 1 secret counter from a Board Member environment" needs one that holds a counter (RRG 1.8 "Target", p. 42).
-    { when: exists(query("environment", { trait: BOARD_MEMBER, hasCounter: "secret" })) },
-    spendResources({ [type]: 3 }, "paid"),
+const swordAction = () =>
+  heroAction(
+    { cost: eitherCost(spend({ physical: 3 }), spend({ energy: 3 })) },
     chooseTarget("board", query("environment", { trait: BOARD_MEMBER, hasCounter: "secret" })),
     removeCountersFrom(chosen("board"), "secret", 1),
     discard(self),
@@ -292,7 +291,7 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
     { ...on.enemyAttacks("host"), requireResults: { defeated: 1 } },
     ...placeOnFewest(1),
   ),
-  "50170.baron-zemos-sword-action": heroAction(chooseOne(swordPayment("physical"), swordPayment("energy"))),
+  "50170.baron-zemos-sword-action": swordAction(),
 
   // S.H.I.E.L.D. Agent: Quickstrike and Vulnerable are data.
   "50172.shield-agent-forced-interrupt": forcedInterrupt(

@@ -398,7 +398,9 @@ const nodeFive: CampaignNode = {
       "mc50.s5.victory.win",
       "Zemo is defeated, the mole is exposed, the heroes are exonerated, and the players win the campaign!",
       "MC50 p. 19",
-      [{ kind: "endCampaign", result: "won" }],
+      // No `endCampaign` here: the last node won completes it and ends the campaign as won (the runner's
+      // `advanceAfterWin`). An `endCampaign` op sets the status first, and the runner then skips the completed mark.
+      [],
     ),
   ],
   defeat: [

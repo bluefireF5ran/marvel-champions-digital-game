@@ -989,6 +989,14 @@ describe("Widow's Bite (50079)", () => {
     expect(identityDamage(state)).toBe(1);
   });
 
+  it("When Revealed resolves in printed order: the stun is given before the damage is dealt", () => {
+    const { events } = bitten();
+    const stunAt = events.findIndex((e) => e.type === "statusGiven" && e.status === "stunned");
+    const damageAt = events.findIndex((e) => e.type === "damageDealt");
+    expect(stunAt).toBeGreaterThanOrEqual(0);
+    expect(damageAt).toBeGreaterThan(stunAt);
+  });
+
   it("When Revealed, already stunned: 2 damage, and the status card stays at 1 (no room for another)", () => {
     const { state } = bitten((s) =>
       patchInstance(s, identityOf(s, P1), { statuses: { ...inst(s, identityOf(s, P1)).statuses, stunned: 1 } }),

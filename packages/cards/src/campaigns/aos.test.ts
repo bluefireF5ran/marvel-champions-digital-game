@@ -652,11 +652,21 @@ describe("scenario 5 (MC50 p. 19)", () => {
     const first = opened(logAt(4, { shared, envelope: ENVELOPE }));
     const won = finishWon(DEF, first.composed, first.state);
     expect(won.status).toBe("won");
+    // The client's Finale, Run screen and Dossier count the nodes marked completed and read the history.
+    expect(Object.values(won.position.resolved).filter((mark) => mark === "completed")).toHaveLength(5);
+    expect(won.position.resolved["baron-zemo"]).toBe("completed");
+    expect(won.position.nextNodeId).toBeNull();
+    expect(won.history.at(-1)).toMatchObject({ nodeId: "baron-zemo", outcome: "won" });
+    expect(won.history.map((entry) => entry.nodeId).filter((id) => id === "baron-zemo")).toHaveLength(1);
   });
 
   it("losing in an expert campaign loses the campaign: no retry is offered", () => {
     const lost = lose(logAt(4, { shared, envelope: ENVELOPE, modes: EXPERT, hp: [5, 5] }));
     expect(lost.status).toBe("lost");
+    // As in the other boxes: the lost node is not completed, and the lost game is in the history.
+    expect(lost.position.resolved["baron-zemo"]).toBeUndefined();
+    expect(Object.values(lost.position.resolved).filter((mark) => mark === "completed")).toHaveLength(4);
+    expect(lost.history.at(-1)).toMatchObject({ nodeId: "baron-zemo", outcome: "lost" });
   });
 
   it("losing in a standard campaign deals a new envelope and as many fresh evidence cards as before, then retries (section 3.76)", () => {

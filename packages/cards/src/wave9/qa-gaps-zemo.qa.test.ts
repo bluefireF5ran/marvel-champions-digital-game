@@ -102,45 +102,47 @@ describe("Baron Zemo's Sword (50170) Hero Action in a whole game: '[physical][ph
   }
   const total = (s: ReturnType<typeof openScenario>) => secretsOn(s).reduce((a, b) => a + b, 0);
 
-  it("three physical resources: the option is chosen, the payment is asked, 1 secret counter leaves a member and the Sword is discarded", () => {
+  it("three physical resources: the physical branch of the cost is paid, 1 secret counter leaves a member and the Sword is discarded", () => {
     const { s, sword } = armed();
     const given = moveToHand(s, P1, "01003", "01003", "01008");
     const before = total(given.state);
-    const seen: string[] = [];
     const r = act(
       given.state,
-      { options: ["Spend three [physical]"], payWith: given.ids, seen },
-      use(P1, sword, "50170.baron-zemos-sword-action"),
+      {},
+      use(
+        P1,
+        sword,
+        "50170.baron-zemos-sword-action",
+        given.ids.map((fromHand) => ({ fromHand })),
+        undefined,
+        { branch: 0 },
+      ),
     );
-    expect(seen[0]).toContain("Spend three [physical] resources");
-    expect(seen.some((l) => l.startsWith("spendResources"))).toBe(true);
     expect(total(r.state)).toBe(before - 1);
     expect(inst(r.state, sword).attachedTo, "discarded").toBeNull();
   });
 
-  it("the wrong type does not pay it (three mental resources toward the physical option)", () => {
+  it("the wrong type does not pay it (three mental resources toward the physical branch): refused, nothing spent", () => {
     const { s, sword } = armed();
     const given = moveToHand(s, P1, "01004", "01004", "01061");
-    let after: ReturnType<typeof act> | undefined;
-    try {
-      after = act(
-        given.state,
-        { options: ["Spend three [physical]"], payWith: given.ids },
-        use(P1, sword, "50170.baron-zemos-sword-action"),
-      );
-    } catch {
-      after = undefined;
-    }
-    if (after) expect(inst(after.state, sword).attachedTo).toBe(s.activeVillainId);
+    const r = applyCommand(
+      given.state,
+      use(
+        P1,
+        sword,
+        "50170.baron-zemos-sword-action",
+        given.ids.map((fromHand) => ({ fromHand })),
+        undefined,
+        { branch: 0 },
+      ),
+      DEPS,
+    );
+    expect(r.ok).toBe(false);
+    expect(inst(given.state, sword).attachedTo).toBe(s.activeVillainId);
   });
 
-  // FINDING: the Sword's cost is written into the effect (a choice of two paid options) instead of being the ability's
-  // cost, so a player who holds neither three [physical] nor three [energy] can still "use" it: the command is accepted
-  // with no payment, nothing is spent, nothing happens, and `legalActions` lists it with `needsPayment: false`. RRG 1.8
-  // "Cost" (p. 13) and "Initiating Abilities" step 5 (Appendix, p. 49: "If this step is reached and the cost(s) cannot be
-  // paid, abort this process") say an ability whose cost cannot be paid is not initiated; the greedy driver, which
-  // remembers nothing between commands in this harness, repeated it 100 times in one turn. Owner: ability-scripting-engineer
-  // (a cost with alternatives; the script's own comment calls the missing DSL cost a gap).
+  // The Sword's cost is the ability's own (`eitherCost`), so a player who holds neither three [physical] nor three
+  // [energy] cannot initiate it (RRG 1.8 "Cost", p. 13; "Initiating Abilities" step 5, Appendix, p. 49).
   const unpayable = () => {
     const { s, sword } = armed();
     // A hand of one card: neither three physical nor three energy resources can be made.
@@ -156,24 +158,12 @@ describe("Baron Zemo's Sword (50170) Hero Action in a whole game: '[physical][ph
     payment: [],
   });
 
-  it("FINDING (today): with nothing payable the Hero Action is offered and accepted as a free no-op", () => {
+  it("with nothing payable the Hero Action is not offered and cannot be initiated (RRG p. 13 / p. 49)", () => {
     const { s, sword } = unpayable();
     const legal = legalActions(s, P1, DEPS);
     const listed =
       legal.kind === "turn" && legal.legal.some((l) => l.action.kind === "useAbility" && l.action.instanceId === sword);
-    expect(listed).toBe(true);
-    const before = secretsOn(s);
-    const r = applyCommand(s, useSword(sword), DEPS);
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(secretsOn(r.state)).toEqual(before);
-      expect(inst(r.state, sword).attachedTo).toBe(s.activeVillainId);
-      expect(r.state.pendingChoice).toBeNull();
-    }
-  });
-
-  it.fails("FINDING (expected, RRG p. 13 / p. 49): with nothing payable the ability cannot be initiated", () => {
-    const { s, sword } = unpayable();
+    expect(listed).toBe(false);
     expect(applyCommand(s, useSword(sword), DEPS).ok).toBe(false);
   });
 });

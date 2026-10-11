@@ -14,6 +14,9 @@ import {
   inMode,
   isAlterEgo,
   isStunned,
+  ifElse,
+  setVar,
+  varOf,
   retargetPlayerAttack,
   stun,
   takeDamage,
@@ -225,10 +228,11 @@ export const BLACK_WIDOW: AbilityRegistry = defineAbilities({
   ),
   "50078.preparation": preparation(dealDamage(1, each(query("character", { controller: "you" })))),
 
-  // The stun is applied after the "already stunned" check, which reads the status the card is about to add.
+  // Printed order: stun, then damage. "Already stunned" means before this card's stun, so the damage is read first.
   "50079.when-revealed": whenRevealed(
-    ifThen(isStunned(yourIdentity), takeDamage(2), takeDamage(1)),
+    setVar("bite", ifElse(isStunned(yourIdentity), 2, 1)),
     stun(yourIdentity),
+    takeDamage(varOf("bite")),
   ),
   "50079.preparation": preparation(atEndOfAttack(stun(eventSource))),
 });

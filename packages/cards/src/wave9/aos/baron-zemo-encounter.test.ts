@@ -268,15 +268,28 @@ describe("Baron Zemo's Sword (50170)", () => {
       const moved = moveToHand(emptied, P1, ...cards);
       return { state: moved.state, ids: moved.ids, sword: swordOf(moved.state)! };
     }
-    const act = (state: GameState, sword: InstanceId, pick: Picker) =>
-      driveEventsPicking(DEPS, state, pick, use(P1, sword, "50170.baron-zemos-sword-action"));
+    /** `branch` 0 is the [physical] cost, 1 the [energy] one (`eitherCost`); `paid` is the hand cards spent. */
+    const act = (state: GameState, sword: InstanceId, pick: Picker, branch: 0 | 1, paid: readonly InstanceId[]) =>
+      driveEventsPicking(
+        DEPS,
+        state,
+        pick,
+        use(
+          P1,
+          sword,
+          "50170.baron-zemos-sword-action",
+          paid.map((fromHand) => ({ fromHand })),
+          undefined,
+          { branch },
+        ),
+      );
 
     it.each([
-      ["energy", ENERGY],
-      ["physical", PHYSICAL],
-    ])("three %s resources", (type, cards) => {
+      ["energy", ENERGY, 1 as const],
+      ["physical", PHYSICAL, 0 as const],
+    ])("three %s resources", (_type, cards, branch) => {
       const { state, ids, sword } = table(cards);
-      const run = act(state, sword, scripted({ label: type, pay: 3, target: memberOf(state, TACTICAL) }));
+      const run = act(state, sword, scripted({ target: memberOf(state, TACTICAL) }), branch, ids);
       expect(counts(run.state)).toEqual([2, 1, 2]);
       expect(swordOf(run.state)).toBeUndefined();
       expect(piles(run.state).discard).toContain(sword);
@@ -284,10 +297,10 @@ describe("Baron Zemo's Sword (50170)", () => {
     });
 
     it("two resources are not enough: the Sword stays", () => {
-      const { state, sword } = table(ENERGY.slice(0, 2));
+      const { state, ids, sword } = table(ENERGY.slice(0, 2));
       const result = (() => {
         try {
-          return act(state, sword, scripted({ label: "energy", pay: 2 })).state;
+          return act(state, sword, scripted({}), 1, ids).state;
         } catch {
           return state;
         }
