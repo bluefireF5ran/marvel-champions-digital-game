@@ -40,7 +40,9 @@ import {
   heroNoCharacterIsTitledAs,
   hiddenPileCount,
   identifyMole,
+  ifElse,
   ifThen,
+  inCampaign,
   instead,
   made,
   modifyAttack,
@@ -175,8 +177,9 @@ const swordPayment = (type: "physical" | "energy") =>
  * `shield`: the other six) and places 2 secret counters on each Board Member environment (the Setup keyword already put
  * them into play). The Response is two independent offers to the first player: place 2 secret counters on a Board
  * Member environment with none, to gain 2 cards from the `shield` pile (Q30 = A: not offered while the pile is empty);
- * and advance to stage 2A. The campaign branches (1 card instead of 2, no Setup counters or deal) are the campaign
- * pass's (docs/phase7-wave9.md section 3.75).
+ * and advance to stage 2A. The campaign branches (docs/phase7-wave9.md section 3.75) are in the same scripts: in a
+ * campaign game (`inCampaign`) Setup deals no piles and places no counters (the log's envelopes and recorded counters
+ * arrive through the campaign definition) and the Response gains 1 card instead of 2.
  *
  * **The Accusation (50168a / 50168b)**: 2A asks the first player for a combination not crossed out. 2B's When Revealed
  * is four steps in order: identify the mole (the `aim` pile turns faceup; no `revealHiddenPile` first), 1 secret
@@ -217,8 +220,13 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
   // each Board Member environment (not in a campaign either). "Put each Board Member environment into play" is their
   // Setup keyword.
   "50167a.setup": setup(
-    dealHiddenPiles("executive_board_evidence", { onePerGroupTo: AIM_PILE, restTo: SHIELD_PILE }),
-    addCounters("secret", 2, each(BOARD_MEMBER_ENVIRONMENTS)),
+    // In a campaign the envelopes come from the log (the definition's `seedHiddenPiles`) and the counters are the ones
+    // recorded (the board preparation in `campaign/executive-board.ts`), so neither is dealt or placed here (MC50 pp. 18
+    // to 19; docs/phase7-wave9.md section 3.75).
+    ifThen(not(inCampaign), [
+      dealHiddenPiles("executive_board_evidence", { onePerGroupTo: AIM_PILE, restTo: SHIELD_PILE }),
+    ]),
+    ifThen(not(inCampaign), [addCounters("secret", 2, each(BOARD_MEMBER_ENVIRONMENTS))]),
   ),
   // 1B Response: two independent offers to the first player (see the module header).
   "50167b.zemos-manipulations-response": response(
@@ -232,7 +240,9 @@ export const BARON_ZEMO: AbilityRegistry = defineAbilities({
           "Place 2 secret counters on a Board Member environment with none to gain 2 evidence cards",
           chooseTarget("environment", BARE_BOARD_MEMBER_ENVIRONMENTS, { chooser: firstPlayer }),
           addCounters("secret", 2, chosen("environment")),
-          gainFromHiddenPile(SHIELD_PILE, 2),
+          // "2 cards from the S.H.I.E.L.D. envelope (1 card instead in campaign mode)". The option's label names the
+          // standalone 2; the client words the campaign's 1 from the game's mode.
+          gainFromHiddenPile(SHIELD_PILE, ifElse(inCampaign, 1, 2)),
         ),
         option("Do not gain evidence"),
       ),

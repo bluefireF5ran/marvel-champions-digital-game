@@ -18,6 +18,7 @@ import { AOS_ASPECT_BASIC, AOS_ASPECT_BASIC_SKIPPED } from "./aos/aspect-basic.j
 import { BATROC, BATROC_SKIPPED } from "./aos/batroc.js";
 import { BATROCS_BRIGADE, BATROCS_BRIGADE_SKIPPED } from "./aos/batrocs-brigade.js";
 import { BARON_ZEMO, BARON_ZEMO_SKIPPED } from "./aos/baron-zemo.js";
+import { EXECUTIVE_BOARD_EVIDENCE, EXECUTIVE_BOARD_EVIDENCE_SKIPPED } from "./aos/campaign/executive-board-evidence.js";
 import { EXECUTIVE_BOARD, EXECUTIVE_BOARD_SKIPPED } from "./aos/executive-board.js";
 import { MODOK, MODOK_SKIPPED } from "./aos/modok.js";
 import {
@@ -273,6 +274,13 @@ const SCRIPTED_MODULES: Readonly<
       cardIds: ["50181a", "50181b", "50182a", "50182b", "50183a", "50183b", "50184a", "50184b", "50184c"],
       registry: EXECUTIVE_BOARD,
       skipped: EXECUTIVE_BOARD_SKIPPED,
+    },
+    {
+      // The nine evidence cards' Setup abilities, resolved only by the campaign's `evidenceSetup` instruction.
+      module: "campaign/executive-board-evidence",
+      cardIds: ["50185", "50186", "50187", "50188", "50189", "50190", "50191", "50192", "50193"],
+      registry: EXECUTIVE_BOARD_EVIDENCE,
+      skipped: EXECUTIVE_BOARD_EVIDENCE_SKIPPED,
     },
     {
       module: "thunderbolts",
