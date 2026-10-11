@@ -609,6 +609,8 @@ function gatherCandidates(
   if (timing === "response" && event.kind === "statusBeingGiven") return [];
   // And an attach about to happen: the attach itself announces what answers it (docs/phase7-wave9.md §3.49).
   if (timing === "response" && event.kind === "cardAttached" && event.imminent !== undefined) return [];
+  // And counters about to be placed: the placement announces what answers it (docs/phase7-wave9.md §3.55).
+  if (timing === "response" && event.kind === "countersPlaced" && event.imminent !== undefined) return [];
   // And an encounter card about to be dealt ("after a player is dealt" answers `encounterCardDealt`; wave 9 §3.45).
   if (timing === "response" && event.kind === "encounterCardBeingDealt") return [];
   if (nothingToAnswer(event, timing)) return [];

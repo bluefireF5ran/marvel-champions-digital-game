@@ -1,4 +1,5 @@
 import type { CardId, VillainSideLetter } from "@mc/content";
+import { shownCardId } from "./hidden-reverse.js";
 import { announceDeckTops } from "./deck-top.js";
 import type { EngineDeps } from "./abilities.js";
 import { ALL_PURPOSE_COUNTER, ANY_COUNTER, anyCounterTake, definedCounterTypeOrNull } from "./counter-types.js";
@@ -1974,7 +1975,7 @@ function leaveNow(
   // Raccoon (#29A)", p. 61), so it is logged as one.
   const redirect = discarded && to === requested ? discardRedirectArea(ctx.state, ctx.deps, id) : null;
   if (discarded && to === requested)
-    emit(ctx, { type: "cardDiscardedFromPlay", instanceId: id, cardId: instance.cardId });
+    emit(ctx, { type: "cardDiscardedFromPlay", instanceId: id, cardId: shownCardId(ctx.state, id) });
   if (redirect !== null) to = { kind: "scenarioArea", name: redirect.area };
   // Its consequential-scoped damage-taken rules still apply to a pending consequential damage (wave 6 §4.1 Q50).
   keepLingeringConsequentialRules(ctx, id);
@@ -2358,6 +2359,7 @@ export function consumeCostReductions(
  */
 export function turnToFlipSide(ctx: Ctx, id: InstanceId): void {
   const flipped = !mustInstance(ctx.state, id).flipped;
-  updateInstance(ctx, id, (i) => ({ ...i, flipped }));
+  // Its other face is now the one showing: nothing of the card is hidden any more (docs/phase7-wave9.md §3.54).
+  updateInstance(ctx, id, ({ reverseHidden: _shown, ...i }) => ({ ...i, flipped }));
   emit(ctx, { type: "cardFlipped", instanceId: id, flipped });
 }

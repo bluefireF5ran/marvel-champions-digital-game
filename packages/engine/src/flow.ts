@@ -24,7 +24,9 @@ import {
 } from "./effects.js";
 import { readyOrAnnounce } from "./resolve/event.js";
 import type { LastingEffect } from "./lasting.js";
-import { EngineInvariantError } from "./errors.js";
+import { EngineInvariantError, type EngineError } from "./errors.js";
+import { forcedActionOptionId, outstandingForcedActions } from "./legal.js";
+import { useLateForcedAction } from "./actions.js";
 import type { InstanceId, PlayerId } from "./ids.js";
 import { getPlayer, handSize, mustPlayer, playerOrder, scenarioPlayAreaOf, undefeatedVillains } from "./query.js";
 import {
@@ -126,7 +128,12 @@ export function runFlow(ctx: Ctx): void {
     }
     const step = ctx.state.step;
     if (step.phase === "gameOver") return;
-    if (step.phase === "player" && step.kind === "turn") return;
+    if (step.phase === "player" && step.kind === "turn") {
+      if (!step.ended) return;
+      // The forced action the phase waited on has resolved: look again, then begin the end-of-phase steps (§3.53).
+      advanceAfterTurn(ctx, step.remainingPlayerIds);
+      continue;
+    }
     executeStep(ctx);
   }
   throw new EngineInvariantError(
@@ -443,11 +450,59 @@ export function advanceAfterTurn(ctx: Ctx, remainingPlayerIds: readonly PlayerId
     beginTurn(ctx, next, rest);
     return;
   }
+  if (requestLateForcedAction(ctx)) return;
   setStep(ctx, {
     phase: "player",
     kind: "endPhaseDiscard",
     remainingPlayerIds: playerOrder(ctx.state).map((p) => p.playerId),
   });
+}
+
+/**
+ * RRG 1.8 "Action" (p. 6): "Each 'Forced Action' ability must be resolved before the player phase can end." A player's
+ * own are resolved before their turn ends (`endTurn` is refused); one that became outstanding afterwards (its card was
+ * readied during a later turn) is put to its player here, once the last turn has ended and before the end-of-phase
+ * steps: the first such player in player order is asked to resolve one of theirs, and the flow comes back when it has
+ * resolved (`GameStep turn.ended`). Returns false when none is outstanding. docs/phase7-wave9.md §3.53.
+ */
+function requestLateForcedAction(ctx: Ctx): boolean {
+  const step = ctx.state.step;
+  if (step.phase !== "player" || step.kind !== "turn") return false;
+  const outstanding = playerOrder(ctx.state).flatMap((player) =>
+    outstandingForcedActions(ctx.state, player.playerId, ctx.deps),
+  );
+  const first = outstanding[0];
+  if (!first) return false;
+  if (!step.ended) {
+    emit(ctx, {
+      type: "forcedActionsRequired",
+      actions: outstanding.map(({ playerId, instanceId, abilityId }) => ({ playerId, instanceId, abilityId })),
+    });
+    setStep(ctx, { ...step, ended: true });
+  }
+  const theirs = outstanding.filter((action) => action.playerId === first.playerId);
+  requestChoice(ctx, {
+    playerId: first.playerId,
+    prompt: { kind: "chooseOption", forcedAction: true },
+    options: theirs.map(({ instanceId, abilityId }) => ({
+      optionId: forcedActionOptionId(instanceId, abilityId),
+      label: displayNameOf(ctx.state, instanceId),
+      ref: { kind: "ability", instanceId, abilityId },
+    })),
+    minSelections: 1,
+    maxSelections: 1,
+  });
+  return true;
+}
+
+/** The answer to `requestLateForcedAction`'s prompt: the chosen forced action is triggered now, its cost paid. */
+export function resolveLateForcedAction(ctx: Ctx, playerId: PlayerId, optionId: string): EngineError | null {
+  const chosen = outstandingForcedActions(ctx.state, playerId, ctx.deps).find(
+    ({ instanceId, abilityId }) => forcedActionOptionId(instanceId, abilityId) === optionId,
+  );
+  // It was outstanding when asked and nothing has happened since.
+  if (!chosen) throw new EngineInvariantError(`forced action ${optionId} is no longer outstanding`);
+  return useLateForcedAction(ctx, chosen.example);
 }
 
 // RRG "End of Player Phase" step 1: each player may discard any number, and must discard down to hand size.

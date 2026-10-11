@@ -90,7 +90,14 @@ export type {
   PaymentQuery,
   PaymentSource,
 } from "./legal.js";
-export { legalActions, paymentFor, tryPayment } from "./legal.js";
+export {
+  forcedActionOptionId,
+  legalActions,
+  outstandingForcedActions,
+  paymentFor,
+  tryPayment,
+  type OutstandingForcedAction,
+} from "./legal.js";
 
 /** What a card costs right now vs. what is printed on it, and the cards moving the price (Steve Rogers' Living Legend). */
 export type { PlayCost, PlayCostContribution } from "./actions.js";
@@ -423,7 +430,15 @@ export { frameCardId } from "./ctx.js";
 
 /** Who may read a card's face, as a rule over zones — the client's rendering and `preview()` share this one answer. */
 export { displayNameOf, faceHidden, faceVisible, lookedAtBy, offeredByOpenChoice, zoneHidden } from "./visibility.js";
-export { hiddenPileViews, sealHiddenPiles, type HiddenPileView, type SealedGameState } from "./visibility.js";
+export {
+  hiddenPileViews,
+  otherFaceVisible,
+  sealHiddenInformation,
+  sealHiddenPiles,
+  sealHiddenReverses,
+  type HiddenPileView,
+  type SealedGameState,
+} from "./visibility.js";
 export { placeHiddenPiles, revealedPileCardsOf } from "./resolve/hidden-piles.js";
 export { evidenceRowId, openEvidenceRows, wrongGuessesOf } from "./accusation.js";
 export type { TableContext, ViewerContext } from "./visibility.js";

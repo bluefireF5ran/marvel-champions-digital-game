@@ -118,6 +118,7 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
     instanceId: frame.instanceId,
     abilityId: frame.abilityId,
     controllerId: frame.controllerId,
+    ...(definition.trigger.kind === "action" && definition.trigger.forced ? { forced: true as const } : {}),
     ...(grantedBy ? { grantedByInstanceId: grantedBy } : {}),
   });
   if (keyword) {

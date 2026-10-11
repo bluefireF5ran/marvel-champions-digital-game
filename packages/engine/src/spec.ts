@@ -3713,6 +3713,16 @@ export type EffectSpec =
        * that could not be attached, keeps its controller. Not with `facedown`.
        */
       readonly as?: "heldMinion" | "captive";
+      /**
+       * "Attach a random Hypnotic Gaze to each identity (players cannot look at the reverse sides)" (Prime Real Estate
+       * 1A, `tt` 55004a; MC55 p. 7; docs/phase7-wave9.md §3.54): the attached card's other face is hidden from every
+       * player until the card flips (`CardInstance.reverseHidden`, `otherFaceVisible`). So are the other faces of the
+       * set-aside cards with the same front (same type, name and printed text), which are first shuffled among
+       * themselves and the card with the game's seeded RNG: which of those look-alike cards a given instance is can
+       * then be told from nothing a player may read. The random card itself is a selector's (`CardSelector
+       * encounterSetAside.random`, bound by `selectCards`). A card with one face only is attached as without it.
+       */
+      readonly hideReverse?: true;
     }
   /**
    * `defeated`: the card leaves play because it was defeated, so Victory X sends it (and any Victory X attachment on it)

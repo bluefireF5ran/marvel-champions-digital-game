@@ -26,6 +26,7 @@ import { loseIfEncounterCardsExhausted, resetEncounterDeckIfEmpty, resetPlayerDe
 import { resetSeparateDeckIfEmpty } from "./resolve/separate-decks.js";
 import { syncTreatedAs } from "./treat-as.js";
 import { announceDeckTops } from "./deck-top.js";
+import { shownCardId } from "./hidden-reverse.js";
 
 /**
  * Working context for one command. `state` is replaced (never mutated) by each
@@ -327,7 +328,8 @@ export function relocateCard(ctx: Ctx, id: InstanceId, to: ZoneId, position: Zon
   emit(ctx, {
     type: "cardMoved",
     instanceId: id,
-    cardId: instance.cardId,
+    // A card whose other face is hidden is named by its stand-in (docs/phase7-wave9.md §3.54).
+    cardId: shownCardId(ctx.state, id),
     from: from ?? { kind: "removedFromGame" },
     to,
   });

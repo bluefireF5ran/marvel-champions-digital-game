@@ -280,12 +280,22 @@ export type AbilityTriggerSpec =
    * and its effects. Its limit stays per card unless the limit says per player. Optional interrupts and responses only:
    * a forced ability is nobody's choice to trigger.
    */
+  /**
+   * `forced`: "Forced Action" (docs/phase7-wave9.md §3.53; RRG 1.8 "Action", p. 6, and "Forced Action", p. 20): it
+   * "can be triggered at any time a non-forced action ability could be triggered", by the same player and at the same
+   * price, and "must be resolved before the player phase can end". While a player has one they could trigger now
+   * (`outstandingForcedActions`: in play, its cost payable, each target it requires there) their `endTurn` is refused,
+   * and one that became outstanding after its player's turn is put to that player before the phase ends. "If such an
+   * ability has a cost that cannot be paid or requires one or more valid targets and has none, the phase can end
+   * without that ability being resolved"; an effect that would change nothing is no such out.
+   */
   | {
       readonly kind: "action";
       readonly form?: Form;
       readonly while?: Predicate;
       readonly firstPlayerOnly?: boolean;
       readonly triggerableBy?: PlayerRef;
+      readonly forced?: true;
     }
   /**
    * "Resource:" / "Hero Resource:" — triggered while paying a cost. `forAnyPlayer`: "Piloting — Resource: Exhaust the
@@ -1060,9 +1070,12 @@ export type RuleSpec =
    *   attack chooses "an enemy" or "a minion": a target choice whose chosen card an `attack` instruction, or an
    *   "(attack)"-labeled ability's damage instruction, then attacks (`EffectContext.choosingAttackTarget`). For that
    *   choice it reads as a minion engaged with no player, with its own traits. Every player may attack it, with any
-   *   character that may attack it. A `cannotAttack` rule reads its target the same way, so "cannot attack minions"
-   *   and "cannot attack enemies" forbid attacking it; the card's own "attached character cannot attack enemies other
-   *   than this card" is `cannotAttack` with `target: { categories: ["enemy"], self: false }`.
+   *   character that may attack it.
+   * - **To a `cannotAttack` rule** it is no enemy (RRG 1.8 "Enemy", p. 18), so the card's own "attached character
+   *   cannot attack enemies other than this card" (`target: { categories: ["enemy"], self: false }`) leaves that
+   *   character free to attack this card and any other copy. A rule that names minions ("cannot attack minions")
+   *   does forbid attacking it, the attack being made as on a minion, and so does an unqualified one (`target: {
+   *   categories: ["enemy"] }`, the printed "cannot attack").
    * - **Not otherwise.** It is no minion, enemy or character for anything else: an ability that is not an attack, an
    *   attack that names its enemies as a group ("each minion engaged with you", "the villain and each minion"), a
    *   count of enemies, "after you attack an enemy". Guard protects villains only (RRG 1.8 "Guard", p. 21), not it.

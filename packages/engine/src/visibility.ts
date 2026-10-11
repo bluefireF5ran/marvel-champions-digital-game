@@ -58,12 +58,19 @@
  * a client holds or a server sends is the state with the piles' contents taken out (`sealHiddenPiles`). A card that
  * has come out of a pile (`GameState.revealedPileCards`) is open to all.
  *
+ * **A hidden reverse is nobody's either.** A double-sided card whose other face no player may look at
+ * (`CardInstance.reverseHidden`, docs/phase7-wave9.md §3.54; MC55 p. 7) is in play faceup and its showing face is as
+ * open as any card's; its other face is hidden from every player until the card flips (`otherFaceVisible`). The
+ * instance's card id is what names both faces, so a client or wire copy of the state names a stand-in instead
+ * (`sealHiddenReverses`).
+ *
  * A permission every player holds because of a rule on a card (the faceup top card of a deck) needs the rules read
  * but no viewer: a `TableContext` carries the deps alone. A caller that passes neither gets the answer of the zones
  * and the `faceup` flag only, in which that card is still closed.
  */
 
 import type { CardId } from "@mc/content";
+import { otherFaceVisible, standInOf } from "./hidden-reverse.js";
 import type { EngineDeps } from "./abilities.js";
 import { activeEncounterDeck, cardOf, getInstance, getPlayer, locateCard } from "./query.js";
 import type { InstanceId, PlayerId } from "./ids.js";
@@ -287,6 +294,31 @@ export function sealHiddenPiles(state: GameState): SealedGameState {
   };
 }
 
+/**
+ * The state with each hidden-reverse card (`CardInstance.reverseHidden`) named by its stand-in (`standInOf`) instead
+ * of its own card id: what a player's view is built from, or what is sent to a client, so that the other face of such
+ * a card cannot be read out of the state (docs/phase7-wave9.md §3.54). The card keeps its instance id, zone, counters
+ * and everything else. Like `sealHiddenPiles` this is not a state the engine can resume or replay from; the authority
+ * keeps the full `GameState`. Returns the state itself when no card has a hidden reverse.
+ *
+ * Two things outside this function's reach, for whoever sends state over a wire: the game's RNG state (`GameState.rng`,
+ * from which the shuffle of the look-alike cards can be recomputed) must not be sent, and the id of an ability printed
+ * on the hidden card's showing face is that card's own (`AbilityId` carries the card id), so a stack frame, a use count
+ * or an event that names one is redacted with the same predicate.
+ */
+export function sealHiddenReverses<S extends Pick<GameState, "instances" | "cardPool">>(state: S): S {
+  const hidden = Object.values(state.instances).filter((instance) => instance.reverseHidden === true);
+  if (hidden.length === 0) return state;
+  const instances = { ...state.instances };
+  for (const instance of hidden) {
+    instances[instance.instanceId] = { ...instance, cardId: standInOf(state, instance.cardId) };
+  }
+  return { ...state, instances };
+}
+
+/** A game state as a client or a wire copy may hold it: `sealHiddenPiles`, then `sealHiddenReverses`. */
+export const sealHiddenInformation = (state: GameState): SealedGameState => sealHiddenReverses(sealHiddenPiles(state));
+
 /** Every card id that is in a hidden pile right now: what no event a player reads, and no preview, may name. */
 export const hiddenPileCardIds = (state: GameState): ReadonlySet<CardId> =>
   new Set(Object.values(state.hiddenPiles ?? {}).flat());
@@ -324,3 +356,5 @@ export function displayNameOf(state: GameState, id: InstanceId): string {
   }
   return cardOf(state, id)?.name ?? id;
 }
+
+export { otherFaceVisible };

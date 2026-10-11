@@ -2904,6 +2904,12 @@ export const countBoostIcons = (cards: TargetRef, bind: string): EffectSpec => (
 });
 
 /**
+ * `hideReverse`: "Attach a random Hypnotic Gaze to each identity (players cannot look at the reverse sides)" (Prime
+ * Real Estate 1A, `tt` 55004a; MC55 p. 7; docs/phase7-wave9.md §3.54): the attached double-sided card's other face,
+ * and that of each set-aside card with the same front, is hidden from every player until the card flips. The random
+ * card is a selector's: `forEachPlayer(eachPlayer, selectCards("gaze", encounterSetAside(filter, { random: 1 })),
+ * attachCard(chosen("gaze"), identityOf(thatPlayer), { hideReverse: true }))`.
+ *
  * "Attach 1 card from your hand facedown here" (`facedown` for a facedown attach). `as: "heldMinion"`: the host holds
  * the minion (`holdMinion`). `as: "captive"`: "Attach 1 Rescued ally faceup here. Attached ally is under no player's
  * control." (Hostage Situation, `aos` 50121; docs/phase7-wave9.md §3.19): the ally stays in play on the host with no
@@ -2912,13 +2918,18 @@ export const countBoostIcons = (cards: TargetRef, bind: string): EffectSpec => (
 export const attachCard = (
   card: TargetRef,
   to: TargetRef,
-  opts: { readonly facedown?: boolean; readonly as?: "heldMinion" | "captive" } = {},
+  opts: {
+    readonly facedown?: boolean;
+    readonly as?: "heldMinion" | "captive";
+    readonly hideReverse?: boolean;
+  } = {},
 ): EffectSpec => ({
   kind: "attach",
   card,
   to,
   ...(opts.facedown ? { facedown: true } : {}),
   ...(opts.as ? { as: opts.as } : {}),
+  ...(opts.hideReverse ? { hideReverse: true } : {}),
 });
 /**
  * "Reveal and attach the remaining set-aside Thunderbolt minion faceup here", "attach the Thunderbolt minion with the

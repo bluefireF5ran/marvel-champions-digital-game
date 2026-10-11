@@ -220,6 +220,17 @@ export const firstPlayerAction = (...args: Args): AbilityDefinition => {
   const effects = !first || isEffectArg(first) ? args : rest;
   return action({ ...options, firstPlayerOnly: true }, ...(effects as readonly EffectArg[]));
 };
+/**
+ * "Forced Action:" (RRG 1.8 "Action", p. 6, and "Forced Action", p. 20; docs/phase7-wave9.md §3.53): `forcedAction({
+ * cost: { exhaustSelf: true } }, addCounters(...), ...)` is "Forced Action: Exhaust this card → place 1 charm counter
+ * …". An action in every way (who triggers it, when, at what price) that its player must resolve before the player
+ * phase can end: `endTurn` is refused while they could trigger it, and one that becomes payable after their turn is put
+ * to them before the phase ends. It is not owed while its cost cannot be paid or a target it requires is missing.
+ */
+export const forcedAction = (...args: Args): AbilityDefinition => {
+  const { options, effects } = split(args);
+  return build({ kind: "action", forced: true, ...(options.while ? { while: options.while } : {}) }, options, effects);
+};
 
 /**
  * "Resource: … generate …" (a bare number is that many wild resources). `generatesFor`: "generate a [wild]
@@ -733,9 +744,11 @@ export const rule = (r: RuleSpec): ConstantPart => ({ rules: [r] });
  * §3.50) → `constant(attackableAsMinion())`. The card (default: this card) can be the target of a basic attack and is
  * a candidate wherever an attack chooses "an enemy" or "a minion" (`chooseTarget` followed by an `attack`, or by an
  * "(attack)" ability's damage). It is no enemy for anything else, holds the damage it is dealt, has no hit points and
- * is never defeated: what its damage does is its own text (a `stateCheck`). A `cannotAttack` rule reads its target as
- * an attack's target, so "attached character cannot attack enemies other than this card" is `rule({ kind:
- * "cannotAttack", attacker: { hostOfSelf: true }, target: query("enemy", { self: false }) })`.
+ * is never defeated: what its damage does is its own text (a `stateCheck`). "Attached character cannot attack enemies
+ * other than this card" is `rule({ kind: "cannotAttack", attacker: { hostOfSelf: true }, target: query("enemy", {
+ * self: false }) })`: the card is no enemy (RRG 1.8 "Enemy", p. 18), so that rule forbids attacking neither this card
+ * nor another copy. A `cannotAttack` rule that names minions (`target: query("minion")`) does forbid attacking it, and
+ * so does the unqualified `target: query("enemy")`, the printed "cannot attack".
  */
 export const attackableAsMinion = (
   card: TargetQuery = { self: true },
@@ -2900,6 +2913,17 @@ export const on = {
       where === undefined ? {} : asTarget(where),
       opts.by === "you" ? { playerIs: "controller" } : {},
     ),
+  /**
+   * "When a charm counter **would be placed** on the Enchantment card in your play area" (Prime Real Estate 1B,
+   * Sovereign Sorceress 2B, `tt` 55004b, 55005b; docs/phase7-wave9.md §3.55; RRG 1.8 "'Would'", p. 48): counters of
+   * `counterType` are about to be placed on `where` (absent: any card) by an `addCounters` effect. Use it in an
+   * interrupt: the counters are not on the card yet, `eventTarget` is the card they are bound for, `eventAmount` how
+   * many, and `instead(placeThreat(eventAmount, self))` is "place 1 threat here instead" for each of them. A
+   * placement that is replaced or canceled is not announced to `on.countersPlaced`. Interrupt only: "after … is
+   * placed" is `on.countersPlaced`. Not heard: counters moved from another card, and counters placed as a cost.
+   */
+  countersWouldBePlaced: (counterType: string, where?: Who): EventPattern =>
+    pattern("countersPlaced", { eventIs: { counterType } }, where === undefined ? {} : asTarget(where)),
   /**
    * "After a tough status card is discarded from Colossus" (Iron Will, Organic Steel, `mut_gen` 32004, 32006): a
    * `status` card discarded from `from` (absent: any card), by any route: a tough card used up, piercing, a stun or

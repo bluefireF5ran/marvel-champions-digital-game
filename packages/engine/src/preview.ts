@@ -183,6 +183,11 @@ function namesAny(event: GameEvent, ids: ReadonlySet<string>): boolean {
  *      it by that id while it is hidden, so any mention is the reveal. Needed beside `randomPrefix`: taking a pile's
  *      last cards, or all of them, draws nothing from the random stream.
  *
+ *  (d) names a double-sided card whose other face no player may look at (`CardInstance.reverseHidden`,
+ *      docs/phase7-wave9.md §3.54) and that has flipped once the command finishes: what its other face is, and all it
+ *      then does, is not the previewing player's to know. Like (b), a mention of a card that stays as it is does not
+ *      truncate (a counter placed on it that is not the last one).
+ *
  * Damaging a facedown Drone does *not* truncate: naming a facedown card is not reading it, and the Drone is still
  * facedown afterwards. That distinction is why (b) asks about the post-state's `faceup` rather than treating every
  * mention of a facedown card as a reveal.
@@ -198,13 +203,20 @@ function certainPrefix(before: GameState, after: GameState, events: readonly Gam
     else if (faceHidden(before, instanceId)) revealable.add(id);
   }
   const piled = hiddenPileCardIds(before);
-  if (hidden.size === 0 && revealable.size === 0 && piled.size === 0) return events.length;
+  // (d) below: the cards whose other face no player may look at and that the command flips.
+  const turning = new Set(
+    Object.values(before.instances)
+      .filter((instance) => instance.reverseHidden && after.instances[instance.instanceId]?.reverseHidden !== true)
+      .map((instance) => instance.instanceId as string),
+  );
+  if (hidden.size === 0 && revealable.size === 0 && piled.size === 0 && turning.size === 0) return events.length;
 
   for (const [index, event] of events.entries()) {
     if (piled.size > 0 && namesAny(event, piled)) return index;
     const named = new Set<string>();
     namedInstances(event, before, named);
     for (const id of named) {
+      if (turning.has(id)) return index;
       if (hidden.has(id)) return index;
       if (revealable.has(id) && after.instances[id]?.faceup === true) return index;
     }

@@ -20,7 +20,8 @@ import type { EffectSpec, TargetQuery, TargetRef } from "./spec.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
 import { runCommandsPicking } from "./testing/drive.js";
-import { stubAttachment, stubEvent, stubMinion, stubTreachery, stubUpgrade } from "./testing/fixtures.js";
+import { canAttack } from "./select.js";
+import { stubAlly, stubAttachment, stubEvent, stubMinion, stubTreachery, stubUpgrade } from "./testing/fixtures.js";
 import { ALLY, defaultPick } from "./testing/scenario.js";
 import { copiesOf, gameAtFirstTurn, minionEngagedWith, P1, P2, playerCardIntoPlay } from "./testing/wave3.js";
 
@@ -134,12 +135,38 @@ const BAIT = event(
   ],
   false,
 );
+/** "Brute cannot attack minions." */
+const BRUTE_RULE = stubAbility("brute.constant", {
+  trigger: {
+    kind: "constant",
+    rules: [{ kind: "cannotAttack", attacker: { self: true }, target: { categories: ["minion"] } }],
+  },
+  effects: [],
+});
+/** "Pacifist cannot attack." */
+const PACIFIST_RULE = stubAbility("pacifist.constant", {
+  trigger: {
+    kind: "constant",
+    rules: [{ kind: "cannotAttack", attacker: { self: true }, target: { categories: ["enemy"] } }],
+  },
+  effects: [],
+});
+const BRUTE = stubAlly({ id: "brute", cost: 0, atk: 2, thw: 1, hp: 3, abilities: [BRUTE_RULE.ref] });
+const PACIFIST = stubAlly({ id: "pacifist", cost: 0, atk: 2, thw: 1, hp: 3, abilities: [PACIFIST_RULE.ref] });
 const TROPHY = stubUpgrade({ id: "trophy", cost: 0, abilities: [TROPHY_RESPONSE.ref] });
 const DUMMY = stubMinion({ id: "dummy", atk: 1, sch: 1, hp: 9, boostIcons: 0 });
 const SENTRY = stubMinion({ id: "sentry", atk: 1, sch: 1, hp: 9, boostIcons: 0, keywords: [{ name: "guard" }] });
 const FILLER = stubTreachery({ id: "filler", boostIcons: 0 });
 const EVENTS = [PUNCH, BLAST, TAP, SWAT, ZAP, SWEEP, PROVOKE, BAIT];
-const deps = depsOf(ICE_RULES, ICE_CHECK, TROPHY_RESPONSE, FROST_RESPONSE, ...EVENTS.map((e) => e.ability));
+const deps = depsOf(
+  ICE_RULES,
+  ICE_CHECK,
+  BRUTE_RULE,
+  PACIFIST_RULE,
+  TROPHY_RESPONSE,
+  FROST_RESPONSE,
+  ...EVENTS.map((e) => e.ability),
+);
 
 interface Table {
   readonly state: GameState;
@@ -170,10 +197,10 @@ function encase(state: GameState, host: InstanceId): { readonly state: GameState
 /** P1's hero (ATK 2, in hero form) encased. */
 function table(players: 1 | 2 = 1): Table {
   const start = gameAtFirstTurn({
-    cards: [ICE, TROPHY, DUMMY, SENTRY, FROST, FILLER, ...EVENTS.map((e) => e.card)],
+    cards: [ICE, TROPHY, BRUTE, PACIFIST, DUMMY, SENTRY, FROST, FILLER, ...EVENTS.map((e) => e.card)],
     deps,
     players,
-    deck: [TROPHY.id, ...EVENTS.map((e) => e.card.id)],
+    deck: [TROPHY.id, BRUTE.id, PACIFIST.id, ...EVENTS.map((e) => e.card.id)],
     encounter: [ICE.id, ICE.id, DUMMY.id, SENTRY.id, FROST.id, ...copiesOf(FILLER.id, 20)],
   });
   const heroes: GameState = {
@@ -359,9 +386,10 @@ describe("§3.50 a card players attack as if it were a minion (RuleSpec attackab
     // A second copy on an ally of the same player.
     const ally = playerCardIntoPlay(start.state, ALLY.id);
     const second = encase(ally.state, ally.id);
-    expect(attackTargets(second.state, ally.id)).toEqual([second.ice]);
-    expect(attackTargets(second.state, start.hero)).toEqual([start.ice]);
-    // "Enemies other than this card": the other copy, attacked as if it were a minion, is one.
+    // "Enemies other than this card": the other copy is no enemy (RRG 1.8 "Enemy", p. 18), so each encased character
+    // may attack either copy and no enemy.
+    expect(attackTargets(second.state, ally.id)).toEqual([start.ice, second.ice]);
+    expect(attackTargets(second.state, start.hero)).toEqual([start.ice, second.ice]);
     // Another character may attack either copy.
     const other = playerCardIntoPlay(second.state, ALLY.id);
     expect(attackTargets(other.state, other.id)).toEqual([start.villain, start.ice, second.ice]);
@@ -376,7 +404,7 @@ describe("§3.50 a card players attack as if it were a minion (RuleSpec attackab
     expect(second === undefined ? null : mustInstance(baited.state, second).cardId).toBe(ICE.id);
     // The card's own "attach to your identity" was not read: another ability named the host (RRG 1.8 p. 8).
     expect(mustInstance(baited.state, second!).attachedTo).toBe(ally.id);
-    // Readied (surgery), the ally may attack only the copy on it: the hero's copy is an enemy other than that card.
+    // Readied (surgery), the ally may attack either copy and no enemy: the hero's copy is not an enemy.
     const readied: GameState = {
       ...baited.state,
       instances: {
@@ -384,8 +412,41 @@ describe("§3.50 a card players attack as if it were a minion (RuleSpec attackab
         [ally.id]: { ...mustInstance(baited.state, ally.id), exhausted: false },
       },
     };
-    expect(attackTargets(readied, ally.id)).toEqual([second]);
+    expect(attackTargets(readied, ally.id)).toEqual([t.ice, second]);
+    expect(canAttack(readied, ally.id, t.villain, deps)).toBe(false);
     expect(mustInstance(baited.state, ally.id).statuses.stunned).toBe(0);
+  });
+
+  it("two copies on one character: it may attack either copy, and still no enemy", () => {
+    const t = table();
+    const withMinion = minionEngagedWith(t.state, DUMMY.id);
+    const both = encase(withMinion.state, t.hero);
+    expect(attackTargets(both.state, t.hero)).toEqual([t.ice, both.ice]);
+    expect(canAttack(both.state, t.hero, t.villain, deps)).toBe(false);
+    expect(canAttack(both.state, t.hero, withMinion.id, deps)).toBe(false);
+    // Where its attack chooses an enemy, both copies and nothing else are candidates.
+    expect(offered(both.state, PUNCH)).toEqual([t.ice, both.ice]);
+    const { state } = run(both.state, basic(t.hero, both.ice));
+    expect(damageOn(state, both.ice)).toBe(2);
+    expect(damageOn(state, t.ice)).toBe(0);
+  });
+
+  it("'cannot attack minions' forbids attacking it: the attack is made as on a minion", () => {
+    const t = table();
+    const ally = playerCardIntoPlay(t.state, ALLY.id);
+    const brute = playerCardIntoPlay(ally.state, BRUTE.id);
+    expect(canAttack(brute.state, brute.id, t.ice, deps)).toBe(false);
+    expect(canAttack(brute.state, brute.id, t.villain, deps)).toBe(true);
+    expect(canAttack(brute.state, ally.id, t.ice, deps)).toBe(true);
+  });
+
+  it("the printed 'cannot attack' (every enemy, unqualified) forbids attacking it too", () => {
+    const t = table();
+    const ally = playerCardIntoPlay(t.state, ALLY.id);
+    const pacifist = playerCardIntoPlay(ally.state, PACIFIST.id);
+    expect(canAttack(pacifist.state, pacifist.id, t.ice, deps)).toBe(false);
+    expect(canAttack(pacifist.state, pacifist.id, t.villain, deps)).toBe(false);
+    expect(canAttack(pacifist.state, ally.id, t.ice, deps)).toBe(true);
   });
 
   it("with no copy left in the deck or the discard pile, the attacked character is stunned instead", () => {

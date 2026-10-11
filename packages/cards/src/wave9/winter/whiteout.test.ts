@@ -416,13 +416,17 @@ describe("Encased in Ice (54035)", () => {
     expect(pile(after).discard).toContain(ice);
   });
 
-  it("an encased character cannot attack another character's copy of the card? it can only attack its own: the other copy is not a legal target", () => {
+  // RRG 1.8 "Enemy" (p. 18): another copy is an attachment attacked as if it were a minion, no "enemy other than this
+  // card", so the prohibition does not reach it.
+  it("an encased character can attack another character's copy of the card as well as its own: the other copy is no enemy", () => {
     const state = table({ [ICE]: 2 });
     const widow = stagedInPlay(state, WIDOW);
     const mine = encase(widow.state, heroOf(state));
     const other = encase(mine.state, widow.id);
     expect(canAttack(other.state, heroOf(other.state), mine.ice)).toBe(true);
-    expect(canAttack(other.state, heroOf(other.state), other.ice)).toBe(false);
+    expect(canAttack(other.state, heroOf(other.state), other.ice)).toBe(true);
+    expect(canAttack(other.state, widow.id, mine.ice)).toBe(true);
+    expect(canAttack(other.state, heroOf(other.state), villainOf(other.state))).toBe(false);
   });
 
   it("GUARD does not protect it: with Hydra Mercenary (guard) engaged, the encased hero attacks the ice", () => {

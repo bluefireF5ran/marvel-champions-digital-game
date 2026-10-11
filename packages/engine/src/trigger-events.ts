@@ -723,6 +723,25 @@ export type TriggerEventBody =
       readonly amount: number;
       readonly playerId: PlayerId | null;
       readonly paidAsCost?: true;
+      /**
+       * The counters are still to be placed: "When a charm counter **would be placed** on the Enchantment card in your
+       * play area, … place 1 threat here instead" (Prime Real Estate 1B, Sovereign Sorceress 2B, `tt` 55004b, 55005b;
+       * docs/phase7-wave9.md §3.55; RRG 1.8 "'Would'", p. 48). Pushed in front of an `EffectSpec addCounters`
+       * placement, one event per card with `amount` the number about to be placed there, and only when an interrupt
+       * answers it (`placeCountersOrAnnounce`); the counters are not on the card yet. It has an interrupt window and
+       * no response window: its apply step places the counters and then announces this event without `imminent`,
+       * which is what "after … is placed" answers. An interrupt that cancels or replaces it (RRG 1.8 "Replacement
+       * Effect", p. 37) leaves the counters unplaced: nothing is announced and the placing effect's `<bind>.amount`
+       * does not count them. `eventAmount` is the number of counters, so "1 threat instead" for each is
+       * `replaceTriggeringEvent` with `placeThreat(eventAmount, …)`.
+       *
+       * `countOn` names the frame variable the placing effect reads as "placed this way" (`addCounters.bind`), raised
+       * by `amount` if the counters land.
+       *
+       * Not announced this way: counters moved from another card (`moveCounters`), a counter cost (`paidAsCost`:
+       * every cost is paid at once, RRG 1.8 "Cost", p. 13) and a keyword's counters as its card enters play (Uses).
+       */
+      readonly imminent?: { readonly countOn?: { readonly frameId: FrameId; readonly name: string } };
     }
   /**
    * A status card was discarded from a card (docs/phase7-wave6.md §3.5): "After a tough status card is discarded from
@@ -1940,6 +1959,10 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     // "When a … attachment would be attached" (docs/phase7-wave9.md §3.49): the attach is still to come. One that
     // already happened is an announcement, as before.
     case "cardAttached":
+      return event.imminent === undefined;
+    // "When a … counter would be placed" (docs/phase7-wave9.md §3.55): the placement is still to come. One already
+    // made is an announcement, as before.
+    case "countersPlaced":
       return event.imminent === undefined;
     default:
       return true;

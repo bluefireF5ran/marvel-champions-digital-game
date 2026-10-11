@@ -5,6 +5,7 @@ import type { CardId } from "@mc/content";
 import { applyStatusBeingGiven, statusStillToGive } from "./status-being-given.js";
 import { resolveTuck } from "./tuck.js";
 import { resolveImminentAttach } from "./imminent-attach.js";
+import { applyCountersBeingPlaced } from "./counters-being-placed.js";
 import { applyWouldDiscard, wouldDiscardNotMade } from "./would-discard.js";
 import { type Ctx, emit, findFrame, popFrame, pushFrames, setFrame, updateFrame, updateInstance } from "../ctx.js";
 import { overkillRecipient } from "../defend-preview.js";
@@ -736,6 +737,11 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
       // An attach still to come: its interrupts resolved with the card where it was, and it is attached now
       // (docs/phase7-wave9.md §3.49). One already made is an announcement with nothing to apply.
       if (event.imminent) resolveImminentAttach(ctx, event, event.hostInstanceId);
+      return;
+    case "countersPlaced":
+      // Counters still to be placed: their interrupts resolved, and they are placed now (docs/phase7-wave9.md §3.55).
+      // A placement already made is an announcement with nothing to apply.
+      if (event.imminent) return applyCountersBeingPlaced(ctx, event);
       return;
     case "cardBeingTucked":
       // Its interrupts resolved with the card where it was; it goes under its host now (docs/phase7-wave9.md §3.40).

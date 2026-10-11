@@ -17,7 +17,7 @@ import { DEFENSE_BAR_MESSAGE } from "./defense-claim.js";
 import { discardFromHand, discardFromPlay, endGame } from "./effects.js";
 import { engineError, EngineInvariantError, type EngineError } from "./errors.js";
 import type { GameEvent } from "./events.js";
-import { afterDiscardChoice, afterMulliganChoice, runFlow } from "./flow.js";
+import { afterDiscardChoice, afterMulliganChoice, resolveLateForcedAction, runFlow } from "./flow.js";
 import { activateChosenMinion } from "./villain/phase.js";
 import { instanceId } from "./ids.js";
 import { reportedNumberOf } from "./outside-facts.js";
@@ -245,6 +245,14 @@ function resolveChoice(ctx: Ctx, command: Command & { type: "resolveChoice" }): 
         discardFromPlay(ctx, instanceId(optionId));
       }
       return null;
+    }
+    // The phase end's "resolve this Forced Action" (docs/phase7-wave9.md §3.53).
+    case "chooseOption": {
+      const [picked] = selected;
+      if (!choice.prompt.forcedAction || !picked) {
+        throw new EngineInvariantError("choice chooseOption has no frame to resume");
+      }
+      return resolveLateForcedAction(ctx, choice.playerId, picked);
     }
     case "chooseMinionToActivate": {
       const picked = selected[0];

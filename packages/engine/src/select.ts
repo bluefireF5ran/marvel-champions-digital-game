@@ -216,6 +216,12 @@ export interface EffectContext {
    * then matches the categories a minion has. Absent everywhere else, so no other query sees such a card as one.
    */
   readonly choosingAttackTarget?: true;
+  /**
+   * The query being read is the `target` of a `cannotAttack` rule (`attackForbidden`): a card players may attack "as
+   * if it were a minion" then matches `minion`, and neither `enemy` nor `character` (it is neither: RRG 1.8 "Enemy",
+   * p. 18). Absent everywhere else.
+   */
+  readonly prohibitingAttack?: true;
 }
 
 /** A card as it last was in play, as far as `EffectContext.lastKnown` carries it. */
@@ -1171,6 +1177,8 @@ export function explainQuery(
       ...(context.deps ? (countsAsExtras(state, context.deps).get(id)?.categories ?? []) : []),
       // "As if it were a minion", for the choice of an attack's target only (`RuleSpec attackableAsMinion`).
       ...(context.choosingAttackTarget && attackableAsMinion(state, id, context.deps) ? AS_A_MINION : []),
+      // To a prohibition it is what it is attacked as, a minion, and no enemy (`attackForbidden`).
+      ...(context.prohibitingAttack && attackableAsMinion(state, id, context.deps) ? AS_A_PROHIBITED_MINION : []),
     ];
     if (!query.categories.some((category) => categories.includes(category))) return "wrongCategory";
     // "A friendly character" is written `["identity", "ally"]`: a captive ally is an ally but no player's (§3.75).
@@ -1987,6 +1995,7 @@ export function basicThwartTargetAllowed(
 }
 
 const AS_A_MINION: readonly TargetCategory[] = ["minion", "enemy", "character"];
+const AS_A_PROHIBITED_MINION: readonly TargetCategory[] = ["minion"];
 
 /**
  * Whether players may attack this card "as if it were a minion" though it is no character (`RuleSpec
@@ -2062,11 +2071,25 @@ function attackForbidden(
         return false;
       }
     }
-    // The target is read as an attack's target: a card players attack "as if it were a minion" (`RuleSpec
-    // attackableAsMinion`, docs/phase7-wave9.md §3.50) is a minion to "cannot attack minions" and an enemy to "cannot
-    // attack enemies other than this card".
-    return matchesQuery(state, targetId, target, { ...active.context, choosingAttackTarget: true });
+    // The target is matched against what the card is. A card players attack "as if it were a minion" (`RuleSpec
+    // attackableAsMinion`, docs/phase7-wave9.md §3.50) is no enemy (RRG 1.8 "Enemy", p. 18: "a minion or villain"),
+    // so "cannot attack enemies other than this card" on one copy does not forbid attacking another copy. Two readings
+    // do reach it:
+    // - a prohibition with no qualification at all, the printed "cannot attack", forbids every attack, this one too;
+    // - a prohibition that names minions ("cannot attack minions") forbids it: the only leave to attack the card is
+    //   "as if it were a minion", and that attacker may not attack a minion.
+    if (forbidsEveryAttack(target) && isAttackTarget(state, targetId, deps)) return true;
+    return matchesQuery(state, targetId, target, { ...active.context, prohibitingAttack: true });
   });
+}
+
+/**
+ * A `cannotAttack` target that is every enemy and nothing narrower is the printed "cannot attack" ("Attached character
+ * cannot attack."): players attack nothing but enemies, so the words "cannot attack enemies" never appear alone.
+ */
+function forbidsEveryAttack(target: TargetQuery): boolean {
+  const keys = Object.keys(target).filter((key) => target[key as keyof TargetQuery] !== undefined);
+  return keys.length === 1 && keys[0] === "categories" && target.categories!.includes("enemy");
 }
 
 /** A minion's controller is null (it belongs to the encounter side) even while engaged. */
