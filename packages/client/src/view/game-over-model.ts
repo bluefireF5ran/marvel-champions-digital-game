@@ -52,6 +52,8 @@ export interface GameOverSeat {
   readonly name: string;
   readonly detail: string;
   readonly defeated: boolean;
+  /** True for a seat that sat the scenario out (owner decision 66B): neither a defeat nor counted in the table. */
+  readonly satOut: boolean;
 }
 
 export interface GameOverModel {
@@ -196,7 +198,7 @@ export function gameOverModel(
   const firstDown = [...heroesDown].sort((a, b) => (a.defeatedInRound ?? 0) - (b.defeatedInRound ?? 0))[0];
 
   const difficulty = config ? sentenceCase(config.difficulty) : null;
-  const meta = [`Round ${round}`, difficulty, plural(state.players.length, "hero", "heroes")]
+  const meta = [`Round ${round}`, difficulty, plural(state.startingPlayerCount, "hero", "heroes")]
     .filter(Boolean)
     .join(" · ");
 
@@ -350,7 +352,7 @@ export function gameOverModel(
     },
     {
       label: "Heroes down",
-      value: `${heroesDown.length} of ${state.players.length}`,
+      value: `${heroesDown.length} of ${state.startingPlayerCount}`,
       note: firstDown
         ? `${playerName(state, firstDown.playerId)} defeated in round ${firstDown.defeatedInRound}`
         : "Every hero stood to the end",
@@ -373,18 +375,22 @@ export function gameOverModel(
   const seats: GameOverSeat[] = record.seats.map((seat) => {
     const player = state.players.find((candidate) => candidate.playerId === seat.playerId);
     const played = plural(seat.cardsPlayed, "card") + " played";
+    if (seat.satOut || player?.sittingOut) {
+      return { name: playerName(state, seat.playerId), detail: "Sat out", defeated: false, satOut: true };
+    }
     if (seat.defeatedInRound !== null || !player) {
       return {
         name: playerName(state, seat.playerId),
         detail: `Defeated R${seat.defeatedInRound ?? round} · ${played}`,
         defeated: true,
+        satOut: false,
       };
     }
     const id = player.identity.instanceId;
     const hp = remainingHitPoints(state, id, deps);
     const max = maxHitPoints(state, id, deps);
     const health = hp !== undefined && max !== undefined ? `${hpFraction(hp, max)} HP · ` : "";
-    return { name: playerName(state, seat.playerId), detail: `${health}${played}`, defeated: false };
+    return { name: playerName(state, seat.playerId), detail: `${health}${played}`, defeated: false, satOut: false };
   });
 
   const topDamage = [...record.seats].sort((a, b) => b.damage - a.damage)[0];

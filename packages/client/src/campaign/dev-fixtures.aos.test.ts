@@ -70,6 +70,14 @@ describe("an Agents of S.H.I.E.L.D. run seeded for the client", () => {
     expect(brief.flipNote).toContain("3 secrets (expert)");
   });
 
+  test("a seat eliminated in the won scenarios is recorded at 0 hit points and reads as the one who may rejoin or sit out", async () => {
+    const record = await seedAosRun(service(), "afterIssue1", { expertCampaign: true, defeatedSeat: 1 });
+    const brief = shieldBriefingOf(record, AOS_CAMPAIGN_DEFINITION, (id) => nameOf(id as string))!;
+    expect(brief.seats[0]!.sitsOut).toBe(false);
+    expect(brief.seats[1]!.sitsOut).toBe(true);
+    expect(brief.seats[1]!.status).toMatch(/^Defeated/);
+  });
+
   test("a carried number is listed only until the scenario that reads it has been played", async () => {
     const record = await seedAosRun(service(), "afterIssue3");
     const keys = (upcoming?: number): string[] =>

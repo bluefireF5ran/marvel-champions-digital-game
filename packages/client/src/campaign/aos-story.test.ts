@@ -74,7 +74,15 @@ describe("the Agents of S.H.I.E.L.D. story", () => {
     for (const n of [2, 3, 4, 5]) {
       expect(setupCallCopyFor(`mc50.s${n}.setup.heal`)?.name).toBe("Expert heal");
       expect(setupCallCopyFor(`mc50.s${n}.setup.evidence.50185`)?.name).toBe("Evidence setup");
+      // Owner decision 66B: rejoin or sit out is decided before setup, a hero who sits out is not counted, and the
+      // heal's words no longer claim the choice comes there.
+      const rejoin = setupCallCopyFor(`mc50.s${n}.setup.rejoin`);
+      expect(rejoin?.name).toBe("Rejoin or sit out");
+      expect(rejoin?.explain).toMatch(/before the scenario is set up/);
+      expect(rejoin?.explain).toMatch(/1 secret counter on a Board Member/);
+      expect(rejoin?.explain).toMatch(/not counted/);
+      expect(setupCallCopyFor(`mc50.s${n}.setup.heal`)?.explain).not.toMatch(/sits this scenario out/);
     }
-    expect(Object.keys(story.setupCalls ?? {})).toHaveLength(4 + 4 * 9);
+    expect(Object.keys(story.setupCalls ?? {})).toHaveLength(4 + 4 + 4 * 9);
   });
 });

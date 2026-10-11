@@ -138,12 +138,18 @@ const rewardCalls = (): Record<string, AftermathCallCopy> =>
 
 /**
  * MC45 p. 20. Owner decision, 2026-10-08: a hero defeated last scenario may decline to rejoin. Sitting the scenario
- * out and being asked again at the next is an interpretation (the print does not say what declining means).
+ * out and being asked again at the next is an interpretation (the print does not say what declining means). Owner
+ * decision 66B: the choice comes before the scenario is set up (`REJOIN`), and a hero who sits out is not counted.
  */
 const HEAL: SetupCallCopy = {
   name: "Expert heal",
   explain:
-    "Expert campaign: place 3 threat on the mission to heal your hero to full hit points, or decline. A hero defeated last scenario pays it to rejoin, or sits this scenario out.",
+    "Expert campaign: place 3 threat on the mission to heal your hero to full hit points, or decline. A hero who rejoined this scenario pays the 3 threat here, with no second question.",
+};
+const REJOIN: SetupCallCopy = {
+  name: "Rejoin or sit out",
+  explain:
+    "Expert campaign: a hero defeated last scenario chooses before the scenario is set up. Rejoining costs 3 threat on the mission, placed at the heal, and heals to full. A hero who sits out is not counted: the scenario is set for the heroes who play.",
 };
 const ALLY_SEARCH: SetupCallCopy = {
   name: "Ally search",
@@ -174,6 +180,10 @@ export const AOA_STORY: CampaignStory = {
     "mc45.s3.setup.heal": HEAL,
     "mc45.s4.setup.heal": HEAL,
     "mc45.s5.setup.heal": HEAL,
+    "mc45.s2.setup.rejoin": REJOIN,
+    "mc45.s3.setup.rejoin": REJOIN,
+    "mc45.s4.setup.rejoin": REJOIN,
+    "mc45.s5.setup.rejoin": REJOIN,
   },
   castIdentityIds: ["45001a", "45030a"],
   pages: PAGES,

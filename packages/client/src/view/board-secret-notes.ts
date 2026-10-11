@@ -84,6 +84,24 @@ export function secretTargetNote(view: BoardSecretsView, instanceId: InstanceId)
   return view.nextFlipLoses ? `${count} · FLIPS: you lose` : `${count} · FLIPS`;
 }
 
+/**
+ * What a defeated seat's "Rejoin / Sit this scenario out" answer means (owner decision 66B), in a few words under the
+ * label. The question is asked before the scenario is set up, over a table with no villain, schemes or Board Members
+ * yet, so the price is only named here and is paid at the box's heal, where the flip notes appear. Null for any other
+ * label. A seat that sits out is not counted, so the count the scenario is set for is one lower.
+ */
+export function rejoinNoteOf(state: GameState, label: string): string | null {
+  if (/^sit this scenario out/i.test(label)) {
+    const left = Math.max(0, state.startingPlayerCount - 1);
+    return `You sit out. The scenario is set for ${left} ${left === 1 ? "player" : "players"}.`;
+  }
+  if (!/^rejoin/i.test(label)) return null;
+  const threat = /\+(\d+) threat/.exec(label);
+  if (threat) return `You are counted. The ${threat[1]} threat is placed at the heal.`;
+  if (/secret counter/.test(label)) return "You are counted. The counter goes on a Board Member at the heal.";
+  return "You are counted.";
+}
+
 /** A label of an offer that places a secret counter on a Board Member, from the words every such offer prints. */
 const placesSecret = (label: string): boolean =>
   !/^(do not|decline)/i.test(label) && /\bsecret counters?\b/i.test(label);
@@ -98,6 +116,8 @@ const ZEMO_GAIN = /to gain 2 evidence cards$/;
  */
 export function aosOptionLabelOf(state: GameState | null | undefined, label: string): string {
   if (!state) return label;
+  const rejoin = rejoinNoteOf(state, label);
+  if (rejoin) return `${label}\n${rejoin}`;
   let shown = label;
   if (state.campaign && ZEMO_GAIN.test(shown)) shown = shown.replace(ZEMO_GAIN, "to gain 1 evidence card");
   if (!placesSecret(shown)) return shown;

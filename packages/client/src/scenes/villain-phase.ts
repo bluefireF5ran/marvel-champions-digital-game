@@ -1091,7 +1091,15 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       );
 
       if (seat.eliminated) {
-        label(this, rect.x + 8, y + 18, "Defeated", typeRole.label, surface.ink.hex, ink.secondary);
+        label(
+          this,
+          rect.x + 8,
+          y + 18,
+          seat.sittingOut ? "Sitting out" : "Defeated",
+          typeRole.label,
+          surface.ink.hex,
+          ink.secondary,
+        );
         return;
       }
       if (!seat.hp) return;

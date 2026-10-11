@@ -126,4 +126,23 @@ describe("wave 9 log lines", () => {
     expect(line).toMatch(/attack moved to another target, so .+ takes no damage\.$/);
     expect(line).not.toContain("can't attack");
   });
+
+  test("a seat that sits a scenario out reads as one neutral line, not a loss", () => {
+    const events: GameEvent[] = [
+      { type: "playerEliminated", playerId: me },
+      { type: "playerSatOut", playerId: me, startingPlayerCount: 1 },
+    ];
+    const burst = (at: number) => ({ events, at });
+    expect(logLine(events[0]!, state, null, POOL_DEPS, false, undefined, burst(0))).toBeNull();
+    const line = logLine(events[1]!, state, null, POOL_DEPS, false, undefined, burst(1));
+    expect(line?.text).toMatch(/ sits this scenario out\. Set for 1 player\.$/);
+    expect(line?.voice).toBe("scenario");
+    expect(logLine(events[1]!, state, me, POOL_DEPS)?.text).toBe("You sit this scenario out. Set for 1 player.");
+    // A plain elimination keeps the loss voice.
+    const plain = logLine(events[0]!, state, null, POOL_DEPS, false, undefined, { events: [events[0]!], at: 0 });
+    expect(plain?.voice).toBe("loss");
+    expect(
+      logLine({ type: "playerSatOut", playerId: me, startingPlayerCount: 2 }, state, null, POOL_DEPS)?.text,
+    ).toMatch(/Set for 2 players\.$/);
+  });
 });

@@ -2421,7 +2421,7 @@ function playerOptionLabel(game: GameState, playerId: PlayerId, perspectiveId: P
     seatIdentityName(game, playerId),
     seat.identity.form === "hero" ? "Hero" : "Alter-ego",
     panel.hp ? `${panel.hp.current}/${panel.hp.max} HP` : null,
-    seat.eliminated ? "eliminated" : null,
+    seat.sittingOut ? "sitting out" : seat.eliminated ? "eliminated" : null,
     playerId === perspectiveId ? "you" : null,
   ]
     .filter(Boolean)

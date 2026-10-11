@@ -850,7 +850,12 @@ function missionDefeatedEvents(state: GameState): readonly GameEvent[] {
 export async function seedAoaRun(
   service: CampaignService,
   stop: AoaRunStop = "afterIssue1",
-  options: { readonly expertCampaign?: boolean; readonly missionsDefeated?: boolean } = {},
+  options: {
+    readonly expertCampaign?: boolean;
+    readonly missionsDefeated?: boolean;
+    /** The seat (0 or 1) eliminated in every substituted win, so the next scenario asks it to rejoin or sit out. */
+    readonly defeatedSeat?: number;
+  } = {},
 ): Promise<CampaignRecord> {
   let record = await service.start({
     campaignId: "aoa",
@@ -862,13 +867,22 @@ export async function seedAoaRun(
   if (stop === "fresh") return record;
   if (stop === "lostIssue1") return playIssue(service, record, "loss");
   const events = options.missionsDefeated === false ? () => [] : missionDefeatedEvents;
+  const eliminate =
+    options.defeatedSeat === undefined
+      ? undefined
+      : (state: GameState): GameState => ({
+          ...state,
+          players: state.players.map((player, seat) =>
+            seat === options.defeatedSeat ? { ...player, eliminated: true } : player,
+          ),
+        });
   const order: readonly AoaRunStop[] = ["afterIssue1", "afterIssue2", "afterIssue3", "afterIssue4"];
   for (const name of order) {
-    record = await playIssueWith(service, record, "win", autoAnswer, undefined, events);
+    record = await playIssueWith(service, record, "win", autoAnswer, eliminate, events);
     if (stop === name) return record;
   }
   // `"finished"`: scenario 5 won with Protect the Professor handed over as defeated, so the campaign is won.
-  return stop === "finished" ? playIssueWith(service, record, "win", autoAnswer, undefined, events) : record;
+  return stop === "finished" ? playIssueWith(service, record, "win", autoAnswer, eliminate, events) : record;
 }
 
 /** `stop`'s own next issue, composed and won but not folded: the live Aftermath's fixture (`seedWon` in `main.ts`). */
@@ -909,7 +923,15 @@ const AOS_BOARD_SECRETS: readonly (readonly [number, number, number])[] = [
 export async function seedAosRun(
   service: CampaignService,
   stop: AosRunStop = "afterIssue1",
-  options: { readonly expertCampaign?: boolean; readonly flipped?: boolean } = {},
+  options: {
+    readonly expertCampaign?: boolean;
+    readonly flipped?: boolean;
+    /**
+     * The seat (0 or 1) that was eliminated in every substituted win, so it sat out the Victory steps and its hit
+     * point record is cleared: the next scenario asks it to rejoin or sit out (owner decision 66B).
+     */
+    readonly defeatedSeat?: number;
+  } = {},
 ): Promise<CampaignRecord> {
   let record = await service.start({
     campaignId: "aos",
@@ -941,6 +963,13 @@ export async function seedAosRun(
       const hero = identity ? next.instances[identity] : undefined;
       if (options.expertCampaign && hero && identity)
         next = { ...next, instances: { ...next.instances, [identity]: { ...hero, damage: 3 } } };
+      if (options.defeatedSeat !== undefined)
+        next = {
+          ...next,
+          players: next.players.map((player, seat) =>
+            seat === options.defeatedSeat ? { ...player, eliminated: true } : player,
+          ),
+        };
       return next;
     };
   const order: readonly AosRunStop[] = ["afterIssue1", "afterIssue2", "afterIssue3", "afterIssue4"];

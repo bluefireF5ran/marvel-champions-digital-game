@@ -504,8 +504,12 @@ export class BoardScene extends Phaser.Scene {
       // A hero going down is the one change nobody may miss. The last one
       // standing falling is the game ending instead, and Game Over says that.
       if (!state.game.outcome) {
+        // A seat that sits a scenario out is eliminated with no defeat; its `playerSatOut` follows in the same batch.
+        const satOut = new Set(
+          state.lastEvents.flatMap((event) => (event.type === "playerSatOut" ? [event.playerId] : [])),
+        );
         for (const event of state.lastEvents) {
-          if (event.type !== "playerEliminated") continue;
+          if (event.type !== "playerEliminated" || satOut.has(event.playerId)) continue;
           this.#motion.announce(
             `${playerName(state.game, event.playerId)} is down`,
             "Defeated — out of the game. The rest of the team fights on",

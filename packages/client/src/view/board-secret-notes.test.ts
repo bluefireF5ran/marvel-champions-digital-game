@@ -3,6 +3,7 @@ import type { GameState, InstanceId, PendingChoice } from "@mc/engine";
 import {
   aosOptionLabelOf,
   boardSecretsOf,
+  rejoinNoteOf,
   secretPlacementNote,
   secretTargetNote,
   secretTargetNotesOf,
@@ -114,5 +115,30 @@ describe("what a secret counter would do to a Board Member", () => {
     expect(wrapOptionLabel("one two three four", 9)).toBe("one two\nthree\nfour");
     expect(wrapOptionLabel("short\nFlips a Board Member.", 40)).toBe("short\nFlips a Board Member.");
     expect(wrapOptionLabel("extraordinarily long", 5)).toBe("extraordinarily\nlong");
+  });
+});
+
+describe("the rejoin or sit out question (owner decision 66B)", () => {
+  const state = (count: number) => ({ ...stateOf({ secrets: [] }), startingPlayerCount: count }) as GameState;
+
+  test("sitting out says it is not counted and what the scenario is set for", () => {
+    expect(aosOptionLabelOf(state(2), "Sit this scenario out")).toBe(
+      "Sit this scenario out\nYou sit out. The scenario is set for 1 player.",
+    );
+    expect(rejoinNoteOf(state(3), "Sit this scenario out")).toBe("You sit out. The scenario is set for 2 players.");
+  });
+
+  test("rejoining names its price and says it is paid at the heal, with no Board Member needed yet", () => {
+    expect(aosOptionLabelOf(state(2), "Rejoin and heal REC · +1 secret counter")).toBe(
+      "Rejoin and heal REC · +1 secret counter\nYou are counted. The counter goes on a Board Member at the heal.",
+    );
+    expect(aosOptionLabelOf(state(2), "Rejoin at full · +3 threat")).toBe(
+      "Rejoin at full · +3 threat\nYou are counted. The 3 threat is placed at the heal.",
+    );
+  });
+
+  test("no other offer gets a rejoin note", () => {
+    expect(rejoinNoteOf(state(2), "Decline")).toBeNull();
+    expect(rejoinNoteOf(state(2), "Heal REC · +1 secret counter")).toBeNull();
   });
 });

@@ -1478,7 +1478,7 @@ function drawEliminatedSeat(scene: Phaser.Scene, row: Rect, seat: SeatRow, rowSt
       scene,
       row.x + 6,
       row.y + offsets.detail,
-      "defeated · out of the game",
+      seat.sittingOut ? "sitting out this scenario" : "defeated · out of the game",
       typeRole.label,
       surface.paper.hex,
       ink.meta,
@@ -1486,7 +1486,7 @@ function drawEliminatedSeat(scene: Phaser.Scene, row: Rect, seat: SeatRow, rowSt
   }
 
   const stamp = scene.add
-    .text(row.x + row.width - 8, row.y + row.height / 2, "ELIMINATED", {
+    .text(row.x + row.width - 8, row.y + row.height / 2, seat.sittingOut ? "SITTING OUT" : "ELIMINATED", {
       ...textStyle(typeRole.barTitle, accent.heroRed.hex),
       stroke: cssOf(surface.ink.hex),
       strokeThickness: 3,

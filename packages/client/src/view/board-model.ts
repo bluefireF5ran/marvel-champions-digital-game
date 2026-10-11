@@ -580,6 +580,8 @@ export interface SeatRow {
   /** The faceup top card of this seat's deck, which every player may read; null when the deck is facedown. */
   readonly shownTop: { readonly instanceId: InstanceId; readonly name: string } | null;
   readonly eliminated: boolean;
+  /** True for a seat that sat the scenario out (owner decision 66B): `eliminated` too, but read "Sitting out", not defeated. */
+  readonly sittingOut: boolean;
   /** True once this seat's turn is done this round. Never true for an eliminated seat. */
   readonly done: boolean;
   /** The seat's identity card, so a beat or a target on this hero lands on its row. */
@@ -1822,6 +1824,7 @@ export function seatRow(state: GameState, playerId: PlayerId, deps: EngineDeps):
     isFirstPlayer: state.firstPlayerId === playerId,
     shownTop: shownSeatTop(state, playerId, deps),
     eliminated: player.eliminated,
+    sittingOut: player.sittingOut === true,
     // Turns run off `remainingPlayerIds`: a seat not in that list has had its
     // turn. An eliminated seat is dropped from that list too, which read as
     // "done" — a defeated hero looking like one waiting for the next round.

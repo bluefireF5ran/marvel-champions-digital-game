@@ -107,14 +107,20 @@ const beats = (file: string, count: number, from = 0) =>
   Array.from({ length: count }, (_, index) => ({ page: file, beatIndex: from + index }));
 
 /**
- * MC50 p. 6 (expert): a hero pays a secret counter on a Board Member to heal damage equal to their REC; a hero
- * defeated last scenario pays the same to rejoin, or sits this scenario out. The counter can flip a Board Member
- * (the option says when).
+ * MC50 p. 6 (expert): a hero pays a secret counter on a Board Member to heal damage equal to their REC. A hero
+ * defeated last scenario chooses first, before the scenario is set up (`REJOIN`, owner decision 66B), and a hero who
+ * rejoined pays the same counter here with no second question. The counter can flip a Board Member (the option says
+ * when).
  */
 const HEAL: SetupCallCopy = {
   name: "Expert heal",
   explain:
-    "Expert campaign: put 1 secret counter on a Board Member to heal your hero by REC. A hero defeated last scenario pays it to rejoin, or sits this scenario out.",
+    "Expert campaign: put 1 secret counter on a Board Member to heal your hero by REC, or decline. A hero who rejoined this scenario pays it here: pick the Board Member.",
+};
+const REJOIN: SetupCallCopy = {
+  name: "Rejoin or sit out",
+  explain:
+    "Expert campaign: a hero defeated last scenario chooses before the scenario is set up. Rejoining costs 1 secret counter on a Board Member, paid at the heal, and heals REC. A hero who sits out is not counted: the scenario is set for the heroes who play.",
 };
 const EVIDENCE: SetupCallCopy = {
   name: "Evidence setup",
@@ -156,7 +162,7 @@ const EXPERT = (page: string) =>
   note(
     "done",
     "Expert campaign",
-    "Each hero starts at the hit points the log recorded. A hero can put a secret counter on a Board Member to heal by REC, and a defeated hero pays that to rejoin or sits this scenario out.",
+    "Each hero starts at the hit points the log recorded. A hero can put a secret counter on a Board Member to heal by REC. A defeated hero chooses before the scenario is set up: rejoin, and pay that counter at the heal, or sit out and not be counted.",
     page,
   );
 const RECORDED = (page: string, extra: string) =>
@@ -176,6 +182,7 @@ export const AOS_STORY: CampaignStory = {
     "Each hero stays for all five scenarios. The Board Members' secrets, and the evidence you gain, ride with the whole table.",
   setupCalls: {
     ...Object.fromEntries(SCENARIOS_WITH_SETUPS.map((n) => [`mc50.s${n}.setup.heal`, HEAL])),
+    ...Object.fromEntries(SCENARIOS_WITH_SETUPS.map((n) => [`mc50.s${n}.setup.rejoin`, REJOIN])),
     ...Object.fromEntries(
       SCENARIOS_WITH_SETUPS.flatMap((n) =>
         EVIDENCE_CARD_IDS.map((id) => [`mc50.s${n}.setup.evidence.${id}`, EVIDENCE]),

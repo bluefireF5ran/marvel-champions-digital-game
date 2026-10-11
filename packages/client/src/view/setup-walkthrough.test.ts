@@ -95,6 +95,28 @@ describe("setupWalkthroughViewOf: right after Deal it out (Rhino, 4 seats)", () 
   });
 });
 
+describe("setupWalkthroughViewOf: before the scenario is set up (a campaign's rejoin or sit out question)", () => {
+  const { state, log } = fourSeatGame();
+  const before: GameState = { ...state, step: { phase: "setup", kind: "scenarioSetup" } };
+
+  test("nothing reads as placed yet: the villain and threat chips are not ticked, no later step is done", () => {
+    const view = setupWalkthroughViewOf(before, log, CORE_DEPS, CARDS_BY_ID);
+    const byKey = new Map(view.checklist.map((item) => [item.key, item]));
+    expect(byKey.get("placed")?.state).toBe("current");
+    expect(byKey.get("threat")?.state).toBe("pending");
+    expect(byKey.get("threat")?.label).toBe("Starting threat");
+    expect(byKey.get("revealed")?.state).toBe("pending");
+    expect(byKey.get("mulligan")?.state).toBe("pending");
+    expect(byKey.get("firstPlayer")?.state).toBe("pending");
+    expect(view.stepLabel).toMatch(/^Step 1 of 5/);
+  });
+
+  test("the setup log states no villain, threat or hands that are not there yet", () => {
+    const lines = staticSetupLines(before, CORE_DEPS, CARDS_BY_ID, 7).map((line) => line.text);
+    expect(lines).toEqual(["Seed 7 · waiting on a decision before the table is set up"]);
+  });
+});
+
 describe("setupWalkthroughViewOf: after the first seat keeps its hand", () => {
   test("the first seat reads 'kept N', the second becomes the decider", () => {
     const { state, log } = fourSeatGame();

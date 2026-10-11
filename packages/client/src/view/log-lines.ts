@@ -732,7 +732,17 @@ function describe(
         voice: "scenario",
       };
     case "playerEliminated":
+      // A seat that sits a scenario out is eliminated with no defeat, and `playerSatOut` follows it in the same
+      // burst (owner decision 66B): that pair reads as one neutral line, not as a loss.
+      if (burst?.events.slice(burst.at + 1).some((e) => e.type === "playerSatOut" && e.playerId === event.playerId)) {
+        return null;
+      }
       return { text: `${who(event.playerId)} ${verb(event.playerId, "are", "is")} out of the game.`, voice: "loss" };
+    case "playerSatOut":
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "sit", "sits")} this scenario out. Set for ${event.startingPlayerCount} ${event.startingPlayerCount === 1 ? "player" : "players"}.`,
+        voice: "scenario",
+      };
     case "cardDiscardedFromPlay":
       return { text: `${card(event.instanceId)} left play.`, voice: "player" };
     case "playerSideSchemeLimitDiscard":
