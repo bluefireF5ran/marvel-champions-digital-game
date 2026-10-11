@@ -56,6 +56,13 @@
  * pointer-move-driven highlight would need a lighter-weight redraw path than
  * that; left as a follow-up rather than added under this pass's time budget.
  *
+ * **Community decks** (2026-10-10, `view/community-decks-model.ts`): the tested public MarvelCDB decklists
+ * (`@mc/cards`'s `communityDecks`) are a third list group, after the player's own decks. They are recommendations,
+ * labeled as community decks from MarvelCDB and never as precons. Selecting one shows its own card list in the
+ * middle pane (cards open in Inspect) and, in the stats rail's place, the author's credit, a Tested stamp, the
+ * decklist's published date and version, the author's notes, the MarvelCDB link and one action: add an editable copy. A deck
+ * whose hero or cards the player has not unlocked is shown dimmed with what opens it, and cannot be added.
+ *
  * A deck row's tap **selects** it (updates the pool and stats panes) rather
  * than navigating away; a pool card's tap opens Inspect (this screen never
  * edits a deck's contents — that's `scenes/deck-builder.ts`, reached from
@@ -75,6 +82,7 @@ import {
   type DeckId,
   type HeroIdentityCard,
 } from "@mc/content";
+import { communityDecks } from "@mc/cards";
 import { DECK_MIN_CARDS } from "@mc/engine";
 import { POOL_CARDS, POOL_DEPS, POOL_VERSION } from "../content/pool.js";
 import { cardArt } from "../art/card-art.js";
@@ -92,6 +100,18 @@ import {
   type ImportEnv,
   type ImportOutcome,
 } from "../view/deck-import-model.js";
+import {
+  addCommunityDeck,
+  communityCredit,
+  communityEntryOf,
+  communityMetaLine,
+  communityNotesOf,
+  communityOfferMatches,
+  communityOffers,
+  communityStatusText,
+  communityPublishedText,
+  type CommunityOffer,
+} from "../view/community-decks-model.js";
 import { deckOptionsOf, deckRowIndexOf, type DeckOption } from "../view/deck-list-model.js";
 import { sortByRecency } from "../view/deck-recency.js";
 import {
@@ -141,6 +161,8 @@ import type { TitleSceneData } from "./title.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { SCENES } from "./keys.js";
 import { fetchMarvelCdbDeck } from "../platform/deck-fetch.js";
+import { openExternal } from "../platform/platform.js";
+import { refreshUnlocks, unlocks } from "../progression/progression.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
 
@@ -170,9 +192,20 @@ const TOUCH_ROW = hit.target;
 /** A deck card's own Bangers title, sized for a compact list row (`typeRole.barTitle` at the screen-title 22px doesn't fit two decks' worth of name on one row's own line). */
 const CARD_TITLE_TYPE = { ...typeRole.barTitle, size: 18, letterSpacing: 0.6 };
 
+/** The community group's label, on its first row: says where the decks come from and that they are not precons. */
+const COMMUNITY_GROUP_LABEL = "Community decks · MarvelCDB";
+/** One line of the author's notes in the detail rail. */
+const NOTES_LINE_HEIGHT = 17;
+
 /** One row of the deck list: a deck row (optionally the first of a group, carrying that group's small label) or the trailing "+ New deck" tile (never filtered out, always the list's own last row) — see the module doc comment for why a group no longer gets its own full-height row. */
 type DeckRow =
-  | { readonly kind: "deck"; readonly option: DeckOption; readonly groupLabel?: string }
+  | {
+      readonly kind: "deck";
+      readonly option: DeckOption;
+      readonly groupLabel?: string;
+      /** Set on a community deck's row (`view/community-decks-model.ts`): a recommendation, not one of the player's decks. */
+      readonly offer?: CommunityOffer;
+    }
   | { readonly kind: "newDeck" }
   | { readonly kind: "message"; readonly text: string };
 
@@ -287,6 +320,17 @@ export class DecksScene extends Phaser.Scene {
   #listScroll = new ListScroll();
   #poolList: McVirtualList | null = null;
   #poolListScroll = new ListScroll();
+  /** The author's notes in a community deck's detail rail: a list of wrapped lines, so a long write-up scrolls. */
+  #notesList: McVirtualList | null = null;
+  #notesScroll = new ListScroll();
+  /** The "Community" quick filter: only the community group shows. */
+  #communityOnly = false;
+  /** `communityOffers` for the saved decks and unlocks it was last built from (both are replaced, never mutated). */
+  #offersCache: {
+    readonly saved: readonly Deck[];
+    readonly gate: unknown;
+    readonly offers: readonly CommunityOffer[];
+  } | null = null;
   #focusedOnce = false;
   /** The deck an import just added: the next list draw scrolls to it, once. */
   #scrollToDeckId: string | null = null;
@@ -316,6 +360,9 @@ export class DecksScene extends Phaser.Scene {
     this.#history = null;
     this.#listScroll = new ListScroll();
     this.#poolListScroll = new ListScroll();
+    this.#notesScroll = new ListScroll();
+    this.#communityOnly = false;
+    this.#offersCache = null;
     this.#focusedOnce = false;
     this.#fallbackSelection = false;
 
@@ -338,6 +385,8 @@ export class DecksScene extends Phaser.Scene {
       this.#list = null;
       this.#poolList?.destroy();
       this.#poolList = null;
+      this.#notesList?.destroy();
+      this.#notesList = null;
     });
     this.#route = new FocusRoute(this, {
       blocked: () =>
@@ -363,6 +412,10 @@ export class DecksScene extends Phaser.Scene {
         this.#savedDecks = decks;
         this.#rebuild();
       });
+    // A community deck is offered only when its hero and cards are open; the wins that decide that load here.
+    void refreshUnlocks().then((changed) => {
+      if (changed && this.sys.isActive()) this.#rebuild();
+    });
     void appSession()
       .store.listSaves()
       .then((saves) => {
@@ -375,6 +428,26 @@ export class DecksScene extends Phaser.Scene {
   /** Precons (fixed order) plus saved decks, most recently changed first (W9's "Recently changed") — `deckOptionsOf` already puts precons ahead of whatever list it's given. */
   #deckOptions(): readonly DeckOption[] {
     return deckOptionsOf(sortByRecency(this.#savedDecks), POOL_CARDS, POOL_VERSION, POOL_DEPS);
+  }
+
+  /** The community decks (`@mc/cards`'s catalog), each with whether the player may add it yet. */
+  #communityOffers(): readonly CommunityOffer[] {
+    const gate = unlocks();
+    if (this.#offersCache?.saved !== this.#savedDecks || this.#offersCache.gate !== gate) {
+      this.#offersCache = {
+        saved: this.#savedDecks,
+        gate,
+        offers: communityOffers({
+          catalog: communityDecks(),
+          savedDecks: this.#savedDecks,
+          pool: POOL_CARDS,
+          poolVersion: POOL_VERSION,
+          deps: POOL_DEPS,
+          gate,
+        }),
+      };
+    }
+    return this.#offersCache.offers;
   }
 
   #identityOf(deck: Deck): HeroIdentityCard | null {
@@ -398,6 +471,8 @@ export class DecksScene extends Phaser.Scene {
     this.#list = null;
     this.#poolList?.destroy();
     this.#poolList = null;
+    this.#notesList?.destroy();
+    this.#notesList = null;
 
     const { width, height } = this.scale.gameSize;
     const layout = decksLayout({ width, height });
@@ -473,7 +548,11 @@ export class DecksScene extends Phaser.Scene {
     title.setOrigin(0, 0.5);
     fitText(title, layout.header.width - backRect.width - 24 - (poolMeta ? poolMeta.width + 16 : 0), 28);
 
-    const allOptions = this.#deckOptions();
+    // The player's own list (precons and saved decks), then the community decks: recommendations that can be
+    // selected and previewed like any deck, and added as an editable copy rather than played or edited in place.
+    const ownOptions = this.#deckOptions();
+    const offers = this.#communityOffers();
+    const allOptions = [...ownOptions, ...offers.map((offer) => offer.option)];
     // Dev e2e hook (never referenced by product code): the decks the list offers (as imported decks, with the status
     // chip's words and the card total), the status line, and every control's current rect by focus key.
     if (import.meta.env.DEV) {
@@ -483,8 +562,21 @@ export class DecksScene extends Phaser.Scene {
             key,
             ...(typeof stop.rect === "function" ? stop.rect() : stop.rect),
           })),
+        community: () =>
+          offers.map((offer) => ({
+            id: offer.option.deck.id as string,
+            marvelcdbId: offer.entry.marvelcdbId,
+            name: offer.entry.name,
+            hero: offer.entry.heroName,
+            author: offer.entry.author,
+            url: offer.entry.url,
+            status: communityStatusText(offer),
+            lock: offer.lock,
+            added: offer.added,
+            selected: (offer.option.deck.id as string) === this.#selectedDeckId,
+          })),
         decks: () =>
-          allOptions.map((o) => ({
+          ownOptions.map((o) => ({
             id: o.deck.id as string,
             name: o.deck.name,
             source: o.deck.source.kind,
@@ -511,22 +603,28 @@ export class DecksScene extends Phaser.Scene {
       this.#fallbackSelection = !wantedExists;
     }
     const selected = allOptions.find((o) => (o.deck.id as string) === this.#selectedDeckId) ?? null;
+    const selectedOffer = offers.find((offer) => offer.option === selected) ?? null;
+    const drawStats = (rect: Rect): void => {
+      if (selectedOffer) this.#drawCommunityPane(rect, selectedOffer, layout.wide);
+      else this.#drawStatsPane(rect, selected);
+    };
 
     if (layout.wide) {
-      const deckIds = this.#drawListPane(layout.listPane!, allOptions, selected);
-      const poolCardIds = this.#drawPoolPane(layout.poolPane!, selected);
-      this.#drawStatsPane(layout.statsPane!, selected);
+      const deckIds = this.#drawListPane(layout.listPane!, ownOptions, offers, selected);
+      const poolCardIds = this.#drawPoolPane(layout.poolPane!, selected, selectedOffer !== null);
+      drawStats(layout.statsPane!);
       this.#route?.set(
         decksFocusOrder({
           showMarvelCdbImport: true,
           deckIds,
-          chipIds: this.#chipDefs(allOptions).map((c) => c.id),
+          chipIds: this.#chipDefs(ownOptions).map((c) => c.id),
           poolCardIds,
           poolChipIds: selected ? this.#poolChipDefs(selected.deck).map((c) => c.id) : [],
           wide: true,
           activeTab: this.#activeTab,
           hasSelection: selected !== null,
-          editable: selected !== null && selected.deck.source.kind !== "precon",
+          community: selectedOffer !== null,
+          editable: selected !== null && selectedOffer === null && selected.deck.source.kind !== "precon",
           filtersExpanded: this.#filtersExpanded,
           importOpen: this.#importExportOpen,
         }),
@@ -554,22 +652,24 @@ export class DecksScene extends Phaser.Scene {
 
       let deckIds: readonly string[] = [];
       let poolCardIds: readonly string[] = [];
-      if (this.#activeTab === "decks") deckIds = this.#drawListPane(layout.content!, allOptions, selected);
-      else if (this.#activeTab === "cards") poolCardIds = this.#drawPoolPane(layout.content!, selected);
-      else this.#drawStatsPane(layout.content!, selected);
+      if (this.#activeTab === "decks") deckIds = this.#drawListPane(layout.content!, ownOptions, offers, selected);
+      else if (this.#activeTab === "cards")
+        poolCardIds = this.#drawPoolPane(layout.content!, selected, selectedOffer !== null);
+      else drawStats(layout.content!);
 
       this.#route?.set(
         decksFocusOrder({
           showMarvelCdbImport: true,
           deckIds,
-          chipIds: this.#activeTab === "decks" ? this.#chipDefs(allOptions).map((c) => c.id) : [],
+          chipIds: this.#activeTab === "decks" ? this.#chipDefs(ownOptions).map((c) => c.id) : [],
           poolCardIds,
           poolChipIds:
             this.#activeTab === "cards" && selected ? this.#poolChipDefs(selected.deck).map((c) => c.id) : [],
           wide: false,
           activeTab: this.#activeTab,
           hasSelection: selected !== null,
-          editable: selected !== null && selected.deck.source.kind !== "precon",
+          community: selectedOffer !== null,
+          editable: selected !== null && selectedOffer === null && selected.deck.source.kind !== "precon",
           filtersExpanded: this.#filtersExpanded,
           importOpen: this.#importExportOpen,
         }),
@@ -592,7 +692,12 @@ export class DecksScene extends Phaser.Scene {
   // compact, bottom-pinned Import/Export box. Returns the deck ids actually offered as rows, in list order, for
   // the focus route.
   // ------------------------------------------------------------------------------------------------------------
-  #drawListPane(rect: Rect, allOptions: readonly DeckOption[], selected: DeckOption | null): readonly string[] {
+  #drawListPane(
+    rect: Rect,
+    allOptions: readonly DeckOption[],
+    offers: readonly CommunityOffer[],
+    selected: DeckOption | null,
+  ): readonly string[] {
     const left = rect.x;
     const column = rect.width;
     let y = sectionHeader(this, rect.x, rect.y, column, "Your decks");
@@ -674,7 +779,7 @@ export class DecksScene extends Phaser.Scene {
     const listHeight = Math.max(ROW_HEIGHT, rect.y + rect.height - boxHeight - 12 - listTop);
     const listRect: Rect = { x: left, y: listTop, width: column, height: listHeight };
 
-    const rows = this.#buildRows(allOptions);
+    const rows = this.#buildRows(allOptions, offers);
     const deckIds = rows
       .filter((r): r is Extract<DeckRow, { kind: "deck" }> => r.kind === "deck")
       .map((r) => r.option.deck.id as string);
@@ -795,6 +900,16 @@ export class DecksScene extends Phaser.Scene {
       });
     }
     defs.push({
+      id: "community",
+      text: "Community",
+      selected: this.#communityOnly,
+      onClick: () => {
+        this.#communityOnly = !this.#communityOnly;
+        this.#listScroll.reset();
+        this.#rebuild();
+      },
+    });
+    defs.push({
       id: "legal-only",
       text: "Legal only",
       selected: this.#filter.playableOnly === true,
@@ -812,15 +927,28 @@ export class DecksScene extends Phaser.Scene {
    * list's own last row (never filtered out). A group's label rides on its own first card (`groupLabel`) rather
    * than a separate full-height row — see the module doc comment for why.
    */
-  #buildRows(allOptions: readonly DeckOption[]): readonly DeckRow[] {
+  #buildRows(allOptions: readonly DeckOption[], offers: readonly CommunityOffer[]): readonly DeckRow[] {
     const identityOf = (option: DeckOption): AnyCard | undefined =>
       CARDS_BY_ID.get(option.deck.identityCardId as string);
     const matches = (option: DeckOption): boolean =>
       heroRosterMatches(option.deck, identityOf(option), this.#filter, option.blockedReason);
     const isSelected = (option: DeckOption): boolean => (option.deck.id as string) === this.#selectedDeckId;
 
-    const precons = allOptions.filter((o) => o.deck.source.kind === "precon");
-    const saved = allOptions.filter((o) => o.deck.source.kind !== "precon");
+    // "Community" narrows the list to the community group; a source chip (Precon, Imported, Built) narrows it to the
+    // player's own list, so the community group steps aside.
+    const own = this.#communityOnly ? [] : allOptions;
+    const precons = own.filter((o) => o.deck.source.kind === "precon");
+    const saved = own.filter((o) => o.deck.source.kind !== "precon");
+    const community = withSelectionPinned(
+      this.#filter.source ? [] : offers,
+      (offer) =>
+        communityOfferMatches(offer, {
+          text: this.#filter.text,
+          aspect: this.#filter.aspect ?? null,
+          availableOnly: this.#filter.playableOnly === true,
+        }),
+      (offer) => isSelected(offer.option),
+    );
     const filteredPrecons = withSelectionPinned(precons, matches, isSelected);
     const filteredSaved = withSelectionPinned(saved, matches, isSelected);
 
@@ -833,6 +961,14 @@ export class DecksScene extends Phaser.Scene {
         kind: "deck",
         option,
         ...(index === 0 ? { groupLabel: "Your decks · recently changed first" } : {}),
+      }),
+    );
+    community.forEach((offer, index) =>
+      rows.push({
+        kind: "deck",
+        option: offer.option,
+        offer,
+        ...(index === 0 ? { groupLabel: COMMUNITY_GROUP_LABEL } : {}),
       }),
     );
     if (rows.length === 0) rows.push({ kind: "message", text: "No decks match this search." });
@@ -881,6 +1017,8 @@ export class DecksScene extends Phaser.Scene {
     const selected = (option.deck.id as string) === this.#selectedDeckId;
     const status = deckStatusOf(option);
     const illegal = status.tone === "illegal";
+    // A community deck whose hero or cards the player hasn't opened yet: shown, dimmed, with what opens it.
+    const locked = row.offer !== undefined && row.offer.lock !== null;
     const objects: Phaser.GameObjects.GameObject[] = [];
 
     // A group-starting row gives its own top `GROUP_LABEL_HEIGHT` to a small label instead of a separate
@@ -914,6 +1052,7 @@ export class DecksScene extends Phaser.Scene {
     const titleColor = selected ? surface.paper.hex : illegal ? accent.heroRed.hex : surface.ink.hex;
     const metaColor = selected ? surface.paper.hex : surface.ink.hex;
     const metaAlpha = selected ? ink.secondary : ink.meta;
+    const dim = locked && !selected ? 0.55 : 1;
 
     // The short "HERO / ASPECT" title for a precon, or the deck's own name otherwise (`cardTitleOf`) — Bangers,
     // fit to width rather than truncated mid-word where that's avoidable (point 2).
@@ -921,13 +1060,13 @@ export class DecksScene extends Phaser.Scene {
     const thumbHeight = card.height - 12;
     // Capped in a narrow column (desktop's left pane) so the title and meta line keep most of the row.
     const thumbWidth = Math.round(Math.min(thumbHeight * DECK_THUMB_ASPECT, card.width * 0.26));
-    objects.push(
-      renderArtThumb(
-        this,
-        { x: card.x + 6, y: card.y + 6, width: thumbWidth, height: thumbHeight },
-        this.#deckArtUrl(option.deck.identityCardId as string),
-      ),
+    const thumb = renderArtThumb(
+      this,
+      { x: card.x + 6, y: card.y + 6, width: thumbWidth, height: thumbHeight },
+      this.#deckArtUrl(option.deck.identityCardId as string),
     );
+    if (dim < 1) (thumb as unknown as Phaser.GameObjects.Components.Alpha).setAlpha?.(dim);
+    objects.push(thumb);
     const textX = card.x + 6 + thumbWidth + 10;
     const textWidth = card.x + card.width - 10 - textX;
     const name = this.add.text(
@@ -942,14 +1081,21 @@ export class DecksScene extends Phaser.Scene {
     if (name.getWrappedText().length > 1 && card.height < 76) name.setFontSize(CARD_TITLE_TYPE.size - 4);
     const twoLineTitle = name.getWrappedText().length > 1;
     clampLines(name, 2);
+    if (dim < 1) name.setAlpha(dim);
     objects.push(name);
     // A selected row's "Last played" record line gives way to a two-line title in a row too short for both: the
     // name and the card count matter more, and the detail pane still has the history.
-    const showRecord = selected && !(twoLineTitle && card.height < 84);
+    // A community deck has no record either: it is never played itself, only its copy is.
+    const showRecord = selected && !row.offer && !(twoLineTitle && card.height < 84);
     const metaTop = card.y + 8 + name.height + 3;
     const metaRoom = card.y + card.height - 6 - (showRecord ? 16 : 0) - metaTop;
     const meta = this.add
-      .text(textX, metaTop, deckMetaLine(option, POOL_CARDS), textStyle(typeRole.emphasis, metaColor, metaAlpha))
+      .text(
+        textX,
+        metaTop,
+        row.offer ? communityMetaLine(row.offer) : deckMetaLine(option, POOL_CARDS),
+        textStyle(typeRole.emphasis, metaColor, metaAlpha),
+      )
       .setWordWrapWidth(textWidth, true);
     // Wrapped to two lines at a readable size; one on the selected card, whose record line sits below it.
     const lineHeight = Math.max(1, meta.height / Math.max(1, meta.getWrappedText().length));
@@ -1129,7 +1275,7 @@ export class DecksScene extends Phaser.Scene {
   // cards — filtered by one of those (radio-style; "all" clears it) and sortable by cost. Read-only browsing:
   // editing a deck's contents is `scenes/deck-builder.ts`'s job, reached from "Edit" in the stats pane.
   // ------------------------------------------------------------------------------------------------------------
-  #drawPoolPane(rect: Rect, selected: DeckOption | null): readonly string[] {
+  #drawPoolPane(rect: Rect, selected: DeckOption | null, deckListOnly = false): readonly string[] {
     const left = rect.x;
     const column = rect.width;
 
@@ -1157,9 +1303,16 @@ export class DecksScene extends Phaser.Scene {
     // D14's own header shape (point 3 of the 2026-09-18 fidelity pass): small filter chips right-aligned on the
     // *same* line as "CARD POOL", the rule running only between the label and the first chip — not a full-width
     // rule followed by a separate row of full-height buttons.
-    let y = this.#drawPoolHeader(left, rect.y, column, this.#poolChipDefs(selected.deck));
+    // A community deck previews its own list (it can't be edited here, so the rest of the pool is beside the point).
+    let y = this.#drawPoolHeader(
+      left,
+      rect.y,
+      column,
+      this.#poolChipDefs(selected.deck),
+      deckListOnly ? "DECK LIST" : "CARD POOL",
+    );
 
-    const cards = this.#poolCards(selected.deck, identity);
+    const cards = this.#poolCards(selected.deck, identity, deckListOnly);
     if (cards.length === 0) {
       this.add.text(left, y, "No cards match this filter.", textStyle(typeRole.body, surface.ink.hex, ink.meta));
       return [];
@@ -1211,8 +1364,8 @@ export class DecksScene extends Phaser.Scene {
    * a `<span style="flex:1">` sitting *between* the label and the chips, not a separate full-width rule with its
    * own row of chips below). Returns the next free `y`.
    */
-  #drawPoolHeader(left: number, y: number, column: number, chipDefs: readonly ChipDef[]): number {
-    const heading = this.add.text(left, y, "CARD POOL", {
+  #drawPoolHeader(left: number, y: number, column: number, chipDefs: readonly ChipDef[], title = "CARD POOL"): number {
+    const heading = this.add.text(left, y, title, {
       ...textStyle(typeRole.barTitle, surface.ink.hex),
       fontSize: "19px",
     });
@@ -1305,9 +1458,11 @@ export class DecksScene extends Phaser.Scene {
     return defs;
   }
 
-  #poolCards(deck: Deck, identity: HeroIdentityCard): readonly AnyCard[] {
+  #poolCards(deck: Deck, identity: HeroIdentityCard, deckListOnly = false): readonly AnyCard[] {
     const filter: PoolFilter = this.#poolAspectFilter ? { aspect: this.#poolAspectFilter } : {};
-    const pool = browsablePool(POOL_CARDS, identity, deck.aspects, filter);
+    const browsable = browsablePool(POOL_CARDS, identity, deck.aspects, filter);
+    const inDeck = new Set(deck.cards.map((entry) => entry.cardId as string));
+    const pool = deckListOnly ? browsable.filter((card) => inDeck.has(card.id as string)) : browsable;
     if (!this.#poolSortByCost) return pool;
     const costOf = (card: AnyCard): number =>
       "cost" in card ? (card as unknown as { cost: number }).cost : Number.POSITIVE_INFINITY;
@@ -1444,6 +1599,20 @@ export class DecksScene extends Phaser.Scene {
       ink.label,
     ).setWordWrapWidth(column);
     y += Math.max(20, meta.height + 4);
+    // A copy of a community deck keeps its author's credit.
+    const basedOn = communityEntryOf(deck, communityDecks());
+    if (basedOn) {
+      const credit = label(
+        this,
+        left,
+        y,
+        `Community deck ${communityCredit(basedOn)} · MarvelCDB`,
+        typeRole.label,
+        surface.paper.hex,
+        ink.label,
+      ).setWordWrapWidth(column);
+      y += credit.height + 6;
+    }
 
     const ruleG = this.add.graphics();
     ruleG.fillStyle(surface.paper.hex, 1).fillRect(left, y, column, 3);
@@ -1550,6 +1719,236 @@ export class DecksScene extends Phaser.Scene {
       }),
     );
     this.#stops.set("stats-play", { rect: playRect, activate: () => this.#playDeck(deck) });
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
+  // A community deck's detail rail, in the stats pane's place: whose deck it is and where it comes from (it is a
+  // MarvelCDB author's deck, not an official precon), that this game tested it, when it was published and its version,
+  // the author's own notes (how they play it), the MarvelCDB link, and one action: add an editable copy.
+  // ------------------------------------------------------------------------------------------------------------
+  #drawCommunityPane(rect: Rect, offer: CommunityOffer, wide: boolean): void {
+    const bg = this.add.graphics();
+    paintPanel(bg, rect, "onInk", "rest");
+
+    const { entry, option } = offer;
+    const left = rect.x + 16;
+    const column = rect.width - 32;
+    let y = rect.y + 16;
+
+    label(this, left, y, "Community deck · from MarvelCDB", typeRole.label, surface.paper.hex, ink.label);
+    y += 18;
+    const name = this.add
+      .text(left, y, caseOf(typeRole.barTitle, entry.name), {
+        ...textStyle(typeRole.barTitle, surface.paper.hex),
+        fontSize: "24px",
+      })
+      .setWordWrapWidth(column, true);
+    clampLines(name, 3);
+    y += name.height + 4;
+    const credit = this.add
+      .text(left, y, communityCredit(entry), textStyle(typeRole.rowTitle, surface.paper.hex))
+      .setWordWrapWidth(column, true);
+    y += credit.height + 8;
+
+    // Aspect stamps, then what this game can say about the deck: Tested, or what keeps it from being offered.
+    const stats = deckStatsOf(option.deck, POOL_CARDS);
+    const statusText = communityStatusText(offer);
+    const chips: { readonly text: string; readonly fill: number; readonly ink: number }[] = [
+      ...entry.aspects.map((aspect) => {
+        const stamp = aspectStampOf(aspect);
+        return { text: stamp.label, fill: stamp.fill, ink: stamp.ink };
+      }),
+      offer.lock || !option.legal
+        ? { text: statusText, fill: accent.heroRed.hex, ink: surface.paper.hex }
+        : { text: `✓ ${statusText}`, fill: surface.paper.hex, ink: surface.ink.hex },
+    ];
+    let chipX = left;
+    const chipHeight = 22;
+    for (const chip of chips) {
+      const text = this.add.text(0, 0, caseOf(STAMP_CHIP_TYPE, chip.text), textStyle(STAMP_CHIP_TYPE, chip.ink));
+      const chipWidth = Math.ceil(text.width) + 16;
+      if (chipX > left && chipX + chipWidth > left + column) {
+        chipX = left;
+        y += chipHeight + 6;
+      }
+      const g = this.add.graphics();
+      g.fillStyle(chip.fill, 1).fillRect(chipX, y, chipWidth, chipHeight);
+      g.lineStyle(border.control, surface.paper.hex, 1).strokeRect(chipX, y, chipWidth, chipHeight);
+      text.setPosition(chipX + chipWidth / 2, y + chipHeight / 2).setOrigin(0.5);
+      this.children.bringToTop(text);
+      chipX += chipWidth + 6;
+    }
+    y += chipHeight + 10;
+
+    const published = communityPublishedText(entry);
+    const meta = label(
+      this,
+      left,
+      y,
+      [
+        option.identityName ?? entry.heroName,
+        deckCountText(stats),
+        ...(published ? [published] : []),
+        "Not an official precon",
+      ].join(" · "),
+      typeRole.label,
+      surface.paper.hex,
+      ink.label,
+    ).setWordWrapWidth(column);
+    y += meta.height + 8;
+
+    if (offer.lock || !option.legal) {
+      const why = this.add
+        .text(left, y, offer.lock ?? option.blockedReason ?? "", textStyle(typeRole.body, accent.heroRed.hex))
+        .setWordWrapWidth(column, true);
+      y += why.height + 8;
+    }
+
+    const ruleG = this.add.graphics();
+    ruleG.fillStyle(surface.paper.hex, 1).fillRect(left, y, column, 3);
+    y += 14;
+
+    // Bottom-up: the footer (Check + Add), then the link row above it; the notes take whatever is left between.
+    const footerHeight = hit.primary;
+    const footerY = rect.y + rect.height - footerHeight - 16;
+    const footerRule = this.add.graphics();
+    footerRule.fillStyle(surface.paper.hex, 1).fillRect(left, footerY - 13, column, 3);
+
+    const deck = option.deck;
+    const checkWidth = column * 0.3;
+    const checkRect: Rect = { x: left, y: footerY, width: checkWidth, height: footerHeight };
+    const doCheck = (): void => this.#openDeckCheck(deck);
+    this.#buttons.push(
+      new McButton(this, { kind: "onInk", label: "Check", type: typeRole.label, rect: checkRect, onClick: doCheck }),
+    );
+    this.#stops.set("stats-check", { rect: checkRect, activate: doCheck });
+
+    const addRect: Rect = {
+      x: left + checkWidth + CHIP_GAP,
+      y: footerY,
+      width: column - checkWidth - CHIP_GAP,
+      height: footerHeight,
+    };
+    const canAdd = offer.lock === null && option.legal;
+    const doAdd = (): void => {
+      if (canAdd) this.#addCommunityDeck(offer);
+    };
+    this.#buttons.push(
+      new McButton(this, {
+        kind: "primary",
+        label: offer.added ? "Add another copy ▸" : "Add to my decks ▸",
+        type: typeRole.barTitle,
+        rect: addRect,
+        enabled: canAdd,
+        ...(canAdd ? {} : { reason: offer.lock ?? option.blockedReason ?? "This deck is not legal." }),
+        onClick: doAdd,
+      }),
+    );
+    this.#stops.set("stats-add", { rect: addRect, activate: doAdd });
+
+    // The MarvelCDB link, as text (a canvas can't be selected, so Copy link puts it on the clipboard) and as a
+    // button that opens it outside the game, the way Title opens the release notes.
+    const linkDefs: { readonly id: string; readonly text: string; readonly onClick: () => void }[] = [
+      ...(wide ? [] : [{ id: "preview", text: "Preview cards", onClick: () => this.#setTab("cards") }]),
+      { id: "copy-link", text: "Copy link", onClick: () => this.#copyLink(offer) },
+      { id: "open-link", text: "MarvelCDB ↗", onClick: () => openExternal(entry.url) },
+    ];
+    const linkRowY = footerY - 13 - 12 - this.#row;
+    const linkWidth = (column - CHIP_GAP * (linkDefs.length - 1)) / linkDefs.length;
+    linkDefs.forEach((def, index) => {
+      const cell: Rect = { x: left + index * (linkWidth + CHIP_GAP), y: linkRowY, width: linkWidth, height: this.#row };
+      this.#buttons.push(
+        new McButton(this, { kind: "quiet", label: def.text, type: typeRole.label, rect: cell, onClick: def.onClick }),
+      );
+      this.#stops.set(`stats-${def.id}`, { rect: cell, activate: def.onClick });
+    });
+    const linkText = this.add.text(
+      left,
+      linkRowY - 22,
+      entry.url.replace(/^https:\/\//, ""),
+      textStyle(typeRole.label, surface.paper.hex, ink.secondary),
+    );
+    fitText(linkText, column, typeRole.label.size);
+
+    // The author's own write-up: how they play the deck. Long ones scroll.
+    label(this, left, y, "From the author · how it plays", typeRole.label, surface.paper.hex, ink.label);
+    y += 18;
+    const notesBottom = linkRowY - 22 - 10;
+    // Whole lines only, so the last one shown is never cut through.
+    const notesHeight = Math.floor((notesBottom - y) / NOTES_LINE_HEIGHT) * NOTES_LINE_HEIGHT;
+    const paragraphs = communityNotesOf(entry.description);
+    if (paragraphs.length === 0) {
+      this.add
+        .text(
+          left,
+          y,
+          "No notes were saved with this deck. The author's write-up is on MarvelCDB.",
+          textStyle(typeRole.body, surface.paper.hex, ink.meta),
+        )
+        .setWordWrapWidth(column, true);
+      return;
+    }
+    if (notesHeight < NOTES_LINE_HEIGHT * 2) return;
+    const style = textStyle(typeRole.body, surface.paper.hex, ink.secondary);
+    const probe = this.add.text(0, 0, "", style).setWordWrapWidth(column - 8, true);
+    const lines: string[] = [];
+    for (const paragraph of paragraphs) {
+      if (lines.length > 0) lines.push("");
+      probe.setText(paragraph);
+      lines.push(...probe.getWrappedText());
+    }
+    probe.destroy();
+    this.#notesList = new McVirtualList(this, {
+      rect: { x: left, y, width: column, height: notesHeight },
+      rowHeight: NOTES_LINE_HEIGHT,
+      count: lines.length,
+      scroll: this.#notesScroll,
+      background: false,
+      renderRow: (index, rowRect) => ({
+        objects: lines[index] ? [this.add.text(rowRect.x, rowRect.y, lines[index]!, style)] : [],
+      }),
+    });
+  }
+
+  /** Adds the player's own editable copy of a community deck and selects it. */
+  #addCommunityDeck(offer: CommunityOffer): void {
+    if (this.#busy) return;
+    this.#busy = true;
+    void (async () => {
+      const copy = addCommunityDeck(offer.entry, {
+        poolVersion: POOL_VERSION,
+        now: () => new Date().toISOString(),
+        newId: () => crypto.randomUUID(),
+        existingNames: this.#savedDecks.map((deck) => deck.name),
+      });
+      await deckStorage().put(copy);
+      this.#savedDecks = await deckStorage().list();
+      this.#selectedDeckId = copy.id as string;
+      this.#scrollToDeckId = copy.id as string;
+      this.#communityOnly = false;
+      this.#status = {
+        text: `Added "${copy.name}" ${communityCredit(offer.entry)} to your decks. Edit it like any deck.`,
+        tone: "success",
+      };
+      this.#busy = false;
+      this.#rebuild();
+    })();
+  }
+
+  #copyLink(offer: CommunityOffer): void {
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    const done = (text: string, tone: "success" | "error"): void => {
+      this.#status = { text, tone };
+      this.#rebuild();
+    };
+    if (!clipboard?.writeText) {
+      done(`Clipboard access isn't available here. The deck is at ${offer.entry.url}`, "error");
+      return;
+    }
+    clipboard.writeText(offer.entry.url).then(
+      () => done(`Copied the MarvelCDB link for "${offer.entry.name}".`, "success"),
+      () => done(`Couldn't copy to the clipboard. The deck is at ${offer.entry.url}`, "error"),
+    );
   }
 
   /**

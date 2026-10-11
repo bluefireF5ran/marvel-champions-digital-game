@@ -6,7 +6,7 @@
  *
  * Fixtures: `fixtures/decklists/<hero>.json`, each fetched on 2026-10-05 from
  * `GET https://marvelcdb.com/api/public/decklist/<id>.json` (compact JSON re-serialized; the only field changed is the
- * long `description_md`, emptied to keep third-party prose out of the repo). Each was chosen as the most-liked public
+ * long `description_md`, emptied at first and restored on 2026-10-10: the Decks screen shows it as the author's notes). Each was chosen as the most-liked public
  * decklist for that hero (MarvelCDB `decklists/find?hero=<code>&sort=likes`, the first twelve per hero, 2026-10-05)
  * that imports in full against the wave 7 pool. "Packs" are the packs of the cards the importer resolved (a reprint
  * counts as its original pack), and every one of them is in the wave 7 pool.
@@ -108,11 +108,13 @@ describe.each(HEROES)("$name: MarvelCDB decklist $decklist", (entry) => {
     return result;
   };
 
-  test("the fixture is the served decklist, with the description emptied", () => {
+  test("the fixture is the served decklist", () => {
     const raw = JSON.parse(fixtureText(entry.hero)) as { id: number; description_md: string; hero_code: string };
     expect(raw.id).toBe(entry.decklist);
     expect(raw.hero_code).toBe(entry.identity);
-    expect(raw.description_md).toBe("");
+    // The author's write-up is kept (the Decks screen shows it as the deck's notes) or left empty where the whole
+    // file would pass the importer's 20,000-character cap.
+    expect(typeof raw.description_md).toBe("string");
   });
 
   test("imports against the wave 7 pool, every code resolved to a card of the pool (reprints included)", () => {
