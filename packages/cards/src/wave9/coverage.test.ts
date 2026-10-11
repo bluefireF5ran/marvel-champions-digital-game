@@ -95,6 +95,7 @@ import {
 } from "./silk/silk/support-upgrades-allies.js";
 import { TT_ASPECT_BASIC, TT_ASPECT_BASIC_SKIPPED } from "./tt/aspect-basic.js";
 import { ENCHANTRESS, ENCHANTRESS_SKIPPED } from "./tt/enchantress.js";
+import { GOD_OF_LIES, GOD_OF_LIES_SKIPPED } from "./tt/god-of-lies.js";
 import { TRICKSTER_MAGIC, TRICKSTER_MAGIC_SKIPPED } from "./tt/trickster-magic.js";
 import { TT_ABILITIES } from "./tt/index.js";
 import { WINTER_ASPECT_BASIC, WINTER_ASPECT_BASIC_SKIPPED } from "./winter/aspect-basic.js";
@@ -600,6 +601,23 @@ const SCRIPTED_MODULES: Readonly<
       ],
       registry: ENCHANTRESS,
       skipped: ENCHANTRESS_SKIPPED,
+    },
+    {
+      // God of Lies: the frame is scripted; the encounter cards 55035 to 55051 are skipped (second half).
+      module: "god-of-lies",
+      cardIds: [
+        "55027a",
+        "55028a",
+        "55029a",
+        "55030a",
+        "55031a",
+        "55032a",
+        "55033a",
+        "55034a",
+        ...Array.from({ length: 21 }, (_, i) => String(55035 + i)),
+      ],
+      registry: GOD_OF_LIES,
+      skipped: GOD_OF_LIES_SKIPPED,
     },
     {
       module: "trickster-magic",

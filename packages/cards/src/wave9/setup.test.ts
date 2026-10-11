@@ -110,13 +110,70 @@ describe("wave9Scenario", () => {
       for (const id of ["55027a", "55027b", "55028a", "55028b"]) expect(config.encounterDeck).not.toContain(id);
     });
 
-    it.todo(
-      "puts Loki, God of Lies (55027a) and Worlds Collide (55028a) in a closed `neutral` area (engine task 44 to 46, section 3.59)",
-    );
-    it.todo("reads the shared record: Loki 20 hit points, Worlds Collide target 2 (engine task 46, section 3.66)");
-    it.todo(
-      "puts one random Avatar into play and the Synergy environments via 55033a's Setup (God of Lies script, section 3.59)",
-    );
+    it("passes the Single Group Mode pod: Loki, God of Lies and Worlds Collide as the neutral cards, in no deck, aside or villain list", () => {
+      for (const players of [1, 3]) {
+        const seats = [...SEATS, { starterDeckId: "core-spider-man-justice" }].slice(0, players);
+        const config = wave9Scenario("god-of-lies", { players: seats as never, seed: 1 });
+        expect(config.pod).toEqual({
+          groupId: "g1",
+          coordinator: "local",
+          groupsInPod: 1,
+          groupsInGame: 1,
+          playersInGame: players,
+          neutral: {
+            area: "neutral",
+            villainCardId: "55027a",
+            mainSchemeCardId: "55028a",
+            villainFlipAtRemaining: { base: 0, perPlayer: 10 },
+          },
+        });
+        for (const id of ["55027a", "55027b", "55028a", "55028b"]) {
+          expect(config.encounterDeck).not.toContain(id);
+          expect(config.setAside ?? []).not.toContain(id);
+          expect(config.setAsideVillainCardIds ?? []).not.toContain(id);
+          expect(config.villainCardId).not.toBe(id);
+        }
+        expect(config.cards.some((c) => c.id === "55027a")).toBe(true);
+        expect(config.cards.some((c) => c.id === "55028a")).toBe(true);
+      }
+    });
+
+    it("builds the neutral area and the shared record, read from the card data: 20 hit points per player, flip at 10, target 2", () => {
+      const one = build(wave9Scenario("god-of-lies", { players: SEATS.slice(0, 1), seed: 1 }));
+      expect(one.scenarioPlayAreas?.["neutral"]).toMatchObject({ closed: true });
+      expect(one.scenarioPlayAreas?.["neutral"]?.cards.map((id) => codeOf(one, id)).sort()).toEqual([
+        "55027a",
+        "55028a",
+      ]);
+      expect(one.pod?.shared).toMatchObject({
+        villainHp: 20,
+        villainFlipAtRemaining: 10,
+        schemeTarget: 2,
+        villainDamage: 0,
+        schemeThreat: 0,
+      });
+      const three = build(
+        wave9Scenario("god-of-lies", {
+          players: [...SEATS, { starterDeckId: "core-spider-man-justice" }] as never,
+          seed: 1,
+        }),
+      );
+      expect(three.pod?.shared).toMatchObject({ villainHp: 60, villainFlipAtRemaining: 30, schemeTarget: 2 });
+      expect(three.pod?.playersInGameAtStart).toBe(3);
+    });
+
+    it("gives no other scenario a pod", () => {
+      for (const id of SCENARIOS.filter((s) => s !== "god-of-lies"))
+        expect(wave9Scenario(id, { players: SEATS, seed: 1 }).pod).toBeUndefined();
+    });
+
+    it("sets the Synergy environments and Intense Focus aside; Mischief and Mayhem 1A's Setup (tt/god-of-lies.test.ts) puts them in play", () => {
+      const config = wave9Scenario("god-of-lies", { players: SEATS, seed: 1 });
+      for (const id of ["55052", "55053", "55054", "55055", "55034a"]) {
+        expect(config.setAside).toContain(id);
+        expect(config.encounterDeck).not.toContain(id);
+      }
+    });
   });
 
   describe("permanent cards are set aside by keyword (docs/phase7-wave9.md 8.1 item 27)", () => {

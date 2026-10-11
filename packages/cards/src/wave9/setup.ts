@@ -6,12 +6,13 @@ import {
   cardId,
   difficultyEncounterSetIds,
   difficultyOf,
+  perPlayerOnly,
   type AnyCard,
   type CardId,
   type EncounterSet,
   type Scenario,
 } from "@mc/content";
-import type { GameSetupConfig, PlayerSetup } from "@mc/engine";
+import { SINGLE_GROUP, type GameSetupConfig, type PlayerSetup, type PodSetup } from "@mc/engine";
 import {
   checkScenarioSetupOptions,
   encounterCardsOf,
@@ -90,6 +91,31 @@ function victoryConditionModeOf(modes: ReturnType<typeof resolveModes>): "skirmi
 }
 
 /**
+ * The pod record of a scenario with neutral cards, in Single Group Mode (MC55 p. 10: "the only group in your pod is your
+ * own group"; docs/phase7-wave9.md sections 3.59 and 3.64): one group, this engine its own coordinator. The two neutral
+ * cards are made by `createGame` in a closed `neutral` area, which is Worlds Collide (A)'s Setup ("create a separate
+ * game area for each player group"); their hit points and target are read from the card data and scaled once with the
+ * game's counts. Loki, God of Lies' flip line is his own text: "10 [per player] or fewer remaining hit points" (55027a).
+ */
+function singleGroupPod(scenario: Scenario, players: number): PodSetup {
+  const neutral = scenario.neutralCards;
+  if (!neutral) throw new Error(`${scenario.name} has no neutral cards`);
+  return {
+    groupId: SINGLE_GROUP,
+    coordinator: "local",
+    groupsInPod: 1,
+    groupsInGame: 1,
+    playersInGame: players,
+    neutral: {
+      area: "neutral",
+      villainCardId: neutral.villainCardId,
+      mainSchemeCardId: neutral.mainSchemeCardId,
+      villainFlipAtRemaining: perPlayerOnly(10),
+    },
+  };
+}
+
+/**
  * A `WAVE9_SCENARIOS` record's `GameSetupConfig`, modeled on `wave6/setup.ts`'s `buildSingleVillain`.
  *
  * - **Villain face by mode**: `Scenario.expertVillains` replaces the villain in expert mode (Baron Zemo 50165a standard,
@@ -97,8 +123,8 @@ function victoryConditionModeOf(modes: ReturnType<typeof resolveModes>): "skirmi
  * - **Set aside**: `Scenario.setAsideCardIds` plus `SETASIDE_BY_SCENARIO` go to `GameSetupConfig.setAside`; God of Lies'
  *   other three Avatars of Loki (`setAsideVillainCardIds`) are passed through; `startingVillain: "bySetup"` sets
  *   `villainsStartSetAside` (no villain in play until Mischief and Mayhem 1A's Setup). `neutralCards` (Loki, God of
- *   Lies and Worlds Collide) are checked to be in the pool but NOT placed: the engine has no neutral area or shared
- *   record yet (docs/phase7-wave9.md section 3.59, engine tasks 44 to 46).
+ *   Lies and Worlds Collide) are checked to be in the pool and go into `GameSetupConfig.pod` (`singleGroupPod`), not into
+ *   the encounter deck, the set-aside list or the villain list (docs/phase7-wave9.md sections 3.59 and 3.64).
  * - **Permanent cards by keyword**: a permanent card without the setup keyword (Hypnotic Gaze x5, Intense Focus, the
  *   four Synergy environments, the Executive Board attachments' b faces) is set aside, not dealt; Gene Pool-style
  *   permanent + setup cards stay dealt for step 11. A double-sided card is dealt once, front face (`otherFaceId`), for
@@ -183,8 +209,9 @@ function buildScenario(scenario: Scenario, options: Wave9ScenarioOptions): GameS
       ? { scenarioDecks: [...(scenario.separateDecks ?? []), ...setSeparateDecks(sets)] }
       : {}),
     ...(setAsideVillainCardIds.length > 0 ? { setAsideVillainCardIds } : {}),
+    ...(scenario.neutralCards ? { pod: singleGroupPod(scenario, options.players.length) } : {}),
     // God of Lies: every Avatar starts set aside and Mischief and Mayhem 1A's Setup puts one into play (as wave 7's On the
-    // Run). Until that Setup is scripted no villain is in play. `neutralCards` has no engine home yet (see the doc above).
+    // Run). Until that Setup is scripted no villain is in play.
     ...(scenario.startingVillain === "bySetup" ? { villainsStartSetAside: true as const } : {}),
     ...(scenario.victoryCondition
       ? { victoryCondition: scenario.victoryCondition[victoryConditionModeOf(modes)] }
