@@ -881,3 +881,82 @@ choices per trait.
   discard pile and the deck long (an emptied deck reshuffles its discard pile into it). Core's Assault 01187 makes the villain attack in hero form; the file's
   filler is Advance 01186, with a dozen extra copies added to the table's deck.
 - **Four players:** only the two-player cases above were staged.
+
+## Trickster Takeover (tt)
+
+Scope: 55001 to 55066 (scripts in `packages/cards/src/wave9/tt/`: `enchantress.ts`, `trickster-magic.ts`, `god-of-lies.ts`, `aspect-basic.ts`; data in
+`packages/content/src/data/tt/cards.ts`). Every script was read against the printed text in the data (all 66 cards) and the MC55 insert
+(`docs/campaign-modes/markdown/mc55_trickster_takeover.md`, pp. 2 to 7, 9 to 23). The rulings file was searched for every tt title and for Loki, Enchantress,
+Hypnotic Gaze, Spellbound, Figment, Avatar, Synergy, Shatter, Linked and Zzzax. The rulings that name the pack are February 28, 2026 - Ruling 3 (Shatter and
+Permanent Focus), February 28, 2026 - Ruling 4 (2) (Quickstrike before When Revealed), February 28, 2026 - Ruling 5 (Spell Blast), March 19, 2026 - Ruling 2
+(Whirlwind against Enchantress), June 25, 2026 - Ruling 5 (Dark Scepter) and August 3, 2026 - Ruling 4 (3) (linked cards in decks); each is asserted by the
+module tests except March 19, 2026 - Ruling 2, which had no test and is in the new file. Regression tests: `packages/cards/src/wave9/tt/rulings.qa.test.ts`
+(20 tests and 2 `it.todo`, no `it.fails`: no script or engine bug was found). The module tests are thorough (per-card tests plus the scenario games); the
+new file holds only interactions they do not assert.
+
+### Findings
+
+None in the scripts or the engine. Two test-quality notes for the owners of the module tests (not game bugs):
+
+| Where                                                                               | What                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enchantress-encounter.test.ts`, Spell Shards "damage assigned entirely to an ally" | The title says the identity took none and no counter is placed, but the body assigns 3 damage to a 2-hit-point ally, so the identity takes 1 and the counter is placed. The "took none, so no counter" half is not asserted there; `rulings.qa.test.ts` asserts it with a tough identity. |
+| Stale header comments                                                               | `enchantress-encounter.test.ts` still says "Trickster Magic is unscripted", and `god-of-lies.test.ts` says every game replaces the encounter deck so no Trickster Magic card is revealed; both modules are scripted now. No effect on the tests.                                          |
+
+### Checked, with a test in `rulings.qa.test.ts`
+
+- **Whirlwind (ally) cannot basic attack Enchantress while Future of Despair is in play (ruling March 19, 2026 - Ruling 2; RRG "Target" p. 42).** Legal
+  before the Future of Despair; refused after stage I falls (and the identity's basic attack is refused as well); the main scheme loses no threat.
+- **Ulik's Forced Response hears an ally's damage (MC55 card 55020; RRG "Ownership and Control" p. 31).** Player 2's Titania ally damages Enchantress and Ulik,
+  engaged with player 1, attacks player 2.
+- **Seduced affects its own player only (card 55015; RRG "You, Your" p. 49).** Player 2 may still basic attack and play an Attack event; player 1's is refused,
+  and allowed again with the card removed (the control).
+- **Zzzax 55059 and the Zzzax ally 55066 count printed [energy] resources only (RRG "Wild Resource" p. 48).** A printed wild icon (Spider-Woman, Hellcat) is
+  no indirect damage and the ally's search does not find a wild-only card; the Energy resource card prints two energy icons and counts twice.
+- **Whirlwind 55058 (minion): Quickstrike then the Forced Response (RRG "Quickstrike" p. 36; ruling February 28, 2026 - Ruling 4 (2)).** Revealed, he engages and
+  attacks once at once, and the Forced Response deals exactly 1 more indirect damage per side scheme in play.
+- **Crown of the Enchantress stays on Enchantress when stage I is replaced by stage II (RRG "Villain Defeat" p. 47: attachments carry over).**
+- **Spellbound 55022, a Defiant player at 4 counters.** The first sentence's fifth counter flips the Gaze and the second sentence then finds the player
+  Enthralled: the player discards a card they control. Pinned as built; see question 1.
+- **Law of Attraction 55021 finds a Trickster Magic minion (they print ENTHRALLED, MC55 p. 5).** Titania is discarded, revealed and engages the player.
+- **Puppet Master 55061, two heroes, expert (MC55 p. 2 "Hinder X").** Enters with 2 + 2 threat; standard stays at 2.
+- **Toughness on Enchantress II (RRG "Toughness" p. 45; ruling April 30, 2026 - Ruling 3 (2)).** The expert game begins with one tough status card on her;
+  standard stage I has none.
+- **Whirlwind (ally) in the God of Lies scenario (MC55 p. 18; card 55028a).** "Each scheme in play" removes threat from Mischief and Mayhem but never from the
+  neutral Worlds Collide, and the +1 ATK counts only the threat actually removed.
+- **Feigned Retreat 55053 against Mischief and Mayhem 1B's replaced defeat (RRG "Prevent" p. 35).** With a synergy counter the hit that would defeat the
+  identity is prevented: no form change and no threat on Worlds Collide. Without one (the control) the identity changes to alter-ego and Worlds Collide gets 1.
+- **Owner question 58 = A (RRG "Linked" p. 27; MC55 p. 2).** She-Hulk's nemesis Titania (Core 01162) does not set the Titania ally aside; Trickster Magic in the
+  game sets it aside once.
+- **Forced Actions (MC55 p. 7).** An owed Love Concoction blocks End Turn; once exhausted by another effect, or discarded by its own Alter-Ego Action, the
+  player is free to end the phase.
+- **Spell Shards 55026 on a tough identity (RRG "Indirect Damage" p. 24; ruling January 17, 2026 - Ruling 3 (1)).** All 3 assigned to the identity are prevented
+  by the tough card, which is spent, and no charm counter is placed (the damage was dealt, not taken).
+- **Sindr 55019, Defiant, alter-ego form.** He schemes (no attack, no indirect damage).
+
+### Rules questions
+
+Both are built as A today; no source decides them.
+
+| #   | Question                                                                                                                                                        | A (built today)                                                                                                                           | B                                                                                             | Sources                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1   | Spellbound 55022 defeated, a Defiant player at 4 counters: the first sentence's counter flips the Gaze. Does that player also discard a card (second sentence)? | Yes: the sentences resolve in order, the flip is immediate, and the second sentence reads the trait afterward                             | No: both sentences read each player's trait before either resolves                            | Card 55022; RRG "Resolving abilities"; ruling February 28, 2026 - Ruling 5 (1) (a choosing sentence, not this) |
+| 2   | Toughness on a new villain stage: Enchantress II, revealed when stage I is defeated in standard mode, gets a tough status card. Right?                          | Yes: the stage that replaces a defeated one enters play and gets it (the expert opening is certain, ruling April 30, 2026 - Ruling 3 (2)) | No: the villain keeps the status cards it had; toughness applies only when a card enters play | RRG "Toughness" p. 45, "Villain Defeat" p. 47; cards 55002, 55003                                              |
+
+### Source conflicts
+
+None found between the RRG and a ruling for this pack. The script comments that cite the rulings (Ulik's "dealt" damage under Future of Despair, from
+ruling January 17, 2026 - Ruling 3 (1); the Whirlwind and Future of Despair ruling) agree with them.
+
+### Thin coverage and open points
+
+- **Ulik 55020 under Future of Despair (`it.todo`).** The script counts damage "dealt" even when Enchantress cannot take damage. Every damaging effect in
+  the harness targets her, and ruling March 19, 2026 - Ruling 2 makes her an invalid target, so no path to observe it was found.
+- **Epic Multiplayer Mode (`it.todo`).** The per-group icon, pods, the Mangog and Door Between Worlds across groups (MC55 pp. 11 to 17) are not testable: the
+  engine plays Single Group Mode only. Not audited.
+- **Guard and Patrol keywords on Absorbing Man 55056 and Fenris Wolf 55042, Steady on Titania 55057, Hinder, Incite, Stalwart**: data keywords; their engine
+  behavior is covered by the engine's keyword tests and the per-card tests, not re-staged.
+- **Four players** and the **expert-mode** cards of the God of Lies encounter set were not re-staged beyond the module tests; the Avatar swap, the Shatter
+  steps and the owner decisions Q8 to Q10 are asserted in `god-of-lies.test.ts` and `god-of-lies.game.test.ts` and were not repeated.
+- **Cross-pack (by reading, not staged):** Malekith 55039's "deal it to yourself as a facedown encounter card" is a named-card deal, the case the Falcon section's
+  Medium finding says the engine does not announce to Aerial Recon's interrupt.
