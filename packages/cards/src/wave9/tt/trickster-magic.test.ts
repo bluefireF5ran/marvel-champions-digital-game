@@ -70,8 +70,6 @@ const TANGO = "55060";
 const PUPPET = "55061";
 const LOVE = "55062";
 const ALLIES = ["55063", "55064", "55065", "55066"];
-/** The one ref left unscripted: see `TRICKSTER_MAGIC_SKIPPED`. */
-const SKIPPED = "55059.when-defeated";
 const REFS = [
   "55056.absorbing-man-constant",
   "55056.when-defeated",
@@ -212,11 +210,10 @@ const ownership = (s: GameState, p: PlayerId, code: string) => {
 };
 
 describe("registry", () => {
-  it("registers 14 of the 15 refs of the seven cards, each a valid definition, and skips Zzzax's When Defeated with its reason", () => {
-    expect(Object.keys(TRICKSTER_MAGIC).sort()).toEqual(REFS.filter((r) => r !== SKIPPED).sort());
+  it("registers the 15 refs of the seven cards, each a valid definition, and skips none", () => {
+    expect(Object.keys(TRICKSTER_MAGIC).sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(TRICKSTER_MAGIC)) expect(validateDefinition(def), id).toEqual([]);
-    expect(Object.keys(TRICKSTER_MAGIC_SKIPPED)).toEqual([SKIPPED]);
-    expect(TRICKSTER_MAGIC_SKIPPED[SKIPPED]).toContain("Unique Icon");
+    expect(Object.keys(TRICKSTER_MAGIC_SKIPPED)).toEqual([]);
   });
 
   it("the data names exactly these refs for the seven cards", () => {
@@ -439,13 +436,16 @@ describe("Zzzax (55059)", () => {
     expect(heroDamage(run.state)).toBe(1);
   });
 
-  // Skipped ref `55059.when-defeated` (TRICKSTER_MAGIC_SKIPPED): the Zzzax ally has no subtitle, so it matches the
-  // Zzzax minion under RRG 1.8 "Unique Icon" (p. 45), and the minion is still in play while its When Defeated would
-  // resolve. Until a ruling and an engine rule exist, defeating Zzzax gives nobody the ally.
-  it("WHEN DEFEATED (skipped, engine gap): defeating Zzzax puts the minion in the victory display and leaves the ally set aside", () => {
+  // The Zzzax ally has no subtitle, so it matches the Zzzax minion under RRG 1.8 "Unique Icon" (pp. 45-46), and the
+  // minion is still in play while its When Defeated resolves (p. 48). The engine does not hold the card a linked
+  // keyword names against the linked card its own ability brings in (the card's evident purpose; no FFG ruling).
+  it("WHEN DEFEATED: the defeating player takes the Zzzax ally, ready and owned, though both are unique and share a title", () => {
     const run = defeatedBy(setupGame(), ZZZAX);
+    expect(types(run.events, "uniqueEntryBlocked")).toEqual([]);
+    expect(ownership(run.state, P1, "55066")).toEqual([false, P1, P1]);
+    expect(asideCodes(run.state).sort()).toEqual(["55063", "55064", "55065"]);
     expect(victoryCodes(run.state)).toEqual([ZZZAX]);
-    expect(asideCodes(run.state)).toContain("55066");
+    expect(inPlayCard(run.state, ZZZAX)).toBeUndefined();
   });
 });
 

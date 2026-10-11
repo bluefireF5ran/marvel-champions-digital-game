@@ -1143,6 +1143,16 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "Any player in your pod can attack The Mangog as if it were in their game area." / "… can thwart Door Between
+   * Worlds as if it were in their game area." (`tt` 55041, 55046; docs/phase7-wave9.md §3.67; MC55 pp. 16–17). The
+   * exception MC55 p. 12 allows to "cards and components in one game area cannot affect another game area".
+   *
+   * **It has no effect while the pod is one group**: every player of the pod is already in this game area, so the card
+   * is attacked or thwarted as any other (MC55 p. 10). Declared so the two cards' scripts do not change when groups
+   * can reach each other's areas; no reader in the engine consults it yet.
+   */
+  | { readonly kind: "reachableFromPod"; readonly card: TargetQuery; readonly by: "attack" | "thwart" }
+  /**
    * "Your allies, upgrades, and supports enter play exhausted." (docs/phase7-wave7.md §3.36 gap 1): a constant on one
    * card that makes other cards enter play exhausted. `target` is read as each card enters play, by any route (played,
    * put into play by an effect, revealed, setup), with "you" as the rule's speaker (`speakerOf`: an attachment on an

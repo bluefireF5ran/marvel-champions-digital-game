@@ -193,6 +193,7 @@ import {
   setVillainsAside,
   revealMainSchemeStages,
 } from "./game-areas.js";
+import { emitSharedEvent, resolveInGroup } from "./pod.js";
 import { announceDamagePrevented, readyOrAnnounce, threatRemovalBlocked, thwartBlockedOn } from "./event.js";
 import {
   abilityAttackDamage,
@@ -275,7 +276,13 @@ export const putIntoPlayHostSlot = (id: InstanceId): string => `_putIntoPlay.hos
  *
  * Returns the ids that may proceed, and records every refusal in the game log.
  */
-function admitUniqueEntry(ctx: Ctx, ids: readonly InstanceId[], forPlayer: PlayerId): readonly InstanceId[] {
+function admitUniqueEntry(
+  ctx: Ctx,
+  ids: readonly InstanceId[],
+  forPlayer: PlayerId,
+  /** The card whose ability puts them into play: not held against the linked card it brings in (`uniqueEntryBlocker`). */
+  bringer: InstanceId | null,
+): readonly InstanceId[] {
   const admitted: InstanceId[] = [];
   for (const id of ids) {
     const card = cardOf(ctx.state, id);
@@ -286,7 +293,7 @@ function admitUniqueEntry(ctx: Ctx, ids: readonly InstanceId[], forPlayer: Playe
       continue;
     }
     // A villain entering play is exempt; so is a card with no data to match on (`uniqueEntryBlocker`).
-    const match = uniqueEntryBlocker(ctx.state, ctx.deps, id, forPlayer);
+    const match = uniqueEntryBlocker(ctx.state, ctx.deps, id, forPlayer, bringer);
     if (!card || !match) {
       admitted.push(id);
       continue;
@@ -1805,6 +1812,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           ctx,
           named.filter((id) => !alreadyInPlay.includes(id)),
           controller,
+          frame.selfInstanceId,
         );
         const entered: InstanceId[] = [];
         const there: InstanceId[] = [];
@@ -1834,7 +1842,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         for (const id of entered) enterPlay(ctx, id, controller);
         return;
       }
-      const unmatched = admitUniqueEntry(ctx, targets(effect.card), controller);
+      const unmatched = admitUniqueEntry(ctx, targets(effect.card), controller, frame.selfInstanceId);
       // A card put into play facedown shows no title, so it is no copy of anything ("copies … by title", p. 28).
       const admitted = effect.facedown === true ? unmatched : admitUnderPlayerMax(ctx, unmatched, controller);
       const placed: InstanceId[] = [];
@@ -1966,7 +1974,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId, reason: "cardType" });
         return;
       }
-      if (admitUniqueEntry(ctx, [id], playerId).length === 0) return;
+      if (admitUniqueEntry(ctx, [id], playerId, frame.selfInstanceId).length === 0) return;
       moveCard(ctx, id, { kind: "playArea", playerId });
       updateInstance(ctx, id, (i) => ({ ...i, controllerId: null, engagedWith: playerId, faceup: true }));
       const attached =
@@ -2520,6 +2528,12 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       pushHeard(raised);
       return;
     }
+    case "sharedEvent":
+      emitSharedEvent(ctx, effect.event, value(effect.amount), effect.cause);
+      return;
+    case "inGroup":
+      resolveInGroup(ctx, frame, effect);
+      return;
     case "swapCards": {
       // docs/phase7-wave6.md §3.47: each ref names one card, or the swap cannot be completed (RRG 1.8 p. 42).
       const a = targets(effect.a);

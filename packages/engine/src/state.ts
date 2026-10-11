@@ -9,6 +9,7 @@ import type { LastingEffect } from "./lasting.js";
 import type { RuleSpec } from "./abilities.js";
 import type { EffectSpec, StatusName } from "./spec.js";
 import type { EncounterDealSource, LeaveCauseSide, TriggerEvent } from "./trigger-events.js";
+import type { PodState } from "./pod.js";
 
 export type Form = "hero" | "alterEgo";
 
@@ -1223,6 +1224,14 @@ export interface GameState {
    * only as its hidden pile is turned faceup. **Absent** until an accusation is made.
    */
   readonly accusation?: Accusation;
+  /**
+   * The Epic Multiplayer pod this game is one group of (docs/phase7-wave9.md §3.64): its group id, who coordinates the
+   * pod, the three counts fixed at setup, and the group's copy of the pod's shared villain and scheme. Written by setup
+   * from `GameSetupConfig.pod`, so it is in the replay baseline. Read through `podOf` (`pod.ts`) alone, which gives the
+   * single-group default when it is absent. **Absent** in every game whose scenario has no pod, so every other game
+   * serializes as before.
+   */
+  readonly pod?: PodState;
   /**
    * The campaign this game is a scenario of, exactly as the runner composed it (design §7.1) — **frozen**: nothing
    * in a game ever writes here. Because it lands in the replay baseline, a saved campaign game replays without

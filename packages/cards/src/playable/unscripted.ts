@@ -26,7 +26,9 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
  */
 export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
   enchantress_villain:
-    "The Enchantress scenario needs Trickster Magic (one ref still skipped: Zzzax 55059's When Defeated, a unique-rule conflict with its linked ally), and an exhausted encounter attachment on an identity is never readied, so a used Trance's Forced Action never comes back. Un-gate with trickster_magic once both are fixed.",
+    "Scripted in full; waits on the client: a Hypnotic Gaze's hidden reverse side must not be shown (`otherFaceVisible`), and Forced Actions need their prompt and the End Turn refusal. Un-gate with trickster_magic once those are in and the scenario game (spec 8.4 item 70) passes.",
+  trickster_magic:
+    "Scripted in full; the Enchantress scenario's required modular set. Un-gate together with enchantress_villain (the pinned pool counts and snapshots move once).",
 };
 
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */

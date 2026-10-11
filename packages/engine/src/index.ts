@@ -1,7 +1,31 @@
 export const ENGINE_VERSION = "0.18.0";
 
-export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId } from "./ids.js";
-export { playerId, instanceId, choiceId, encounterDeckId, frameId } from "./ids.js";
+export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId } from "./ids.js";
+export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId } from "./ids.js";
+
+export type {
+  GroupRef,
+  PodNeutralArea,
+  PodNeutralSetup,
+  PodSetup,
+  PodState,
+  SharedEvent,
+  SharedPodState,
+  SharedResult,
+  SharedThreatCause,
+} from "./pod.js";
+export {
+  applySharedEvent,
+  groupVar,
+  POD_MOMENT,
+  podBlocksOf,
+  podGroupIds,
+  podOf,
+  podSetupFault,
+  resolveGroup,
+  sharedLost,
+  SINGLE_GROUP,
+} from "./pod.js";
 
 export type { RngState } from "./rng.js";
 export { createRng, nextInt, nextUint32, shuffle } from "./rng.js";
@@ -573,6 +597,9 @@ export {
   printedProfile,
   remainingHitPoints,
   scale,
+  scaleIn,
+  sharedScheme,
+  sharedVillain,
   schemesInPlay,
   villainStage,
   zoneContents,

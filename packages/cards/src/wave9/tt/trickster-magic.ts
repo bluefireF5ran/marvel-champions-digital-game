@@ -111,6 +111,10 @@ export const TRICKSTER_MAGIC: AbilityRegistry = defineAbilities({
     moveCards(zone("deck", you, { top: 4 }), "discard", "discarded"),
     dealIndirectDamage(you, totalPrintedResources(chosen("discarded"), ["energy"])),
   ),
+  // The Zzzax ally has no subtitle, so it matches the Zzzax minion (RRG 1.8 "Unique Icon", pp. 45-46), which is still
+  // in play while this resolves (p. 48). The engine does not hold the card a linked keyword names against the linked
+  // card its own ability brings in (`packages/engine/src/linked-unique.test.ts`): the card's evident purpose, no ruling.
+  "55059.when-defeated": LINKED_ALLY_TAKEN(),
 
   "55060.the-trickster-tango-constant": constant(gainsKeyword({ name: "stalwart" }, query("villain"))),
   "55060.boost": boost(ifThen(activationIs("attack"), modifyAttack({ overkill: true }))),
@@ -135,12 +139,5 @@ export const TRICKSTER_MAGIC: AbilityRegistry = defineAbilities({
   ),
 });
 
-/** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const TRICKSTER_MAGIC_SKIPPED: Readonly<Record<string, string>> = {
-  "55059.when-defeated":
-    "Zzzax's When Defeated (`LINKED_ALLY_TAKEN`, as the other three minions) cannot work yet: the Zzzax ally has no subtitle, so it " +
-    'matches the Zzzax minion under RRG 1.8 "Unique Icon" (p. 45: two unique cards that share a title and have no subtitle), and ' +
-    "the minion is still in play while its When Defeated resolves, so the engine refuses the ally (`uniqueEntryBlocked`) and it " +
-    "stays set aside. Needs a ruling and an engine rule: the minion's Victory (a When Defeated, p. 46) resolved first, or a " +
-    "defeated card not counting for uniqueness. The other three allies carry a subtitle and are unaffected.",
-};
+/** Refs of this module's cards deliberately left unscripted, each with its written reason: none. */
+export const TRICKSTER_MAGIC_SKIPPED: Readonly<Record<string, string>> = {};

@@ -23,6 +23,13 @@ export type EncounterDeckId = Brand<string, "EncounterDeckId">;
 /** Identifies one separate game area (The Once and Future Kang): "a1", "a2", … in creation order. */
 export type GameAreaId = Brand<string, "GameAreaId">;
 
+/**
+ * Identifies one group of 1 to 4 players in an Epic Multiplayer pod (MC55 p. 9): one table, one `GameState`. Not a
+ * `GameAreaId`, which splits one table. In Single Group Mode the only group is "g1" (docs/phase7-wave9.md §3.64).
+ */
+export type GroupId = Brand<string, "GroupId">;
+
+export const groupId = (value: string): GroupId => value as GroupId;
 export const playerId = (value: string): PlayerId => value as PlayerId;
 export const gameAreaId = (value: string): GameAreaId => value as GameAreaId;
 export const encounterDeckId = (value: string): EncounterDeckId => value as EncounterDeckId;

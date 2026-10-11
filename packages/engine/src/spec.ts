@@ -39,6 +39,7 @@ import type { RulesCardType } from "./card-types.js";
 import type { CampaignLogValueSpec, LogWriteMode } from "./campaign.js";
 import type { Command } from "./commands.js";
 import type { FrameId, InstanceId, PlayerId } from "./ids.js";
+import type { GroupRef, SharedThreatCause } from "./pod.js";
 import type { ReportedFact, SetupOutsideFact } from "./outside-facts.js";
 import type { ResourceRequirement, TypedResource } from "./resources.js";
 import type { FacedownRole, Form, GameStep, MainSchemeAdvancedBy } from "./state.js";
@@ -894,6 +895,12 @@ export type PlayerRef =
 export type ValueSpec =
   | { readonly kind: "const"; readonly value: number }
   | { readonly kind: "perPlayer"; readonly base: number; readonly perPlayer: number }
+  /**
+   * "The number of players in their group" (the Fading Figments, `tt`; docs/phase7-wave9.md §3.67): the players of the
+   * group still in the game. Written inside an `inGroup` block with `"self"`, so it is read where the counters land. A
+   * var naming another group reads 0 here: this game does not hold that group's players.
+   */
+  | { readonly kind: "groupPlayerCount"; readonly group: GroupRef }
   /**
    * A character's current stat, the first card `of` names. `total`: the sum over every card it names — "the total ATK
    * of those allies and your hero" (Mass Attack, `mts` 21016), "the total ATK of Colossus and Wolverine" (Fastball
@@ -4509,6 +4516,47 @@ export type EffectSpec =
       readonly player: PlayerRef;
       readonly carry?: readonly string[];
     }
+  /**
+   * "Deal damage to [the pod's shared villain] equal to …" / "place 1 threat on [the pod's shared scheme]" (the Shatter
+   * the Illusion card, step 1; Mischief and Mayhem 1B, `tt` 55033b; docs/phase7-wave9.md §3.66). The two neutral cards
+   * hold no damage or threat of their own: this asks the pod's shared record for the change, as a `SharedEvent` of this
+   * group, logged `sharedEventEmitted` with the group's next outbound number. Under a local coordinator (Single Group
+   * Mode) the record changes in the same command (`sharedStateChanged`), and what the change brought about (the shared
+   * villain flipped or defeated, the shared scheme completed) is applied once the resolution in progress has finished
+   * (MC55 p. 20). Under a remote coordinator nothing else happens here. `cause` is for threat only (MC55 p. 21, the
+   * "two ways"); absent, `schemeCompleted`. An amount of 0, or a game with no shared record, does nothing.
+   */
+  | {
+      readonly kind: "sharedEvent";
+      readonly event: "villainDamaged" | "schemeThreatPlaced";
+      readonly amount: ValueSpec;
+      readonly cause?: SharedThreatCause;
+    }
+  /**
+   * "Choose a group in your pod" (the Fading Figments, Fenris Wolf, Hraesvelgr, Laufey, New Jotunheim, `tt`;
+   * docs/phase7-wave9.md §3.67; MC55 pp. 10, 13): the first player `chooser` names picks one group of the pod, this one
+   * included, bound under `bind` for a later `inGroup` (`GroupRef { var: bind }`; `<bind>.made` is 1). With one group
+   * in the pod (Single Group Mode, MC55 p. 10) it is bound with no question, as any one-option choice is. With several
+   * the chooser is asked with a `chooseOption` prompt, one option per group. Logs `groupChosen`.
+   */
+  | { readonly kind: "chooseGroup"; readonly chooser: PlayerRef; readonly among: "inPod"; readonly bind: string }
+  /**
+   * Effects resolved **in a group's game area by that group** (docs/phase7-wave9.md §3.67): "place 1 synergy counter
+   * on **their** Mounting Resistance environment", "Each group in your pod places 3 shatter counters on their Avatar of
+   * Loki villain and 1 synergy counter on one of their Synergy environments" (The Mangog 55041, Door Between Worlds
+   * 55046). MC55 p. 12: "Unless explicitly stated otherwise, cards and components in one game area cannot affect
+   * another game area", so what crosses to another group is not a target but this block.
+   *
+   * - `group` names one group (`"self"`, or the one `chooseGroup` bound); `"eachInPod"` is every group of the pod.
+   * - **For this group** the effects resolve here, as a frame of their own: "you" and the controller are this group's
+   *   first player (MC55 p. 23), "the villain" this group's, a `chooseTarget` this group's choice. The block starts
+   *   with no slot, no var and no event of the ability around it, which is all another group could be sent; `"self"`
+   *   inside it is the group it resolves in.
+   * - **For another group** nothing resolves here: `GameEvent podEffectRequested` names the card, the ability and the
+   *   block (its place among the ability's `inGroup` blocks, from 1; `podBlocksOf`) for the pod's coordinator.
+   * - A var that holds no group resolves nothing.
+   */
+  | { readonly kind: "inGroup"; readonly group: GroupRef | "eachInPod"; readonly effects: readonly EffectSpec[] }
   /**
    * "Swap her with [Version 2] Ironheart" (Level Up!, `ironheart` 29001a/29002a; docs/phase7-wave5.md §3.23): the
    * player's identity becomes the next version of its `progressingIdentity`, set aside at setup. RRG 1.8 "Swap"

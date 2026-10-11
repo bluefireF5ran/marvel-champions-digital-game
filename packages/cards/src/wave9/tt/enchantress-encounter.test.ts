@@ -328,8 +328,6 @@ describe("the Temptation attachments: Alluring Call 55012, Kiss of Temptation 55
     sim.state = patchInstance(sim.state, sim.state.mainScheme.instanceId, { threat: 0 });
     round(sim, [BLANK, "55013"]);
     const card = attachment(sim.state, identityOf(sim.state), "55013");
-    // The Trance would have been readied by the end of the player phase (see the it.fails below): readied by hand here.
-    sim.state = patchInstance(sim.state, gaze, { exhausted: false });
     run(sim, use(P1, gaze, SLOTH_ACTION));
     sim.events = [];
     const hand = playerOf(sim.state, P1).hand.length;
@@ -395,10 +393,9 @@ describe("the Temptation attachments: Alluring Call 55012, Kiss of Temptation 55
 
 describe("encounter cards that exhaust ready at the end of the player phase", () => {
   // RRG 1.8 "End of Player Phase" (p. 18) step 3: "Each player simultaneously readies all of their cards. Ready each
-  // exhausted encounter card." The engine's `readyEveryCard` (flow.ts) readies a player's cards, the villain and scenario
-  // areas, but not an encounter attachment on an identity (a Trance): a used Forced Action then stays exhausted for good,
-  // although MC55 p. 22 says it is triggered every round. Engine gap, reported; this pins the correct behavior.
-  it.fails("a Trance used in the player phase is ready again in the next player phase", () => {
+  // exhausted encounter card." An encounter attachment on an identity (a Trance) is one of them: its Forced Action is
+  // triggered every round (MC55 p. 22). The engine's `ready-encounter-cards.test.ts` covers the other places.
+  it("a Trance used in the player phase is ready again in the next player phase", () => {
     const sim = open();
     const gaze = flipTo(sim, "55010a");
     run(sim, use(P1, gaze, SLOTH_ACTION));

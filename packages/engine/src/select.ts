@@ -1,4 +1,5 @@
 import type { AbilityId, AbilityReference, AnyCard, CardId, HeroIdentityCard, Trait } from "@mc/content";
+import { podOf, resolveGroup } from "./pod.js";
 import {
   type AbilityDefinition,
   type AbilityTriggerSpec,
@@ -30,6 +31,7 @@ import {
   closedToPlayerCard,
   currentName,
   encounterFace,
+  neutralCardAbilityRefs,
   getInstance,
   getPlayer,
   handSize,
@@ -1308,7 +1310,8 @@ export function explainQuery(
   // "Chooses 1 set-aside upgrade and puts it into play": not a unique card that matches one in play.
   if (query.canEnterPlay !== undefined) {
     const [forPlayer] = resolvePlayers(state, query.canEnterPlay, context);
-    if (uniqueEntryBlocker(state, context.deps ?? DEFAULT_DEPS, id, forPlayer ?? null)) return "cannotEnterPlay";
+    if (uniqueEntryBlocker(state, context.deps ?? DEFAULT_DEPS, id, forPlayer ?? null, context.selfInstanceId ?? null))
+      return "cannotEnterPlay";
     // Nor a card a rule keeps out of play (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43).
     if (!cardsInPlay(state).includes(id) && cannotEnterPlay(state, context.deps ?? DEFAULT_DEPS, id))
       return "cannotEnterPlay";
@@ -2503,6 +2506,11 @@ export function resolveValue(
       return value.value;
     case "perPlayer":
       return value.base + value.perPlayer * state.startingPlayerCount;
+    case "groupPlayerCount":
+      // docs/phase7-wave9.md §3.67: this game holds one group's players, so another group's count is not known here.
+      return resolveGroup(state, value.group, context.vars ?? {}) === podOf(state).groupId
+        ? state.players.filter((player) => !player.eliminated).length
+        : 0;
     case "stat": {
       const ids = resolveRef(state, value.of, context);
       const statOfCard = (id: InstanceId): number =>
@@ -3790,6 +3798,8 @@ function unblankedAbilityRefs(state: GameState, id: InstanceId): readonly Abilit
   // One sitting faceup on another card (an Arrow on Hawkeye's Quiver) has none of its own: offered as a card ability,
   // its effect ran without paying the event's cost or discarding it (2026-09-29 report).
   if (card.type === "event" && instance?.attachedTo) return [];
+  const neutral = state.pod === undefined ? undefined : neutralCardAbilityRefs(state, id);
+  if (neutral) return neutral;
   const face = encounterFace(state, id);
   if (face) return face.abilities;
   if (card.type === "hero_identity") {

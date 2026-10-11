@@ -1,4 +1,5 @@
 import type {
+  AbilityReference,
   AlterEgoFace,
   AnyCard,
   CardId,
@@ -16,6 +17,7 @@ import { DEFAULT_DEPS, type CardZoneQuery, type EngineDeps } from "./abilities.j
 import { EngineInvariantError } from "./errors.js";
 import type { EncounterDeckId, InstanceId, PlayerId } from "./ids.js";
 import { baseOverride, statBonus } from "./modifiers.js";
+import { podOf, type SharedPodState } from "./pod.js";
 import { EMPTY_POOL, printedResources, type ResourcePool } from "./resources.js";
 import type { SchemeValueName } from "./spec.js";
 import type {
@@ -30,7 +32,23 @@ import type {
   ZoneId,
 } from "./state.js";
 
-export const scale = (value: ScalingValue, playerCount: number): number => value.base + value.perPlayer * playerCount;
+/**
+ * A printed value in a game of `playerCount` players and `groupCount` groups. The per group icon (`ScalingValue.perGroup`,
+ * MC55 p. 4) multiplies by the groups; a value without it is untouched by them, and a per group value by the players.
+ * `groupCount` is 1 outside Epic Multiplayer (and in Single Group Mode, MC55 p. 10). A caller holding a game state reads
+ * `scaleIn`, which takes both counts from it.
+ */
+export const scale = (value: ScalingValue, playerCount: number, groupCount = 1): number =>
+  value.base + value.perPlayer * playerCount + (value.perGroup ?? 0) * groupCount;
+
+/**
+ * A value printed on a card in this group's game area: the group's own starting players, and the groups that began the
+ * scenario in its pod (MC55 p. 4: "that icon multiplies the value it is next to by the number of groups in the
+ * respective pod"; docs/phase7-wave9.md §3.65). The pod's neutral cards are not read here: their values are scaled once,
+ * at setup, with the whole game's counts (`SharedPodState`).
+ */
+export const scaleIn = (state: GameState, value: ScalingValue): number =>
+  scale(value, state.startingPlayerCount, podOf(state).groupsInPodAtStart);
 
 export const getInstance = (state: GameState, id: InstanceId): CardInstance | undefined => state.instances[id];
 
@@ -71,9 +89,80 @@ export function printedCostOf(state: GameState, card: AnyCard | undefined): numb
  * modifiers are applied" (RRG 1.8 "Modifiers", p. 29), so the product is the base that "gets +N hit points" adds to,
  * the same as a villain stage's. Recomputed on each read from `startingPlayerCount`, which never changes; only damage
  * is stored. Every reader of a minion's `hp` goes through here.
+ *
+ * A value printed with the per group icon (`MinionCard.hpPerGroup`) is its numeral times the groups that began the
+ * scenario in this group's pod (MC55 p. 4; docs/phase7-wave9.md §3.65): 1 with no pod and in Single Group Mode.
  */
 export function printedMinionHp(state: GameState, card: MinionCard): number {
+  if (card.hpPerGroup) return card.hp * podOf(state).groupsInPodAtStart;
   return card.hpPerPlayer ? card.hp * state.startingPlayerCount : card.hp;
+}
+
+/**
+ * The live ability slots of one of the pod's two neutral cards (docs/phase7-wave9.md §3.59), or undefined for any other
+ * card. A neutral card is a plain card in a closed area: not a villain of this game (no `VillainState`) and not its
+ * main scheme, so the readers of those do not know it. The neutral villain shows its starting side until the shared
+ * record flips it (`CardInstance.flipped`), then the other; the neutral scheme shows its first stage's B face (its A
+ * face is setup text for the tables, MC55 p. 10).
+ */
+export function neutralCardAbilityRefs(state: GameState, id: InstanceId): readonly AbilityReference[] | undefined {
+  const neutral = state.pod?.neutral;
+  if (!neutral || (id !== neutral.villainInstanceId && id !== neutral.mainSchemeInstanceId)) return undefined;
+  const card = cardOf(state, id);
+  if (card?.type === "main_scheme") return card.stages[0].abilities;
+  if (card?.type !== "villain") return undefined;
+  const starting = card.startingSide ?? "A";
+  const side = state.instances[id]?.flipped
+    ? card.sides.find((candidate) => candidate.side !== starting)
+    : card.sides.find((candidate) => candidate.side === starting);
+  return side?.stages[0]?.abilities ?? [];
+}
+
+/** The pod's shared villain as a dial reads it, or null in a game without one (docs/phase7-wave9.md §3.66). */
+export function sharedVillain(state: GameState): {
+  readonly instanceId: InstanceId | null;
+  readonly hp: number;
+  readonly remaining: number;
+  readonly damage: number;
+  readonly flipAtRemaining: number | null;
+  readonly flipped: boolean;
+  readonly defeated: boolean;
+} | null {
+  const { shared, neutral } = podOf(state);
+  if (!shared) return null;
+  const remaining = shared.villainHp - shared.villainDamage;
+  return {
+    instanceId: neutral?.villainInstanceId ?? null,
+    hp: shared.villainHp,
+    remaining,
+    damage: shared.villainDamage,
+    flipAtRemaining: shared.villainFlipAtRemaining,
+    flipped: shared.villainFlipped,
+    defeated: remaining === 0,
+  };
+}
+
+/**
+ * The pod's shared scheme as a dial reads it, or null in a game without one. `finalPlayerPhase`: the scheme is complete
+ * and this group is playing out the player phase it happened in (MC55 p. 21): the players lose when it ends unless the
+ * shared villain is defeated first.
+ */
+export function sharedScheme(state: GameState): {
+  readonly instanceId: InstanceId | null;
+  readonly threat: number;
+  readonly target: number;
+  readonly status: SharedPodState["status"];
+  readonly finalPlayerPhase: boolean;
+} | null {
+  const { shared, neutral, finalPlayerPhase } = podOf(state);
+  if (!shared) return null;
+  return {
+    instanceId: neutral?.mainSchemeInstanceId ?? null,
+    threat: shared.schemeThreat,
+    target: shared.schemeTarget,
+    status: shared.status,
+    finalPlayerPhase: finalPlayerPhase === true,
+  };
 }
 
 export function mustCardOf(state: GameState, id: InstanceId): AnyCard {
@@ -615,7 +704,7 @@ export function mainSchemeValue(
   // Time 2B; docs/phase7-wave2.md §3.4).
   if (stage.dashedValues?.includes(field)) return 0;
   const id = scheme.instanceId;
-  const printed = stage.printedX?.includes(field) ? 0 : scale(stage[field], state.startingPlayerCount);
+  const printed = stage.printedX?.includes(field) ? 0 : scaleIn(state, stage[field]);
   return Math.max(0, (baseOverride(state, deps, id, field) ?? printed) + statBonus(state, deps, id, field));
 }
 
@@ -624,7 +713,7 @@ export function startingThreatOf(state: GameState, id: InstanceId, deps: EngineD
   const scheme = mainSchemeStateOf(state, id);
   if (scheme) return mainSchemeValue(state, "startingThreat", deps, scheme);
   const card = cardOf(state, id);
-  const printed = card && "startingThreat" in card ? scale(card.startingThreat, state.startingPlayerCount) : 0;
+  const printed = card && "startingThreat" in card ? scaleIn(state, card.startingThreat) : 0;
   return Math.max(
     0,
     (baseOverride(state, deps, id, "startingThreat") ?? printed) + statBonus(state, deps, id, "startingThreat"),
@@ -857,7 +946,7 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
       // A face printed with ∞ (RRG 1.8 "Hit Points", p. 22): damage is still dealt and taken, but "will never cause its
       // remaining hit points to reach zero", so the defeat sweep's `damage >= maxHp` can never hold. Infinity is never
       // stored in state: only `damage` is, and this is recomputed on each read (docs/phase7-wave3.md §3.1).
-      maxHp: stage.infiniteHp ? Number.POSITIVE_INFINITY : scale(stage.hp, state.startingPlayerCount),
+      maxHp: stage.infiniteHp ? Number.POSITIVE_INFINITY : scaleIn(state, stage.hp),
     };
   }
   return undefined;

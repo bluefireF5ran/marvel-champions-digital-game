@@ -79,6 +79,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkLeaveReplacement(definition, problems);
   checkCounterDivision(definition, problems);
   checkSpendX(definition, problems);
+  checkPod(definition, problems);
   checkCost(definition, problems);
   checkScaled(definition, "definition", problems);
   checkBindings(definition, problems);
@@ -124,6 +125,23 @@ function checkMoments(definition: AbilityDefinition, problems: string[]): void {
   // The moment is announced once what it names is done: it has a response window and nothing left to interrupt.
   if (trigger.kind === "interrupt" && kindsOfPattern(trigger.on).includes("momentRaised"))
     problems.push("an interrupt cannot answer momentRaised: a raised moment has already happened; use a response");
+}
+
+/**
+ * The pod's shared villain and scheme (docs/phase7-wave9.md §3.66): threat on the shared scheme names which of the two
+ * ways of MC55 p. 21 placed it, damage to the shared villain names none, and a constant amount is a whole number of at
+ * least 1 (an amount of 0 is never sent).
+ */
+function checkPod(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind !== "sharedEvent") continue;
+    if (effect.event === "schemeThreatPlaced" && effect.cause === undefined)
+      problems.push("sharedEvent: threat on the shared scheme names its cause; use placeThreatOnSharedScheme");
+    if (effect.event === "villainDamaged" && effect.cause !== undefined)
+      problems.push("sharedEvent: damage to the shared villain has no cause");
+    if (effect.amount.kind === "const" && (!Number.isInteger(effect.amount.value) || effect.amount.value < 1))
+      problems.push("sharedEvent: a constant amount must be a whole number of at least 1");
+  }
 }
 
 /**
@@ -910,6 +928,15 @@ function checkEncounterTopIcons(value: unknown, path: string, problems: string[]
   for (const [key, item] of Object.entries(record)) checkEncounterTopIcons(item, `${path}.${key}`, problems);
 }
 
+/** Whether anything inside `value` is a spec whose `kind` passes `test`. */
+function readsKind(value: unknown, test: (kind: string) => boolean): boolean {
+  if (Array.isArray(value)) return value.some((item) => readsKind(item, test));
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.kind === "string" && test(record.kind)) return true;
+  return Object.values(record).some((item) => readsKind(item, test));
+}
+
 /** Every effect in the tree, including nested branches and deferred effects. */
 function allEffects(effects: readonly EffectSpec[]): EffectSpec[] {
   return effects.flatMap((effect) => [effect, ...allEffects(nestedLists(effect).flat())]);
@@ -922,6 +949,7 @@ function nestedLists(effect: EffectSpec): (readonly EffectSpec[])[] {
     case "chooseOne":
       return effect.options.map((o) => o.effects);
     case "forEachPlayer":
+    case "inGroup":
     case "atEndOfAttack":
     case "atEndOfActivation":
     case "atEndOfRound":
@@ -1009,6 +1037,14 @@ function checkRefs(value: unknown, scope: Scope, where: string, problems: string
   ) {
     problems.push(`${where}: var "${record.name}" is read before it is bound`);
   }
+  // "The number of players in their group" (docs/phase7-wave9.md §3.67) of a group `chooseGroup` bound.
+  const counted = record.kind === "groupPlayerCount" ? (record.group as { var?: unknown } | string) : undefined;
+  if (
+    typeof counted === "object" &&
+    typeof counted.var === "string" &&
+    !known(scope, scope.vars, `${counted.var}.group`)
+  )
+    problems.push(`${where}: group "${counted.var}" is read before chooseGroup binds it`);
   // `TargetQuery cardTypeIs` (docs/phase7-wave7.md §3.33): an unbound name matches no card, so `not` of it would
   // match every card. Only `chooseCardType` binds one.
   const cardTypeIs = record.cardTypeIs as { chosen?: unknown } | undefined;
@@ -1138,6 +1174,8 @@ function bindsOf(effect: EffectSpec, scope: Scope): void {
     case "spendResources":
     // `<bind>.amount` / `<bind>.made` (docs/phase7-wave6.md §3.69).
     case "chooseNumber":
+    // `<bind>.group` / `<bind>.made` (docs/phase7-wave9.md §3.67).
+    case "chooseGroup":
     // `<bind>.boostIcons` (docs/phase7-wave2.md §3.6).
     case "countBoostIcons":
     // `<bind>.chosen.<type>` / `<bind>.made` (docs/phase7-wave7.md §3.33).
@@ -1229,6 +1267,19 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         prefixes: new Set(scope.prefixes),
       };
       walk(effect.effects, pass, `${where}/0`, problems);
+      return;
+    }
+    // A block resolved in a group's game area (docs/phase7-wave9.md §3.67) may be sent to another group, which has
+    // none of this ability's slots, vars or triggering event: it starts from nothing, and hands nothing back.
+    if (effect.kind === "inGroup") {
+      if (effect.effects.length === 0) problems.push(`${where}: inGroup resolves no effects`);
+      if (typeof effect.group === "object" && !known(scope, scope.vars, `${effect.group.var}.group`))
+        problems.push(`${where}: group "${effect.group.var}" is read before chooseGroup binds it`);
+      if (readsKind(effect.effects, (kind) => kind === "inGroup" || kind === "chooseGroup"))
+        problems.push(`${where}: a block resolved in a group's area cannot name another group`);
+      if (readsKind(effect.effects, (kind) => kind.startsWith("event")))
+        problems.push(`${where}: a block resolved in a group's area cannot read the triggering event`);
+      walk(effect.effects, { slots: new Set(), vars: new Set(), prefixes: new Set() }, `${where}/0`, problems);
       return;
     }
     // `enemyScheme.wouldPlaceThreat`: resolved later, at the activation's place-threat step, with this ability's slots

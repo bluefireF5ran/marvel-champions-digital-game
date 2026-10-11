@@ -39,7 +39,7 @@ import type {
   TriggerEventKind,
   TypedResource,
 } from "@mc/engine";
-import { GRANTED_BY_SLOT } from "@mc/engine";
+import { GRANTED_BY_SLOT, POD_MOMENT } from "@mc/engine";
 import { flatten, ifThen, type EffectArg } from "./effects.js";
 import { amount, isAlterEgo, isHero, type Amount, type AttackKeyword } from "./values.js";
 
@@ -768,6 +768,15 @@ export const counterLimit = (
   opts: { readonly while?: Predicate } = {},
 ): ConstantPart =>
   rule({ kind: "counterLimit", card, counterType, max: amount(max), ...(opts.while ? { while: opts.while } : {}) });
+/**
+ * "Any player in your pod can attack The Mangog as if it were in their game area." (`tt` 55041) →
+ * `constant(reachableFromPod("attack"))`; "… can thwart Door Between Worlds as if it were in their game area." (55046)
+ * → `constant(reachableFromPod("thwart"))` (docs/phase7-wave9.md §3.67). It changes nothing while the pod is one group
+ * (Single Group Mode, MC55 p. 10): every player of the pod is already in this game area. Written so the card's script
+ * is final when groups can reach each other.
+ */
+export const reachableFromPod = (by: "attack" | "thwart", card: TargetQuery = { self: true }): ConstantPart =>
+  rule({ kind: "reachableFromPod", card, by });
 /**
  * "You cannot make basic attacks" on a card attached to your identity (Seduced, `tt` 55015; docs/phase7-wave9.md
  * §3.72) → `constant(cannotMakeBasicAttacks())`. `attacker` (default: the card this one is attached to) may not make a
@@ -3352,6 +3361,27 @@ export const on = {
    */
   moment: (name: string, opts: { readonly anyPlayer?: boolean } = {}): EventPattern =>
     pattern("momentRaised", opts.anyPlayer ? {} : { playerIs: "controller" }, { eventIs: { name } }),
+  /**
+   * "If Loki, God of Lies is defeated, all players in all groups win the game." (`tt` 55027b; docs/phase7-wave9.md
+   * §3.66): the pod's shared villain has no hit points left, answered once nothing is resolving.
+   * `forcedResponse(on.sharedVillainDefeated(), endGame("win"))`, on the neutral villain's own card.
+   */
+  sharedVillainDefeated: (): EventPattern =>
+    pattern("momentRaised", { eventIs: { name: POD_MOMENT.sharedVillainDefeated } }),
+  /**
+   * The pod's shared villain flipped (MC55 p. 20), after its new face's When Revealed has resolved. That face's own
+   * `whenRevealed` ability is the card's text; this is for another card that answers the flip.
+   */
+  sharedVillainFlipped: (): EventPattern =>
+    pattern("momentRaised", { eventIs: { name: POD_MOMENT.sharedVillainFlipped } }),
+  /**
+   * "If this stage is completed, the players lose the game." (Worlds Collide, `tt` 55028b; docs/phase7-wave9.md §3.66,
+   * §4.1 Q9 = A): the pod has lost to its shared scheme. Raised at once when the scheme is completed outside the player
+   * phase, and at the end of a player phase it was completed in, unless the shared villain was defeated first (MC55
+   * p. 21). `forcedResponse(on.sharedSchemeCompleted(), endGame("loss"))`, on the neutral scheme's own card.
+   */
+  sharedSchemeCompleted: (): EventPattern =>
+    pattern("momentRaised", { eventIs: { name: POD_MOMENT.sharedSchemeCompleted } }),
   /** "After you change to this form". */
   youChangeForm: (): EventPattern => pattern("formChanged", { playerIs: "controller" }),
   /**

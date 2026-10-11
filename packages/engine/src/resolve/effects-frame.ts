@@ -72,6 +72,7 @@ import {
   shuffleZone,
 } from "../effects.js";
 import { EngineInvariantError } from "../errors.js";
+import { groupVar, podGroupIds, type GroupId } from "../pod.js";
 import {
   cannotChangeForm,
   formChangeCostsFor,
@@ -302,6 +303,7 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
     return executeForEachCard(ctx, frame, effect, context);
   if (effect.kind === "choosePlayer") return executeChoosePlayer(ctx, frame, effect, context);
   if (effect.kind === "chooseNumber") return executeChooseNumber(ctx, frame, effect, context);
+  if (effect.kind === "chooseGroup") return executeChooseGroup(ctx, frame, effect, context);
   if (effect.kind === "chooseCardType") return executeChooseCardType(ctx, frame, effect, context);
   if (effect.kind === "searchCollection") return executeSearchCollection(ctx, frame, effect, context);
   if (effect.kind === "accuse") return executeAccuse(ctx, frame, effect, context);
@@ -2275,6 +2277,50 @@ function executeChooseNumber(
   const amount = Number.isInteger(answered) && answered >= min && answered <= max ? answered : min;
   bind(amount, true);
   emit(ctx, { type: "numberChosen", playerId, bind: effect.bind, amount });
+}
+
+/**
+ * `EffectSpec chooseGroup` (docs/phase7-wave9.md §3.67): "choose a group in your pod". One group in the pod is bound
+ * without asking (Single Group Mode, MC55 p. 10); several are put to the chooser as options. With no such player
+ * nothing is bound and `<bind>.made` is 0.
+ */
+function executeChooseGroup(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "chooseGroup" }>,
+  context: EffectContext,
+): void {
+  const [playerId] = resolvePlayers(ctx.state, effect.chooser, context);
+  const groups = podGroupIds(ctx.state);
+  const { [groupVar(effect.bind)]: _earlier, ...vars } = frame.vars;
+  const bind = (index: number | null): void =>
+    setFrame(ctx, {
+      ...frame,
+      answer: null,
+      cursor: frame.cursor + 1,
+      vars: {
+        ...vars,
+        ...(index === null ? {} : { [groupVar(effect.bind)]: index }),
+        [`${effect.bind}.made`]: index === null ? 0 : 1,
+      },
+    });
+  if (!playerId || groups.length === 0) return bind(null);
+  if (frame.answer === null && groups.length > 1) {
+    requestChoice(ctx, {
+      playerId,
+      authority: effectChoiceAuthority(ctx.state, frame.selfInstanceId, effect.chooser),
+      prompt: { kind: "chooseOption" },
+      options: groups.map((id, index) => ({ optionId: String(index), label: id, ref: { kind: "none" } as const })),
+      minSelections: 1,
+      maxSelections: 1,
+      frameId: frame.frameId,
+    });
+    return;
+  }
+  const answered = frame.answer === null ? 0 : Number(frame.answer[0]);
+  const index = Number.isInteger(answered) && answered >= 0 && answered < groups.length ? answered : 0;
+  bind(index);
+  emit(ctx, { type: "groupChosen", playerId, bind: effect.bind, groupId: groups[index] as GroupId });
 }
 
 /**

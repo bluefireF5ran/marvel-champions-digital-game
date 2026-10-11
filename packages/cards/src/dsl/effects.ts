@@ -6,6 +6,7 @@ import type {
   EventPattern,
   EffectSpec,
   FacedownRole,
+  GroupRef,
   LastingUntil,
   NextBasicPowerUntil,
   LogWriteMode,
@@ -17,6 +18,7 @@ import type {
   ResourceRequirement,
   RuleSpec,
   ScenarioDeckSource,
+  SharedThreatCause,
   StatName,
   StatusName,
   TargetQuery,
@@ -2888,6 +2890,66 @@ export const raiseMoment = (name: string, player: PlayerRef = you, carry: readon
   name,
   player,
   ...(carry.length > 0 ? { carry } : {}),
+});
+/**
+ * "Choose a group in your pod" (the Fading Figments, Fenris Wolf 55042, Hraesvelgr 55043, Laufey 55044, New Jotunheim
+ * 55048, `tt`; docs/phase7-wave9.md §3.67): the first player picks a group of the pod, this one included (MC55 p. 23),
+ * bound under `bind` for `inGroup(chosenGroup(bind), …)`. In Single Group Mode the one group is bound with no
+ * question (MC55 p. 10).
+ */
+export const chooseGroup = (bind = "group", chooser: PlayerRef = firstPlayer): EffectSpec => ({
+  kind: "chooseGroup",
+  chooser,
+  among: "inPod",
+  bind,
+});
+/**
+ * "… then place 1 synergy counter on **their** Mounting Resistance environment": effects resolved in a group's game
+ * area by that group (docs/phase7-wave9.md §3.67). Inside the block "you" is that group's first player, `theVillain`
+ * its villain and a `chooseTarget` its choice; `thisGroup` is that group. The block starts from nothing: it may read no
+ * slot, var or event of the ability around it, since that is all another group could be sent (the validator refuses
+ * one that does).
+ */
+export const inGroup = (group: GroupRef, ...effects: readonly EffectArg[]): EffectSpec => ({
+  kind: "inGroup",
+  group,
+  effects: flatten(effects),
+});
+/**
+ * "Each group in your pod places 3 shatter counters on their Avatar of Loki villain and 1 synergy counter on one of
+ * their Synergy environments." (The Mangog 55041, Door Between Worlds 55046, `tt`): the block resolves once in every
+ * group of the pod, this one included.
+ */
+export const eachGroupInPod = (...effects: readonly EffectArg[]): EffectSpec => ({
+  kind: "inGroup",
+  group: "eachInPod",
+  effects: flatten(effects),
+});
+/**
+ * "Deal damage to Loki, God of Lies equal to the number of shatter counters removed this way" (the Shatter the Illusion
+ * card, step 1, `tt`; docs/phase7-wave9.md §3.66): damage to the pod's shared villain, the neutral villain of an Epic
+ * scenario. It holds no damage of its own: this asks the pod's shared record, logged `sharedEventEmitted`. In Single
+ * Group Mode the record changes at once, and a flip or a defeat it brings about is applied when the ability in progress
+ * (and everything above it) has finished resolving (MC55 p. 20). An amount of 0 does nothing. The only way to damage
+ * the shared villain: `dealDamage` never finds it.
+ */
+export const damageSharedVillain = (count: Amount): EffectSpec => ({
+  kind: "sharedEvent",
+  event: "villainDamaged",
+  amount: amount(count),
+});
+/**
+ * "Place 1 threat on Worlds Collide instead" (Mischief and Mayhem 1B, `tt` 55033b; docs/phase7-wave9.md §3.66): threat
+ * on the pod's shared main scheme, by one of the two ways of MC55 p. 21. `cause` says which: `"schemeCompleted"` (the
+ * group's main scheme would have been completed) or `"identityDefeated"` (an identity would have been defeated). At the
+ * target the players lose: at once outside the player phase, and at the end of a player phase it happens in unless the
+ * shared villain is defeated first (§4.1 Q9 = A). `placeThreat` never finds the shared scheme.
+ */
+export const placeThreatOnSharedScheme = (count: Amount, cause: SharedThreatCause): EffectSpec => ({
+  kind: "sharedEvent",
+  event: "schemeThreatPlaced",
+  amount: amount(count),
+  cause,
 });
 /**
  * "Swap your WEATHER support in play with a support of your choice from the WEATHER deck" (Weather Control, `storm`
