@@ -70,6 +70,61 @@ describe("1. defaults per leader", () => {
   });
 });
 
+describe("difficulty: Table setup's own state, card wording and setter", () => {
+  test("two choices with Table setup's names and descriptions; Standard is selected on a fresh draft", () => {
+    const v = view(draftFor(IRON));
+    expect(v.difficultyChoices).toEqual([
+      {
+        id: "standard",
+        name: "Standard",
+        description: "Standard encounter set only. Starts at stage I.",
+        action: "civil:difficulty:standard",
+        selected: true,
+      },
+      {
+        id: "expert",
+        name: "Expert",
+        description: "Expert set added. Starts at stage III.",
+        action: "civil:difficulty:expert",
+        selected: false,
+      },
+    ]);
+    expect(view(draftFor(IRON), { step: 5 }).focusOrder.slice(5, 9)).toEqual([
+      "civil:difficulty:standard",
+      "civil:difficulty:expert",
+      "civil:mode:cooperative",
+      "civil:mode:competitive",
+    ]);
+    expect(v.summary.at(-1)).toBe("Difficulty: Standard");
+  });
+
+  test("choosing Expert sets the shared draft difficulty; the leader step and the review follow at once", () => {
+    const result = act(draftFor(IRON), "civil:difficulty:expert");
+    expect(result.draft.difficulty).toBe("expert");
+    expect(result.status).toBeNull();
+    const v = view(result.draft);
+    expect(v.difficultyChoices.map((d) => [d.id, d.selected])).toEqual([
+      ["standard", false],
+      ["expert", true],
+    ]);
+    expect(v.leaderChoices[0]!.openingStage).toBe("III");
+    expect(v.leaderChoices[0]!.stages.map((s) => s.numeral)).toEqual(["III", "IV"]);
+    expect(v.summary).toContain("Leader: Iron Man (stage III)");
+    expect(v.summary.at(-1)).toBe("Difficulty: Expert");
+    expect(v.expertNote).toBe("Expert uses leader stages III and IV");
+    expect(v.canStart).toBe(true);
+  });
+
+  test("Standard again goes back; Extreme and nonsense are refused; the picks survive the change", () => {
+    const picked = act(picks(draftFor(IRON), THREE), "civil:difficulty:expert").draft;
+    expect(picked.modularSetIds).toEqual(THREE);
+    expect(act(picked, "civil:difficulty:standard").draft.difficulty).toBe("standard");
+    expect(act(picked, "civil:difficulty:extreme").draft).toBe(picked);
+    expect(act(picked, "civil:difficulty:").draft).toBe(picked);
+    expect(act(picked, "civil:difficulty:expert").draft.difficulty).toBe("expert");
+  });
+});
+
 describe("the steps and the choices", () => {
   test("five steps, with the current pick as one line each, and the side and leader cards", () => {
     const v = view(draftFor(IRON));

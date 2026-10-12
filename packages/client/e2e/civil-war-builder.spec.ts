@@ -33,6 +33,9 @@ interface View {
   readonly canStart: boolean;
   readonly startProblem: string | null;
   readonly isPreconstructed: boolean;
+  readonly difficulty: string;
+  readonly difficultyChoices: readonly { id: string; name: string; selected: boolean }[];
+  readonly summary: readonly string[];
   readonly focusOrder: readonly string[];
 }
 
@@ -159,6 +162,32 @@ for (const size of sizes) {
       expect(await status(page)).toBe(v.startProblem);
       await act(page, "civil:start");
       expect(await debug<unknown>(page, "handoff")).toBeNull();
+      expect(errors).toEqual([]);
+    });
+
+    test("choosing Expert puts the leader on stage III and the review on Expert; Standard puts it back", async ({
+      page,
+    }) => {
+      const errors = await openBuilder(page);
+      let v = await view(page);
+      expect(v.difficultyChoices.map((d) => [d.name, d.selected])).toEqual([
+        ["Standard", true],
+        ["Expert", false],
+      ]);
+      expect(v.summary).toContain("Difficulty: Standard");
+      expect(v.summary.some((l) => l.endsWith("(stage I)"))).toBe(true);
+      await act(page, "civil:difficulty:expert");
+      v = await view(page);
+      expect(v.difficulty).toBe("expert");
+      expect(v.summary).toContain("Difficulty: Expert");
+      expect(v.summary.some((l) => l.endsWith("(stage III)"))).toBe(true);
+      await act(page, "civil:step:2");
+      expect((await view(page)).leaderChoices.length).toBeGreaterThan(0);
+      await act(page, "civil:step:5");
+      await act(page, "civil:difficulty:standard");
+      v = await view(page);
+      expect(v.summary).toContain("Difficulty: Standard");
+      expect(v.summary.some((l) => l.endsWith("(stage I)"))).toBe(true);
       expect(errors).toEqual([]);
     });
 

@@ -41,6 +41,10 @@ export const MODULAR_TILE_MIN_WIDTH = 150;
 export const MODULAR_MAX_COLUMNS = 5;
 /** The read-only body of the review step, above its option rows. */
 export const REVIEW_BODY_HEIGHT = 240;
+/** A difficulty card: its name and a two-line description. */
+export const DIFFICULTY_HEIGHT = 76;
+/** The "Preconstructed" reset button. */
+export const PRECONSTRUCTED_HEIGHT = 44;
 const FOOT_PAD = 8;
 const TWO_ROW_FOOT_BELOW_WIDTH = 520;
 
@@ -116,6 +120,13 @@ export interface BuilderLayout {
   readonly modularSections: readonly ModularSectionLayout[];
   /** Step 5: the review body and the option rows (all content space). */
   readonly reviewBody: Rect;
+  /**
+   * True where step 5 repeats the summary (phone and tablet, which have no review column); false on desktop, whose
+   * right-hand column is the always-visible summary, so `reviewBody` there is only the Preconstructed button's row.
+   */
+  readonly summaryInStep: boolean;
+  /** The "Preconstructed" reset button (content space). */
+  readonly preconstructed: Rect;
   readonly difficulty: readonly [Rect, Rect];
   /** Cooperative (enabled) and "Competitive - coming soon" (disabled; still a full touch target). */
   readonly gameMode: readonly [Rect, Rect];
@@ -309,15 +320,29 @@ export function civilWarBuilderLayout(input: BuilderLayoutInput): BuilderLayout 
   const modularHeight = Math.max(0, my - SECTION_GAP - content.y);
 
   // Step 5: review body, then difficulty (Standard / Expert) and game mode (Cooperative / Competitive soon).
-  const reviewBody: Rect = { x: cx, y: content.y, width: cw, height: REVIEW_BODY_HEIGHT };
+  const summaryInStep = mode !== "desktop";
+  const reviewBody: Rect = {
+    x: cx,
+    y: content.y,
+    width: cw,
+    height: summaryInStep ? REVIEW_BODY_HEIGHT : PRECONSTRUCTED_HEIGHT,
+  };
+  const preconstructed: Rect = summaryInStep
+    ? {
+        x: reviewBody.x + 12,
+        y: reviewBody.y + reviewBody.height - 52,
+        width: Math.min(220, reviewBody.width - 24),
+        height: PRECONSTRUCTED_HEIGHT,
+      }
+    : { x: cx, y: reviewBody.y, width: Math.min(220, cw), height: PRECONSTRUCTED_HEIGHT };
   const optionTop = reviewBody.y + reviewBody.height + SECTION_GAP;
   const half = (cw - ROW_GAP) / 2;
-  const pair = (y: number): readonly [Rect, Rect] => [
-    { x: cx, y, width: half, height: hit.target },
-    { x: cx + half + ROW_GAP, y, width: half, height: hit.target },
+  const pair = (y: number, h: number): readonly [Rect, Rect] => [
+    { x: cx, y, width: half, height: h },
+    { x: cx + half + ROW_GAP, y, width: half, height: h },
   ];
-  const difficulty = pair(optionTop);
-  const gameMode = pair(optionTop + hit.target + ROW_GAP);
+  const difficulty = pair(optionTop, DIFFICULTY_HEIGHT);
+  const gameMode = pair(optionTop + DIFFICULTY_HEIGHT + ROW_GAP, hit.target);
   const reviewStepHeight = gameMode[0].y + hit.target - content.y;
 
   const contentHeight =
@@ -348,6 +373,8 @@ export function civilWarBuilderLayout(input: BuilderLayoutInput): BuilderLayout 
     modularColumns: columns,
     modularSections,
     reviewBody,
+    summaryInStep,
+    preconstructed,
     difficulty,
     gameMode,
   };

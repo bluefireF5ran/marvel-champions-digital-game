@@ -109,6 +109,35 @@ describe("civilWarBuilderLayout: exact numbers", () => {
   });
 });
 
+describe("civilWarBuilderLayout: step 5 never repeats the review column's summary", () => {
+  test("desktop: the summary lives in the column; step 5 holds only Preconstructed, difficulty and game mode", () => {
+    const l = civilWarBuilderLayout({ width: 1280, height: 720, step: 5 });
+    expect(l.summaryInStep).toBe(false);
+    expect(l.review).not.toBeNull();
+    expect(l.reviewBody).toEqual({ x: 268, y: 88, width: 664, height: 44 });
+    expect(l.preconstructed).toEqual({ x: 268, y: 88, width: 220, height: 44 });
+    expect(l.difficulty[0]).toEqual({ x: 268, y: 148, width: 328, height: 76 });
+    expect(l.difficulty[1]).toEqual({ x: 604, y: 148, width: 328, height: 76 });
+    expect(l.gameMode[0]).toEqual({ x: 268, y: 232, width: 328, height: 44 });
+    expect(l.contentHeight).toBe(188);
+  });
+
+  test("phone and tablet: no side panel, so step 5 keeps the summary above the same controls", () => {
+    for (const size of [
+      { width: 375, height: 812 },
+      { width: 768, height: 1024 },
+    ]) {
+      const l = civilWarBuilderLayout({ ...size, step: 5 });
+      expect(l.review).toBeNull();
+      expect(l.summaryInStep).toBe(true);
+      expect(l.reviewBody.height).toBe(240);
+      expect(l.preconstructed.y).toBe(l.reviewBody.y + 240 - 52);
+      expect(l.difficulty[0].y).toBe(l.reviewBody.y + 240 + 16);
+      expect(l.difficulty[0].height).toBe(76);
+    }
+  });
+});
+
 describe("civilWarBuilderLayout: every size and step", () => {
   for (const size of SIZES) {
     for (const step of STEPS) {

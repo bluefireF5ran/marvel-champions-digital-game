@@ -587,19 +587,29 @@ export class CivilWarBuilderScene extends Phaser.Scene {
   }
 
   #drawReview(view: BuilderView, layout: BuilderLayout, container: Phaser.GameObjects.Container): void {
-    const body = layout.reviewBody;
-    this.#card(body, {});
-    this.#drawSummary(body, view);
-    const pre: Rect = {
-      x: body.x + 12,
-      y: body.y + body.height - 52,
-      width: Math.min(220, body.width - 24),
-      height: 44,
-    };
+    // Desktop has the summary in its review column; phone and tablet carry it here.
+    if (layout.summaryInStep) {
+      this.#card(layout.reviewBody, {});
+      this.#drawSummary(layout.reviewBody, view);
+    }
+    const pre = layout.preconstructed;
     this.#card(pre, { disabled: !view.preconstructedEnabled });
     const label = this.#text(pre.x + pre.width / 2, pre.y + pre.height / 2, "Preconstructed", NAME);
     label.setOrigin(0.5);
     this.#control(pre, "civil:preconstructed", container);
+
+    view.difficultyChoices.forEach((choice, i) => {
+      const rect = layout.difficulty[i]!;
+      this.#card(rect, { selected: choice.selected });
+      const name = this.#text(rect.x + 10, rect.y + 6, choice.name, NAME, { width: rect.width - 44 });
+      fitText(name, rect.width - 44, NAME.size);
+      this.#text(rect.x + 10, rect.y + 28, choice.description, typeRole.label, {
+        width: rect.width - 20,
+        maxLines: 3,
+        alpha: ink.secondary,
+      });
+      this.#control(rect, choice.action, container);
+    });
 
     view.modeOptions.forEach((mode, i) => {
       const rect = layout.gameMode[i]!;

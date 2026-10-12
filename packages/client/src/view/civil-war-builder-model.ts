@@ -24,6 +24,7 @@ import { modularAtMaxReason, cardCountForSet, descriptorForSet } from "./modular
 import { formatScaling } from "./scaling-text.js";
 import {
   setCivilWarBlind,
+  setDifficulty,
   setMainSchemeStage,
   setModularSetIds,
   setScenario,
@@ -31,6 +32,7 @@ import {
   type SetupDraft,
 } from "./setup-draft.js";
 import { civilWarPickProblems, offerOf } from "./setup-options.js";
+import { difficultyCardsFor } from "./table-setup-preview.js";
 
 export const BUILDER_TITLE = "Build a Civil War scenario";
 export const OTHER_SIDE_COLLAPSED_LINE = (count: number, otherSide: string, leader: string): string =>
@@ -79,6 +81,15 @@ export interface BuilderContext {
   readonly extraSets?: number;
   /** Supplied by task C9; without it Random reports an effect and changes nothing. */
   readonly random?: CivilWarRandomizer;
+}
+
+/** One difficulty choice: Table setup's own card (`difficultyCardsFor`: its name and description) with the action to take it. */
+export interface DifficultyChoice {
+  readonly id: "standard" | "expert";
+  readonly name: string;
+  readonly description: string;
+  readonly action: string;
+  readonly selected: boolean;
 }
 
 export interface BuilderStepView {
@@ -194,6 +205,8 @@ export interface BuilderView {
   readonly modular: ModularStepView;
   readonly modeOptions: readonly GameModeOptionRow[];
   readonly difficulty: "standard" | "expert" | "extreme";
+  /** Standard and Expert as Table setup words them; the draft's `difficulty` is the one state both screens share. */
+  readonly difficultyChoices: readonly DifficultyChoice[];
   readonly blind: boolean;
   readonly isPreconstructed: boolean;
   readonly preconstructedEnabled: boolean;
@@ -413,6 +426,15 @@ export function builderViewOf(draft: SetupDraft, ctx: BuilderContext): BuilderVi
 
   // Review (step 5) and the rail's lines.
   const modeOptions = gameModeOptionsView().rows;
+  const difficultyChoices = difficultyCardsFor(scenario)
+    .filter((card): card is typeof card & { id: "standard" | "expert" } => card.id !== "extreme")
+    .map<DifficultyChoice>((card) => ({
+      id: card.id,
+      name: card.name,
+      description: card.description,
+      action: `civil:difficulty:${card.id}`,
+      selected: draft.difficulty === card.id,
+    }));
   const expertNote = draft.difficulty === "expert" ? EXPERT_NOTE : null;
   const difficultyNote = draft.difficulty === "expert" ? "Expert" : "Standard";
   const standardSet = setNameOf(ctx, ids(scenario.standardEncounterSetIds)[0] ?? "");
@@ -469,7 +491,7 @@ export function builderViewOf(draft: SetupDraft, ctx: BuilderContext): BuilderVi
                   ? ["civil:other-side", ...(expanded ? s.tiles.map((t) => t.action) : [])]
                   : s.tiles.map((t) => t.action),
               )
-            : modeOptions.map((m) => `civil:mode:${m.id}`);
+            : [...difficultyChoices.map((d) => d.action), ...modeOptions.map((m) => `civil:mode:${m.id}`)];
   const focusOrder = [
     ...steps.map((s) => s.action),
     ...stepControls,
@@ -493,6 +515,7 @@ export function builderViewOf(draft: SetupDraft, ctx: BuilderContext): BuilderVi
     modular,
     modeOptions,
     difficulty: draft.difficulty,
+    difficultyChoices,
     blind,
     isPreconstructed: ready,
     preconstructedEnabled: !ready,
@@ -609,6 +632,9 @@ export function applyBuilderAction(draft: SetupDraft, action: string, ctx: Build
         return unchanged(draft);
       return unchanged(setModularSetIds(draft, [...chosen, listed.id]));
     }
+    case "difficulty":
+      // The same setter Table setup uses; only the two difficulties a Civil War leader has are taken.
+      return first === "standard" || first === "expert" ? unchanged(setDifficulty(draft, first)) : unchanged(draft);
     case "mode": {
       const result = selectMode(draft, first === "competitive" ? "competitive" : "cooperative");
       return result.ok ? unchanged(result.draft) : unchanged(result.draft, result.message);
