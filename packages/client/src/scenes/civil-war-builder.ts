@@ -31,9 +31,11 @@ import {
   refusalOf,
   type BuilderContext,
   type BuilderView,
+  type RandomPins,
   type SetTileView,
 } from "../view/civil-war-builder-model.js";
 import { civilWarBuilderLayout, type BuilderLayout, type BuilderStep } from "../view/civil-war-builder-layout.js";
+import { cardsRandomizer } from "../view/civil-war-random.js";
 import { handoffOf, rememberBuild, type BuilderHandoff } from "../view/civil-war-entry.js";
 import { offerOf } from "../view/setup-options.js";
 import type { SetupDraft } from "../view/setup-draft.js";
@@ -47,9 +49,6 @@ export interface CivilWarBuilderData {
   /** The step to open on: the review for "Customize", the side step for "Build your own". */
   readonly step?: BuilderStep;
 }
-
-/** Shown when Random is pressed before task C9 supplies the randomizer. */
-export const RANDOM_UNAVAILABLE = "Random is not available yet.";
 
 /** The Civil War cards and sets from the content package, over the client pool's (the scenarios join the pool in C10). */
 const CARDS: ReadonlyMap<string, AnyCard> = new Map<string, AnyCard>([
@@ -74,6 +73,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
   #step: BuilderStep = 5;
   #status: string | null = null;
   #otherSideExpanded = false;
+  #pins: RandomPins = {};
   #view: BuilderView | null = null;
   #layout: BuilderLayout | null = null;
   #statusShown = "";
@@ -94,6 +94,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
     this.#step = data.step ?? 5;
     this.#status = null;
     this.#otherSideExpanded = false;
+    this.#pins = {};
     this.#handoff = null;
   }
 
@@ -133,6 +134,8 @@ export class CivilWarBuilderScene extends Phaser.Scene {
       otherSideExpanded: this.#otherSideExpanded,
       status: this.#status,
       extraSets: 0,
+      pins: this.#pins,
+      random: cardsRandomizer,
     };
   }
 
@@ -154,8 +157,12 @@ export class CivilWarBuilderScene extends Phaser.Scene {
       return;
     } else if (effect?.kind === "start") {
       if (this.#start()) return;
-    } else if (effect?.kind === "random") {
-      this.#status = RANDOM_UNAVAILABLE;
+    } else if (effect?.kind === "pins") {
+      this.#pins = effect.pins;
+    } else if (effect?.kind === "random" && !result.status) {
+      // The roll is an ordinary set of picks: show it on the review, where the player can read it and still edit.
+      this.#step = 5;
+      this.#scroll.reset();
     }
     this.#rebuild();
   }
@@ -609,6 +616,17 @@ export class CivilWarBuilderScene extends Phaser.Scene {
         alpha: ink.secondary,
       });
       this.#control(rect, choice.action, container);
+    });
+
+    view.randomPins.forEach((pin, i) => {
+      const rect = layout.randomPins[i]!;
+      this.#card(rect, { selected: pin.on });
+      const text = this.#text(rect.x + 8, rect.y + rect.height / 2, pin.label, typeRole.label, {
+        width: rect.width - 16,
+      });
+      text.setOrigin(0, 0.5);
+      fitText(text, rect.width - 16, typeRole.label.size);
+      this.#control(rect, pin.action, container);
     });
 
     view.modeOptions.forEach((mode, i) => {

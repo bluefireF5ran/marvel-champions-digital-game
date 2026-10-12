@@ -15,6 +15,7 @@ import {
   type BuilderContext,
   type CivilWarRandomizer,
 } from "./civil-war-builder-model.js";
+import { cardsRandomizer } from "./civil-war-random.js";
 import { GAME_MODE_OPTIONS, COMPETITIVE_TAPPED_MESSAGE } from "./game-mode-options.js";
 import { initialSetupDraft, setDifficulty, setModularSetIds, type SetupDraft } from "./setup-draft.js";
 import { offerOf } from "./setup-options.js";
@@ -531,5 +532,106 @@ describe("the status line the scene shows", () => {
     expect(defaultStatusOf(view(draftFor(IRON)))).toMatch(/^Iron Man, .+ then .+, 4 modular sets chosen of 3 to 4\.$/);
     const two = view(picks(draftFor(IRON), ["paladin", "cape_killer"]));
     expect(defaultStatusOf(two)).toBe(two.startProblem);
+  });
+});
+
+describe("8b. Random with the cards function behind it (task C9)", () => {
+  const real = { random: cardsRandomizer };
+  const picksOf = (d: SetupDraft) =>
+    JSON.stringify([d.scenarioId, d.civilWar!.stageIds, [...(d.modularSetIds ?? [])].sort()]);
+
+  test("Random fills the builder with a legal scenario the player can still edit, and Start stays enabled", () => {
+    const r = act(draftFor(IRON, 5), "civil:random", real);
+    expect(r.draft.civilWar!.blind).toBe(false);
+    const v = view(r.draft);
+    expect(v.canStart).toBe(true);
+    expect(v.modular.chosen).toBe(4);
+    expect(v.stageRows[1]!.hidden).toBe(false);
+    const stage = v.stageRows[0]!.options.find((o) => !o.selected)!;
+    const edited = act(r.draft, `civil:stage:1:${stage.printedCardId}`).draft;
+    expect(edited.civilWar!.stageIds[0]).toBe(stage.printedCardId);
+  });
+
+  test("pressing it again gives a different scenario (seed + 1) and the same seed gives the same one", () => {
+    const first = act(draftFor(IRON, 5), "civil:random", real).draft;
+    expect(first.seed).toBe(6);
+    expect(picksOf(act(draftFor(IRON, 5), "civil:random", real).draft)).toBe(picksOf(first));
+    const seen = new Set([picksOf(first)]);
+    let d = first;
+    for (let i = 0; i < 6; i++) {
+      d = act(d, "civil:random", real).draft;
+      seen.add(picksOf(d));
+    }
+    expect(seen.size).toBeGreaterThan(2);
+    expect(picksOf(act(first, "civil:random", real).draft)).not.toBe(picksOf(first));
+  });
+
+  test("the lock toggles and the set stepper are effects the scene keeps; Random reads them", () => {
+    const side = act(draftFor(IRON), "civil:lock:side");
+    expect(side.effect).toEqual({ kind: "pins", pins: { side: true } });
+    const off = act(draftFor(IRON), "civil:lock:side", { pins: { side: true } });
+    expect(off.effect).toEqual({ kind: "pins", pins: { side: false } });
+    expect(act(draftFor(IRON), "civil:count:3", { pins: { leader: true } }).effect).toEqual({
+      kind: "pins",
+      pins: { leader: true, modularCount: 3 },
+    });
+    expect(act(draftFor(IRON), "civil:count:5").effect).toBeUndefined();
+    expect(view(draftFor(IRON)).randomPins).toEqual([
+      { action: "civil:lock:side", label: "Random may change the side", on: false },
+      { action: "civil:lock:leader", label: "Random may change the leader", on: false },
+      { action: "civil:count:3", label: "Random draws 4 sets", on: false },
+    ]);
+    const pinned = view(draftFor(IRON), { pins: { side: true, leader: true, modularCount: 3 } }).randomPins;
+    expect(pinned.map((p) => [p.label, p.on])).toEqual([
+      ["Random keeps the side", true],
+      ["Random keeps the leader", true],
+      ["Random draws 3 sets", true],
+    ]);
+  });
+
+  test("a pinned leader and side stay through many rolls; the count 3 gives three sets", () => {
+    let d = draftFor("resistance-captain-america", 1);
+    for (let i = 0; i < 5; i++) {
+      d = act(d, "civil:random", { ...real, pins: { leader: true, side: true, modularCount: 3 } }).draft;
+      expect(d.scenarioId).toBe("resistance-captain-america");
+      expect(d.modularSetIds).toHaveLength(3);
+      expect(view(d).canStart).toBe(true);
+    }
+    for (let i = 0; i < 6; i++) {
+      d = act(d, "civil:random", { ...real, pins: { side: true } }).draft;
+      expect(view(d).sideChoices.find((s) => s.selected)!.side).toBe("resistance");
+    }
+  });
+
+  test("a failing randomizer says why and changes nothing", () => {
+    const d = draftFor(IRON);
+    const r = act(d, "civil:random", {
+      random: () => {
+        throw new Error("No such pairing.");
+      },
+    });
+    expect(r.draft).toBe(d);
+    expect(r.status).toBe("No such pairing.");
+  });
+
+  test("Random and blind masks stage 2 and the set names with exact words; Show reveals and turns blind off", () => {
+    const blind = act(draftFor(IRON, 5), "civil:random-blind", real).draft;
+    expect(blind.civilWar!.blind).toBe(true);
+    const v = view(blind);
+    const picked = view(act(blind, "civil:blind:show").draft);
+    expect(v.summary[4]).toBe("Stage 2: hidden");
+    expect(v.summary[7]).toBe("Modular sets: 4 hidden");
+    expect(v.stageSummary).toBe("");
+    expect(v.stageRows[1]!.options).toEqual([]);
+    expect(v.modular.hidden).toBe(true);
+    expect(v.modular.sections).toEqual([]);
+    expect(v.steps[2]!.line).toBe(`${v.summary[3]!.slice("Stage 1: ".length)}, stage 2 hidden`);
+    expect(v.steps[3]!.line).toBe("4 sets hidden");
+    expect(v.summary[3]).toBe(picked.summary[3]);
+    expect(v.focusOrder).toContain("civil:blind:show");
+    expect(picked.blind).toBe(false);
+    expect(picked.summary[4]).toMatch(/^Stage 2: (?!hidden)/);
+    expect(picked.summary[7]).toMatch(/^Modular sets: [A-Za-z]/);
+    expect(picked.focusOrder).not.toContain("civil:blind:show");
   });
 });

@@ -130,6 +130,8 @@ export interface BuilderLayout {
   readonly difficulty: readonly [Rect, Rect];
   /** Cooperative (enabled) and "Competitive - coming soon" (disabled; still a full touch target). */
   readonly gameMode: readonly [Rect, Rect];
+  /** Random's three controls: keep the side, keep the leader, draw 3 or 4 sets (content space, under the game mode). */
+  readonly randomPins: readonly [Rect, Rect, Rect];
 }
 
 /** Tiles in a grid of `columns`: the height of `count` tiles laid out row by row. Grows with the count. */
@@ -343,7 +345,11 @@ export function civilWarBuilderLayout(input: BuilderLayoutInput): BuilderLayout 
   ];
   const difficulty = pair(optionTop, DIFFICULTY_HEIGHT);
   const gameMode = pair(optionTop + DIFFICULTY_HEIGHT + ROW_GAP, hit.target);
-  const reviewStepHeight = gameMode[0].y + hit.target - content.y;
+  const third = (cw - ROW_GAP * 2) / 3;
+  const pinY = gameMode[0].y + hit.target + ROW_GAP;
+  const pinRect = (i: number): Rect => ({ x: cx + i * (third + ROW_GAP), y: pinY, width: third, height: hit.target });
+  const randomPins: readonly [Rect, Rect, Rect] = [pinRect(0), pinRect(1), pinRect(2)];
+  const reviewStepHeight = pinY + hit.target - content.y;
 
   const contentHeight =
     step === 1 || step === 2 ? choiceHeight : step === 3 ? stagesHeight : step === 4 ? modularHeight : reviewStepHeight;
@@ -377,5 +383,6 @@ export function civilWarBuilderLayout(input: BuilderLayoutInput): BuilderLayout 
     preconstructed,
     difficulty,
     gameMode,
+    randomPins,
   };
 }

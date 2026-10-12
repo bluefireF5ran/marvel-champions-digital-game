@@ -7,6 +7,7 @@
 import type { GameState, PlayerId } from "@mc/engine";
 import type { Scenario } from "@mc/content";
 import type { SessionConfig } from "../engine/host.js";
+import { blindRevealOf, blindSheetLines } from "./civil-war-blind.js";
 import { playerName } from "./names.js";
 
 export interface PauseStatus {
@@ -15,6 +16,17 @@ export interface PauseStatus {
   readonly round: number;
   readonly phaseLabel: string;
   readonly seatLabel: string;
+  /**
+   * A Civil War scenario played blind: the stage pair and the modular sets as they stand (hidden pieces worded and
+   * counted). Absent for every other game.
+   */
+  readonly blindSheet?: readonly string[];
+}
+
+/** Printed names for the blind sheet. */
+export interface BlindSheetNames {
+  readonly stage: (printedCardId: string) => string;
+  readonly set: (setId: string) => string;
 }
 
 const DIFFICULTY_LABEL: Record<SessionConfig["difficulty"], string> = {
@@ -51,7 +63,9 @@ export function pauseStatusOf(
   perspectiveId: PlayerId,
   config: SessionConfig | null,
   scenarios: readonly Scenario[],
+  blindNames?: BlindSheetNames,
 ): PauseStatus {
+  const reveal = blindNames ? blindRevealOf(config, game) : null;
   const scenario = config ? scenarios.find((candidate) => candidate.id === config.scenarioId) : undefined;
   return {
     scenarioName: scenario?.name ?? config?.scenarioId ?? "This game",
@@ -59,5 +73,8 @@ export function pauseStatusOf(
     round: game.round,
     phaseLabel: phaseLabelOf(game),
     seatLabel: playerName(game, perspectiveId),
+    ...(reveal && blindNames
+      ? { blindSheet: blindSheetLines(reveal, blindNames, config?.mainSchemeStageIds?.[0] ?? null) }
+      : {}),
   };
 }

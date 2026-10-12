@@ -56,6 +56,7 @@ import { qualifiedHeroName } from "./hero-names.js";
 import { abilityLabelOf } from "./ability-label.js";
 import { cardHistoryOf, emptyCardHistoryLog, type CardHistoryLine, type CardHistoryLog } from "./card-history.js";
 import { cardName, faceUpName } from "./names.js";
+import { maskedStageInspect, type BlindReveal } from "./civil-war-blind.js";
 import { cardTextDisplay } from "./card-text-display.js";
 import { howThisWorksFor } from "./how-this-works.js";
 import { citeLabelOf, everyGlossaryEntry } from "./rules-reference.js";
@@ -748,7 +749,23 @@ export function referenceInspectModel(reference: {
   };
 }
 
-export function cardInspectModel(card: AnyCard | undefined, face: CardFace): InspectModel {
+/**
+ * A printed card's sheet with no game behind it. `blind` (`blindRevealOf`, a Civil War scenario played blind) hides a main
+ * scheme stage 2 or later until the game has advanced to it; the sheet of a live instance never needs it, because the
+ * stage on the table has been reached.
+ */
+export function cardInspectModel(
+  card: AnyCard | undefined,
+  face: CardFace,
+  blind: BlindReveal | null = null,
+): InspectModel {
+  const model = printedInspectModel(card, face);
+  if (!blind || blind.stage2Reached || card?.type !== "main_scheme" || face.kind !== "mainSchemeStage") return model;
+  const stage = card.stages[face.stageIndex];
+  return stage && stage.stageNumber >= 2 ? maskedStageInspect(model) : model;
+}
+
+function printedInspectModel(card: AnyCard | undefined, face: CardFace): InspectModel {
   if (!card) {
     return {
       instanceId: "" as InstanceId,

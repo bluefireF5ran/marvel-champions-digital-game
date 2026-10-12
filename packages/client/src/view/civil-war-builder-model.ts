@@ -60,6 +60,23 @@ export interface CivilWarRandomPicks {
 
 export type CivilWarRandomizer = (request: CivilWarRandomRequest) => CivilWarRandomPicks;
 
+/** Random's lock toggles and the "Sets: 3 / 4" stepper (docs 2.5). */
+export interface RandomPins {
+  readonly side?: boolean;
+  readonly leader?: boolean;
+  readonly modularCount?: number;
+}
+
+/** One of the three controls above the foot's Random buttons: what it says, what it sends, and whether it is on. */
+export interface RandomPinView {
+  readonly action: string;
+  readonly label: string;
+  readonly on: boolean;
+}
+
+/** The modular count a roll draws when the stepper was not touched (question 9). */
+export const DEFAULT_RANDOM_COUNT = 4;
+
 /** Everything the model reads besides the draft. */
 export interface BuilderContext {
   /** Card pool including the cw cards (leaders, set sizes). */
@@ -76,7 +93,7 @@ export interface BuilderContext {
   /** The one-line notice from the last action. */
   readonly status?: string | null;
   /** Random's lock toggles and the "Sets: 3 / 4" stepper. */
-  readonly pins?: { readonly side?: boolean; readonly leader?: boolean; readonly modularCount?: number };
+  readonly pins?: RandomPins;
   /** Tiles in the "Extra sets (not counted)" row; the scene counts them from `modular-candidates`. */
   readonly extraSets?: number;
   /** Supplied by task C9; without it Random reports an effect and changes nothing. */
@@ -189,7 +206,8 @@ export type BuilderEffect =
   | { readonly kind: "toggleOtherSide" }
   | { readonly kind: "start" }
   | { readonly kind: "back" }
-  | { readonly kind: "random"; readonly blind: boolean; readonly request: CivilWarRandomRequest };
+  | { readonly kind: "random"; readonly blind: boolean; readonly request: CivilWarRandomRequest }
+  | { readonly kind: "pins"; readonly pins: RandomPins };
 
 export interface BuilderView {
   readonly title: string;
@@ -208,6 +226,8 @@ export interface BuilderView {
   /** Standard and Expert as Table setup words them; the draft's `difficulty` is the one state both screens share. */
   readonly difficultyChoices: readonly DifficultyChoice[];
   readonly blind: boolean;
+  /** Keep side / Keep leader / the set count, as Random will read them. */
+  readonly randomPins: readonly RandomPinView[];
   readonly isPreconstructed: boolean;
   readonly preconstructedEnabled: boolean;
   readonly summary: readonly string[];
@@ -492,9 +512,25 @@ export function builderViewOf(draft: SetupDraft, ctx: BuilderContext): BuilderVi
                   : s.tiles.map((t) => t.action),
               )
             : [...difficultyChoices.map((d) => d.action), ...modeOptions.map((m) => `civil:mode:${m.id}`)];
+  const pins = ctx.pins ?? {};
+  const rollCount = pins.modularCount ?? DEFAULT_RANDOM_COUNT;
+  const randomPins: RandomPinView[] = [
+    {
+      action: "civil:lock:side",
+      label: pins.side ? "Random keeps the side" : "Random may change the side",
+      on: !!pins.side,
+    },
+    {
+      action: "civil:lock:leader",
+      label: pins.leader ? "Random keeps the leader" : "Random may change the leader",
+      on: !!pins.leader,
+    },
+    { action: `civil:count:${rollCount === 3 ? 4 : 3}`, label: `Random draws ${rollCount} sets`, on: rollCount === 3 },
+  ];
   const focusOrder = [
     ...steps.map((s) => s.action),
     ...stepControls,
+    ...(step === 5 ? randomPins.map((p) => p.action) : []),
     "civil:random",
     "civil:random-blind",
     ...(blind ? ["civil:blind:show"] : []),
@@ -517,6 +553,7 @@ export function builderViewOf(draft: SetupDraft, ctx: BuilderContext): BuilderVi
     difficulty: draft.difficulty,
     difficultyChoices,
     blind,
+    randomPins,
     isPreconstructed: ready,
     preconstructedEnabled: !ready,
     summary,
@@ -643,6 +680,18 @@ export function applyBuilderAction(draft: SetupDraft, action: string, ctx: Build
       return isReadyMade(draft, offer) ? unchanged(draft) : unchanged(resetToReadyMade(draft));
     case "blind":
       return unchanged(setCivilWarBlind(draft, first !== "show"));
+    case "lock": {
+      const key = first === "side" ? "side" : first === "leader" ? "leader" : null;
+      if (!key) return unchanged(draft);
+      const pins = { ...ctx.pins, [key]: !ctx.pins?.[key] };
+      return { draft, status: null, effect: { kind: "pins", pins } };
+    }
+    case "count": {
+      const n = Number(first);
+      return n === 3 || n === 4
+        ? { draft, status: null, effect: { kind: "pins", pins: { ...ctx.pins, modularCount: n } } }
+        : unchanged(draft);
+    }
     case "random":
     case "random-blind": {
       const blind = kind === "random-blind";
@@ -654,7 +703,13 @@ export function applyBuilderAction(draft: SetupDraft, action: string, ctx: Build
         ...(ctx.pins?.modularCount !== undefined ? { modularCount: ctx.pins.modularCount } : {}),
       };
       if (!ctx.random) return { draft, status: null, effect: { kind: "random", blind, request } };
-      const picks = ctx.random(request);
+      let picks: CivilWarRandomPicks;
+      try {
+        picks = ctx.random(request);
+      } catch (error) {
+        // The cards package states why the pins cannot go together; the builder says it and changes nothing.
+        return unchanged(draft, error instanceof Error ? error.message : String(error));
+      }
       let next = picks.leaderId === draft.scenarioId ? draft : setScenario(draft, undefined, picks.leaderId);
       next = setModularSetIds(next, picks.modularSetIds);
       picks.stageIds.forEach((id, i) => {

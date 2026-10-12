@@ -37,7 +37,7 @@ function contentRects(l: BuilderLayout): Rect[] {
     case 4:
       return [l.modularCounter, ...l.modularSections.flatMap((s) => [s.label, ...s.tiles])];
     default:
-      return [l.reviewBody, ...l.difficulty, ...l.gameMode];
+      return [l.reviewBody, ...l.difficulty, ...l.gameMode, ...l.randomPins];
   }
 }
 
@@ -119,7 +119,8 @@ describe("civilWarBuilderLayout: step 5 never repeats the review column's summar
     expect(l.difficulty[0]).toEqual({ x: 268, y: 148, width: 328, height: 76 });
     expect(l.difficulty[1]).toEqual({ x: 604, y: 148, width: 328, height: 76 });
     expect(l.gameMode[0]).toEqual({ x: 268, y: 232, width: 328, height: 44 });
-    expect(l.contentHeight).toBe(188);
+    expect(l.randomPins[0]).toEqual({ x: 268, y: 232 + 44 + 8, width: (328 * 2 + 8 - 16) / 3, height: 44 });
+    expect(l.contentHeight).toBe(240);
   });
 
   test("phone and tablet: no side panel, so step 5 keeps the summary above the same controls", () => {

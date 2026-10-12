@@ -27,7 +27,6 @@ interface View {
   readonly step: number;
   readonly steps: readonly { title: string; line: string; active: boolean; action: string }[];
   readonly leaderChoices: readonly { scenarioId: string; name: string; selected: boolean }[];
-  readonly stageRows: readonly { options: readonly { name: string; selected: boolean; recommended: boolean }[] }[];
   readonly modular: { chosen: number; counterLine: string; sections: readonly Section[] };
   readonly modeOptions: readonly { id: string; label: string; note: string; enabled: boolean; selected: boolean }[];
   readonly canStart: boolean;
@@ -37,6 +36,12 @@ interface View {
   readonly difficultyChoices: readonly { id: string; name: string; selected: boolean }[];
   readonly summary: readonly string[];
   readonly focusOrder: readonly string[];
+  readonly blind: boolean;
+  readonly stageRows: readonly {
+    hidden: boolean;
+    options: readonly { name: string; action: string; selected: boolean; recommended: boolean }[];
+  }[];
+  readonly randomPins: readonly { action: string; label: string; on: boolean }[];
 }
 
 const view = async (page: Page): Promise<View> =>
@@ -236,6 +241,85 @@ for (const size of sizes) {
       expect(expected[0]).toBe("civil:step:1");
       await page.keyboard.press("Shift+Tab");
       await page.keyboard.press("Escape");
+      expect(errors).toEqual([]);
+    });
+
+    test("Random fills the builder with a scenario you can still edit, and pressing it again changes it", async ({
+      page,
+    }) => {
+      const errors = await openBuilder(page);
+      const picksOf = async (): Promise<string> => {
+        const v = await view(page);
+        return JSON.stringify([
+          v.leaderChoices.find((l) => l.selected)!.name,
+          v.stageRows.map((r) => r.options.find((o) => o.selected)?.name),
+          v.summary.filter((l) => l.startsWith("Modular sets: ")),
+        ]);
+      };
+      const seen = new Set<string>([await picksOf()]);
+      let last = await picksOf();
+      for (let press = 0; press < 3; press++) {
+        await act(page, "civil:random");
+        const v = await view(page);
+        expect(v.step).toBe(5);
+        expect(v.blind).toBe(false);
+        expect(v.canStart).toBe(true);
+        expect(v.modular.chosen).toBe(4);
+        const now = await picksOf();
+        expect(now).not.toBe(last);
+        seen.add(now);
+        last = now;
+      }
+      expect(seen.size).toBe(4);
+      // The result is an ordinary pick: change a stage and it reads Custom.
+      await act(page, "civil:step:3");
+      const row = (await view(page)).stageRows[0]!;
+      const other = row.options.find((o) => !o.selected)!;
+      await act(page, other.action);
+      expect((await view(page)).stageRows[0]!.options.find((o) => o.selected)!.name).toBe(other.name);
+      expect((await view(page)).canStart).toBe(true);
+      expect(errors).toEqual([]);
+    });
+
+    test("a kept leader and a 3-set roll are honored", async ({ page }) => {
+      const errors = await openBuilder(page);
+      const leader = (await view(page)).leaderChoices.find((l) => l.selected)!.name;
+      await act(page, "civil:lock:leader");
+      await act(page, "civil:count:3");
+      expect((await view(page)).randomPins.map((p) => [p.label, p.on])).toEqual([
+        ["Random may change the side", false],
+        ["Random keeps the leader", true],
+        ["Random draws 3 sets", true],
+      ]);
+      for (let press = 0; press < 3; press++) {
+        await act(page, "civil:random");
+        const v = await view(page);
+        expect(v.leaderChoices.find((l) => l.selected)!.name).toBe(leader);
+        expect(v.modular.chosen).toBe(3);
+        expect(v.canStart).toBe(true);
+      }
+      expect(errors).toEqual([]);
+    });
+
+    test("Random and blind masks stage 2 and the set list; Show reveals them and turns blind off", async ({ page }) => {
+      const errors = await openBuilder(page);
+      await act(page, "civil:random-blind");
+      let v = await view(page);
+      expect(v.blind).toBe(true);
+      expect(v.canStart).toBe(true);
+      expect(v.summary).toContain("Stage 2: hidden");
+      expect(v.summary).toContain("Modular sets: 4 hidden");
+      expect(v.stageRows[1]!.hidden).toBe(true);
+      expect(v.stageRows[1]!.options).toEqual([]);
+      expect(v.stageRows[0]!.hidden).toBe(false);
+      expect(v.modular.sections).toEqual([]);
+      expect(v.focusOrder).toContain("civil:blind:show");
+      await pressHookStop(page, "__mcBuilderDebug", "civil:blind:show");
+      await waitFor(async () => ((await view(page)).blind ? null : true), "blind is turned off", 8000);
+      v = await view(page);
+      expect(v.summary.join("|")).not.toContain("hidden");
+      expect(v.stageRows[1]!.options.length).toBeGreaterThan(0);
+      expect(v.focusOrder).not.toContain("civil:blind:show");
       expect(errors).toEqual([]);
     });
   });
