@@ -45,6 +45,8 @@ export type { HorsemanSide, Wave8ScenarioOptions } from "./wave8/index.js";
 // Wave 9 (cycle 9, Agents of S.H.I.E.L.D.): joined to `playable/`, minus the sets `playable/unscripted.ts` gates.
 export { WAVE9_ABILITIES, WAVE9_CARDS, WAVE9_DEPS, wave9Scenario, wave9StarterDeckSetup } from "./wave9/index.js";
 export type { Wave9ScenarioOptions } from "./wave9/index.js";
+// Wave 10 (cycle 10, Civil War): scaffold and scripts in progress, NOT joined to `playable/` yet.
+export { WAVE10_ABILITIES, WAVE10_CARDS, WAVE10_DEPS, wave10StarterDeckSetup } from "./wave10/index.js";
 export { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./playable/unscripted.js";
 // Which optional setup choices a playable scenario offers (Standard III, the Horsemen's versions, the easier
 // Apocalypse start, threat on Gene Pool): what a setup screen asks before it draws a control.
