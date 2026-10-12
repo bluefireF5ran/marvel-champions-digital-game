@@ -1,9 +1,10 @@
 import { CW_CARDS } from "@mc/content";
-import { activeEncounterDeckId, type GameState, type InstanceId } from "@mc/engine";
+import { activeEncounterDeckId, type EngineDeps, type GameState, type InstanceId, type PlayerId } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
 import { validateDefinition } from "../../../dsl/validate.js";
 import {
   P1,
+  P2,
   endTurn,
   firstLegal,
   identityOf,
@@ -11,10 +12,24 @@ import {
   patchInstance,
   stackEncounterDeck,
 } from "../../../testing/harness.js";
-import { driveEventsPicking, encounterCardInVillainArea } from "../../../testing/staging.js";
-import { attacksBy, codeOf, flippedBoosts, inDiscardPile, piles, types } from "../../../wave9/testing.js";
+import { driveEventsPicking, encounterCardInVillainArea, withForm } from "../../../testing/staging.js";
+import {
+  attacksBy,
+  codeOf,
+  flippedBoosts,
+  inDiscardPile,
+  piles,
+  revealedCodes,
+  types,
+} from "../../../wave9/testing.js";
 import { SPIDER_WOMAN_SCENARIO, WAVE10_DEPS, civilWarHeroGame } from "../../testing.js";
-import { MODULAR_NEW_AVENGERS, MODULAR_NEW_AVENGERS_SKIPPED } from "./new-avengers.js";
+import {
+  FREEDOM_FIGHTERS_BORROWED_ICONS,
+  FREEDOM_FIGHTERS_BOOST,
+  MODULAR_NEW_AVENGERS,
+  MODULAR_NEW_AVENGERS_SKIPPED,
+  freedomFightersBoost,
+} from "./new-avengers.js";
 
 vi.setConfig({ testTimeout: 120_000 });
 
@@ -27,8 +42,8 @@ vi.setConfig({ testTimeout: 120_000 });
  *
  * The villain phase draws the villain's boost card first, then deals each player a card (RRG 1.8 "Villain Phase"), so a
  * stack reads "boost, dealt". Advance 01186 prints no boost icon and no Boost ability. Self-propelled Glide 56179
- * (Spider-Woman's own side scheme) is the harmless card to deal. Freedom Fighters (56153) is not scripted yet, so it
- * has no behavioral test; its two refs are in the skipped map with their reason.
+ * (Spider-Woman's own side scheme) is the harmless card to deal. Freedom Fighters (56153; its second code 56157 is
+ * tested in secret-avengers.test.ts) prints no boost icon, only a star.
  */
 const FALCON = "56150";
 const HERCULES = "56151";
@@ -47,9 +62,10 @@ const REFS = [
   "56151.boost",
   "56152.when-defeated",
   "56152.boost",
+  "56153.when-revealed",
+  "56153.boost",
   "56154.when-defeated",
 ];
-const SKIPPED_REFS = ["56153.when-revealed", "56153.boost"];
 
 const dataOf = (code: string) => CW_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
 const leaderOf = (s: GameState): InstanceId => s.activeVillainId!;
@@ -64,16 +80,22 @@ const withStatus = (s: GameState, id: InstanceId, name: "stunned" | "confused" |
  * The Spider-Woman scenario with New Avengers as a modular set, past setup, hero form, Spider-Woman not tough. Stage 1A
  * revealed Self-propelled Glide; it is back in the encounter deck because the stacks deal it as the harmless filler card.
  */
-function game(): GameState {
+function game(opts: { readonly sets?: string[]; readonly twoPlayers?: boolean } = {}): GameState {
   const start = civilWarHeroGame(SPIDER_WOMAN_SCENARIO, {
-    modularSetIds: ["new_avengers", "defenders", "hells_kitchen"],
+    modularSetIds: opts.sets ?? ["new_avengers", "defenders", "hells_kitchen"],
     leaderSideScheme: "discarded",
+    ...(opts.twoPlayers ? { twoPlayers: true } : {}),
   });
-  return withStatus(start, leaderOf(start), "tough", 0);
+  const heroes = opts.twoPlayers ? withForm(start, { heroForm: 0 }, P2) : start;
+  return withStatus(heroes, leaderOf(heroes), "tough", 0);
 }
 
 /** Surgery: the encounter deck's own copy of minion `code`, engaged with player 1 (no reveal, no When Revealed). */
-function engaged(state: GameState, code: string): { readonly state: GameState; readonly id: InstanceId } {
+function engaged(
+  state: GameState,
+  code: string,
+  player: PlayerId = P1,
+): { readonly state: GameState; readonly id: InstanceId } {
   const deckId = activeEncounterDeckId(state);
   const pile = state.encounterDecks[deckId]!;
   const id = [...pile.deck, ...pile.discard].find((i) => codeOf(state, i) === code);
@@ -86,8 +108,8 @@ function engaged(state: GameState, code: string): { readonly state: GameState; r
         ...state.encounterDecks,
         [deckId]: { deck: pile.deck.filter((i) => i !== id), discard: pile.discard.filter((i) => i !== id) },
       },
-      players: state.players.map((p) => (p.playerId === P1 ? { ...p, playArea: [...p.playArea, id] } : p)),
-      instances: { ...state.instances, [id]: { ...state.instances[id]!, engagedWith: P1, faceup: true } },
+      players: state.players.map((p) => (p.playerId === player ? { ...p, playArea: [...p.playArea, id] } : p)),
+      instances: { ...state.instances, [id]: { ...state.instances[id]!, engagedWith: player, faceup: true } },
     },
   };
 }
@@ -111,26 +133,25 @@ const flipped = (s: GameState, events: Parameters<typeof flippedBoosts>[0]) =>
   flippedBoosts(events).map((f) => [codeOf(s, f.instanceId), f.boostIcons]);
 
 describe("registry", () => {
-  it("registers the seven refs of the scripted cards, each a valid definition", () => {
+  it("registers the nine refs of the scripted cards, each a valid definition", () => {
     expect(Object.keys(MODULAR_NEW_AVENGERS).sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(MODULAR_NEW_AVENGERS)) expect(validateDefinition(def), id).toEqual([]);
   });
 
-  it("skips exactly Freedom Fighters' two refs, each with its reason (the engine primitive of section 3.11)", () => {
-    expect(Object.keys(MODULAR_NEW_AVENGERS_SKIPPED).sort()).toEqual([...SKIPPED_REFS].sort());
-    for (const reason of Object.values(MODULAR_NEW_AVENGERS_SKIPPED))
-      expect(reason).toContain("spec 8.2 task 8 (§3.11)");
+  it("skips nothing: Freedom Fighters' two refs are scripted", () => {
+    expect(Object.keys(MODULAR_NEW_AVENGERS_SKIPPED)).toEqual([]);
   });
 
-  it("the data names exactly these refs, registered or skipped, for the five cards", () => {
+  it("the data names exactly these refs, for the five cards", () => {
     const refs = SET.flatMap((code) => ((dataOf(code).abilities ?? []) as { id: string }[]).map((a) => a.id));
-    expect(refs.sort()).toEqual([...REFS, ...SKIPPED_REFS].sort());
+    expect(refs.sort()).toEqual([...REFS].sort());
   });
 
   it("carries the printed timing of each ability", () => {
     for (const ref of ["56150.when-defeated", "56151.when-defeated", "56152.when-defeated", "56154.when-defeated"])
       expect(MODULAR_NEW_AVENGERS[ref]!.trigger, ref).toMatchObject({ kind: "whenDefeated" });
-    for (const ref of ["56150.boost", "56151.boost", "56152.boost"])
+    expect(MODULAR_NEW_AVENGERS["56153.when-revealed"]!.trigger).toMatchObject({ kind: "whenRevealed" });
+    for (const ref of ["56150.boost", "56151.boost", "56152.boost", "56153.boost"])
       expect(MODULAR_NEW_AVENGERS[ref]!.trigger, ref).toMatchObject({ kind: "boost" });
   });
 
@@ -417,10 +438,159 @@ describe("New Avengers (56154)", () => {
   });
 });
 
+const ATLANTEAN_GUARD = "56165"; // Atlantean Guard (the Atlanteans set): a minion with a When Revealed and no Boost ability
+const hasStatus = (s: GameState, id: InstanceId) => {
+  const { stunned, confused, tough } = inst(s, id).statuses;
+  return { stunned, confused, tough };
+};
+/** The Boost abilities that resolved, as the log names them: [card code, ability id]. */
+const boostsResolved = (s: GameState, events: Parameters<typeof flippedBoosts>[0]) =>
+  types(events, "abilityResolved")
+    .filter((e) => (e.abilityId as string).endsWith(".boost"))
+    .map((e) => [codeOf(s, e.instanceId), e.abilityId as string]);
+const depsWithBoost = (boostAbility: typeof FREEDOM_FIGHTERS_BOOST): EngineDeps => ({
+  ...WAVE10_DEPS,
+  abilities: { ...WAVE10_DEPS.abilities, "56153.boost": boostAbility },
+});
+const phase = (deps: EngineDeps, state: GameState, ...stack: string[]) =>
+  driveEventsPicking(deps, stackEncounterDeck(state, ...stack), firstLegal, endTurn(P1));
+const DEPS_B = depsWithBoost(freedomFightersBoost("joinActivation"));
+const GUARD_SETS = ["new_avengers", "atlanteans", "hells_kitchen"];
+
 describe("Freedom Fighters (56153)", () => {
-  it("is data: a treachery with a boost star and no boost icon; its abilities wait on an engine primitive", () => {
+  it("is data: a treachery with a boost star and no boost icon", () => {
     const card = dataOf(FIGHTERS);
     expect([card.type, card.boostIcons, card.starIcon]).toEqual(["treachery", 0, true]);
-    for (const ref of SKIPPED_REFS) expect(ref in MODULAR_NEW_AVENGERS).toBe(false);
+    expect(MODULAR_NEW_AVENGERS["56153.when-revealed"]).toBeDefined();
+    expect(MODULAR_NEW_AVENGERS["56153.boost"]).toBe(FREEDOM_FIGHTERS_BOOST);
+  });
+
+  it("question 10: the module's constant is answer A, the default; B is a valid definition", () => {
+    expect(FREEDOM_FIGHTERS_BORROWED_ICONS).toBe("nothing");
+    expect(MODULAR_NEW_AVENGERS["56153.boost"]).toEqual(freedomFightersBoost("nothing"));
+    expect(validateDefinition(freedomFightersBoost("joinActivation"))).toEqual([]);
+  });
+
+  describe("WHEN REVEALED", () => {
+    it("Falcon and Hercules in play: both Boost abilities resolve on the revealing player; no surge", () => {
+      const falcon = engaged(game(), FALCON);
+      const hercules = engaged(falcon.state, HERCULES);
+      const { state, events } = phase(WAVE10_DEPS, hercules.state, ADVANCE, FIGHTERS, DEFEND);
+      expect(revealedCodes(state, events)).toEqual([FIGHTERS]);
+      expect(boostsResolved(state, events)).toEqual([
+        [FALCON, "56150.boost"],
+        [HERCULES, "56151.boost"],
+      ]);
+      expect(hasStatus(state, hero(state))).toEqual({ stunned: 1, confused: 1, tough: 0 });
+      expect(types(events, "surgeTriggered")).toEqual([]);
+      for (const id of [falcon.id, hercules.id]) {
+        expect(state.players[0]!.playArea).toContain(id);
+        expect(inst(state, id)).toMatchObject({ engagedWith: P1, faceup: true });
+      }
+    });
+
+    it("Falcon (two halves) with the player not confused: the status is given, the icon half does nothing", () => {
+      const falcon = engaged(game(), FALCON);
+      const { state, events } = phase(WAVE10_DEPS, falcon.state, ADVANCE, FIGHTERS, DEFEND);
+      expect(types(events, "statusGiven").map((e) => [e.instanceId, e.status])).toEqual([[hero(state), "confused"]]);
+      expect(hasStatus(state, hero(state))).toEqual({ stunned: 0, confused: 1, tough: 0 });
+      expect(types(events, "surgeTriggered")).toEqual([]);
+    });
+
+    it("Falcon (two halves) with the player already confused: no second status, still resolved (no surge)", () => {
+      const falcon = engaged(game(), FALCON);
+      const confused = withStatus(falcon.state, hero(falcon.state), "confused");
+      const { state, events } = phase(WAVE10_DEPS, confused, ADVANCE, FIGHTERS, DEFEND);
+      expect(boostsResolved(state, events)).toEqual([[FALCON, "56150.boost"]]);
+      expect(types(events, "statusGiven")).toEqual([]);
+      expect(hasStatus(state, hero(state))).toEqual({ stunned: 0, confused: 1, tough: 0 });
+      expect(types(events, "surgeTriggered")).toEqual([]);
+      expect(revealedCodes(state, events)).toEqual([FIGHTERS]);
+    });
+
+    it("no minion in play: the card gains surge and exactly one more encounter card is revealed", () => {
+      const { state, events } = phase(WAVE10_DEPS, game(), ADVANCE, FIGHTERS, DEFEND);
+      expect(boostsResolved(state, events)).toEqual([]);
+      expect(types(events, "surgeTriggered").map((e) => codeOf(state, e.instanceId))).toEqual([FIGHTERS]);
+      expect(revealedCodes(state, events)).toEqual([FIGHTERS, DEFEND]);
+    });
+
+    it("only a minion with no Boost ability in play (Atlantean Guard): nothing resolved, so the card gains surge (spec 3.11 counts Boost abilities)", () => {
+      const guard = engaged(game({ sets: GUARD_SETS }), ATLANTEAN_GUARD);
+      const { state, events } = phase(WAVE10_DEPS, guard.state, ADVANCE, FIGHTERS, DEFEND);
+      expect(boostsResolved(state, events)).toEqual([]);
+      expect(types(events, "surgeTriggered").map((e) => codeOf(state, e.instanceId))).toEqual([FIGHTERS]);
+      expect(revealedCodes(state, events)).toEqual([FIGHTERS, DEFEND]);
+      expect(inst(state, guard.id)).toMatchObject({ engagedWith: P1, faceup: true });
+    });
+
+    it("a minion with no Boost ability beside Falcon: only Falcon's resolves, and there is no surge", () => {
+      const guard = engaged(game({ sets: GUARD_SETS }), ATLANTEAN_GUARD);
+      const falcon = engaged(guard.state, FALCON);
+      const { state, events } = phase(WAVE10_DEPS, falcon.state, ADVANCE, FIGHTERS, DEFEND);
+      expect(boostsResolved(state, events)).toEqual([[FALCON, "56150.boost"]]);
+      expect(types(events, "surgeTriggered")).toEqual([]);
+      expect(revealedCodes(state, events)).toEqual([FIGHTERS]);
+    });
+  });
+
+  describe("BOOST, as the leader's boost card", () => {
+    const boosted = (deps: EngineDeps) => {
+      const falcon = engaged(game(), FALCON);
+      const confused = withStatus(falcon.state, hero(falcon.state), "confused");
+      return { ...phase(deps, confused, FIGHTERS, DEFEND), falcon: falcon.id };
+    };
+
+    it("question 10, A (the default): Falcon's gained icons do nothing; Spider-Woman attacks for 2 + 0", () => {
+      const { state, events, falcon } = boosted(WAVE10_DEPS);
+      expect(boostsResolved(state, events)).toEqual([
+        [FIGHTERS, "56153.boost"],
+        [FALCON, "56150.boost"],
+      ]);
+      expect(flippedBoosts(events).map((f) => [codeOf(state, f.instanceId), f.boostIcons])).toEqual([[FIGHTERS, 0]]);
+      expect(attacksBy(state, events, SPIDER_WOMAN)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+      expect(hasStatus(state, hero(state))).toEqual({ stunned: 0, confused: 1, tough: 0 });
+      expect(inst(state, falcon)).toMatchObject({ engagedWith: P1, faceup: true });
+      expect(attacksBy(state, events, FALCON)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+      expect(inst(state, hero(state)).damage).toBe(4);
+    });
+
+    it('question 10, B (`borrowedBoostIcons: "joinActivation"` built directly): the icons join her attack, 2 + 2', () => {
+      const { state, events } = boosted(DEPS_B);
+      expect(attacksBy(state, events, SPIDER_WOMAN)).toMatchObject([{ baseAtk: 2, boostIcons: 2, damageDealt: 4 }]);
+      expect(attacksBy(state, events, FALCON)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+      expect(hasStatus(state, hero(state))).toEqual({ stunned: 0, confused: 1, tough: 0 });
+      expect(inst(state, hero(state)).damage).toBe(6);
+    });
+
+    it("question 10, either answer: a player who was not confused becomes confused and no icon is gained", () => {
+      for (const deps of [WAVE10_DEPS, DEPS_B]) {
+        const falcon = engaged(game(), FALCON);
+        const { state, events } = phase(deps, falcon.state, FIGHTERS, DEFEND);
+        expect(attacksBy(state, events, SPIDER_WOMAN)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+        expect(hasStatus(state, hero(state))).toEqual({ stunned: 0, confused: 1, tough: 0 });
+      }
+    });
+
+    it("no minion engaged with you: nothing resolves and Spider-Woman attacks for 2", () => {
+      const { state, events } = phase(WAVE10_DEPS, game(), FIGHTERS, DEFEND);
+      expect(boostsResolved(state, events)).toEqual([[FIGHTERS, "56153.boost"]]);
+      expect(attacksBy(state, events, SPIDER_WOMAN)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+    });
+
+    it("two players: only the minion engaged with the attacked player resolves", () => {
+      const hercules = engaged(game({ twoPlayers: true }), HERCULES, P1);
+      const falcon = engaged(hercules.state, FALCON, P2);
+      // Boost cards in order: Spider-Woman on player 1 (Freedom Fighters), on player 2, then each minion's attack.
+      const stacked = stackEncounterDeck(falcon.state, FIGHTERS, ADVANCE, GLIDE, DEFEND);
+      const { state, events } = driveEventsPicking(WAVE10_DEPS, stacked, firstLegal, endTurn(P1), endTurn(P2));
+      expect(boostsResolved(state, events)).toEqual([
+        [FIGHTERS, "56153.boost"],
+        [HERCULES, "56151.boost"],
+      ]);
+      expect(types(events, "statusGiven").map((e) => [e.instanceId, e.status])).toEqual([
+        [identityOf(state, P1), "stunned"],
+      ]);
+    });
   });
 });

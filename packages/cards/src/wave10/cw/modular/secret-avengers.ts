@@ -23,6 +23,7 @@ import {
   whenDefeated,
   whenRevealed,
 } from "../../../dsl/index.js";
+import { FREEDOM_FIGHTERS_BOOST, FREEDOM_FIGHTERS_WHEN_REVEALED } from "./new-avengers.js";
 
 /**
  * Teamwork's "When Defeated: Give this card to the enemy leader as a facedown boost card." (Black Panther and
@@ -42,9 +43,8 @@ const AN_ALLY_YOU_CONTROL = query("ally", { controller: "you" });
  * card (neither has Victory). Boost: Black Panther exhausts each upgrade the player activated against controls;
  * Spectrum exhausts a character that player controls, of their choice.
  *
- * **Freedom Fighters (56157)**: not scripted. The same card as New Avengers' 56153; both abilities resolve "the
- * 'Boost' ability of each minion", which needs the engine primitive `resolveBoostAbilitiesOf` (spec 8.2 task 8,
- * section 3.11).
+ * **Freedom Fighters (56157)**: the same card as New Avengers' 56153, so the same two definitions (imported from
+ * `new-avengers.ts`, where question 10's switch lives).
  *
  * **Switching Sides (56158)**: When Revealed: the revealing player discards an ally they control; with none, no ally
  * leaves play and the card gains surge. The competitive sentence ("any player on the enemy team may spend resources
@@ -71,6 +71,9 @@ export const MODULAR_SECRET_AVENGERS: AbilityRegistry = defineAbilities({
   "56156.when-defeated": GIVEN_TO_THE_ENEMY_LEADER,
   "56156.boost": boost(chooseTarget("tired", query("character", { controller: "you" })), exhaust(chosen("tired"))),
 
+  "56157.when-revealed": FREEDOM_FIGHTERS_WHEN_REVEALED,
+  "56157.boost": FREEDOM_FIGHTERS_BOOST,
+
   "56158.when-revealed": whenRevealed(
     // Read before the discard: with an ally to discard none is missing, with none "no ally left play this way".
     ifThen(
@@ -92,7 +95,4 @@ export const MODULAR_SECRET_AVENGERS: AbilityRegistry = defineAbilities({
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const MODULAR_SECRET_AVENGERS_SKIPPED: Readonly<Record<string, string>> = {
-  "56157.when-revealed": "waits on spec 8.2 task 8 (§3.11); same card as 56153",
-  "56157.boost": "waits on spec 8.2 task 8 (§3.11); same card as 56153",
-};
+export const MODULAR_SECRET_AVENGERS_SKIPPED: Readonly<Record<string, string>> = {};

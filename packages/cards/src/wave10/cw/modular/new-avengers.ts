@@ -11,10 +11,16 @@ import {
   hasStatus,
   ifThen,
   moveCards,
+  not,
   query,
+  each,
+  resolveBoostAbilitiesOf,
   setDefeatDestination,
   stun,
+  surge,
+  varAtLeast,
   whenDefeated,
+  whenRevealed,
   yourIdentity,
 } from "../../../dsl/index.js";
 
@@ -27,6 +33,29 @@ import {
 const GIVEN_TO_THE_ENEMY_LEADER: AbilityDefinition = whenDefeated(setDefeatDestination(boostCardOf(enemyLeader)));
 
 /**
+ * Question 10 of docs/phase7-wave10.md section 4.0 (owner, 2026-10-11): when Freedom Fighters resolves a minion's Boost
+ * ability, "this card gains [boost][boost]" (Falcon, Hercules, Goliath) does `"nothing"` (answer A: the minion in play
+ * is not a boost card of the activation). Changing this to `"joinActivation"` (answer B: the icons are added to the
+ * activation Freedom Fighters is boosting) is the whole switch; the Boost definition below reads it.
+ */
+export const FREEDOM_FIGHTERS_BORROWED_ICONS: "nothing" | "joinActivation" = "nothing";
+
+/** "When Revealed: Resolve the 'Boost' ability of each minion in play. If no 'Boost' abilities were resolved this way, this card gains surge." */
+export const FREEDOM_FIGHTERS_WHEN_REVEALED: AbilityDefinition = whenRevealed(
+  resolveBoostAbilitiesOf(each(query("minion")), { bind: "boosts" }),
+  ifThen(not(varAtLeast("boosts.count")), surge()),
+);
+
+/** "Boost: Resolve the 'Boost' ability of each minion engaged with you." `icons` is question 10's option (a test builds B with it). */
+export const freedomFightersBoost = (
+  icons: "nothing" | "joinActivation" = FREEDOM_FIGHTERS_BORROWED_ICONS,
+): AbilityDefinition =>
+  boost(resolveBoostAbilitiesOf(each(query("minion", { engagedWith: "you" })), { borrowedBoostIcons: icons }));
+
+/** Freedom Fighters' Boost with the constant's answer. */
+export const FREEDOM_FIGHTERS_BOOST: AbilityDefinition = freedomFightersBoost();
+
+/**
  * Modular encounter set `new_avengers` (Civil War, Resistance side; docs/phase7-wave10.md sections 3.9, 3.10, 3.11 and
  * 3.23). Teamwork (Avenger), Hinder 1[per_hero], the boost stars and the hazard icon are data.
  *
@@ -36,9 +65,11 @@ const GIVEN_TO_THE_ENEMY_LEADER: AbilityDefinition = whenDefeated(setDefeatDesti
  * state before the card's own status is given (the same shape as Doc Samson and Hellcat); then the card gains two boost
  * icons for the count it is boosting.
  *
- * **Freedom Fighters (56153)**: not scripted. Both abilities resolve "the 'Boost' ability of each minion", which needs
- * the engine primitive `resolveBoostAbilitiesOf` (spec 8.2 task 8, section 3.11; the owner's answer to question 10 is
- * A, "this card gains [boost]" in a borrowed ability does nothing, with B kept as a named switch).
+ * **Freedom Fighters (56153, and 56157 in Secret Avengers: one card, one definition)**: When Revealed resolves the
+ * Boost ability of each minion in play and counts how many resolved (a minion with no Boost ability does not count);
+ * with none, the card gains surge. Its Boost resolves the Boost ability of each minion engaged with the player the
+ * activation is against. Both use `resolveBoostAbilitiesOf` (section 3.11); the icons a borrowed ability gains follow
+ * `FREEDOM_FIGHTERS_BORROWED_ICONS`.
  *
  * **New Avengers (56154)**: When Defeated: each minion in the encounter discard pile is shuffled into the encounter
  * deck.
@@ -60,11 +91,11 @@ export const MODULAR_NEW_AVENGERS: AbilityRegistry = defineAbilities({
   "56152.when-defeated": GIVEN_TO_THE_ENEMY_LEADER,
   "56152.boost": boost(ifThen(hasStatus(enemyLeader, "tough"), adjustBoostCount(2)), giveTough(enemyLeader)),
 
+  "56153.when-revealed": FREEDOM_FIGHTERS_WHEN_REVEALED,
+  "56153.boost": FREEDOM_FIGHTERS_BOOST,
+
   "56154.when-defeated": whenDefeated(moveCards(encounterCards(["discard"], query("minion")), "encounterDeckShuffle")),
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const MODULAR_NEW_AVENGERS_SKIPPED: Readonly<Record<string, string>> = {
-  "56153.when-revealed": "waits on spec 8.2 task 8 (§3.11): the engine primitive resolveBoostAbilitiesOf",
-  "56153.boost": "waits on spec 8.2 task 8 (§3.11): the engine primitive resolveBoostAbilitiesOf",
-};
+export const MODULAR_NEW_AVENGERS_SKIPPED: Readonly<Record<string, string>> = {};

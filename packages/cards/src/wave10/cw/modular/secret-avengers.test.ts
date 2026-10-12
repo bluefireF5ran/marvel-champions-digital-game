@@ -32,7 +32,7 @@ import {
   types,
 } from "../../../wave9/testing.js";
 import { SPIDER_WOMAN_SCENARIO, WAVE10_DEPS, civilWarHeroGame, stagedInPlay } from "../../testing.js";
-import { MODULAR_NEW_AVENGERS } from "./new-avengers.js";
+import { FREEDOM_FIGHTERS_BOOST, FREEDOM_FIGHTERS_WHEN_REVEALED, MODULAR_NEW_AVENGERS } from "./new-avengers.js";
 import { MODULAR_SECRET_AVENGERS, MODULAR_SECRET_AVENGERS_SKIPPED } from "./secret-avengers.js";
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -47,7 +47,8 @@ vi.setConfig({ testTimeout: 120_000 });
  * stack reads "boost, dealt". Advance 01186 prints no boost icon and no Boost ability. Self-propelled Glide 56179
  * (Spider-Woman's own side scheme) is the harmless card to deal. A boost exhausts a card, and everything readies
  * again at the end of the villain phase, so a boost's exhaustion is read from the `cardExhausted` events.
- * Freedom Fighters (56157) is not scripted yet (engine task 8, section 3.11), so it has no behavioral test.
+ * Freedom Fighters (56157) is the same card as New Avengers' 56153 and shares its definitions (the full behavior
+ * suite is in new-avengers.test.ts); here one test per ability proves the second code, with Black Panther as the minion.
  */
 const PANTHER = "56155";
 const SPECTRUM = "56156";
@@ -65,10 +66,11 @@ const REFS = [
   "56155.boost",
   "56156.when-defeated",
   "56156.boost",
+  "56157.when-revealed",
+  "56157.boost",
   "56158.when-revealed",
   "56159.when-defeated",
 ];
-const SKIPPED_REFS = ["56157.when-revealed", "56157.boost"];
 // Tigra's own cards: two allies and two upgrades.
 const MOON_KNIGHT = "56002";
 const TWO_GUN_KID = "56010";
@@ -180,26 +182,25 @@ function until(
 }
 
 describe("registry", () => {
-  it("registers the six refs of the scripted cards, each a valid definition", () => {
+  it("registers the eight refs of the scripted cards, each a valid definition", () => {
     expect(Object.keys(MODULAR_SECRET_AVENGERS).sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(MODULAR_SECRET_AVENGERS)) expect(validateDefinition(def), id).toEqual([]);
   });
 
-  it("skips exactly Freedom Fighters' two refs, each with its reason (the engine primitive of section 3.11)", () => {
-    expect(Object.keys(MODULAR_SECRET_AVENGERS_SKIPPED).sort()).toEqual([...SKIPPED_REFS].sort());
-    for (const reason of Object.values(MODULAR_SECRET_AVENGERS_SKIPPED))
-      expect(reason).toContain("spec 8.2 task 8 (§3.11)");
+  it("skips nothing: Freedom Fighters' two refs are scripted", () => {
+    expect(Object.keys(MODULAR_SECRET_AVENGERS_SKIPPED)).toEqual([]);
   });
 
-  it("the data names exactly these refs, registered or skipped, for the five cards", () => {
+  it("the data names exactly these refs, for the five cards", () => {
     const refs = SET.flatMap((code) => ((dataOf(code).abilities ?? []) as { id: string }[]).map((a) => a.id));
-    expect(refs.sort()).toEqual([...REFS, ...SKIPPED_REFS].sort());
+    expect(refs.sort()).toEqual([...REFS].sort());
   });
 
   it("carries the printed timing of each ability", () => {
     for (const ref of ["56155.when-defeated", "56156.when-defeated", "56159.when-defeated"])
       expect(MODULAR_SECRET_AVENGERS[ref]!.trigger, ref).toMatchObject({ kind: "whenDefeated" });
-    for (const ref of ["56155.boost", "56156.boost"])
+    expect(MODULAR_SECRET_AVENGERS["56157.when-revealed"]!.trigger).toMatchObject({ kind: "whenRevealed" });
+    for (const ref of ["56155.boost", "56156.boost", "56157.boost"])
       expect(MODULAR_SECRET_AVENGERS[ref]!.trigger, ref).toMatchObject({ kind: "boost" });
     expect(MODULAR_SECRET_AVENGERS["56158.when-revealed"]!.trigger).toMatchObject({ kind: "whenRevealed" });
   });
@@ -399,11 +400,47 @@ describe("Switching Sides (56158)", () => {
   });
 });
 
-describe("Freedom Fighters (56157)", () => {
-  it("is data: a treachery with a boost star and no boost icon; its abilities wait on an engine primitive", () => {
+describe("Freedom Fighters (56157), the second code of New Avengers' 56153", () => {
+  it("is data: a treachery with a boost star and no boost icon; both abilities are the 56153 definitions", () => {
     const card = dataOf(FIGHTERS);
     expect([card.type, card.boostIcons, card.starIcon]).toEqual(["treachery", 0, true]);
-    for (const ref of SKIPPED_REFS) expect(ref in MODULAR_SECRET_AVENGERS).toBe(false);
+    expect(MODULAR_SECRET_AVENGERS["56157.when-revealed"]).toBe(FREEDOM_FIGHTERS_WHEN_REVEALED);
+    expect(MODULAR_SECRET_AVENGERS["56157.boost"]).toBe(FREEDOM_FIGHTERS_BOOST);
+    expect(MODULAR_SECRET_AVENGERS["56157.boost"]).toBe(MODULAR_NEW_AVENGERS["56153.boost"]);
+    expect(MODULAR_SECRET_AVENGERS["56157.when-revealed"]).toBe(MODULAR_NEW_AVENGERS["56153.when-revealed"]);
+  });
+
+  /** Tigra with an upgrade attached, and Black Panther engaged with her. */
+  function withPanther() {
+    const upgrade = stagedInPlay(game(), AMULET, { attach: true });
+    const panther = engaged(upgrade.state, PANTHER);
+    return { state: panther.state, upgrade: upgrade.id, panther: panther.id };
+  }
+
+  it("WHEN REVEALED: Black Panther's Boost resolves in play (the upgrade is exhausted), and the card does not gain surge", () => {
+    const { state, upgrade, panther } = withPanther();
+    const run = villainPhase(state, ADVANCE, FIGHTERS, GLIDE);
+    expect(revealedCodes(run.state, run.events)).toEqual([FIGHTERS]);
+    expect(exhaustedIds(run.events)).toEqual([upgrade]);
+    expect(types(run.events, "surgeTriggered")).toEqual([]);
+    expect(inst(run.state, panther)).toMatchObject({ engagedWith: P1, faceup: true });
+  });
+
+  it("WHEN REVEALED with no minion in play: the card gains surge and the next card is revealed too", () => {
+    const run = villainPhase(game(), ADVANCE, FIGHTERS, GLIDE);
+    expect(types(run.events, "surgeTriggered").map((e) => codeOf(run.state, e.instanceId))).toEqual([FIGHTERS]);
+    expect(revealedCodes(run.state, run.events)).toEqual([FIGHTERS, GLIDE]);
+  });
+
+  it("BOOST, as the leader's boost card: Black Panther engaged with you has his Boost resolved (the upgrade is exhausted); question 10 changes nothing here", () => {
+    const { state, upgrade, panther } = withPanther();
+    const run = villainPhase(state, FIGHTERS, GLIDE);
+    expect(flipped(run.state, run.events)).toEqual([[FIGHTERS, 0]]);
+    expect(exhaustedIds(run.events)).toEqual([upgrade]);
+    expect(inst(run.state, panther)).toMatchObject({ engagedWith: P1, faceup: true });
+    expect(attacksBy(run.state, run.events, SPIDER_WOMAN)).toMatchObject([
+      { baseAtk: 2, boostIcons: 0, damageDealt: 2 },
+    ]);
   });
 });
 
