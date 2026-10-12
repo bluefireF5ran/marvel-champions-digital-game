@@ -17,7 +17,7 @@ import {
   mainSchemeFor,
   cardBackOf,
 } from "../query.js";
-import { enemyTeamDecider, type EffectContext } from "../select.js";
+import { enemyTeamDecider, traitGrantReach, type EffectContext } from "../select.js";
 import type { RevealSource, StackFrame } from "../stack.js";
 import type { ZoneId } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
@@ -37,7 +37,7 @@ import {
   schemeEntryThreat,
   teamworkFrame,
 } from "./enter-play.js";
-import { hasCandidates, heard } from "./triggers.js";
+import { asksTraitGrants, hasCandidates, heard } from "./triggers.js";
 import { pushWindow } from "./window.js";
 import { markPreThenUnresolved } from "./then.js";
 import { base, eventFrame, type Frame, gameAbilityFrames, pushEvent } from "./frames.js";
@@ -425,7 +425,16 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
         moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
       }
       // RRG "Reveal": responses to any step wait until every step has completed.
-      const events: TriggerEvent[] = [{ kind: "cardRevealed", instanceId: frame.instanceId, playerId: frame.playerId }];
+      // What the card's own text grants now that every step is done (docs/phase7-wave10.md §3.16), when asked.
+      const granted = asksTraitGrants(ctx.deps) ? traitGrantReach(ctx.state, ctx.deps, frame.instanceId) : {};
+      const events: TriggerEvent[] = [
+        {
+          kind: "cardRevealed",
+          instanceId: frame.instanceId,
+          playerId: frame.playerId,
+          ...(Object.keys(granted).length > 0 ? { grantedTo: granted } : {}),
+        },
+      ];
       const surgeLive = !frame.effectsCancelled && !frame.whenRevealedCancelled;
       const surges = surgeLive && (frame.surgeGained || hasKeyword(ctx.state, frame.instanceId, "surge", ctx.deps));
       // "After you resolve a treachery" (`encounterCardResolved`): a treachery or event one or more of whose abilities

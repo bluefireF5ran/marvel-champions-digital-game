@@ -276,6 +276,15 @@ export function beingRevealed(state: GameState, id: InstanceId): boolean {
 export function dealChosenBoostCard(ctx: Ctx, holderId: InstanceId, cardId: InstanceId): void {
   updateInstance(ctx, cardId, (i) => ({ ...i, faceup: false }));
   moveCard(ctx, cardId, { kind: "boost", hostInstanceId: holderId });
+  boostCardGivenTo(ctx, holderId, cardId);
+}
+
+/**
+ * A named card is now a facedown boost card on `holderId`: logged, and recorded for its `boostCardGiven` announcement.
+ * The caller has moved it there: `dealChosenBoostCard` for a card out of play, a defeat for the defeated card itself
+ * ("give this card to the enemy leader as a facedown boost card", docs/phase7-wave10.md §3.10; `defeatFromPlay`).
+ */
+export function boostCardGivenTo(ctx: Ctx, holderId: InstanceId, cardId: InstanceId): void {
   emit(ctx, { type: "boostCardDealt", enemyInstanceId: holderId, instanceId: cardId, outsideActivation: true });
   recordBoostGiven(ctx, holderId, cardId);
 }

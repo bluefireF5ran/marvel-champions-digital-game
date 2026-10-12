@@ -296,7 +296,10 @@ export type { InPlayCostMode, ResourcesChoice } from "./abilities.js";
 
 export type {
   AbilityTimingWord,
+  BoostCardDestination,
   CardDestination,
+  DefeatDestination,
+  DefeatPlacement,
   CardSelector,
   CharacterNames,
   EffectSpec,

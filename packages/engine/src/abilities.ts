@@ -155,6 +155,19 @@ export interface EventPattern {
    */
   readonly targetHadAttachment?: TargetQuery;
   /**
+   * "After another card is revealed **that gives 1 or more heroes the Unregistered trait**" (Hunting Rebel Heroes, `cw`
+   * 56097b; docs/phase7-wave10.md §3.16): the revealed card carries a constant grant of this trait that reaches at
+   * least one card in play (`cardRevealed.grantedTo`), whether or not that card already had the trait (owner decision,
+   * question 12 = A, provisional). A `cardRevealed` response only: the grant is read once the reveal has completed,
+   * with the card in play. Any other event never matches. The cards reached are `TargetRef grantedTo`.
+   */
+  readonly grantsTrait?: Trait;
+  /**
+   * With `grantsTrait`: one of the cards the grant reaches must match ("1 or more **heroes**" is a hero-form identity),
+   * read with this card as `self`. Without `grantsTrait` it is never read.
+   */
+  readonly grantedToIs?: TargetQuery;
+  /**
    * The event's player (its first player subject, `eventPlayer`) must be one of these, resolved with this card as
    * `self`: "After **the engaged player** generates any number of resources" (M.O.R.B.I.U.S., `spdr` 31027 errata, RRG
    * 1.8 p. 68) is `{ kind: "engagedWith", of: { kind: "self" } }`. An encounter card's `playerIs: "controller"` matches

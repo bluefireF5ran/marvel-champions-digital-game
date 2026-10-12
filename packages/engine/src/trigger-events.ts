@@ -2,7 +2,15 @@ import type { AbilityId, CardId, Trait } from "@mc/content";
 import type { EventPattern } from "./abilities.js";
 import type { EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
 import type { StatusDiscardCause } from "./events.js";
-import type { CardDestination, EffectSpec, Predicate, StatName, StatusName, TargetCategory } from "./spec.js";
+import type {
+  CardDestination,
+  DefeatPlacement,
+  EffectSpec,
+  Predicate,
+  StatName,
+  StatusName,
+  TargetCategory,
+} from "./spec.js";
 import { PAID_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
 import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./state.js";
 
@@ -450,7 +458,21 @@ export type TriggerEventBody =
       /** The cards that paid for the play, as `cardPlayed.paidCards` has them; absent when no card paid. */
       readonly paidCards?: readonly InstanceId[];
     }
-  | { readonly kind: "cardRevealed"; readonly instanceId: InstanceId; readonly playerId: PlayerId }
+  | {
+      readonly kind: "cardRevealed";
+      readonly instanceId: InstanceId;
+      readonly playerId: PlayerId;
+      /**
+       * "After another card is revealed that gives 1 or more heroes the Unregistered trait" (Hunting Rebel Heroes, `cw`
+       * 56097b; docs/phase7-wave10.md §3.16): for each trait a constant ability of the revealed card grants
+       * (`TraitGrantSpec.trait`), the cards in play that grant reaches, read once every step of the reveal has
+       * completed and the card is in play (`traitGrantReach`). Whether a card already had the trait is not asked: the
+       * text "gives" it to every card it names (owner decision, docs/phase7-wave10.md §4.1 question 12 = A,
+       * provisional). A trait whose grant reaches no card is left out. Read by `EventPattern.grantsTrait` and
+       * `TargetRef grantedTo`. Absent on a reveal that grants nothing, and in a game where no ability asks.
+       */
+      readonly grantedTo?: Readonly<Record<string, readonly InstanceId[]>>;
+    }
   /**
    * A revealed treachery (or a revealed event) has **resolved**: "After you resolve a treachery, … attach that treachery
    * facedown here" (Spider-Man Noir, `spdr` 31015). RRG 1.8 "Resolve" (p. 37): "A treachery card is resolved when it is
@@ -567,8 +589,9 @@ export type TriggerEventBody =
        * "Return it to its owner's hand instead of discarding it" (Regroup): where the defeated card goes instead of its
        * discard pile, set by an interrupt's `EffectSpec setDefeatDestination` (docs/phase7-wave3.md §3.45). It is still
        * defeated — When Defeated, Victory X and "after … is defeated" all still apply; only the discard is replaced.
+       * `{ boostCardOf }`: onto that card as a facedown boost card (docs/phase7-wave10.md §3.10).
        */
-      readonly destination?: CardDestination;
+      readonly destination?: DefeatPlacement;
       readonly parentFrameId?: FrameId | null;
       /**
        * The damage event that dealt the defeating damage, told "defeated" as well as its parent: "If that character is
@@ -1753,7 +1776,7 @@ export type LeaveRequest =
       readonly sourceCardId?: CardId;
       readonly asCost?: true;
     }
-  | { readonly kind: "defeat"; readonly insteadTo?: CardDestination; readonly sourceCardId?: CardId }
+  | { readonly kind: "defeat"; readonly insteadTo?: DefeatPlacement; readonly sourceCardId?: CardId }
   /**
    * A swap's outgoing card (`EffectSpec swapCards`, docs/phase7-wave6.md §3.47): once its interrupts resolve, the swap
    * with `with` completes (`swapCards` again), taking the out-of-play card's place as that card enters play in its own.

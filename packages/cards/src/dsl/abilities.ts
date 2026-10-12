@@ -2833,6 +2833,26 @@ export const on = {
   youRevealEncounterCard: (what?: TargetQuery): EventPattern =>
     pattern("cardRevealed", { playerIs: "controller" }, what ? { targetIs: what } : {}),
   /**
+   * "After another card is revealed that gives 1 or more heroes the Unregistered trait" (Hunting Rebel Heroes, `cw`
+   * 56097b; docs/phase7-wave10.md §3.16): any player's reveal of a card whose constant ability grants `t` to at least
+   * one card in play, heard once every step of the reveal has completed (RRG 1.8 "Reveal", p. 38). `to`: one of the
+   * cards it is given to must match ("1 or more **heroes**" is `query("hero")`). `another` leaves out this card's own
+   * reveal. A card that already had the trait counts as given it (owner decision, question 12 = A, provisional). A
+   * response only. "Those heroes" are `grantedTo(t, query("hero"))`:
+   * `forcedResponse(on.cardRevealedGranting(t, { to: query("hero"), another: true }), dealDamage(2, grantedTo(t,
+   * query("hero"))))`.
+   */
+  cardRevealedGranting: (
+    t: Trait,
+    opts: { readonly to?: TargetQuery; readonly another?: boolean } = {},
+  ): EventPattern =>
+    pattern(
+      "cardRevealed",
+      { grantsTrait: t },
+      opts.to ? { grantedToIs: opts.to } : {},
+      opts.another ? { targetIs: { self: false } } : {},
+    ),
+  /**
    * "After you resolve a treachery" (Spider-Man Noir, `spdr` 31015): a treachery you revealed has resolved — one or
    * more of its abilities, surge and incite included, resolved (RRG 1.8 "Resolve", p. 37); a cancelled one has not
    * (FAQ "Spider-Man Noir (#15)", p. 63). Heard after reveal step 4 and before any surge card is revealed; "that

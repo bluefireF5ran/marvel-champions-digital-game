@@ -110,7 +110,7 @@ import {
   resolveValue,
   sourcePlayerOf,
 } from "../select.js";
-import type { EffectSpec, PlayerRef, StatName } from "../spec.js";
+import type { DefeatPlacement, EffectSpec, PlayerRef, StatName } from "../spec.js";
 import { type GameState, NO_STATUSES } from "../state.js";
 import {
   currentActivationFrameId,
@@ -195,7 +195,13 @@ import {
   revealMainSchemeStages,
 } from "./game-areas.js";
 import { emitSharedEvent, resolveInGroup } from "./pod.js";
-import { announceDamagePrevented, readyOrAnnounce, threatRemovalBlocked, thwartBlockedOn } from "./event.js";
+import {
+  announceDamagePrevented,
+  readyOrAnnounce,
+  redirectPendingDefeat,
+  threatRemovalBlocked,
+  thwartBlockedOn,
+} from "./event.js";
 import {
   abilityAttackDamage,
   abilityAttackOf,
@@ -1226,9 +1232,24 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "setDefeatDestination": {
       // docs/phase7-wave3.md §3.45: "return it to its owner's hand instead of discarding it", from an interrupt to the
       // defeat. The defeat still happens; `applyDefeat` sends the card here instead of its discard pile.
+      // An enemy's boost cards (docs/phase7-wave10.md §3.10): the first card named in play, read now for the player
+      // resolving this; with none the defeat keeps the destination it had.
+      let to: DefeatPlacement;
+      if (typeof effect.to === "object" && "kind" in effect.to) {
+        const inPlay = cardsInPlay(ctx.state);
+        const [holder] = targets(effect.to.enemy).filter((id) => inPlay.includes(id));
+        if (holder === undefined) return;
+        to = { boostCardOf: holder };
+      } else to = effect.to;
       const target = frame.eventFrameId ? findFrame(ctx.state, frame.eventFrameId) : undefined;
-      if (target?.kind !== "event" || target.event.kind !== "characterDefeated" || target.cancelled) return;
-      setFrame(ctx, { ...target, event: { ...target.event, destination: effect.to } });
+      if (target?.kind === "event") {
+        if (target.event.kind !== "characterDefeated" || target.cancelled) return;
+        setFrame(ctx, { ...target, event: { ...target.event, destination: to } });
+        return;
+      }
+      // The defeated card's own When Defeated ability: its leaving step waits below (RRG 1.8 p. 48).
+      if (frame.event?.kind === "characterDefeated" && frame.event.instanceId === frame.selfInstanceId)
+        redirectPendingDefeat(ctx, frame.event.instanceId, to);
       return;
     }
     case "cancelConsequentialDamage": {

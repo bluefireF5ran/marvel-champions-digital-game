@@ -60,6 +60,7 @@ import {
 } from "./rules.js";
 import { addFrameSlots, eventFrame, pushEvent } from "./resolve/frames.js";
 import { moveCardsTo } from "./resolve/cards.js";
+import { boostCardGivenTo } from "./resolve/enemy-activation.js";
 import { staysInGameForScenarioDeck } from "./resolve/scenario-deck-top.js";
 import { flipSeparatedCard, separatedFlipWaits } from "./separated-identity.js";
 import { describeFrame, type StackFrame } from "./stack.js";
@@ -78,7 +79,7 @@ import {
   type EffectContext,
 } from "./select.js";
 import { hasCandidates, heard } from "./resolve/triggers.js";
-import type { CardDestination, StatusName } from "./spec.js";
+import type { CardDestination, DefeatPlacement, StatusName } from "./spec.js";
 import type { DeckDiscard, GameOutcome, GameState, MainSchemeState, TuckedDiscard, ZoneId } from "./state.js";
 import type { AttachmentBound, LastingDuration, LastingEffect, LastingEffectBody } from "./lasting.js";
 
@@ -1392,17 +1393,25 @@ export function leavingPlayPending(state: GameState, id: InstanceId): boolean {
  * X attachments included: the defeat waits as one `LeaveRequest defeat`. `sourceCardId`: the card whose ability defeats
  * it, if any (`permanentStopsLeaving`); a defeat by the game's rules has none.
  */
-export function defeatFromPlay(ctx: Ctx, id: InstanceId, insteadTo?: CardDestination, sourceCardId?: CardId): void {
+export function defeatFromPlay(ctx: Ctx, id: InstanceId, placement?: DefeatPlacement, sourceCardId?: CardId): void {
   const instance = getInstance(ctx.state, id);
   if (!instance) return;
   const victory = hasKeyword(ctx.state, id, "victory", ctx.deps);
+  // "Give this card to the enemy leader as a facedown boost card" (docs/phase7-wave10.md §3.10): onto that card while
+  // it is in play; with it gone the defeated card is discarded as normal.
+  const givenTo = typeof placement === "object" && "boostCardOf" in placement ? placement.boostCardOf : undefined;
+  const holder = givenTo !== undefined && givenTo !== id && cardsInPlay(ctx.state).includes(givenTo) ? givenTo : null;
+  const insteadTo = typeof placement === "object" && "boostCardOf" in placement ? undefined : placement;
   const going: ZoneId["kind"] = victory
     ? "victoryDisplay"
-    : insteadTo !== undefined
-      ? destinationZoneKind(insteadTo)
-      : leaveDestinationKind(ctx.state, ctx.deps, id, discardZoneFor(ctx.state, id).kind, true);
+    : holder !== null
+      ? "boost"
+      : insteadTo !== undefined
+        ? destinationZoneKind(insteadTo)
+        : leaveDestinationKind(ctx.state, ctx.deps, id, discardZoneFor(ctx.state, id).kind, true);
   const source = sourceCardId !== undefined ? { sourceCardId } : {};
-  const request: LeaveRequest = { kind: "defeat", ...(insteadTo !== undefined ? { insteadTo } : {}), ...source };
+  const instead = placement !== undefined ? { insteadTo: placement } : {};
+  const request: LeaveRequest = { kind: "defeat", ...instead, ...source };
   if (waitsForLeaveInterrupts(ctx, id, request, going)) return;
   // A permanent card this defeat cannot move keeps its Victory X attachments with it.
   if (permanentStopsLeaving(ctx.state, ctx.deps, id, sourceCardId)) {
@@ -1414,6 +1423,12 @@ export function defeatFromPlay(ctx: Ctx, id: InstanceId, insteadTo?: CardDestina
       leavePlayAtOnce(ctx, attachment, { kind: "victoryDisplay" });
   }
   if (victory) leavePlay(ctx, id, { kind: "victoryDisplay" }, "top", false, undefined, sourceCardId);
+  else if (holder !== null) {
+    // After the boost cards already there ("bottom"), which are turned up in the order given, and facedown once it has
+    // left play; a double-sided card is removed from the game instead (`removedAsDoubleSided`).
+    leavePlay(ctx, id, { kind: "boost", hostInstanceId: holder }, "bottom", false, { faceup: false }, sourceCardId);
+    if (locateCard(ctx.state, id)?.kind === "boost") boostCardGivenTo(ctx, holder, id);
+  }
   // "… instead of discarding it" (a defeat destination, docs/phase7-wave3.md §3.45) replaces only the discard.
   else if (insteadTo !== undefined) moveCardsTo(ctx, [id], insteadTo, undefined, sourceCardId);
   else discardFromPlay(ctx, id, sourceCardId);

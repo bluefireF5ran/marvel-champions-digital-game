@@ -18,6 +18,7 @@ import {
   DEFAULT_DEPS,
   type EngineDeps,
   type RuleSpec,
+  type TraitGrantSpec,
 } from "./abilities.js";
 import { isRulesCardType, type RulesCardType } from "./card-types.js";
 import { countersOfType } from "./counter-types.js";
@@ -679,28 +680,9 @@ function traitsOfGuarded(
       for (const ref of constantAbilityRefs(state, sourceId, deps)) {
         const definition = deps.abilities[ref.id];
         if (definition?.trigger.kind !== "constant" || !definition.trigger.traitGrants) continue;
-        // `DEFAULT_DEPS`: printed characteristics only, so neither the condition nor the target query can re-enter
-        // this function (a `while: hasTrait(...)`, a `target` that asks what a card may attack, …).
-        // "You" is the granting card's speaker, as for its rules and stat modifiers (`constantYouOf`).
-        const context: EffectContext = {
-          selfInstanceId: sourceId,
-          controllerId: constantYouOf(state, sourceId),
-          event: null,
-          bindings: {},
-          deps: DEFAULT_DEPS,
-          ...reachOf(definition),
-        };
+        const context = traitGrantContext(state, sourceId, definition);
         for (const grant of definition.trigger.traitGrants) {
-          if (grant.while && !evaluate(state, grant.while, context)) continue;
-          // Trait grants can't depend on traits being granted: every trait filter here only sees printed traits (reading
-          // granted traits would recurse back into this function).
-          const { trait: requiredTrait, withoutTrait, anyTrait, ...rest } = grant.target;
-          const printed = printedTraitsOf(state, id);
-          const traitsMatch =
-            (!requiredTrait || printed.includes(requiredTrait)) &&
-            (!withoutTrait || !printed.includes(withoutTrait)) &&
-            (!anyTrait || anyTrait.some((wanted) => printed.includes(wanted)));
-          if (matchesQuery(state, id, rest, context) && traitsMatch) {
+          if (traitGrantReaches(state, grant, id, context)) {
             if (grant.trait) traits.push(grant.trait);
             if (grant.traitsOf) {
               const query = grant.traitsOf;
@@ -715,6 +697,70 @@ function traitsOfGuarded(
     }
   }
   return traits;
+}
+
+/** The context a card's constant trait grants are read in (`traitsOfGuarded`, `traitGrantReach`). */
+function traitGrantContext(
+  state: GameState,
+  sourceId: InstanceId,
+  definition: AbilityDefinition | undefined,
+): EffectContext {
+  // `DEFAULT_DEPS`: printed characteristics only, so neither the condition nor the target query can re-enter
+  // `traitsOf` (a `while: hasTrait(...)`, a `target` that asks what a card may attack, …).
+  // "You" is the granting card's speaker, as for its rules and stat modifiers (`constantYouOf`).
+  return {
+    selfInstanceId: sourceId,
+    controllerId: constantYouOf(state, sourceId),
+    event: null,
+    bindings: {},
+    deps: DEFAULT_DEPS,
+    ...reachOf(definition),
+  };
+}
+
+/** Whether one constant trait grant, read in its card's `context`, reaches the card `id`. */
+function traitGrantReaches(state: GameState, grant: TraitGrantSpec, id: InstanceId, context: EffectContext): boolean {
+  if (grant.while && !evaluate(state, grant.while, context)) return false;
+  // Trait grants can't depend on traits being granted: every trait filter here only sees printed traits (reading
+  // granted traits would recurse back into `traitsOf`).
+  const { trait: requiredTrait, withoutTrait, anyTrait, ...rest } = grant.target;
+  const printed = printedTraitsOf(state, id);
+  const traitsMatch =
+    (!requiredTrait || printed.includes(requiredTrait)) &&
+    (!withoutTrait || !printed.includes(withoutTrait)) &&
+    (!anyTrait || anyTrait.some((wanted) => printed.includes(wanted)));
+  return traitsMatch && matchesQuery(state, id, rest, context);
+}
+
+/**
+ * What one card's text gives: for each trait a constant ability of `sourceId` grants by name (`TraitGrantSpec.trait`),
+ * the cards in play that grant reaches now, in play order (docs/phase7-wave10.md §3.16, `cardRevealed.grantedTo`). The
+ * same read `traitsOf` makes of every constant, asked of one source: the card must be one whose constants are read
+ * (`constantSources`: in play, its text box not blank), and each grant's `while` and `target` are read as `traitsOf`
+ * reads them. Whether a card already has the trait, printed or from another grant, is not asked. A grant that copies
+ * other cards' traits (`traitsOf`) names no trait and is not listed; a trait reaching no card is left out.
+ */
+export function traitGrantReach(
+  state: GameState,
+  deps: EngineDeps,
+  sourceId: InstanceId,
+): Readonly<Record<string, readonly InstanceId[]>> {
+  const reach: Record<string, InstanceId[]> = {};
+  if (!constantSources(state, deps).includes(sourceId)) return reach;
+  const inPlay = cardsInPlay(state);
+  for (const ref of constantAbilityRefs(state, sourceId, deps)) {
+    const definition = deps.abilities[ref.id];
+    if (definition?.trigger.kind !== "constant" || !definition.trigger.traitGrants) continue;
+    const context = traitGrantContext(state, sourceId, definition);
+    for (const grant of definition.trigger.traitGrants) {
+      if (grant.trait === undefined) continue;
+      const reached = inPlay.filter((id) => traitGrantReaches(state, grant, id, context));
+      if (reached.length === 0) continue;
+      const known = (reach[grant.trait] ??= []);
+      for (const id of reached) if (!known.includes(id)) known.push(id);
+    }
+  }
+  return reach;
 }
 
 /** Every card instance that is in play, in a stable order (RRG "In Play and Out of Play"). */
@@ -2529,6 +2575,14 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       return ref.filter
         ? attached.filter((id) => matchesQuery(state, id, ref.filter as TargetQuery, context))
         : attached;
+    }
+    case "grantedTo": {
+      // "Each of those heroes" (docs/phase7-wave10.md §3.16): what the revealed card's grant reached, still in play.
+      const event = context.event;
+      if (event?.kind !== "cardRevealed") return [];
+      const inPlay = cardsInPlay(state);
+      const reached = (event.grantedTo?.[ref.trait] ?? []).filter((id) => inPlay.includes(id));
+      return ref.filter ? reached.filter((id) => matchesQuery(state, id, ref.filter as TargetQuery, context)) : reached;
     }
     case "tuckedUnder": {
       // "Each face down Kang's Dominion under this stage": tucked cards are out of play, so only a ref finds them.

@@ -758,6 +758,13 @@ export type TargetRef =
   /** "Each card attached here" / "the cards attached to that character" (Bruno Carrelli), in attachment order. */
   | { readonly kind: "attachmentsOf"; readonly of: TargetRef; readonly filter?: TargetQuery }
   /**
+   * "Deal 2 damage to each of **those heroes**" (Hunting Rebel Heroes, `cw` 56097b; docs/phase7-wave10.md §3.16): in a
+   * response to a `cardRevealed` event, the cards the revealed card's constant grant of `trait` reaches
+   * (`cardRevealed.grantedTo`) that are still in play, narrowed by `filter` ("heroes"). A card that already had the
+   * trait is among them (owner decision, question 12 = A, provisional). None for any other event.
+   */
+  | { readonly kind: "grantedTo"; readonly trait: Trait; readonly filter?: TargetQuery }
+  /**
    * "Each face down Kang's Dominion under this stage" (Kang's Wrath 4A, 11013a): the cards tucked under what `of`
    * names, in tuck order. The `TargetRef` sibling of the `tucked` `CardSelector`, so an effect that takes a ref —
    * `revealCard` above all — can name them. Tucked cards are out of play (RRG 1.8 "Tuck", p. 45), which is exactly
@@ -3824,7 +3831,7 @@ export type EffectSpec =
       readonly kind: "discardFromPlay";
       readonly target: TargetRef;
       readonly defeated?: boolean;
-      readonly insteadTo?: CardDestination;
+      readonly insteadTo?: DefeatPlacement;
     }
   /**
    * "Create 'The Collection' game area" (The Grand Collection 1A, `gmw` 16073a): an empty scenario out-of-play area named
@@ -3983,9 +3990,16 @@ export type EffectSpec =
    * defeated card goes to `to` instead of its discard pile. `"hand"` and the deck destinations are its owner's. The
    * card is still defeated: When Defeated, "after … is defeated" and a `defeated` result all still apply. Only the
    * discard is replaced, so a Victory X card still goes to the victory display (RRG 1.8 "Victory X", p. 46: it is not
-   * being discarded). A later interrupt's destination replaces an earlier one's. Does nothing outside that window.
+   * being discarded). A later interrupt's destination replaces an earlier one's.
+   *
+   * Also read in the defeated card's own When Defeated ability ("When Defeated: Give this card to the enemy leader as
+   * a facedown boost card", Falcon, `cw` 56150; docs/phase7-wave10.md §3.10): the card is still in play while that
+   * ability resolves and "leaves play after its 'When Defeated' ability is resolved" (RRG 1.8 "When Defeated
+   * Abilities", p. 48), so its leaving step, already waiting, takes the new destination. Does nothing anywhere else.
+   *
+   * `to` may be an enemy's boost cards (`BoostCardDestination`).
    */
-  | { readonly kind: "setDefeatDestination"; readonly to: CardDestination }
+  | { readonly kind: "setDefeatDestination"; readonly to: DefeatDestination }
   /**
    * "Engage that enemy" (Get Over Here!). RRG 1.8 "Engage" (p. 18): "If a card ability instructs a player to engage a
    * minion, that minion is also considered to have engaged that player", and "while a minion is engaged with a
@@ -5273,8 +5287,8 @@ export interface DefeatFollowUp {
   /** "You" for its When Defeated abilities when nobody controls it: the engaged player, else the first player. */
   readonly actingPlayerId: PlayerId | null;
   readonly controllerId: PlayerId | null;
-  /** Where it goes instead of its discard pile (Regroup, a `defeatDestination` rule). */
-  readonly insteadTo?: CardDestination;
+  /** Where it goes instead of its discard pile (Regroup, a `defeatDestination` rule, an enemy's boost cards). */
+  readonly insteadTo?: DefeatPlacement;
   /** The card whose ability defeated it, for the Permanent keyword (docs/phase7-wave5.md §4.1 Q46). */
   readonly sourceCardId?: CardId;
   /** Overkill's excess, dealt once the defeat has happened and before its When Defeated abilities (`beginDefeat`). */
@@ -5299,6 +5313,39 @@ export interface DefeatFollowUp {
 export interface PairLimit {
   readonly distinctBy: "resourceIcon";
 }
+
+/**
+ * "Give this card to the enemy leader **as a facedown boost card**" (Falcon, `cw` 56150; Dangerous Recruits, 56091;
+ * docs/phase7-wave10.md §3.10): a defeated card's destination that is the boost cards of the first card `enemy` names
+ * in play, read for the player resolving the ability as the destination is set. Only a defeat's destination
+ * (`EffectSpec setDefeatDestination`): a card not being defeated is given with `giveBoostCard`.
+ *
+ * The card is still defeated and still leaves play (RRG 1.8 "Leaves Play", p. 27: its tokens and status cards go, its
+ * attachments are discarded, "after … is defeated" and "after … leaves play" answer, the latter with `to: "boost"`).
+ * It is not discarded, so nothing hears a discard. It goes facedown onto that enemy after the boost cards already
+ * there, logged `boostCardDealt` with `outsideActivation` and announced as `boostCardGiven`. From there it is any
+ * boost card dealt outside the enemy's activation (RRG 1.8 "Boost, Boost Icon", p. 11: it "remains facedown on that
+ * enemy until that enemy activates", and a villain "still gets dealt another boost card at the start of its
+ * activation as normal"): turned up in that enemy's next activation, its boost icons counted and its "Boost" ability
+ * resolved, then discarded to its own discard pile.
+ *
+ * What it does not replace: a Victory X card's place in the victory display (as for any defeat destination, RRG 1.8
+ * "Victory X", p. 46); and when no card `enemy` names is in play, as the destination is set or when the card leaves,
+ * the card is discarded as normal.
+ */
+export interface BoostCardDestination {
+  readonly kind: "boostCardOf";
+  readonly enemy: TargetRef;
+}
+
+/** Where `EffectSpec setDefeatDestination` sends a defeated card: a `CardDestination`, or an enemy's boost cards. */
+export type DefeatDestination = CardDestination | BoostCardDestination;
+
+/**
+ * A defeat destination as the engine carries it once set (the defeat event, its leaving step, a waiting leaving): a
+ * `BoostCardDestination` with its enemy resolved to the card that holds the boost card.
+ */
+export type DefeatPlacement = CardDestination | { readonly boostCardOf: InstanceId };
 
 export type CardDestination =
   /** "Put it faceup into The Collection": a scenario out-of-play area, cards faceup (docs/phase7-wave3.md §3.14). */

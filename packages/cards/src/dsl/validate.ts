@@ -78,6 +78,8 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkTuckReplacement(definition, problems);
   checkAttachReplacement(definition, problems);
   checkLeaveReplacement(definition, problems);
+  checkBoostCardDestination(definition, problems);
+  checkTraitReveal(definition, problems);
   checkCounterDivision(definition, problems);
   checkSpendX(definition, problems);
   checkPod(definition, problems);
@@ -787,6 +789,72 @@ function checkSpendX(definition: AbilityDefinition, problems: string[]): void {
     if (each < 1) problems.push("spendResources x: resources is the price of one and must ask for at least 1 resource");
     if (effect.required) problems.push("spendResources x: not with required (X of 0 is the player's to choose)");
     if (effect.distinctTypes !== undefined) problems.push("spendResources x: not with distinctTypes");
+  }
+}
+
+/**
+ * A defeat destination that is an enemy's boost cards (`setDefeatDestination(boostCardOf(…))`, docs/phase7-wave10.md
+ * §3.10) is read in the two places a defeat's destination can still change: the defeated card's own When Defeated
+ * ability, and an interrupt whose one triggering condition is a character's defeat. Anywhere else the effect does
+ * nothing, which for "give this card … as a facedown boost card" is a card silently discarded.
+ */
+function checkBoostCardDestination(definition: AbilityDefinition, problems: string[]): void {
+  const gives = allEffects(definition.effects).some(
+    (effect) => effect.kind === "setDefeatDestination" && typeof effect.to === "object" && "kind" in effect.to,
+  );
+  if (!gives) return;
+  const trigger = definition.trigger;
+  if (trigger.kind === "whenDefeated") return;
+  const kinds =
+    trigger.kind === "interrupt" ? (typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on) : [];
+  if (kinds.length !== 1 || kinds[0] !== "characterDefeated")
+    problems.push(
+      "setDefeatDestination boostCardOf needs a When Defeated ability or an interrupt on a character's defeat (interrupt(on.defeated(…), …))",
+    );
+}
+
+/**
+ * "A card is revealed that gives … the [trait] trait" (`EventPattern.grantsTrait`, docs/phase7-wave10.md §3.16): what
+ * a revealed card gives is read once its reveal has completed, so the pattern is a response's and hears `cardRevealed`
+ * alone; `grantedToIs` narrows that read and means nothing without it. "Those heroes" (`TargetRef grantedTo`) are read
+ * off that event, so the ref belongs to an ability whose pattern asks for the same trait: anywhere else it names no card.
+ */
+function checkTraitReveal(definition: AbilityDefinition, problems: string[]): void {
+  const trigger = definition.trigger;
+  const asked = new Set<string>();
+  const visit = (pattern: EventPattern): void => {
+    if (pattern.grantedToIs !== undefined && pattern.grantsTrait === undefined)
+      problems.push(
+        "a pattern's grantedToIs narrows grantsTrait: name the trait (on.cardRevealedGranting(trait, { to }))",
+      );
+    if (pattern.grantsTrait !== undefined) {
+      asked.add(pattern.grantsTrait);
+      const kinds = kindsOfPattern(pattern);
+      if (trigger.kind !== "response" || kinds.length !== 1 || kinds[0] !== "cardRevealed")
+        problems.push(
+          "a pattern's grantsTrait is read after a card is revealed: a response on cardRevealed alone (response(on.cardRevealedGranting(…), …))",
+        );
+    }
+    for (const alternative of pattern.anyOf ?? []) visit(alternative);
+  };
+  if ((trigger.kind === "interrupt" || trigger.kind === "response") && trigger.on !== undefined) visit(trigger.on);
+  const seen = new Set<string>();
+  const refs = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) refs(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    const record = value as Readonly<Record<string, unknown>>;
+    if (record.kind === "grantedTo" && typeof record.trait === "string") seen.add(record.trait);
+    for (const item of Object.values(record)) refs(item);
+  };
+  refs(definition.effects);
+  for (const named of seen) {
+    if (!asked.has(named))
+      problems.push(
+        `grantedTo("${named}") reads the revealed card of on.cardRevealedGranting("${named}", …): this ability's trigger does not ask for that trait`,
+      );
   }
 }
 

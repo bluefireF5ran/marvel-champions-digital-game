@@ -171,6 +171,16 @@ export const self: TargetRef = { kind: "self" };
 export const host: TargetRef = { kind: "host" };
 export const theVillain: TargetRef = { kind: "villain" };
 /**
+ * "Each of **those heroes**" in a response to `on.cardRevealedGranting(t, …)` (docs/phase7-wave10.md §3.16): the cards
+ * the revealed card's text gives the trait `t` to that are still in play, narrowed by `filter` (`query("hero")`). A
+ * card that already had the trait is among them (owner decision, question 12 = A, provisional).
+ */
+export const grantedTo = (t: Trait, filter?: TargetQuery): TargetRef => ({
+  kind: "grantedTo",
+  trait: t,
+  ...(filter ? { filter } : {}),
+});
+/**
  * "The enemy leader" (docs/competitive-mode-plan.md §3.3): the leader the resolving player's team is fighting. In a
  * cooperative game, the villain (MC56 p. 6; ruling of July 9, 2026 (3) answer 2), so a script writes the printed word
  * and it reads as `theVillain` does.

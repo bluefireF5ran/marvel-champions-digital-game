@@ -1,6 +1,8 @@
 import type {
   CampaignLogValueSpec,
+  BoostCardDestination,
   CardDestination,
+  DefeatDestination,
   CardSelector,
   CollectionSearchFilter,
   EventPattern,
@@ -341,8 +343,24 @@ export const sitOut = (player: PlayerRef): EffectSpec => ({ kind: "sitOutScenari
 /**
  * "… return it to its owner's hand **instead of discarding it**" (Regroup, `drax` 19032; docs/phase7-wave3.md §3.45):
  * from an interrupt to a character's defeat, the card goes to `to` instead of its discard pile. It is still defeated.
+ *
+ * Also the defeated card's own When Defeated ability, whose leaving step follows it (RRG 1.8 "When Defeated
+ * Abilities", p. 48). With `boostCardOf` (docs/phase7-wave10.md §3.10):
+ * - "When Defeated: Give this card to the enemy leader as a facedown boost card." (Falcon, `cw` 56150) is
+ *   `whenDefeated(setDefeatDestination(boostCardOf(enemyLeader)))`;
+ * - "Forced Interrupt: When a minion is defeated, give it to the enemy leader as a facedown boost card." (Dangerous
+ *   Recruits, 56091) is `forcedInterrupt(on.defeated(…), setDefeatDestination(boostCardOf(
+ *   enemyLeader)))`.
  */
-export const setDefeatDestination = (to: CardDestination): EffectSpec => ({ kind: "setDefeatDestination", to });
+export const setDefeatDestination = (to: DefeatDestination): EffectSpec => ({ kind: "setDefeatDestination", to });
+/**
+ * "… as a facedown boost card": the defeat destination that is `enemy`'s boost cards (`BoostCardDestination`,
+ * docs/phase7-wave10.md §3.10), for `setDefeatDestination` only. The card is still defeated and leaves play; it waits
+ * facedown on the first card `enemy` names in play and is turned up at that enemy's next activation (RRG 1.8 "Boost,
+ * Boost Icon", p. 11). A Victory X card goes to the victory display instead, and with no such enemy in play the card is
+ * discarded as normal. A card that is not being defeated is given with `giveBoostCard(enemy, { card })`.
+ */
+export const boostCardOf = (enemy: TargetRef): BoostCardDestination => ({ kind: "boostCardOf", enemy });
 /**
  * "Cosmo does not take consequential damage for this use." (Cosmo, `stld` 17020, errata RRG 1.8 p. 67; docs/phase7-
  * wave3.md §3.21): cancels the named character's pending consequential damage from its current attack or thwart.

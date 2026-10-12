@@ -398,6 +398,14 @@ function matchesRest(
     const query: TargetQuery = pattern.targetHadAttachment;
     if (!(event.attachedInstanceIds ?? []).some((id) => matchesQuery(state, id, query, context))) return false;
   }
+  // "A card is revealed that gives 1 or more heroes the [trait] trait" (docs/phase7-wave10.md §3.16).
+  if (pattern.grantsTrait !== undefined) {
+    if (event.kind !== "cardRevealed") return false;
+    const reached = event.grantedTo?.[pattern.grantsTrait] ?? [];
+    if (reached.length === 0) return false;
+    const query = pattern.grantedToIs;
+    if (query && !reached.some((id) => matchesQuery(state, id, query, context))) return false;
+  }
   if (pattern.attackKind) {
     if (event.kind !== "attack" && event.kind !== "thwart") return false;
     if ((pattern.attackKind === "basic") !== (event.basic === true)) return false;
@@ -429,6 +437,26 @@ function matchesRest(
     if (player === undefined || !resolvePlayers(state, pattern.playerIn, context).includes(player)) return false;
   }
   return true;
+}
+
+const ASKS_TRAIT_GRANTS = new WeakMap<EngineDeps, boolean>();
+
+/**
+ * Whether any ability in the registry asks what a revealed card grants (`EventPattern.grantsTrait`, in the pattern or
+ * one of its alternatives; docs/phase7-wave10.md §3.16); cached per registry. A reveal stamps `cardRevealed.grantedTo`
+ * only then, so a registry with no such ability keeps its games' state and log as they were.
+ */
+export function asksTraitGrants(deps: EngineDeps): boolean {
+  const cached = ASKS_TRAIT_GRANTS.get(deps);
+  if (cached !== undefined) return cached;
+  const asks = (pattern: EventPattern): boolean =>
+    pattern.grantsTrait !== undefined || (pattern.anyOf ?? []).some(asks);
+  const listens = Object.values(deps.abilities).some((definition) => {
+    const trigger = definition.trigger;
+    return "on" in trigger && trigger.on !== undefined && asks(trigger.on);
+  });
+  ASKS_TRAIT_GRANTS.set(deps, listens);
+  return listens;
 }
 
 /**
