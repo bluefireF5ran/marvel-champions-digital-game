@@ -183,6 +183,16 @@ export class NewInBoxScene extends Phaser.Scene {
       });
     }
 
+    if (page.notice && content.noticeRect) {
+      const notice = content.noticeRect;
+      this.#captureInto(container, () => {
+        this.add.text(notice.x, viewport.y + notice.y, page.notice!, {
+          ...textStyle(ROW_DETAIL_TYPE, surface.ink.hex, ink.secondary),
+          wordWrap: { width: notice.width },
+        });
+      });
+    }
+
     // Dev e2e hook: each entry row and link line on screen right now (scroll applied).
     if (import.meta.env.DEV) {
       const onScreen = (rect: Rect): Rect => ({ ...rect, y: viewport.y + rect.y - this.#scroll.offsetPx });

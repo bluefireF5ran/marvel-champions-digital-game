@@ -28,7 +28,12 @@ export interface BoxDef {
   readonly title?: string;
   /** The `UNLOCK_WAVES` row (`Cycle.id`) that opens this box. */
   readonly unlockKey: string;
+  /** A plain line under the page's groups (never an error); the page exists for it even with no tagged entry yet. */
+  readonly notice?: string;
 }
+
+/** The Civil War box's page line (owner, 2026-10-11, wave 10 question 27). */
+export const COMPETITIVE_NOTICE = "Competitive mode coming soon.";
 
 /** Every box a page can exist for, in release order. `new-in-box-model.test.ts` checks the names against the unlock path. */
 export const BOXES: readonly BoxDef[] = [
@@ -43,6 +48,7 @@ export const BOXES: readonly BoxDef[] = [
   { id: "cycle7", name: "NeXt Evolution", unlockKey: "cycle7" },
   { id: "cycle8", name: "Age of Apocalypse", unlockKey: "cycle8" },
   { id: "cycle9", name: "Agents of S.H.I.E.L.D.", unlockKey: "cycle9" },
+  { id: "cycle10", name: "Civil War", unlockKey: "cycle10", notice: COMPETITIVE_NOTICE },
 ];
 
 /** The small line under a row that points at the entry's other home: its box, or the Core rules page. */
@@ -86,6 +92,8 @@ export interface BoxPage {
   readonly heroMechanics: readonly BoxEntryRow[];
   readonly scenarioMechanics: readonly BoxEntryRow[];
   readonly lessons: readonly BoxLessonRow[];
+  /** The box's own plain line, or `null`. */
+  readonly notice: string | null;
   /** "5 new entries · 2 Try-its", for the hub row. */
   readonly summary: string;
 }
@@ -141,7 +149,7 @@ export function boxPageOf(
         .filter((l) => l.box === box.id)
         .map((l): BoxLessonRow => ({ id: l.id, title: l.title, tagline: l.tagline }));
   const count = keywords.length + heroMechanics.length + scenarioMechanics.length;
-  if (count === 0 && lessons.length === 0) return null;
+  if (count === 0 && lessons.length === 0 && !box.notice) return null;
   return {
     id: box.id,
     title: box.title ?? `New in ${box.name}`,
@@ -150,6 +158,7 @@ export function boxPageOf(
     heroMechanics,
     scenarioMechanics,
     lessons,
+    notice: box.notice ?? null,
     summary: isCore ? `${count} ${count === 1 ? "entry" : "entries"}` : summaryOf(count, lessons.length),
   };
 }
@@ -220,6 +229,7 @@ const LINK_HEIGHT = 26;
 const LESSON_ROW_HEIGHT = 72;
 const BOTTOM_PAD = 32;
 const WIDE_MIN_WIDTH = 700;
+const NOTICE_HEIGHT = 32;
 
 export interface BoxPageHeaderLayout {
   readonly formFactor: FormFactor;
@@ -262,6 +272,8 @@ export interface BoxPageContentLayout {
   readonly totalHeight: number;
   /** For `McScrollRegion#scrollIntoView`, keyed like `boxPageFocusOrder` (without "close"). */
   readonly scrollIndexByStop: ReadonlyMap<string, number>;
+  /** The page's notice line, content space, or `null`. */
+  readonly noticeRect: Rect | null;
 }
 
 /** The page body: one centered column of sections, each a label and full-width rows. Content-space, scrolled by the scene. */
@@ -295,10 +307,17 @@ export function boxPageContentLayout(width: number, page: BoxPage): BoxPageConte
     y += SECTION_GAP - ROW_GAP;
     sections.push({ section, label, rows, linkRects });
   }
+  let noticeRect: Rect | null = null;
+  if (page.notice) {
+    // After the last section's gap (or at the top when the page has no section).
+    noticeRect = { x, y, width: columnWidth, height: NOTICE_HEIGHT };
+    slots.push(noticeRect);
+    y += NOTICE_HEIGHT + SECTION_GAP;
+  }
   const totalHeight = y - SECTION_GAP + BOTTOM_PAD;
   // Close the last slot at the content's real bottom so the slots sum to `totalHeight`.
   slots.push({ x, y: totalHeight, width: columnWidth, height: 0 });
-  return { sections, heights: contentSlotHeights(slots), totalHeight, scrollIndexByStop };
+  return { sections, heights: contentSlotHeights(slots), totalHeight, scrollIndexByStop, noticeRect };
 }
 
 /** Every drawn row, for a no-overlap test. */
