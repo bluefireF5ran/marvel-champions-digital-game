@@ -376,6 +376,8 @@ export interface ScenarioSelectFocusInput {
   readonly stagesToggle?: boolean;
   /** True on a narrow layout, where the search field is behind a toggle at the head of the chip rail. */
   readonly searchToggle?: boolean;
+  /** The "Customize this scenario" button is drawn (a ready-made Civil War scenario is selected). */
+  readonly customize?: boolean;
 }
 
 /** Scenario select (D02): Back, the search field, its quick-filter chips, each scenario card (or "Clear"), then "Choose heroes ▸". */
@@ -390,6 +392,8 @@ export function scenarioSelectFocusOrder(input: ScenarioSelectFocusInput): reado
     ...(input.scenarioIds.length > 0 ? input.scenarioIds.map((id) => `scenario:${id}`) : ["scenario-clear"]),
     // The phone's collapsible stages panel (absent on a wide layout, where the panel is always open).
     ...(input.stagesToggle ? ["stages-toggle"] : []),
+    // Civil War's "Customize this scenario" (docs/phase7-wave10-client.md 2.1), only while one is on the panel.
+    ...(input.customize ? ["customize"] : []),
     "next",
   ];
 }

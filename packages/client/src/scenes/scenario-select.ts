@@ -34,6 +34,17 @@ import { shelvesOf, flattenShelves, type Shelf, type ShelfCandidate } from "../v
 import { ALL_PACKS, drillIntoPack, drillOut, type ShelfDrillState } from "../view/shelf-drill.js";
 import { resultsHistoryOf, type ScenarioRecord } from "../view/results-history.js";
 import { setScenario, setScenarioFilter, clearScenarioFilter, type SetupDraft } from "../view/setup-draft.js";
+import {
+  BUILD_YOUR_OWN_SUBTITLE,
+  isCivilWarScenario,
+  BUILD_YOUR_OWN_TITLE,
+  customizeEntryOf,
+  enterBuilder,
+  isBuilderTile,
+  shelvesWithBuilderTile,
+  type RosterEntry,
+} from "../view/civil-war-entry.js";
+import type { CivilWarBuilderData } from "./civil-war-builder.js";
 import { scenarioSelectFocusOrder } from "../view/screen-focus.js";
 import {
   DETAIL_COLLAPSED_HEIGHT,
@@ -75,6 +86,8 @@ const DETAIL_TEXT_PAD = 24;
 const ROMAN = ["", "I", "II", "III", "IV", "V", "VI"] as const;
 const roman = (n: number): string => ROMAN[n] ?? String(n);
 
+const scenarioCountCaption = (count: number): string => `${count} ${count === 1 ? "SCENARIO" : "SCENARIOS"}`;
+
 export class ScenarioSelectScene extends Phaser.Scene {
   #draft!: SetupDraft;
   #buttons: McButton[] = [];
@@ -84,7 +97,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
   /** Narrow only: whether the search field is shown (`ScenarioSelectLayout.searchToggle`). Off by default — the roster gets the row. */
   #searchOpen = false;
   #searchInput: McTextInput | null = null;
-  #roster: McShelfRoster<Scenario> | null = null;
+  #roster: McShelfRoster<RosterEntry> | null = null;
   #grid: McVirtualList | null = null;
   /** Narrow only: the sideways-scrolling product chip rail (`ScenarioSelectLayout.chipsScroll`). Null on wide, where the chips wrap. */
   #chipRail: McChipRail | null = null;
@@ -229,6 +242,8 @@ export class ScenarioSelectScene extends Phaser.Scene {
     }));
 
     const currentScenario = scenario ?? POOL_SCENARIOS[0]!;
+    // "Customize this scenario": only on a ready-made Civil War scenario (inert until one is in the pool).
+    const customize = customizeEntryOf(scenario);
     const detail = scenarioDetailOf(currentScenario, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
     // The real wrapped line count against the panel's own text width, not a raw string count — a fixed
     // per-string budget clipped a long line against a ~300px side panel.
@@ -250,6 +265,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
         detailLines: 12,
         detailCollapsed: !this.#stagesOpen,
         searchOpen: this.#searchOpen,
+        secondaryAction: customize !== null,
       });
     const estimatedRows = packCompactChipsToRows(chipDefs, width).length;
     const firstPass = layoutFor(estimatedRows);
@@ -353,12 +369,9 @@ export class ScenarioSelectScene extends Phaser.Scene {
         scroll: this.#gridScroll,
         focusPrefix: "scenario",
         idOf: (s) => s.id as string,
-        renderCard: (s, _index, rect) => this.#renderScenarioCard(s, rect),
-        onCardActivate: (s) => {
-          this.#draft = setScenario(this.#draft, s, s.id as string);
-          this.#rebuild();
-        },
-        inspect: (s) => this.#inspectScenario(s),
+        renderCard: (s, _index, rect) => this.#renderEntry(s, rect),
+        onCardActivate: (s) => this.#activateEntry(s),
+        inspect: (s) => this.#inspectEntry(s),
         onClear: () => this.#drillOut(),
         buttons: this.#buttons,
         stops: this.#stops,
@@ -380,18 +393,15 @@ export class ScenarioSelectScene extends Phaser.Scene {
             rect,
             shelf.id === "your-decks" ? null : this.#packCoverFor(shelf.id),
             () => this.#roster?.refreshVisible(),
-            `${shelf.items.length} ${shelf.items.length === 1 ? "SCENARIO" : "SCENARIOS"}`,
+            scenarioCountCaption(shelf.items.filter((e) => !isBuilderTile(e)).length),
           ),
-        renderCard: (s, _shelfIndex, _itemIndex, rect) => this.#renderScenarioCard(s, rect),
-        onCardActivate: (s) => {
-          this.#draft = setScenario(this.#draft, s, s.id as string);
-          this.#rebuild();
-        },
+        renderCard: (s, _shelfIndex, _itemIndex, rect) => this.#renderEntry(s, rect),
+        onCardActivate: (s) => this.#activateEntry(s),
         onHeaderActivate: (shelf) => {
           this.#drill = drillIntoPack(shelf.id);
           this.#rebuild();
         },
-        inspect: (s) => this.#inspectScenario(s),
+        inspect: (s) => this.#inspectEntry(s),
         onClear: () => {
           this.#draft = clearScenarioFilter(this.#draft);
           this.#searchInput?.setValue("");
@@ -433,6 +443,19 @@ export class ScenarioSelectScene extends Phaser.Scene {
       }),
     );
     this.#stops.set("next", { rect: layout.next, activate: next });
+    if (customize && layout.secondary) {
+      const open = (): void => this.#openBuilder("customize", customize.scenarioId);
+      this.#buttons.push(
+        new McButton(this, {
+          kind: layout.wide ? "onInk" : "secondary",
+          label: customize.label,
+          type: typeRole.rowTitle,
+          rect: layout.secondary,
+          onClick: open,
+        }),
+      );
+      this.#stops.set("customize", { rect: layout.secondary, activate: open });
+    }
     // Locked: the footer says how to open it for free, since the CTA itself is the paid way.
     const footer = label(
       this,
@@ -452,6 +475,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
         scenarioChipIds: chipDefs.map((c) => c.id),
         stagesToggle: !layout.wide,
         searchToggle: !layout.wide,
+        customize: customize !== null,
       }),
       this.#stops,
     );
@@ -731,7 +755,9 @@ export class ScenarioSelectScene extends Phaser.Scene {
       y += note.height + 8;
     }
     // Where the panel's own content has to stop: above the CTA on a wide layout, above its own bar on a phone sheet.
-    const contentBottom = layout.wide ? layout.next.y - 8 : rect.y + rect.height - DETAIL_COLLAPSED_HEIGHT - 8;
+    const contentBottom = layout.wide
+      ? (layout.secondary ?? layout.next).y - 8
+      : rect.y + rect.height - DETAIL_COLLAPSED_HEIGHT - 8;
     const [rangeStart, rangeEnd] = this.#currentStageRange(detail);
     for (const stage of detail.villainIsRandom ? detail.stages.slice(0, 1) : detail.stages) {
       const boxHeight = 44;
@@ -806,7 +832,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
     }
   }
 
-  #shelves(): readonly Shelf<Scenario>[] {
+  #shelves(): readonly Shelf<RosterEntry>[] {
     const candidates: ShelfCandidate<Scenario>[] = withSelectionPinned(
       POOL_SCENARIOS,
       () => true,
@@ -822,12 +848,52 @@ export class ScenarioSelectScene extends Phaser.Scene {
         passesChips,
       };
     });
-    return shelvesOf(
-      candidates,
-      POOL_PACKS.map((p) => p.code as string),
-      packNameOf,
-      this.#draft.scenarioFilter.text,
+    return shelvesWithBuilderTile(
+      shelvesOf(
+        candidates,
+        POOL_PACKS.map((p) => p.code as string),
+        packNameOf,
+        this.#draft.scenarioFilter.text,
+      ),
     );
+  }
+
+  /** A roster entry's tap: a scenario becomes the draft's pick; the "Build your own" tile opens the builder. */
+  #activateEntry(entry: RosterEntry): void {
+    if (isBuilderTile(entry)) {
+      const first = POOL_SCENARIOS.find((s) => isCivilWarScenario(s));
+      if (first) this.#openBuilder("build", first.id as string);
+      return;
+    }
+    this.#draft = setScenario(this.#draft, entry, entry.id as string);
+    this.#rebuild();
+  }
+
+  /** The builder scene on the draft: "Customize" (this scenario as printed) or "Build your own" (the last build, or the first leader). */
+  #openBuilder(kind: "build" | "customize", scenarioId: string): void {
+    const entry = enterBuilder(kind, this.#draft, scenarioId);
+    this.scale.off("resize", this.#rebuild, this);
+    goToScreen(this, SCENES.civilWarBuilder, { draft: entry.draft, step: entry.step } satisfies CivilWarBuilderData);
+  }
+
+  #renderEntry(entry: RosterEntry, rect: Rect): ReturnType<typeof renderShelfCard> {
+    if (!isBuilderTile(entry)) return this.#renderScenarioCard(entry, rect);
+    return renderShelfCard(this, rect, {
+      artUrl: null,
+      artFocusY: 0,
+      titleRole: typeRole.villainTitle,
+      title: BUILD_YOUR_OWN_TITLE,
+      subtitle: BUILD_YOUR_OWN_SUBTITLE,
+      blockedBy: null,
+      warning: null,
+      subtitleLines: 2,
+      tag: "BUILDER",
+      selected: false,
+    });
+  }
+
+  #inspectEntry(entry: RosterEntry): void {
+    if (!isBuilderTile(entry)) this.#inspectScenario(entry);
   }
 
   #inspectScenario(s: Scenario): void {

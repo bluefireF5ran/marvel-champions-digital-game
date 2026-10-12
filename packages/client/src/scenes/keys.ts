@@ -64,6 +64,8 @@ export const SCENES = {
   howToPlay: "HowToPlay",
   /** A "New in this box" page (guided mode §3.14, `scenes/new-in-box.ts`): one box's new glossary entries and Try-it lessons, opened from the How to play hub. */
   newInBox: "NewInBox",
+  /** The Civil War scenario builder (docs/phase7-wave10-client.md section 2, `scenes/civil-war-builder.ts`): reached from Scenario select's "Customize" button and "Build your own" tile, or `?screen=civil-war-builder` in dev. */
+  civilWarBuilder: "CivilWarBuilder",
   /** The per-aspect lesson page (guided mode G10c, `docs/guided-mode.md` §4): what an aspect is for, when to pick
    * it, its signature Core Set cards and a "Try it" hand-off (G10d). Reached from `?screen=aspect&aspect=<id>`
    * today; the "How to play" hub (G6c) and the aspect chips' "Aspects ▸" link wire into it as a follow-up. */

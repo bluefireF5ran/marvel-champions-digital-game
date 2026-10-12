@@ -535,6 +535,18 @@ describe("screen focus routes", () => {
     ]);
   });
 
+  test("Scenario select: Customize sits just before next, only while it is drawn", () => {
+    expect(scenarioSelectFocusOrder({ scenarioIds: ["civil-war-builder", "a"], customize: true })).toEqual([
+      "back",
+      "scenario-search",
+      "scenario:civil-war-builder",
+      "scenario:a",
+      "customize",
+      "next",
+    ]);
+    expect(scenarioSelectFocusOrder({ scenarioIds: ["a"] })).not.toContain("customize");
+  });
+
   test("Scenario select: Back, search, chips, rows (or Clear), then next", () => {
     expect(scenarioSelectFocusOrder({ scenarioIds: ["rhino", "klaw"] })).toEqual([
       "back",

@@ -192,3 +192,30 @@ describe("scenarioSelectLayout", () => {
     expect(b.detail).toEqual(a.detail);
   });
 });
+
+describe("scenarioSelectLayout: the second action (Customize this scenario)", () => {
+  for (const size of SIZES) {
+    test(`at ${size.width}x${size.height} it sits clear of the CTA, the caption and the other regions`, () => {
+      const base = scenarioSelectLayout({ ...size, chipRows: 1, detailLines: 4 });
+      expect(base.secondary).toBeNull();
+      for (const detailCollapsed of [true, false]) {
+        const layout = scenarioSelectLayout({
+          ...size,
+          chipRows: 1,
+          detailLines: 4,
+          detailCollapsed,
+          secondaryAction: true,
+        });
+        const second = layout.secondary!;
+        expect(second.height).toBeGreaterThanOrEqual(44);
+        expect(second.y + second.height).toBeLessThanOrEqual(layout.next.y);
+        expect(rectsOverlap(second, layout.next)).toBe(false);
+        expect(rectsOverlap(second, layout.footer)).toBe(false);
+        for (const rect of scenarioSelectLayoutRects(layout)) {
+          if (rect === layout.detail && layout.wide) continue;
+          expect(rectsOverlap(second, rect)).toBe(false);
+        }
+      }
+    });
+  }
+});

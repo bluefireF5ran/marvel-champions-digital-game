@@ -651,3 +651,38 @@ export function startConfigOf(
   const view = builderViewOf(draft, ctx);
   return view?.canStart ? toSessionConfig(draft, players) : null;
 }
+
+/**
+ * The offer's words for an action the view shows disabled, for the status line when the player taps it or moves focus
+ * onto it (a keyboard or pad user reads the reason this way): a disabled set tile's reason, a disabled game mode's
+ * reason, or Start's problem. Null for anything enabled.
+ */
+export function refusalOf(view: BuilderView, action: string): string | null {
+  if (action === "civil:start") return view.canStart ? null : view.startProblem;
+  if (action.startsWith("civil:set:")) {
+    const tile = view.modular.sections.flatMap((s) => s.tiles).find((t) => t.action === action);
+    return tile && !tile.enabled ? (tile.disabledReason ?? null) : null;
+  }
+  if (action.startsWith("civil:mode:")) {
+    const row = view.modeOptions.find((m) => `civil:mode:${m.id}` === action);
+    return row && !row.enabled ? (row.reason ?? null) : null;
+  }
+  return null;
+}
+
+/**
+ * The status line when no notice is up: the engine's problem while Start is refused, else the one plain sentence that
+ * reads the whole scenario ("Iron Man, Cut Off Support then Negative Zone Prison, 4 modular sets chosen of 3 to 4.").
+ */
+export function defaultStatusOf(view: BuilderView): string {
+  if (view.startProblem) return view.startProblem;
+  const leader = view.leaderChoices.find((l) => l.selected)?.name ?? "";
+  const pickOf = (row: StageRowView): string => row.options.find((o) => o.selected)?.name ?? "";
+  const [row1, row2] = view.stageRows;
+  const schemes = view.blind || !row1 || !row2 ? "main scheme hidden" : `${pickOf(row1)} then ${pickOf(row2)}`;
+  const range = /^(.*?) sets?\./.exec(view.modular.counterLine)?.[1] ?? "";
+  const sets = view.blind
+    ? `${view.modular.chosen} modular sets hidden`
+    : `${view.modular.chosen} modular set${view.modular.chosen === 1 ? "" : "s"} chosen of ${range}`;
+  return `${leader}, ${schemes}, ${sets}.`;
+}

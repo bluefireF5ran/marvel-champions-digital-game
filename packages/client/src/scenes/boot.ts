@@ -27,6 +27,9 @@ import type { DecksSceneData } from "./decks.js";
 import type { RulesSceneData } from "./rules.js";
 import type { RulesTab } from "../view/rules-layout.js";
 import type { ScenarioSelectData } from "./scenario-select.js";
+import type { CivilWarBuilderData } from "./civil-war-builder.js";
+import { enterBuilder } from "../view/civil-war-entry.js";
+import type { BuilderStep } from "../view/civil-war-builder-layout.js";
 import type { SeatsData } from "./seats.js";
 import type { TableSetupData } from "./table-setup.js";
 import { goToScreen } from "../ui/transitions.js";
@@ -135,6 +138,24 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
       return { key: SCENES.scenarioSelect, data: { draft } satisfies ScenarioSelectData };
     if (screen === "seats") return { key: SCENES.seats, data: { draft } satisfies SeatsData };
     return { key: SCENES.setup, data: { draft } satisfies TableSetupData };
+  }
+
+  // `?screen=civil-war-builder[&scenario=<leader scenario id>][&entry=build][&step=1..5]`: the Civil War scenario builder on
+  // the cards package's own `cw` data (the scenarios are not in the client pool until the box is scripted). Default is
+  // "Customize" on Iron Man (the review step); `entry=build` is the "Build your own" tile (the side step).
+  if (screen === "civil-war-builder") {
+    const decks = preconDecks(POOL_VERSION);
+    const scenarioId = params.get("scenario") ?? "registration-iron-man";
+    const draft = initialSetupDraft({ scenarioId, seatDeckId: decks[0]!.id as string, seed: rollSeed() });
+    const entry = enterBuilder(params.get("entry") === "build" ? "build" : "customize", draft, scenarioId);
+    const step = Number(params.get("step"));
+    return {
+      key: SCENES.civilWarBuilder,
+      data: {
+        draft: entry.draft,
+        step: step >= 1 && step <= 5 ? (step as BuilderStep) : entry.step,
+      } satisfies CivilWarBuilderData,
+    };
   }
 
   if (screen === "deck-check" || screen === "deck-builder") {

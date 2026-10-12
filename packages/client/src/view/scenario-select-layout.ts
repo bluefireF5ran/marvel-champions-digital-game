@@ -71,6 +71,8 @@ export interface ScenarioSelectLayoutInput {
    * and the shelves give up exactly that much. Defaults to one line (`FOOTER_HEIGHT`).
    */
   readonly footerHeight?: number;
+  /** A second, quieter action above the CTA (Civil War's "Customize this scenario"): `secondary` gets a row. */
+  readonly secondaryAction?: boolean;
 }
 
 export interface ScenarioSelectLayout {
@@ -94,6 +96,8 @@ export interface ScenarioSelectLayout {
   /** The full-height (wide) or sized-to-content (narrow) ink stages panel. */
   readonly detail: Rect;
   readonly next: Rect;
+  /** The second action, directly above `next` (wide) or above the caption (narrow); null when `secondaryAction` is off. */
+  readonly secondary: Rect | null;
   /** The small uppercase caption under the CTA, inside the detail panel. */
   readonly footer: Rect;
   /**
@@ -190,6 +194,9 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
       height: hit.primary,
     };
     const footer: Rect = { x: next.x, y: next.y + next.height + 4, width: next.width, height: footerHeight };
+    const secondary: Rect | null = input.secondaryAction
+      ? { x: next.x, y: next.y - smallGap - hit.target, width: next.width, height: hit.target }
+      : null;
     return {
       formFactor,
       wide,
@@ -205,6 +212,7 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
       statStripRows,
       detail,
       next,
+      secondary,
       footer,
       detailOverlay: false,
     };
@@ -232,9 +240,12 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
   // stays where it was at the sheet's foot, so opening and closing never moves the thing you tapped.
   const next: Rect = { x: left, y: bodyBottom - hit.primary, width: detailWidth, height: hit.primary };
   const footer: Rect = { x: left, y: next.y - footerHeight - 4, width: detailWidth, height: footerHeight };
+  const secondary: Rect | null = input.secondaryAction
+    ? { x: left, y: footer.y - smallGap - hit.target, width: detailWidth, height: hit.target }
+    : null;
   const bar: Rect = {
     x: left,
-    y: footer.y - gap - DETAIL_COLLAPSED_HEIGHT,
+    y: (secondary?.y ?? footer.y) - gap - DETAIL_COLLAPSED_HEIGHT,
     width: detailWidth,
     height: DETAIL_COLLAPSED_HEIGHT,
   };
@@ -257,6 +268,7 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
       statStripRows,
       detail: bar,
       next,
+      secondary,
       footer,
       detailOverlay: false,
     };
@@ -282,6 +294,7 @@ export function scenarioSelectLayout(input: ScenarioSelectLayoutInput): Scenario
     statStripRows,
     detail,
     next,
+    secondary,
     footer,
     detailOverlay: true,
   };

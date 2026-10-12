@@ -5,6 +5,8 @@ import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import {
   applyBuilderAction,
   builderViewOf,
+  defaultStatusOf,
+  refusalOf,
   effectiveSetIds,
   isReadyMade,
   openBuilderBuildYourOwn,
@@ -451,5 +453,28 @@ describe("idempotence and Start", () => {
     const config = startConfigOf(d, SPIDER, BASE)!;
     expect(config.modularSetIds).toEqual(["defenders", "hells_kitchen", "bomb_scare"]);
     expect(() => accepted(config)).not.toThrow();
+  });
+});
+
+describe("the status line the scene shows", () => {
+  test("refusalOf: a disabled set, a disabled mode and a refused Start speak in the offer's words", () => {
+    const four = picks(draftFor(IRON), [...THREE, "martial_law"]);
+    const v = view(four);
+    const unchosen = v.modular.sections
+      .flatMap((s) => s.tiles)
+      .find((t) => t.enabled === false && t.disabledReason === "Four is the most (MC56 p. 4)")!;
+    expect(refusalOf(v, unchosen.action)).toBe("Four is the most (MC56 p. 4)");
+    expect(refusalOf(v, "civil:mode:competitive")).toBe(GAME_MODE_OPTIONS[1]!.reason);
+    expect(refusalOf(v, "civil:mode:cooperative")).toBeNull();
+    expect(refusalOf(v, "civil:start")).toBeNull();
+    const two = view(picks(draftFor(IRON), ["paladin", "cape_killer"]));
+    expect(refusalOf(two, "civil:start")).toBe(two.startProblem);
+    expect(two.startProblem).toContain("got 2");
+  });
+
+  test("defaultStatusOf: the whole scenario in one sentence, or the problem", () => {
+    expect(defaultStatusOf(view(draftFor(IRON)))).toMatch(/^Iron Man, .+ then .+, 4 modular sets chosen of 3 to 4\.$/);
+    const two = view(picks(draftFor(IRON), ["paladin", "cape_killer"]));
+    expect(defaultStatusOf(two)).toBe(two.startProblem);
   });
 });
