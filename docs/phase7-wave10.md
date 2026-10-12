@@ -604,6 +604,10 @@ setDefeatDestination` and `replaceLeaveDestination` send a leaving card somewher
   player is confused and both upgrades exhaust; `count` 2; no surge. No minion in play: surge. Namor only (no boost
   ability): surge. As a boost card with Hercules engaged with the defender: the defender is stunned.
 
+- **Question 10 (owner: A, B kept as a switch).** The effect carries a named option for what a borrowed ability's
+  "this card gains [boost]" does: nothing (A, the default and what the Freedom Fighters scripts pass) or added to the
+  activation the resolving card is boosting (B). Both are implemented and tested; see §4.0.
+
 ### 3.12 "Gains the printed keywords of each other [trait] minion"
 
 - **Text.** Earth's Mightiest Heroes 56077: "Each Avenger minion gains the printed keywords of each other Avenger
@@ -858,12 +862,14 @@ provisional rather than confirmed rulings. The main session checked the four aga
   the RRG uses for Alliance (p. 5: "any player may contribute to paying those costs"), and neither limits "costs" to
   resources. Other players may pay any part of the cost their own cards can pay; a part that names the user's own
   card ("exhaust your hero") stays with the user. No ruling names the card.
-- **10B, held; A stays built.** No primary text was found for it. RRG "Boost" (p. 9) adds "the number of boost
-  icons on each [boost] card" and says only the text under the divider "is active on a card that is resolving as a
-  boost card"; a minion in play whose boost ability Freedom Fighters resolves is not a boost card of the activation,
-  so icons "this card gains" land on the minion and nothing reads them. B (the icons join the activation Freedom
-  Fighters is boosting) is plausible as intent and worth a question to FFG. The tests name question 10 so it is one
-  line to flip.
+- **10A, decided (owner, 2026-10-11, after the example was laid out): "10A but keep 10B there so we can easily turn
+  it back if we need to."** No primary text supports B: RRG "Boost" (p. 9) adds "the number of boost icons on each
+  [boost] card", and a minion in play whose boost ability Freedom Fighters resolves is not a boost card of the
+  activation, so icons "this card gains" land on the minion and nothing reads them. **B stays in the code as a
+  switch**: §3.11's `resolveBoostAbilitiesOf` takes the choice as one named option (icons a borrowed ability gains
+  either do nothing, A, or join the activation the resolving card is boosting, B), the Freedom Fighters scripts pass
+  A, and both branches have a test that names question 10, so turning B on is one line in
+  `cw/modular/new-avengers.ts`. Still worth a question to FFG.
 
 Questions 23 to 27 are product choices, not rules (owner's note). Each B or C is recorded where its question lives:
 14 to 18 in `docs/phase7-wave10-box-heroes.md` B4, 19 to 22 in `docs/phase7-wave10-hero-packs.md` H4, 23 to 27 in
@@ -890,7 +896,7 @@ the same thing, and p. 5's "modular sets from other products" is about sets with
 | 7   | Do modular sets from other products count toward the three or four?                              | Yes: three or four in total                              | No: they are extra, on top                | **A** (owner, 2026-10-11)                                                                                                                                                                                                              |
 | 8   | Iron Man III (56061): "When Revealed" where every other first stage says "Setup"                 | Resolve it at setup in expert mode                       | As printed: it never resolves             | **closed**: the scan prints "Setup" (read 2026-10-11); a data correction, §8.1 item 3                                                                                                                                                  |
 | 9   | Random creation: is the number of modular sets (3 or 4) random too?                              | The player sets it (default 4); the sets are random      | A coin flip                               | **A** (owner, 2026-10-11)                                                                                                                                                                                                              |
-| 10  | Freedom Fighters resolving a boost ability that speaks of "this card"                            | Does what it can; icon gains and self-reveals do nothing | The icons go to the current activation    | owner leans **B**, held; **A is built** (see below) (owner, 2026-10-11)                                                                                                                                                                |
+| 10  | Freedom Fighters resolving a boost ability that speaks of "this card"                            | Does what it can; icon gains and self-reveals do nothing | The icons go to the current activation    | **A**, with B kept as a switch (see above) (owner, 2026-10-11)                                                                                                                                                                         |
 | 11  | Darkforce 56196 in a cooperative game                                                            | "Do as much as you can": it is discarded                 | The ability cannot resolve; it stays      | **A** (owner, 2026-10-11)                                                                                                                                                                                                              |
 | 12  | Hunting Rebel Heroes 56097b: who are "those heroes"?                                             | Every hero the revealed card gives the trait to          | Only heroes who did not have it           | **A** (owner, 2026-10-11)                                                                                                                                                                                                              |
 | 13  | Life Model Decoy 56084: "a minion or their leader" with one team                                 | "Their leader" is the enemy leader                       | Only a minion                             | **A** (owner, 2026-10-11)                                                                                                                                                                                                              |
