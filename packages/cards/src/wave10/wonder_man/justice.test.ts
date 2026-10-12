@@ -537,6 +537,16 @@ describe("58018 Everywhere All at Once", () => {
     expect(playerOf(out.state, P1).discard).toContain(t.id);
   });
 
+  it("no scheme holds threat: not playable at any X (RRG 'Target', p. 42), so the free X = 0 tuck and heal is closed", () => {
+    const t = schemes([SIPHON]);
+    const quiet = withMainThreat(patchInstance(t.state, t.side, { threat: 0 }), 0);
+    for (const x of [0, 1, 2]) expect(() => run(quiet, pickBoth(t.main, t.side), playing(t.id, t.paying, x))).toThrow();
+    // With threat on a scheme the same card plays (X = 1: 2 threat comes off the main scheme).
+    const some = withMainThreat(patchInstance(t.state, t.side, { threat: 0 }), 2);
+    const out = run(some, pickBoth(t.main), playing(t.id, t.paying, 1));
+    expect(inst(out.state, t.main).threat).toBe(0);
+  });
+
   it("alter-ego form: not playable (a Hero Action)", () => {
     const t = schemes([SIPHON]);
     const alter = withForm(t.state, "alterEgo");

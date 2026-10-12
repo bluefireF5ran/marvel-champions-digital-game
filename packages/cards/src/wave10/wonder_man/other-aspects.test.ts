@@ -563,6 +563,19 @@ describe("58033 Disarming Defense", () => {
     expect(attached(out.state, sword)).toBe(true);
   });
 
+  it("damage dealt but prevented by a tough status card is not damage taken (RRG 'Tough', p. 44): the attachment is discarded", () => {
+    // Enhanced Ivory Horn (Hero Action, no piercing: Azazel's Sword would remove the tough card without preventing).
+    const base = wonderManHeroGame({ deps: WAVE10_DEPS });
+    const horn = attach(base, "01100", base.activeVillainId!, 0);
+    const given = boostedWith(holding(conjured(horn.state, "58033"), "58033"), SONIC_CONVERTER);
+    const identity = identityOf(given);
+    const state = patchInstance(given, identity, { statuses: { ...inst(given, identity).statuses, tough: 1 } });
+    const out = run(state, defend(true), endTurn(P1));
+    expect(heroDamage(out)).toBe(0);
+    expect(inst(out.state, identityOf(out.state)).statuses.tough).toBe(0);
+    expect(attached(out.state, horn.id)).toBe(false);
+  });
+
   it("with no Hero Action or Hero Response attachment on the enemy it just gives the DEF", () => {
     const base = wonderManHeroGame({ deps: WAVE10_DEPS });
     const withSuit = attach(base, SUIT, base.activeVillainId!, 0);

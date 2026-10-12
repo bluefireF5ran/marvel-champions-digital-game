@@ -52,7 +52,9 @@ import {
  *
  * **58022.swordsman-response**: "Hero Response: After a boost card is turned faceup during an undefended attack,
  * declare Swordsman as the defender without exhausting him." Heard on `boostCardTurnedFaceup` of a villain's attack
- * on the controller (a raw pattern, as Preemptive Strike 05014 does), `while undefendedAttack`; `declareDefender`
+ * on ANY player (the print says "an undefended attack", not "against you"; no `playerIs`; a raw pattern, as Preemptive
+ * Strike 05014 does). Taken for another player's attack, Swordsman becomes the defender and his controller the target
+ * player (RRG 1.8 "Attack (Enemy Activation)", pp. 8-9; "Defend, Defense", p. 15), `while undefendedAttack`; `declareDefender`
  * without `exhaust` is the "without exhausting him", usable on an exhausted ally (RRG 1.8 "Defend, Defense", p. 15).
  * The engine already declares the defender after the boost step opens, so spec task HT17 (H3.20) is not needed: he
  * becomes the attack's target and takes its damage including the boost icons, the hero none. Optional, a Hero
@@ -81,7 +83,6 @@ const DURING_AN_UNDEFENDED_ATTACK: EventPattern = {
   on: "boostCardTurnedFaceup",
   sourceIs: { categories: ["villain"] },
   activation: "attack",
-  playerIs: "controller",
 };
 
 export const WONDER_MAN_BASIC: AbilityRegistry = defineAbilities({

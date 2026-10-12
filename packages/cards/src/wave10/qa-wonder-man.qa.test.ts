@@ -358,8 +358,8 @@ describe("58018 Everywhere All at Once: 'Choose X schemes' (RRG 'Choose (Game El
       return planner({})(s);
     };
 
-  // F1: the event is accepted with X = 0, 1 or 2 and no scheme to choose; only Active Altruism refuses (pinned above).
-  it.fails("58018 with no scheme that has threat on it: not playable (the ability needs a valid target to be initiated)", () => {
+  // F1 (fixed): the script is one thwart of the chosen schemes, so the engine's target rule refuses it with no threat.
+  it("58018 with no scheme that has threat on it: not playable (the ability needs a valid target to be initiated)", () => {
     const t = schemes(["58023"], 0, 0);
     expect(playable(t.state, t.id)).toBe(false);
   });
@@ -700,8 +700,8 @@ describe("58019 Stronger Together: a character other than your hero that shares 
 });
 
 describe("58022 Swordsman: 'during an undefended attack' is not limited to attacks on you", () => {
-  // F2: the response is heard only for attacks on its controller (the script's `playerIs: "controller"`).
-  it.fails("Rhino's undefended attack on the OTHER player: Swordsman's Hero Response is offered to his controller (the printed text says 'an undefended attack', not 'against you')", () => {
+  // F2 (fixed): the pattern carries no `playerIs`, so every player's undefended attack is heard.
+  it("Rhino's undefended attack on the OTHER player: Swordsman's Hero Response is offered to his controller (the printed text says 'an undefended attack', not 'against you')", () => {
     const two = twoPlayerGame();
     const sword = stagedInPlay(conjured(quiet(two), "58022").state, "58022");
     const offeredTo: { player: string; id: string; attacked?: string }[] = [];
@@ -881,7 +881,7 @@ describe("58014 Scarlet Witch finding Death Cannot Die: the treachery's When Rev
 // 58033 Disarming Defense: "if you take no damage"
 // ---------------------------------------------------------------------------------------------------------------
 describe("58033 Disarming Defense: 'If you take no damage from that attack' (RRG 'Tough' p. 44: a tough status card prevents damage fully, so the character 'is not considered to have taken damage')", () => {
-  const RAGE = "01027"; // Focused Rage: a Core upgrade printing a Hero Action (Azazel's Sword would give Rhino piercing)
+  const RAGE = "01100"; // Enhanced Ivory Horn: a Rhino attachment printing a Hero Action (Azazel's Sword would give Rhino piercing; a player upgrade such as Focused Rage is no "attachment")
   const SONIC_CONVERTER = "01118"; // 3 boost icons
   /** The bottom card of the encounter deck turned into `code` and attached to `host` by surgery. */
   function encounterAttach(s: GameState, code: string, host: InstanceId) {
@@ -908,18 +908,18 @@ describe("58033 Disarming Defense: 'If you take no damage from that attack' (RRG
   const run = (t: ReturnType<typeof armed>) =>
     drive(t.state, { take: [".disarming-defense-interrupt"], defender: wm(t.state) }, endTurn(P1));
 
-  // F3: the script reads the damage the attack DEALT (`eventDealt("damage")`), not the damage the hero TOOK.
-  it.fails("Rhino's ATK 2 + 3 boost icons = 5 against DEF 2 + 2 leaves 1 damage, which a tough status card prevents: no damage is taken, so the attachment printing a Hero Action is discarded", () => {
+  // F3 (fixed): the script reads the damage the hero TOOK (`eventDamageTaken`), not the damage the attack DEALT.
+  it("Rhino's ATK 2 + 3 boost icons against DEF 2 + 2 leaves damage, which a tough status card prevents: no damage is taken, so the attachment printing a Hero Action is discarded", () => {
     const t = armed(true);
     const out = run(t);
     expect(damageOf(out.state, wm(out.state))).toBe(0);
     expect(inst(out.state, wm(out.state)).statuses.tough).toBe(0);
     expect(inst(out.state, t.sword).attachedTo).toBeNull();
   });
-  it("control: without the tough card the same 1 damage is taken and the attachment stays", () => {
+  it("control: without the tough card the same damage is taken and the attachment stays", () => {
     const t = armed(false);
     const out = run(t);
-    expect(damageOf(out.state, wm(out.state))).toBe(1);
+    expect(damageOf(out.state, wm(out.state))).toBeGreaterThan(0);
     expect(inst(out.state, t.sword).attachedTo).not.toBeNull();
   });
 });

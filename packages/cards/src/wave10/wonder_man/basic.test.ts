@@ -1,6 +1,7 @@
-import { WONDER_MAN_CARDS, cardId } from "@mc/content";
+import { CORE_STARTER_DECKS, WONDER_MAN_CARDS, cardId } from "@mc/content";
 import {
   activeEncounterDeck,
+  createGame,
   legalActions,
   type Command,
   type GameEvent,
@@ -11,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { validateDefinition } from "../../dsl/validate.js";
 import {
   P1,
+  P2,
   changeForm,
   endTurn,
   firstLegal,
@@ -19,12 +21,13 @@ import {
   moveToHand,
   patchInstance,
   playerOf,
+  settle,
   use,
   type Picker,
 } from "../../testing/harness.js";
 import { driveEventsPicking, withDamage, withForm } from "../../testing/staging.js";
 import { stagedInPlay } from "../../wave9/falcon/testing.js";
-import { WAVE10_DEPS, wonderManHeroGame } from "../testing.js";
+import { CORE_SPIDER_MAN, WAVE10_DEPS, WONDER_MAN_DECK, heroPackConfig, wonderManHeroGame } from "../testing.js";
 import { WONDER_MAN_BASIC as REGISTRY, WONDER_MAN_BASIC_SKIPPED as SKIPPED } from "./basic.js";
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -220,6 +223,57 @@ describe("58022 Swordsman: the response", () => {
     const out = run(withForm(state, "alterEgo"), pick, endTurn(P1));
     expect(seen.offered).toBe(0);
     expect(inst(out.state, sword).damage).toBe(0);
+  });
+
+  it("another player's undefended attack: offered to Swordsman's controller too (the print says 'an undefended attack'), and taken, he defends for that player", () => {
+    // Wonder Man (P1, Swordsman in play) beside Core's Spider-Man (P2), both in hero form, Rhino's boost cards 0 icons.
+    const config = heroPackConfig(WONDER_MAN_DECK);
+    const deck = CORE_STARTER_DECKS.find((d) => d.id === CORE_SPIDER_MAN)!;
+    const spider = {
+      identityCardId: deck.identityCardId,
+      aspects: deck.aspects,
+      deck: deck.cards.flatMap((l) => Array.from({ length: l.quantity }, () => l.cardId)),
+    };
+    const created = createGame({ ...config, players: [config.players[0]!, spider] }, WAVE10_DEPS);
+    if (!created.ok) throw new Error(created.error.message);
+    const open = withForm(
+      withForm(
+        settle(created.state, firstLegal, (s) => s.step.phase === "player", WAVE10_DEPS),
+        { heroForm: 0 },
+        P1,
+      ),
+      { heroForm: 0 },
+      P2,
+    );
+    const { state: placed, ids } = withInPlay(open, SWORDSMAN);
+    const sword = ids[0]!;
+    const state = boostedWith(placed, ADVANCE);
+    const p2Identity = identityOf(state, P2);
+    // Takes the response only for the attack on P2 (the prompt's event names the attacked player).
+    const offeredFor: string[] = [];
+    const pick: Picker = (s) => {
+      const c = s.pendingChoice!;
+      if (c.prompt.kind === "chooseTriggers") {
+        const mine = c.options.filter((o) => o.optionId.includes(SWORDSMAN_RESPONSE));
+        if (mine.length > 0) {
+          const ev = c.prompt.event as { attackedPlayerId?: string; playerId?: string };
+          const attacked = (ev.attackedPlayerId ?? ev.playerId) as string;
+          offeredFor.push(`${c.playerId}:${attacked}`);
+          return attacked === P2 ? [mine[0]!.optionId] : [];
+        }
+      }
+      return firstLegal(s);
+    };
+    const first = run(state, pick, endTurn(P1));
+    const out = run(first.state, pick, endTurn(P2));
+    // Offered to his controller (P1) for each of Rhino's two undefended attacks, on P1 and on P2.
+    expect(offeredFor).toEqual([`${P1}:${P1}`, `${P1}:${P2}`]);
+    const declared = [...first.events, ...out.events].filter((e: GameEvent) => e.type === "defenderDeclared");
+    expect(declared).toHaveLength(1);
+    expect(declared[0]).toMatchObject({ defenderInstanceId: sword, byEffect: true });
+    expect(inst(out.state, sword).damage).toBe(2);
+    expect(inst(out.state, sword).exhausted).toBe(false);
+    expect(inst(out.state, p2Identity).damage).toBe(0);
   });
 });
 

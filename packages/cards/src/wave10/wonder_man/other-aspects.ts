@@ -2,6 +2,7 @@ import type { AbilityRegistry } from "@mc/engine";
 import {
   FRIENDLY_CHARACTER,
   YOUR_HERO,
+  YOUR_IDENTITY,
   atEndOfAttack,
   basicPowerStatIs,
   cancelConsequentialDamage,
@@ -12,7 +13,8 @@ import {
   defineAbilities,
   discard,
   discardFromHand,
-  eventDealt,
+  each,
+  eventDamageTaken,
   eventSource,
   eventTarget,
   exhaustYourHero,
@@ -71,7 +73,9 @@ import { ANGEL_PACK_CARDS } from "../../wave7/angel/pack-cards.js";
  * **58033.disarming-defense-interrupt**: "Hero Interrupt (defense): When your hero defends against an attack, it gets +2
  * DEF for that attack. If you take no damage from that attack, discard an attachment on the attacking enemy with the
  * text "Hero Action" or "Hero Response"." The DEF is the shape of Not Today 38016 and Desperate Defense 09015: +2 until
- * the attack ends, and the discard waits for the attack's own result (no damage dealt to the hero), then you choose
+ * the attack ends, and the discard waits for the attack's own result (no damage TAKEN by your identity, `eventDamageTaken`: damage a
+ * tough status card prevents is dealt but not taken, RRG 1.8 "Tough", p. 44; the sibling Not Today 38016 and Desperate
+ * Defense 09015 print the same sentence and still read damage dealt), then you choose
  * one of the attacker's attachments that prints one of those two labels (`printsAbility`, as Electromagnetic Blast
  * 49008; a blanked text box does not hide it). It is a discard. With no such attachment nothing happens.
  *
@@ -132,7 +136,7 @@ export const WONDER_MAN_OTHER_ASPECTS: AbilityRegistry = defineAbilities({
     { label: "defense" },
     modifyStat("def", 2, yourIdentity, "endOfAttack"),
     atEndOfAttack(
-      ifThen(not(eventDealt("damage")), [
+      ifThen(not(eventDamageTaken(each(YOUR_IDENTITY))), [
         chooseTarget(
           "attachment",
           query("attachment", { host: eventSource, ...printsAbility(["action", "response"], "hero") }),

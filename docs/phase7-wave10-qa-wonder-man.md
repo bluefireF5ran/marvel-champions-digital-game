@@ -14,7 +14,7 @@ Authorities, in order: the printed card (`packages/content/raw/marvelcdb/wonder_
 (`marvel-champions-rulings-post-rrg-1-7.md`: January 17 Ruling 4, March 6 Rulings 3 and 4, June 19 Ruling 1 name these
 cards or their mechanics), the owner's answers (`docs/phase7-wave10.md` section 4.0: 20A and 21B concern the two skipped
 cards; 30B the reveal order), then the spec (`docs/phase7-wave10-hero-packs.md`). The file under test:
-`packages/cards/src/wave10/qa-wonder-man.qa.test.ts`: 48 tests, **45 pass, 3 `it.fails`** (one per finding), `oxlint`
+`packages/cards/src/wave10/qa-wonder-man.qa.test.ts`: 48 tests, **48 pass, the three findings fixed (were `it.fails`), `oxlint`
 and `oxfmt --check` clean, no type error in the file. It holds pins of behavior the module tests do not cover beyond
 one-card isolation, a scripted full game and the three findings.
 
@@ -25,13 +25,19 @@ the card, or the difference between damage dealt and damage taken. The other 37 
 in target set, "may" or compulsory, timing word, form restriction, cost against effect, limit and "you" against any
 player, except where noted.
 
-| Id  | Card                            | Severity                                                            | Test (in `qa-wonder-man.qa.test.ts`)                                  |
-| --- | ------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| F1  | 58018 Everywhere All at Once    | wrong legality, low to medium (a free tuck and heal; a wasted card) | `it.fails` "58018 with no scheme that has threat on it: not playable" |
-| F2  | 58022 Swordsman (Hero Response) | missing option in multiplayer, medium                               | `it.fails` "Rhino's undefended attack on the OTHER player ..."        |
-| F3  | 58033 Disarming Defense         | wrong result, medium (a tough status card is common)                | `it.fails` "Rhino's ATK 2 + 3 boost icons = 5 ... tough ..."          |
+| Id  | Card                            | Severity                                     | Test (in `qa-wonder-man.qa.test.ts`)                                             |
+| --- | ------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------- |
+| F1  | 58018 Everywhere All at Once    | wrong legality, low to medium, fixed         | `it` (was `it.fails`) "58018 with no scheme that has threat on it: not playable" |
+| F2  | 58022 Swordsman (Hero Response) | missing option in multiplayer, medium, fixed | `it` (was `it.fails`) "Rhino's undefended attack on the OTHER player ..."        |
+| F3  | 58033 Disarming Defense         | wrong result, medium, fixed                  | `it` (was `it.fails`) "Rhino's ATK 2 + 3 boost icons ... tough ..."              |
 
 ### F1. Everywhere All at Once can be played with no scheme to choose
+
+**Status: fixed.** The `chooseTarget` has a variable count (`varOf("x")`), which the engine's initiation check does not
+treat as a required choice (`isRequiredChoice` wants a fixed count), so the script is gated with
+`while: canRemoveThreatFrom(each(query("scheme", { hasThreat: true })))` and is one thwart of `2 + min(1, overpaid)`.
+Not playable at any X with no threat on any scheme; with a scheme holding threat X = 0 still plays and does nothing
+(no ruling found against it). Module test added; the pin is a passing `it`.
 
 - Printed: "Play only if your identity has the Aerial trait. **Hero Action** (thwart): Choose X schemes. Remove 2 threat
   from each chosen scheme (3 threat instead if you overpaid for this card)." Cost X.
@@ -55,6 +61,10 @@ player, except where noted.
 
 ### F2. Swordsman's Hero Response is heard only for attacks on his controller
 
+**Status: fixed.** `playerIs: "controller"` is dropped from the pattern. The engine handles an ally declared defender
+for another player's attack correctly (Swordsman takes it, the attacked hero none). Two-player module test added in
+`basic.test.ts`; the pin is a passing `it`.
+
 - Printed: "**Hero Response**: After a boost card is turned faceup during an undefended attack, declare Swordsman as the
   defender without exhausting him."
 - Rule: the text says "an undefended attack", not "an attack against you". RRG 1.8 "Attack (Enemy Activation)" (pp. 8 to
@@ -73,6 +83,12 @@ player, except where noted.
   defender then needs a check that Swordsman's controller is not required to be the target player).
 
 ### F3. Disarming Defense reads "damage dealt", not "damage taken"
+
+**Status: fixed.** The condition is now `not(eventDamageTaken(each(YOUR_IDENTITY)))`. The audit's staging was also
+wrong: Focused Rage is a player upgrade, not an "attachment" (`query("attachment")` matches the attachment card type),
+so the pin now attaches Enhanced Ivory Horn 01100 (a Rhino attachment printing a Hero Action, no piercing). Module test
+added. **Not fixed, same bug in siblings:** Not Today! 38016 (and its Silk reprint 52015) and Desperate Defense 09015
+(and Groot's reprint 16013) print "If you take no damage from that attack" and read `not(eventDealt("damage"))`.
 
 - Printed: "**Hero Interrupt** (defense): When your hero defends against an attack, it gets +2 DEF for that attack. If you
   **take** no damage from that attack, discard an attachment on the attacking enemy with the text "Hero Action" or "Hero

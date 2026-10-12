@@ -4,6 +4,7 @@ import {
   YOUR_IDENTITY,
   addCounters,
   after,
+  canRemoveThreatFrom,
   canTakeStatus,
   cards,
   chooseCards,
@@ -14,6 +15,7 @@ import {
   dealDamage,
   defineAbilities,
   discardEncounterCards,
+  each,
   encounterCards,
   forcedInterrupt,
   forcedResponse,
@@ -33,9 +35,11 @@ import {
   resolveWhenRevealedOf,
   response,
   revealCard,
+  scaled,
   selectCards,
   self,
   shuffleEncounterDeck,
+  sum,
   theMainScheme,
   thwart,
   varAtLeast,
@@ -80,7 +84,14 @@ import {
  *
  * **58018 Everywhere All at Once.** Cost X (the player names it); "Hero Action (thwart): Choose X schemes. Remove 2
  * threat from each chosen scheme (3 threat instead if you overpaid for this card)." X chosen schemes, each thwarted for
- * 2, or 3 with any resource overpaid (`overpaid.total`). Play restriction (Aerial identity) is card data.
+ * 2, or 3 with any resource overpaid (`overpaid.total`), as one thwart of `2 + min(1, overpaid)`. Play restriction
+ * (Aerial identity) is card data. The choice is of a variable count, which the engine's initiation check does not
+ * judge (a required choice needs a fixed count), so the action is gated by `while: canRemoveThreatFrom(a scheme holding
+ * threat)`: RRG 1.8 "Choose (Game Element)" (p. 12) and "Target" (p. 42), an ability with no valid target cannot be
+ * initiated, so with no threat on any scheme it cannot be played, at any X. At X = 0 with a scheme holding threat the
+ * card may still be played (the player names X; no rule requires X above 0) and resolves with nothing chosen: a free play
+ * that does nothing, which the rules allow (the target rule needs a valid scheme to exist, not X to be positive). Not
+ * confirmed by a ruling.
  *
  * **58021 Heroic Conditioning.** "You get +3 hit points and your hero gets +1 THW." Played under any player's control;
  * "you" is the controller and "your hero" is that player's identity in hero form. Max 1 per player is card data.
@@ -130,9 +141,9 @@ export const WONDER_MAN_JUSTICE: AbilityRegistry = defineAbilities({
   ),
 
   "58018.everywhere-all-at-once-action": heroAction(
-    { label: "thwart" },
+    { label: "thwart", while: canRemoveThreatFrom(each(query("scheme", { hasThreat: true }))) },
     chooseTarget("schemes", query("scheme"), { count: varOf("x") }),
-    ifThen(varAtLeast("overpaid.total"), thwart(3, chosen("schemes")), thwart(2, chosen("schemes"))),
+    thwart(sum(2, scaled(varOf("overpaid.total"), { times: 1, max: 1 })), chosen("schemes")),
   ),
 
   "58021.heroic-conditioning-constant": constant(gets("hp", 3, YOUR_IDENTITY), gets("thw", 1, YOUR_HERO)),
