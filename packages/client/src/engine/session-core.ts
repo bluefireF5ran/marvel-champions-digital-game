@@ -157,6 +157,8 @@ const scenarioFor = (config: SessionConfig) => {
     ...(config.setAsideModularSetIds ? { setAsideModularSetIds: config.setAsideModularSetIds } : {}),
     ...(config.extraModularSetIds ? { extraModularSetIds: config.extraModularSetIds } : {}),
     ...(config.setupOptions ? { setupOptions: config.setupOptions } : {}),
+    ...(config.mainSchemeStageIds ? { mainSchemeStageIds: config.mainSchemeStageIds } : {}),
+    ...(config.gameMode ? { gameMode: config.gameMode } : {}),
     ...(config.stack ? { stack: config.stack } : {}),
   });
   const seated = config.outsideFacts
