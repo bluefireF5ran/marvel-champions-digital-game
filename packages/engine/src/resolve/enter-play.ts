@@ -12,6 +12,7 @@ import {
   isMinion,
   minionsEngagedWith,
   mustPlayer,
+  perPlayerCountAt,
   playerOrder,
   startingThreatOf,
 } from "../query.js";
@@ -59,7 +60,7 @@ import { eachTimeEffectsFor, hasCandidates, heard } from "./triggers.js";
 export function applyEnterPlayKeywords(ctx: Ctx, id: InstanceId): void {
   for (const keyword of keywordsOf(ctx.state, id, ctx.deps)) {
     if (keyword.name === "toughness") applyToughness(ctx, id);
-    if (keyword.name === "uses") addCounters(ctx, id, keyword.counterType, usesAmount(ctx.state, keyword));
+    if (keyword.name === "uses") addCounters(ctx, id, keyword.counterType, usesAmount(ctx.state, id, keyword));
   }
   // A card with the keyword, or one that "counts as N restricted cards" (docs/phase7-wave7.md §3.82).
   if (restrictedWeightOf(ctx.state, id, ctx.deps) > 0) checkRestricted(ctx, controllerOf(ctx.state, id));
@@ -71,8 +72,11 @@ export function applyEnterPlayKeywords(ctx: Ctx, id: InstanceId): void {
 }
 
 /** "Uses (2[per_hero] ammo counters)": RRG 1.8 "Per Player Icon" (p. 32); docs/phase7-wave3.md §1.3. */
-const usesAmount = (state: GameState, keyword: { readonly count: number; readonly countPerPlayer?: number }): number =>
-  keyword.count + (keyword.countPerPlayer ?? 0) * state.startingPlayerCount;
+const usesAmount = (
+  state: GameState,
+  id: InstanceId,
+  keyword: { readonly count: number; readonly countPerPlayer?: number },
+): number => keyword.count + (keyword.countPerPlayer ?? 0) * perPlayerCountAt(state, id);
 
 /**
  * The counters a card's uses keywords place on it as it enters play (RRG 1.8 "Uses", p. 46), by counter type. Read on
@@ -82,7 +86,7 @@ export function usesCountersOnEntering(state: GameState, deps: EngineDeps, id: I
   const placed: Record<string, number> = {};
   for (const keyword of keywordsOf(state, id, deps)) {
     if (keyword.name !== "uses") continue;
-    placed[keyword.counterType] = (placed[keyword.counterType] ?? 0) + usesAmount(state, keyword);
+    placed[keyword.counterType] = (placed[keyword.counterType] ?? 0) + usesAmount(state, id, keyword);
   }
   return placed;
 }

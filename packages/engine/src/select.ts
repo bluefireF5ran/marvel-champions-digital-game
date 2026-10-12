@@ -1,5 +1,6 @@
 import type { AbilityId, AbilityReference, AnyCard, CardId, HeroIdentityCard, Trait } from "@mc/content";
 import { podOf, resolveGroup } from "./pod.js";
+import { perPlayerCount } from "./team.js";
 import { gameModeOf } from "./game-mode.js";
 import {
   type AbilityDefinition,
@@ -1388,11 +1389,15 @@ export function explainQuery(
   if (query.maxPrintedHp !== undefined) {
     const card = cardOf(state, id);
     const hp =
-      card?.type === "minion" ? printedMinionHp(state, card) : card && "hp" in card ? (card.hp as number) : undefined;
+      card?.type === "minion"
+        ? printedMinionHp(state, card, id)
+        : card && "hp" in card
+          ? (card.hp as number)
+          : undefined;
     if (hp === undefined || hp > query.maxPrintedHp) return "printedHpTooHigh";
   }
   if (query.maxPrintedCost !== undefined) {
-    const cost = printedCostOf(state, cardOf(state, id));
+    const cost = printedCostOf(state, cardOf(state, id), id);
     const bound =
       typeof query.maxPrintedCost === "number"
         ? query.maxPrintedCost
@@ -1400,7 +1405,7 @@ export function explainQuery(
     if (cost > bound) return "printedCostTooHigh";
   }
   if (query.minPrintedCost !== undefined) {
-    const cost = printedCostOf(state, cardOf(state, id));
+    const cost = printedCostOf(state, cardOf(state, id), id);
     const bound =
       typeof query.minPrintedCost === "number"
         ? query.minPrintedCost
@@ -2509,7 +2514,8 @@ export function resolveValue(
     case "const":
       return value.value;
     case "perPlayer":
-      return value.base + value.perPlayer * state.startingPlayerCount;
+      // The players on the team of the card whose text this is, or of the player resolving it (MC56 p. 20).
+      return value.base + value.perPlayer * perPlayerCount(state, contextArea(state, context));
     case "groupPlayerCount":
       // docs/phase7-wave9.md §3.67: this game holds one group's players, so another group's count is not known here.
       return resolveGroup(state, value.group, context.vars ?? {}) === podOf(state).groupId
@@ -2728,7 +2734,7 @@ export function resolveValue(
     }
     case "printedCost": {
       const [id] = resolveRef(state, value.of, context);
-      return id ? printedCostOf(state, cardOf(state, id)) : 0;
+      return id ? printedCostOf(state, cardOf(state, id), id) : 0;
     }
     case "printedHp": {
       const [id] = resolveRef(state, value.of, context);
@@ -2738,7 +2744,7 @@ export function resolveValue(
     case "totalPrintedCost":
       // Read wherever the cards are (tucked cards are out of play); a card with no printed cost adds 0.
       return resolveRef(state, value.cards, context).reduce(
-        (sum, id) => sum + printedCostOf(state, cardOf(state, id)),
+        (sum, id) => sum + printedCostOf(state, cardOf(state, id), id),
         0,
       );
     case "totalPrintedResources": {

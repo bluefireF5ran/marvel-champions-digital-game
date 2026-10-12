@@ -532,7 +532,7 @@ function askNextController(ctx: Ctx, frame: Frame<"window">): void {
 function windowEventCost(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCandidate): number {
   const card = cardOf(ctx.state, candidate.instanceId);
   if (!card || !candidate.controllerId) return 0;
-  const printed = printedCostOf(ctx.state, card);
+  const printed = printedCostOf(ctx.state, card, candidate.instanceId);
   // A card played straight from hand at its own trigger window (Crosscounter, Knife Leap, …) is priced the same
   // way `ownPlayCost` prices a normally-played card: printed cost, then every in-play/hand-active `CostModifierSpec`
   // constant (`playCostModifier` — this path previously read only `costReductionFor`'s older "reduce the next card"

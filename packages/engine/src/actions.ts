@@ -781,7 +781,8 @@ function ownPlayCost(
 ): number {
   const card = mustCardOf(state, cardInstanceId);
   // A cost printed "X" costs the X the player chose (docs/phase7-wave2.md §3.8), before modifiers.
-  const printed = "specialCost" in card && card.specialCost === "X" ? Math.max(0, x) : printedCostOf(state, card);
+  const printed =
+    "specialCost" in card && card.specialCost === "X" ? Math.max(0, x) : printedCostOf(state, card, cardInstanceId);
   const modified = Math.max(0, printed + playCostModifier(state, deps, playerId, cardInstanceId, attachTo));
   return Math.max(0, modified - costReductionFor(state, deps, playerId, cardInstanceId) - Math.max(0, extraReduction));
 }
@@ -2765,7 +2766,7 @@ export function planCost(
         return { code: "no_valid_target", message: `${card.name} cannot enter play during this game` };
       }
     }
-    const printed = printedCostOf(state, card);
+    const printed = printedCostOf(state, card, pick);
     requirement = combineRequirements(requirement, printed);
     bindings[slot] = [pick];
     payingFor = pick;
@@ -3959,7 +3960,7 @@ export function playCostOf(
   const card = cardOf(state, cardInstanceId);
   if (!card || !("cost" in card) || typeof card.cost !== "number") return null;
   const modifiers = playCostContributions(state, deps, playerId, cardInstanceId, attachTo);
-  const printed = printedCostOf(state, card);
+  const printed = printedCostOf(state, card, cardInstanceId);
   const modified = Math.max(0, printed + modifiers.reduce((total, entry) => total + entry.delta, 0));
   const reduction =
     costReductionFor(state, deps, playerId, cardInstanceId) +
@@ -6230,6 +6231,6 @@ export function defaultHandDiscardPicks(
 export function discardCombinedValue(state: GameState, id: InstanceId, combined: DiscardCombined): number {
   switch (combined.measure) {
     case "printedCost":
-      return printedCostOf(state, cardOf(state, id));
+      return printedCostOf(state, cardOf(state, id), id);
   }
 }

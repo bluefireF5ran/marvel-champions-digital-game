@@ -12,7 +12,7 @@
 
 import { EngineInvariantError } from "./errors.js";
 import { teamId, type GameAreaId, type PlayerId, type TeamId } from "./ids.js";
-import type { GameState } from "./state.js";
+import type { GameAreaState, GameState } from "./state.js";
 
 /** The side of the Civil War a team took (MC56 p. 14). */
 export type TeamSide = "registration" | "resistance";
@@ -69,4 +69,19 @@ export function teamSize(state: GameState, id: TeamId): number {
   const team = mustTeam(state, id);
   if (!state.teams) return state.startingPlayerCount;
   return state.players.filter((player) => team.playerIds.includes(player.playerId) && !player.sittingOut).length;
+}
+
+/**
+ * The number a per player icon multiplies by for a card in `area` (RRG 1.8 "Per Player Icon", p. 32; MC56 p. 20: per
+ * player values apply only "to the players on your team"): the size of the team that plays in that area. The one
+ * helper every per player value is read through (docs/competitive-mode-plan.md §4 task 3).
+ *
+ * `GameState.startingPlayerCount` when the game stores no teams, which is every cooperative game, and for a card in no
+ * team's area (`area` null, or an area no team plays in): the central stage, an environment, an encounter card in a
+ * deck or discard pile.
+ */
+export function perPlayerCount(state: GameState, area: Pick<GameAreaState, "areaId"> | null): number {
+  if (!state.teams || !area) return state.startingPlayerCount;
+  const team = state.teams.find((candidate) => candidate.areaId === area.areaId);
+  return team ? teamSize(state, team.teamId) : state.startingPlayerCount;
 }

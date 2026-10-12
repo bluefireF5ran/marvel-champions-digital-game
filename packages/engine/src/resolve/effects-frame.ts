@@ -1859,7 +1859,7 @@ function executeChooseCards(
   const values: Record<string, number> = {};
   if (limit) {
     candidates = candidates.filter((id) => {
-      const value = printedCostOf(ctx.state, cardOf(ctx.state, id));
+      const value = printedCostOf(ctx.state, cardOf(ctx.state, id), id);
       if (value > limit.atMost) return false;
       values[id] = value;
       return true;

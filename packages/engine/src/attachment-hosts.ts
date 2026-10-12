@@ -106,7 +106,7 @@ function hostMeasure(state: GameState, id: InstanceId, measure: SuperlativeHost[
       // "The ally with the highest cost" (Beguiled, 'Pool-ized): the printed cost (RRG 1.8 "Printed", p. 35). A card
       // in play has no other cost — cost modifiers change what a card costs to *play*. Cards with none are dropped
       // by `hasMeasure` before ranking, so this 0 is never compared.
-      return printedCostOf(state, cardOf(state, id));
+      return printedCostOf(state, cardOf(state, id), id);
     }
   }
 }

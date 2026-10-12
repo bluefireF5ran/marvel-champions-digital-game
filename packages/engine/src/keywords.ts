@@ -10,6 +10,7 @@ import {
   fixedMainSchemeStage,
   mainSchemeStageOf,
   mainSchemeStateOf,
+  perPlayerCountAt,
   villainStageOf,
 } from "./query.js";
 import { cannotHaveStatus, grantedAttackKeywords, statusLimit } from "./rules.js";
@@ -315,8 +316,8 @@ export function keywordTotal(
     if (keyword.name !== name) continue;
     total += keyword.value;
     // "Hinder 2[per_hero]": RRG 1.8 "Per Player Icon" (p. 32) multiplies by the players who started the scenario
-    // (docs/phase7-wave3.md §1.3).
-    if (keyword.name === "hinder") total += (keyword.perPlayer ?? 0) * state.startingPlayerCount;
+    // (docs/phase7-wave3.md §1.3), those on the card's team (`perPlayerCountAt`).
+    if (keyword.name === "hinder") total += (keyword.perPlayer ?? 0) * perPlayerCountAt(state, id);
   }
   return total;
 }
