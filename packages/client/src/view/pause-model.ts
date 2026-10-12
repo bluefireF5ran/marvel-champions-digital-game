@@ -4,6 +4,7 @@
  * Board's own chrome does — nothing here is a rules fact the engine doesn't
  * already publish, only wording it for a paused player.
  */
+import type { PlayableScenarioOffer } from "@mc/cards";
 import type { GameState, PlayerId } from "@mc/engine";
 import type { Scenario } from "@mc/content";
 import type { SessionConfig } from "../engine/host.js";
@@ -27,6 +28,23 @@ export interface PauseStatus {
 export interface BlindSheetNames {
   readonly stage: (printedCardId: string) => string;
   readonly set: (setId: string) => string;
+}
+
+/**
+ * The printed names the blind sheet prints for a Civil War game: a main scheme stage by the id of its printed B face
+ * (from the scenario's offer), a modular set by its id (from `setNames`). An id nobody knows prints as itself.
+ */
+export function blindSheetNamesOf(
+  offer: Pick<PlayableScenarioOffer, "mainSchemeStages"> | null,
+  setNames: ReadonlyMap<string, string>,
+): BlindSheetNames {
+  const stages = new Map<string, string>();
+  for (const row of offer?.mainSchemeStages?.stages ?? [])
+    for (const o of row.options) stages.set(o.printedCardId, o.name);
+  return {
+    stage: (printedCardId) => stages.get(printedCardId) ?? printedCardId,
+    set: (setId) => setNames.get(setId) ?? setId,
+  };
 }
 
 const DIFFICULTY_LABEL: Record<SessionConfig["difficulty"], string> = {

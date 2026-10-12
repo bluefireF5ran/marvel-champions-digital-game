@@ -26,6 +26,9 @@ import {
   WAVE8_STARTER_DECKS,
   WAVE9_SCENARIOS,
   WAVE9_STARTER_DECKS,
+  WAVE10_SCENARIOS,
+  WAVE10_ENCOUNTER_SETS,
+  WAVE10_STARTER_DECKS,
   MUT_GEN_SCENARIOS,
   MOJO_SCENARIOS,
   poolVersionOf,
@@ -34,6 +37,7 @@ import { createGame } from "@mc/engine";
 import {
   POOL_CARDS,
   POOL_DEPS,
+  POOL_ENCOUNTER_SETS,
   POOL_PACKS,
   POOL_SCENARIOS,
   POOL_STARTER_DECKS,
@@ -53,7 +57,7 @@ describe("POOL_CARDS", () => {
 });
 
 describe("POOL_SCENARIOS", () => {
-  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five and Trickster Takeover's Enchantress and God of Lies, in that order", () => {
+  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five and Trickster Takeover's Enchantress and God of Lies, then Civil War's four leaders, in that order", () => {
     expect(POOL_SCENARIOS.map((s) => s.id)).toEqual(
       [
         ...CORE_SCENARIOS,
@@ -67,6 +71,7 @@ describe("POOL_SCENARIOS", () => {
         ...WAVE7_SCENARIOS,
         ...WAVE8_SCENARIOS,
         ...WAVE9_SCENARIOS,
+        ...WAVE10_SCENARIOS,
       ].map((s) => s.id),
     );
     expect(POOL_SCENARIOS.length).toBe(
@@ -76,13 +81,14 @@ describe("POOL_SCENARIOS", () => {
         MOJO_SCENARIOS.length +
         WAVE7_SCENARIOS.length +
         WAVE8_SCENARIOS.length +
-        7,
+        7 +
+        WAVE10_SCENARIOS.length,
     );
   });
 });
 
 describe("POOL_STARTER_DECKS", () => {
-  test("is Core's six precons, wave 1's six, cycle 1's six, cycle 2's six, cycle 3's six, cycle 4's six, then cycle 6's, cycle 7's, cycle 8's and cycle 9's", () => {
+  test("is Core's six precons, wave 1's six, cycle 1's six, cycle 2's six, cycle 3's six, cycle 4's six, then cycle 6's, cycle 7's, cycle 8's, cycle 9's and cycle 10's (Tigra and Hulkling)", () => {
     expect(POOL_STARTER_DECKS.map((d) => d.id)).toEqual(
       [
         ...CORE_STARTER_DECKS,
@@ -95,6 +101,7 @@ describe("POOL_STARTER_DECKS", () => {
         ...WAVE7_STARTER_DECKS,
         ...WAVE8_STARTER_DECKS,
         ...WAVE9_STARTER_DECKS,
+        ...WAVE10_STARTER_DECKS,
       ].map((d) => d.id),
     );
     expect(POOL_STARTER_DECKS.length).toBe(
@@ -104,8 +111,10 @@ describe("POOL_STARTER_DECKS", () => {
         WAVE6_STARTER_DECKS.length +
         WAVE7_STARTER_DECKS.length +
         WAVE8_STARTER_DECKS.length +
-        WAVE9_STARTER_DECKS.length,
+        WAVE9_STARTER_DECKS.length +
+        WAVE10_STARTER_DECKS.length,
     );
+    expect(WAVE10_STARTER_DECKS.map((d) => d.id)).toEqual(["tigra-aggression", "hulkling-protection"]);
   });
 });
 
@@ -130,9 +139,10 @@ describe("packNameOf", () => {
     expect(packNameOf("nope")).toBe("nope");
   });
 
-  test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 to cycle 9 pack, with no duplicate codes", () => {
-    expect(POOL_PACKS.length).toBe(56);
-    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(56);
+  test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 to cycle 10 pack (Civil War), with no duplicate codes", () => {
+    expect(POOL_PACKS.length).toBe(57);
+    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(57);
+    expect(packNameOf("cw")).toBe("Civil War");
   });
 });
 
@@ -231,5 +241,29 @@ describe("buildScenario", () => {
     expect(createGame(atSm, POOL_DEPS).ok).toBe(true);
     const atCore = buildScenario("rhino", { players: [{ starterDeckId: "ghost-spider" }], seed: 1 });
     expect(createGame(atCore, POOL_DEPS).ok).toBe(true);
+  });
+});
+
+describe("the Civil War box in the pool", () => {
+  test("its sets are in the pool's encounter sets; the Wonder Man and Hercules packs' are not", () => {
+    const ids = new Set(POOL_ENCOUNTER_SETS.map((set) => set.id as string));
+    for (const set of WAVE10_ENCOUNTER_SETS.filter((candidate) => candidate.id !== "all_versus_all")) {
+      const heroPack = set.id === "wonder_man_nemesis" || set.id === "hercules_nemesis";
+      expect(ids.has(set.id as string), set.id as string).toBe(!heroPack);
+    }
+    expect(ids.has("all_versus_all")).toBe(false);
+  });
+
+  test("its four leaders are scenarios of the pack Civil War, and the two precons start a game at one", async () => {
+    expect(POOL_SCENARIOS.filter((s) => s.packCode === "cw").map((s) => s.id)).toEqual(
+      WAVE10_SCENARIOS.map((s) => s.id),
+    );
+    for (const starterDeckId of ["tigra-aggression", "hulkling-protection"]) {
+      const config = buildScenario("registration-iron-man", {
+        seed: 1,
+        players: [{ starterDeckId }],
+      });
+      expect(createGame(config, POOL_DEPS).ok, starterDeckId).toBe(true);
+    }
   });
 });

@@ -8,9 +8,11 @@
  */
 
 import {
+  additionalPlayCostOf,
   cardOf,
   type AbilityCost,
   type Command,
+  type CostChoices,
   type EngineDeps,
   type GameState,
   type InstanceId,
@@ -51,6 +53,13 @@ export const needsPlayAim = (entry: LegalAction): boolean => entry.targets.lengt
  */
 export function aimedAt(state: GameState, deps: EngineDeps, command: Command, target: InstanceId): Command {
   if (command.type === "playCard") {
+    // "As an additional cost to play this upgrade, search … for a minion and put it into play. Attach to that minion"
+    // (Hunted 56007): the listed targets are minions still in the encounter deck or discard pile, so the pick goes in
+    // the cost's slot and the card has no host yet.
+    const searched = additionalPlayCostOf(state, deps, command.cardInstanceId)?.attachToSlot;
+    if (searched) {
+      return { ...command, attachToInstanceId: null, costChoices: { ...command.costChoices, [searched]: [target] } };
+    }
     const slot = costPickSlot(
       actionAbilityCost(state, deps, command.playerId, { kind: "playCard", instanceId: command.cardInstanceId }),
     );
@@ -71,6 +80,21 @@ export function aimedAt(state: GameState, deps: EngineDeps, command: Command, ta
 }
 
 /**
+ * What a payment is opened with once the player has picked `target`: an upgrade's host rides as the payment's target, but a
+ * pick for a cost that searches the encounter deck (Hunted) is a cost choice and the card has no host to name.
+ */
+export function paymentAimOf(
+  state: GameState,
+  deps: EngineDeps,
+  action: LegalAction["action"],
+  target: InstanceId | null,
+): { readonly target: InstanceId | null; readonly costChoices?: CostChoices } {
+  if (target === null || action.kind !== "playCard") return { target };
+  const searched = additionalPlayCostOf(state, deps, action.instanceId)?.attachToSlot;
+  return searched ? { target: null, costChoices: { [searched]: [target] } } : { target };
+}
+
+/**
  * The question a hand play with several legal picks asks, worded from what the pick is: where an upgrade goes, who an
  * attach cost lands on, or which card a cost chooses.
  */
@@ -79,6 +103,8 @@ export function playAimPrompt(state: GameState, deps: EngineDeps, entry: LegalAc
   if (action.kind !== "playCard" && action.kind !== "useAbility") return "Choose a target";
   const name = cardName(state, action.instanceId);
   const cost = actionAbilityCost(state, deps, example.playerId, action);
+  if (action.kind === "playCard" && additionalPlayCostOf(state, deps, action.instanceId)?.attachToSlot)
+    return `${name}: choose the minion to search for and attach it to`;
   if (cost?.attach) return `${name}: choose the character it attaches to`;
   if (cost?.chooseCard) return `${name}: choose a card for its cost`;
   if (cost?.payPrintedCostOf) return `${name}: choose the card whose cost you pay`;

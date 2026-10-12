@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { AnyCard, Scenario } from "@mc/content";
 import { createGame, mainSchemeValue, scale } from "@mc/engine";
+import { blindRevealOf } from "./civil-war-blind.js";
 import { encounterDeckPreviewOf } from "./encounter-preview.js";
 import {
   compositionRowsOf,
@@ -523,5 +524,34 @@ describe("Apocalypse's easier start in the preview", () => {
     const scheme = CARDS_BY_ID.get(rhino.mainSchemeCardId as string);
     if (scheme?.type !== "main_scheme") throw new Error("not a main scheme");
     expect(preview.mainSchemeThreat).toBe(scale(scheme.stages[0]!.targetThreat, 1));
+  });
+});
+
+describe("tableSetupPreviewOf for a Civil War game played blind", () => {
+  const ironMan = POOL_SCENARIOS.find((s) => (s.id as string) === "registration-iron-man")!;
+  const options = {
+    seed: 4,
+    players: [{ starterDeckId: "tigra-aggression" }],
+    modularSetIds: ["paladin", "cape_killer", "bomb_scare"],
+  };
+
+  test("the modular sets print under the hidden word with their counts; open play prints their names", () => {
+    const config = buildScenario("registration-iron-man", options);
+    const plain = tableSetupPreviewOf(config, ironMan, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    const hidden = tableSetupPreviewOf(
+      config,
+      ironMan,
+      "standard",
+      CARDS_BY_ID,
+      POOL_ENCOUNTER_SETS,
+      POOL_DEPS,
+      blindRevealOf({ blind: true, modularSetIds: options.modularSetIds }, null),
+    );
+    const namesOf = (p: typeof plain) => p.encounterDeck.decks.flatMap((v) => v.bySet.map((row) => row.setName));
+    expect(namesOf(plain)).toContain("Paladin");
+    expect(namesOf(hidden)).not.toContain("Paladin");
+    expect(namesOf(hidden).filter((name) => name === "Hidden modular set")).toHaveLength(3);
+    // The counts are never masked.
+    expect(hidden.encounterDeckSize).toBe(plain.encounterDeckSize);
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Civil War (`cw`, MC56) precons against the whole playable pool (docs/phase7-wave10.md §8.1): Tigra and Hulkling are
  * legal under `validateDeck`, start from exactly their signature cards (`requiredIdentitySet`), and nothing of the
- * box can be seated yet (no ability script exists for it). The 16 leader-specific basic cards are competitive-only,
+ * box is seatable now that its scripts are in the playable registry (C10). The 16 leader-specific basic cards are competitive-only,
  * so a cooperative deck that lists one is refused (`competitive_card`).
  */
 import { PLAYABLE_CARDS, WAVE10_STARTER_DECKS, cardId, type DeckContents, type HeroIdentityCard } from "@mc/content";
@@ -35,9 +35,9 @@ describe("cw precons", () => {
       expect([entry.cardId, listed.get(entry.cardId)]).toEqual([entry.cardId, entry.quantity]);
   });
 
-  it("cannot be seated yet: the box has no ability scripts", () => {
+  it("can be seated: every card of both precons is scripted in the playable registry", () => {
     for (const id of ["tigra-aggression", "hulkling-protection"])
-      expect(unscriptedCards(contents(id), PLAYABLE_CARDS, PLAYABLE_DEPS).length, id).toBeGreaterThan(0);
+      expect(unscriptedCards(contents(id), PLAYABLE_CARDS, PLAYABLE_DEPS), id).toEqual([]);
   });
 
   it.each(LEADER_CARDS)(

@@ -20,7 +20,7 @@
  * border** on an otherwise-white card, never a red or ink fill.
  */
 import Phaser from "phaser";
-import { CW_CARDS, CW_ENCOUNTER_SETS, CW_SCENARIOS, type AnyCard, type Deck, type Scenario } from "@mc/content";
+import type { Deck, Scenario } from "@mc/content";
 import {
   buildScenario,
   CARDS_BY_ID,
@@ -35,6 +35,7 @@ import { cssOf, textStyle } from "../ui/theme.js";
 import { McButton, McTextInput, dashedRect, fitText, label, paintDotGrid, sectionHeader } from "../ui/widgets.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
 import { progressionScope } from "../progression/progression-scope.js";
+import { blindRevealOf } from "../view/civil-war-blind.js";
 import { estimateWrappedLines, type Rect } from "../view/layout.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
 import { type DeckOption } from "../view/deck-list-model.js";
@@ -166,14 +167,11 @@ interface SeatCell {
   readonly onClick: () => void;
 }
 
-/** What the Civil War summary reads: the pool plus the Civil War cards, sets and scenarios (the scenarios join the pool in C10). */
+/** What the Civil War summary reads: the pool, which now holds the Civil War cards, sets and scenarios. */
 const CW_SUMMARY_CONTEXT: BuilderContext = {
-  cards: new Map<string, AnyCard>([
-    ...CARDS_BY_ID,
-    ...CW_CARDS.map((card): [string, AnyCard] => [card.id as string, card]),
-  ]),
-  scenarios: CW_SCENARIOS,
-  encounterSets: [...POOL_ENCOUNTER_SETS, ...CW_ENCOUNTER_SETS],
+  cards: CARDS_BY_ID,
+  scenarios: POOL_SCENARIOS,
+  encounterSets: POOL_ENCOUNTER_SETS,
 };
 
 /** Data every compact-row draw case needs, threaded through once rather than recomputed per row. */
@@ -341,17 +339,23 @@ export class TableSetupScene extends Phaser.Scene {
     let preview: TableSetupPreview | null = null;
     let previewStartStageIndex: number | undefined;
     if (players.length > 0) {
-      const config = buildScenario(
-        this.#draft.scenarioId,
-        toSessionConfig(
-          this.#draft,
-          players,
-          POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId),
-          tableRulesOf(appSession().settings),
-        ),
+      const sessionOptions = toSessionConfig(
+        this.#draft,
+        players,
+        POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId),
+        tableRulesOf(appSession().settings),
       );
+      const config = buildScenario(this.#draft.scenarioId, sessionOptions);
       previewStartStageIndex = config.villainStartStageIndex;
-      preview = tableSetupPreviewOf(config, scenario, this.#draft.difficulty, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+      preview = tableSetupPreviewOf(
+        config,
+        scenario,
+        this.#draft.difficulty,
+        CARDS_BY_ID,
+        POOL_ENCOUNTER_SETS,
+        undefined,
+        blindRevealOf(sessionOptions, null),
+      );
       compositionRows = compositionRowsOf(preview.encounterDeck);
       whatsInThereRows = whatsInThereRowsOf(preview.encounterDeck);
       nemesisStandby = nemesisStandbyOf(preview.encounterDeck);

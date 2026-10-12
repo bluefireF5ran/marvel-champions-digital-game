@@ -10,7 +10,7 @@ import { EngineSessionCore } from "../engine/session-core.js";
 import { POOL_DEPS } from "../content/pool.js";
 import { retarget } from "../scenes/board/selection.js";
 import { actionAbilityCost } from "./cost-choice-model.js";
-import { aimedAt, costPickSlot, needsPlayAim, playAimPrompt } from "./play-aim.js";
+import { aimedAt, costPickSlot, needsPlayAim, paymentAimOf, playAimPrompt } from "./play-aim.js";
 
 const ENERGY_TRANSFER = "38007";
 
@@ -120,5 +120,69 @@ describe("aiming a play at the host the player picked", () => {
     expect(entry.targets).not.toContain(kelly);
     expect(entry.targets).toHaveLength(1);
     expect(needsPlayAim(entry)).toBe(false);
+  });
+});
+
+describe("Hunted (56007): the pick is a minion still in the encounter deck, searched into play as the cost", () => {
+  async function tigraWithHunted(): Promise<{ state: GameState; me: PlayerId; hunted: InstanceId }> {
+    const core = new EngineSessionCore();
+    const started = await core.start({
+      scenarioId: "registration-iron-man",
+      difficulty: "standard",
+      players: [{ starterDeckId: "tigra-aggression" }],
+      seed: 5,
+    });
+    let state = settle({ ...started.snapshot.state, cardPool: started.cardPool } as GameState);
+    const me = state.players[0]!.playerId;
+    if (state.players[0]!.identity.form !== "hero") state = run(state, { type: "changeForm", playerId: me });
+    const seat = state.players[0]!;
+    const hunted = [...seat.deck, ...seat.hand, ...seat.discard].find((id) => state.instances[id]?.cardId === "56007");
+    if (!hunted) throw new Error("no Hunted in Tigra's deck");
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === me
+          ? {
+              ...p,
+              hand: [...p.hand.filter((id) => id !== hunted), hunted],
+              deck: p.deck.filter((id) => id !== hunted),
+              discard: p.discard.filter((id) => id !== hunted),
+            }
+          : p,
+      ),
+    };
+    return { state, me, hunted };
+  }
+
+  test("the picked minion goes in the cost's slot, the card names no host, and the engine attaches it to that minion", async () => {
+    const { state, me, hunted } = await tigraWithHunted();
+    const legal = legalActions(state, me, POOL_DEPS);
+    if (legal.kind !== "turn") throw new Error(`expected a turn, got ${legal.kind}`);
+    const entry = legal.legal.find((e) => e.action.kind === "playCard" && e.action.instanceId === hunted)!;
+    expect(entry).toBeDefined();
+    expect(entry.targets.length).toBeGreaterThan(1);
+    expect(needsPlayAim(entry)).toBe(true);
+    expect(playAimPrompt(state, POOL_DEPS, entry)).toBe("Hunted: choose the minion to search for and attach it to");
+
+    const picked = entry.targets[1]!;
+    const aimed = retarget(state, entry.example, picked) as Extract<Command, { type: "playCard" }>;
+    expect(aimed.attachToInstanceId).toBeNull();
+    expect(aimed.costChoices).toEqual({ hunted: [picked] });
+    expect(paymentAimOf(state, POOL_DEPS, entry.action, picked)).toEqual({
+      target: null,
+      costChoices: { hunted: [picked] },
+    });
+
+    const after = settle(run(state, aimed));
+    expect(after.instances[hunted]!.attachedTo).toBe(picked);
+    expect(after.instances[picked]!.engagedWith).toBe(me);
+  });
+
+  test("an ordinary upgrade's host still rides as the target", async () => {
+    const { state, me, transfer } = await rogueWithEnergyTransfer();
+    const entry = playEntry(state, me, transfer);
+    const host = entry.targets[0]!;
+    expect(paymentAimOf(state, POOL_DEPS, entry.action, host)).toEqual({ target: host });
+    expect(paymentAimOf(state, POOL_DEPS, entry.action, null)).toEqual({ target: null });
   });
 });

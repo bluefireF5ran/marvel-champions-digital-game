@@ -1,30 +1,75 @@
-import { CORE_STARTER_DECKS, WAVE10_SCENARIOS } from "@mc/content";
+import { CORE_STARTER_DECKS, WAVE10_ENCOUNTER_SETS, WAVE10_SCENARIOS } from "@mc/content";
 import { COMPETITIVE_MODE_UNAVAILABLE_MESSAGE, createGame } from "@mc/engine";
 import { describe, expect, it } from "vitest";
 import { PLAYABLE_ENCOUNTER_SETS, PLAYABLE_SCENARIO_RECORDS } from "../modular-pool.js";
 import { WAVE10_DEPS } from "../wave10/index.js";
 import { wave10Scenario } from "../wave10/setup.js";
-import { playableScenario, playableStarterDeckSetup } from "./index.js";
+import { PLAYABLE_ABILITIES, PLAYABLE_DEPS, playableScenario, playableStarterDeckSetup } from "./index.js";
+import { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./unscripted.js";
 import { civilWarGameModes, civilWarSidesOffer, playableScenarioOffer } from "./scenario-options.js";
 
 /**
  * docs/phase7-wave10.md §3.1b: `playableScenario` routes a Civil War leader to `wave10Scenario`, and
  * `playableScenarioOffer` carries what the client's scenario builder draws (docs/phase7-wave10-client.md section 2.7),
- * while the wave stays out of the playable pool.
+ * and the wave is in the playable pool (C10), minus the Wonder Man and Hercules packs.
  */
 
 const SPIDER_MAN = { starterDeckId: "core-spider-man-justice" } as const;
 const IRON_MAN = "registration-iron-man";
 
-describe("the wave is not joined to the playable pool yet", () => {
-  it("no playable list names a Civil War scenario, set or starter deck", () => {
+describe("the Civil War box is joined to the playable pool", () => {
+  it("every playable list names its scenarios, sets, starter decks and scripts", () => {
     for (const scenario of WAVE10_SCENARIOS)
-      expect(PLAYABLE_SCENARIO_RECORDS.some((record) => record.id === scenario.id)).toBe(false);
-    expect(PLAYABLE_ENCOUNTER_SETS.filter((set) => set.side !== undefined)).toEqual([]);
-    expect(() => playableStarterDeckSetup("tigra-aggression")).toThrow("no playable starter deck tigra-aggression");
-    expect(() => playableScenario(IRON_MAN, { players: [{ starterDeckId: "tigra-aggression" }], seed: 1 })).toThrow(
-      "no playable starter deck tigra-aggression",
-    );
+      expect(
+        PLAYABLE_SCENARIO_RECORDS.some((record) => record.id === scenario.id),
+        scenario.id,
+      ).toBe(true);
+    const sided = PLAYABLE_ENCOUNTER_SETS.filter((set) => set.side !== undefined);
+    expect(sided.length).toBeGreaterThan(0);
+    for (const id of ["tigra-aggression", "hulkling-protection"])
+      expect(playableStarterDeckSetup(id).deck.length, id).toBeGreaterThan(0);
+    expect(Object.keys(PLAYABLE_ABILITIES).some((id) => id.startsWith("56"))).toBe(true);
+  });
+
+  it("seats Tigra and Hulkling at a leader and starts a game on the playable dependencies", () => {
+    for (const starterDeckId of ["tigra-aggression", "hulkling-protection"]) {
+      const config = playableScenario(IRON_MAN, { players: [{ starterDeckId }], seed: 1 });
+      expect(createGame(config, PLAYABLE_DEPS).ok, starterDeckId).toBe(true);
+    }
+  });
+
+  it("keeps the hero packs out: their sets are gated and neither hero can be seated", () => {
+    for (const id of ["wonder_man_nemesis", "hercules_nemesis", "all_versus_all"]) {
+      expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has(id), id).toBe(true);
+      expect(
+        PLAYABLE_ENCOUNTER_SETS.some((set) => set.id === id),
+        id,
+      ).toBe(false);
+      expect(
+        () =>
+          playableScenario(IRON_MAN, { players: [SPIDER_MAN], seed: 1, modularSetIds: [id, "paladin", "cape_killer"] }),
+        id,
+      ).toThrow();
+    }
+    expect(() => playableStarterDeckSetup("wonder_man-leadership")).toThrow("no playable starter deck");
+    expect(() => playableStarterDeckSetup("hercules-protection")).toThrow("no playable starter deck");
+  });
+
+  it("refuses the competitive-only sets as a modular pick", () => {
+    const competitive = WAVE10_ENCOUNTER_SETS.filter((set) => set.competitiveOnly);
+    expect(competitive.length).toBeGreaterThan(0);
+    for (const set of competitive) {
+      expect(PLAYABLE_ENCOUNTER_SETS.some((candidate) => candidate.id === set.id)).toBe(true);
+      expect(
+        () =>
+          playableScenario(IRON_MAN, {
+            players: [SPIDER_MAN],
+            seed: 1,
+            modularSetIds: [set.id as string, "paladin", "cape_killer"],
+          }),
+        set.id,
+      ).toThrow();
+    }
   });
 });
 
@@ -276,7 +321,10 @@ describe("playableScenarioOffer at every other scenario", () => {
     expect(playableScenarioOffer("rhino", { modularSetIds: [] }).modularSetCount.problem).toBe(
       "Rhino uses 1 modular set(s), got 0",
     );
-    for (const scenario of PLAYABLE_SCENARIO_RECORDS) {
+    // Every scenario of an earlier wave: the four Civil War leaders are in the playable pool now and do have sides.
+    for (const scenario of PLAYABLE_SCENARIO_RECORDS.filter(
+      (record) => !WAVE10_SCENARIOS.some((w) => w.id === record.id),
+    )) {
       const offer = playableScenarioOffer(scenario.id);
       expect(offer.sides, scenario.id).toBeNull();
       expect(offer.modularSetCount.min, scenario.id).toBe(offer.modularSetCount.max);

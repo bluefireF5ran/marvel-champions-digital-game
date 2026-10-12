@@ -153,6 +153,22 @@ describe("the lists, derived from content data", () => {
         "techno",
         "whiteout",
         "trickster_magic",
+        "atlanteans",
+        "cape_killer",
+        "cloak_and_dagger_modular",
+        "dangerous_recruits",
+        "defenders",
+        "hells_kitchen",
+        "heroes_for_hire",
+        "maria_hill_modular",
+        "martial_law",
+        "mighty_avengers",
+        "namor_modular",
+        "new_avengers",
+        "paladin",
+        "secret_avengers",
+        "spider_man_modular",
+        "the_initiative",
       ]
     `);
   });
@@ -200,6 +216,10 @@ describe("the lists, derived from content data", () => {
           "aoa_campaign",
           "aoa_mission",
           "overseer",
+        ],
+        "competitive only": [
+          "standard_pvp_registration",
+          "standard_pvp_resistance",
         ],
         "expert set": [
           "expert",
@@ -270,6 +290,8 @@ describe("the lists, derived from content data", () => {
           "silk_nemesis",
           "falcon_nemesis",
           "winter_soldier_nemesis",
+          "hulkling_nemesis",
+          "tigra_nemesis",
         ],
         "scenario-specific": [
           "klaw",
@@ -331,6 +353,12 @@ describe("the lists, derived from content data", () => {
           "thunderbolts",
           "enchantress_villain",
           "god_of_lies",
+          "captain_america_leader",
+          "captain_marvel_leader",
+          "iron_man_leader",
+          "registration",
+          "resistance",
+          "spider_woman_leader",
         ],
         "standard set": [
           "standard",
@@ -549,22 +577,22 @@ describe("modular set x scenario: every pairing builds", () => {
     }
     expect({ sets: MODULAR_SETS.length, scenarios: PLAYABLE_SCENARIOS.length, ...kinds }).toMatchInlineSnapshot(`
       {
-        "build": 5069,
+        "build": 5821,
         "required": 28,
-        "restricted": 627,
+        "restricted": 723,
         "scenarios": 53,
-        "sets": 108,
+        "sets": 124,
       }
     `);
     expect(restrictedBy).toMatchInlineSnapshot(`
       {
-        "breakout": 108,
+        "breakout": 124,
         "four-horsemen": 1,
-        "mojo": 102,
-        "sinister-six": 107,
-        "spiral": 102,
-        "the-hood": 108,
-        "thunderbolts": 98,
+        "mojo": 118,
+        "sinister-six": 123,
+        "spiral": 118,
+        "the-hood": 124,
+        "thunderbolts": 114,
         "tower-defense": 1,
       }
     `);

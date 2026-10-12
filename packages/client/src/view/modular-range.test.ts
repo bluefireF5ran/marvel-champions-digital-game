@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CW_ENCOUNTER_SETS, CW_SCENARIOS } from "@mc/content";
+import { CW_SCENARIOS } from "@mc/content";
 import { OTHER_SIDE_GROUP_ID, OWN_SIDE_GROUP_ID, modularCandidatesFor, otherSideReason } from "./modular-candidates.js";
 import {
   modularAtMaxReason,
@@ -12,8 +12,8 @@ import {
 import { initialSetupDraft } from "./setup-draft.js";
 import { CARDS_BY_ID, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
 
-// The client pool does not hold the cw records until the pool task lands, so the real ones are passed in.
-const SETS = [...POOL_ENCOUNTER_SETS, ...CW_ENCOUNTER_SETS];
+// The client pool holds the cw records (C10), so its own sets are what a table setup would offer.
+const SETS = POOL_ENCOUNTER_SETS;
 const ironMan = CW_SCENARIOS.find((s) => (s.id as string) === "registration-iron-man")!;
 const captainAmerica = CW_SCENARIOS.find((s) => (s.id as string) === "resistance-captain-america")!;
 const rhino = POOL_SCENARIOS.find((s) => (s.id as string) === "rhino")!;

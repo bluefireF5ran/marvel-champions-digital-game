@@ -22,18 +22,25 @@ Content is gated by release wave (`Cycle.id`), in release order (`UNLOCK_WAVES` 
 counts at any difficulty, whether it came in a campaign or on its own. An open wave opens its scenarios and its
 campaign box; the box's own cast joins at once, and every other hero's precon is the reward for one villain.
 
-| Wave                     | Opens when                                 | Heroes                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core Set                 | Always                                     | All five, always                                                                                                                                                             |
-| Wave 1                   | Beat Rhino                                 | Captain America (beat Rhino), Ms. Marvel (Klaw), Thor (Ultron), Black Widow (Risky Business), Doctor Strange (Mutagen Formula), Hulk (Breakout)                              |
-| The Rise of Red Skull    | Beat Rhino                                 | Hawkeye and Spider-Woman at once (MC10's cast); Ant-Man (Crossbones), Wasp (Absorbing Man), Quicksilver (Taskmaster), Scarlet Witch (Zola)                                   |
-| The Galaxy's Most Wanted | Complete The Rise of Red Skull campaign    | Groot and Rocket Raccoon at once (MC16's cast); Star-Lord (Brotherhood of Badoon), Gamora (Infiltrate the Museum), Drax (Escape the Museum), Venom (Nebula)                  |
-| The Mad Titan's Shadow   | Complete The Galaxy's Most Wanted campaign | Spectrum and Adam Warlock at once (MC21's cast); Nebula (Ebony Maw), War Machine (Tower Defense), Vision (Thanos), Valkyrie (Hela)                                           |
-| Sinister Motives         | Complete The Mad Titan's Shadow campaign   | Ghost-Spider and Spider-Man (Miles Morales) at once (MC27's cast); Nova (Sandman), Ironheart (Venom), Spider-Ham (Mysterio), SP//dr Suit (The Sinister Six)                  |
-| Mutant Genesis           | Complete the Sinister Motives campaign     | Colossus and Shadowcat at once (MC32's cast); Cyclops (Sabretooth), Phoenix (Project Wideawake), Wolverine (Master Mold), Storm (Mansion Attack), Gambit and Rogue (Magneto) |
-| NeXt Evolution           | Complete the Mutant Genesis campaign       | Cable and Domino at once (MC40's cast); Psylocke (Morlock Siege), Angel (On the Run), X-23 (Juggernaut), Deadpool (Mister Sinister)                                          |
-| Age of Apocalypse        | Complete the NeXt Evolution campaign       | Bishop and Magik at once (MC45's cast); Iceman (Unus), Jubilee (Four Horsemen), Nightcrawler (Apocalypse), Magneto (Dark Beast)                                              |
-| Agents of S.H.I.E.L.D.   | Complete the Age of Apocalypse campaign    | Maria Hill and Nick Fury at once (MC50's cast); Black Panther (Shuri) (Black Widow), Silk (Batroc), Falcon (M.O.D.O.K.), Winter Soldier (Thunderbolts)                       |
+| Wave                     | Opens when                                   | Heroes                                                                                                                                                                       |
+| ------------------------ | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core Set                 | Always                                       | All five, always                                                                                                                                                             |
+| Wave 1                   | Beat Rhino                                   | Captain America (beat Rhino), Ms. Marvel (Klaw), Thor (Ultron), Black Widow (Risky Business), Doctor Strange (Mutagen Formula), Hulk (Breakout)                              |
+| The Rise of Red Skull    | Beat Rhino                                   | Hawkeye and Spider-Woman at once (MC10's cast); Ant-Man (Crossbones), Wasp (Absorbing Man), Quicksilver (Taskmaster), Scarlet Witch (Zola)                                   |
+| The Galaxy's Most Wanted | Complete The Rise of Red Skull campaign      | Groot and Rocket Raccoon at once (MC16's cast); Star-Lord (Brotherhood of Badoon), Gamora (Infiltrate the Museum), Drax (Escape the Museum), Venom (Nebula)                  |
+| The Mad Titan's Shadow   | Complete The Galaxy's Most Wanted campaign   | Spectrum and Adam Warlock at once (MC21's cast); Nebula (Ebony Maw), War Machine (Tower Defense), Vision (Thanos), Valkyrie (Hela)                                           |
+| Sinister Motives         | Complete The Mad Titan's Shadow campaign     | Ghost-Spider and Spider-Man (Miles Morales) at once (MC27's cast); Nova (Sandman), Ironheart (Venom), Spider-Ham (Mysterio), SP//dr Suit (The Sinister Six)                  |
+| Mutant Genesis           | Complete the Sinister Motives campaign       | Colossus and Shadowcat at once (MC32's cast); Cyclops (Sabretooth), Phoenix (Project Wideawake), Wolverine (Master Mold), Storm (Mansion Attack), Gambit and Rogue (Magneto) |
+| NeXt Evolution           | Complete the Mutant Genesis campaign         | Cable and Domino at once (MC40's cast); Psylocke (Morlock Siege), Angel (On the Run), X-23 (Juggernaut), Deadpool (Mister Sinister)                                          |
+| Age of Apocalypse        | Complete the NeXt Evolution campaign         | Bishop and Magik at once (MC45's cast); Iceman (Unus), Jubilee (Four Horsemen), Nightcrawler (Apocalypse), Magneto (Dark Beast)                                              |
+| Agents of S.H.I.E.L.D.   | Complete the Age of Apocalypse campaign      | Maria Hill and Nick Fury at once (MC50's cast); Black Panther (Shuri) (Black Widow), Silk (Batroc), Falcon (M.O.D.O.K.), Winter Soldier (Thunderbolts)                       |
+| Civil War                | Complete the Agents of S.H.I.E.L.D. campaign | Tigra and Hulkling at once (MC56's cast); no hero rewards yet (see below)                                                                                                    |
+
+Civil War (MC56) opens after the Agents of S.H.I.E.L.D. campaign (owner, question 25 = A) and has no campaign of its own
+(MC56 p. 3). Its four leader scenarios (Iron Man, Captain Marvel, Captain America, Spider-Woman) open with the box. The
+Wonder Man and Hercules packs, the cycle's other two heroes, are not playable yet and are in no reward: the provisional
+pairing is Wonder Man for registration-iron-man and Hercules for resistance-captain-america, for the owner to confirm,
+and each hero joins `heroRewards` when its pack gets a starter deck.
 
 Trickster Takeover (Enchantress; Loki, God of Lies; the Trickster Magic modular set) has no row of its own: it
 opens with the Agents of S.H.I.E.L.D. wave. The pack prints no unlock requirement, so this is a progression policy

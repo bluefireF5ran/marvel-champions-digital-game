@@ -77,7 +77,7 @@ import { hintsFor, type Hint, type HintTrigger } from "../../view/guide-hints.js
 import { guidePrefs } from "../../guide/guide-store.js";
 import { GuideGateHolder, type GuideGate } from "./guide-gate.js";
 import { BASIC_TO_KIND, basicKindOf, retarget, type Selection } from "./selection.js";
-import { costPickSlot, needsPlayAim, playAimPrompt } from "../../view/play-aim.js";
+import { costPickSlot, needsPlayAim, paymentAimOf, playAimPrompt } from "../../view/play-aim.js";
 import { actionAbilityCost } from "../../view/cost-choice-model.js";
 import {
   paymentIntoOf,
@@ -831,7 +831,12 @@ export class BoardController {
     }
     if (this.#tryOpenCostChoice(entry, target, controllerId)) return;
     if (this.#tryOpenInPlayCost(entry, target, controllerId)) return;
-    if (entry.needsPayment && this.#openPayment(entry, target, controllerId, undefined, undefined, destinationNote)) {
+    // A pick for a cost that searches the encounter deck (Hunted) is a cost choice, not a host (`view/play-aim.ts`).
+    const aim = game ? paymentAimOf(game, POOL_DEPS, entry.action, target) : { target };
+    if (
+      entry.needsPayment &&
+      this.#openPayment(entry, aim.target, controllerId, undefined, aim.costChoices, destinationNote)
+    ) {
       return;
     }
     if (confirmFree) {

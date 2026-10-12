@@ -27,6 +27,7 @@ import {
   WAVE7_SCENARIOS,
   WAVE8_SCENARIOS,
   WAVE9_SCENARIOS,
+  WAVE10_SCENARIOS,
   WAVE1_ENCOUNTER_SETS,
   WAVE2_ENCOUNTER_SETS,
   WAVE3_ENCOUNTER_SETS,
@@ -36,6 +37,7 @@ import {
   WAVE7_ENCOUNTER_SETS,
   WAVE8_ENCOUNTER_SETS,
   WAVE9_ENCOUNTER_SETS,
+  WAVE10_ENCOUNTER_SETS,
   modularSetCountRangeOf,
   setAsideModularSetCountFor,
   type AnyCard,
@@ -61,6 +63,8 @@ export const PLAYABLE_ENCOUNTER_SETS: readonly EncounterSet[] = [
       ...WAVE8_ENCOUNTER_SETS,
       // Wave 9 (cycle 9) minus the sets not scripted yet (`playable/unscripted.ts`).
       ...WAVE9_ENCOUNTER_SETS,
+      // Wave 10 (cycle 10): Civil War's sets; the hero packs' own sets are gated (`playable/unscripted.ts`).
+      ...WAVE10_ENCOUNTER_SETS,
     ]
       .filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id))
       .map((set) => [set.id as string, set] as const),
@@ -139,6 +143,8 @@ export const PLAYABLE_SCENARIO_RECORDS: readonly Scenario[] = [
   ...WAVE8_SCENARIOS,
   // Wave 9 (cycle 9): the scripted scenarios, each with its pool of modular sets cut to the scripted ones.
   ...WAVE9_SCENARIOS.filter(scenarioIsScripted).map(playableScenarioRecord),
+  // Wave 10 (cycle 10): Civil War's four leaders.
+  ...WAVE10_SCENARIOS.filter(scenarioIsScripted).map(playableScenarioRecord),
 ];
 
 /** Every set some scenario names as its Standard or Expert set: never a modular choice anywhere (RRG 1.8 pp. 40, 19). */

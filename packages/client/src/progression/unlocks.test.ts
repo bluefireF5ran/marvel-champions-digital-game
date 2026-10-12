@@ -127,6 +127,34 @@ describe("the unlock path", () => {
     expect(skull.heroLock(heroNamed("Venom"))).toBe("Beat Nebula to unlock Venom");
   });
 
+  it("opens the Civil War box after the Agents of S.H.I.E.L.D. campaign, with Tigra and Hulkling, no campaign and no rewards yet", () => {
+    expect(hasUnlockWave("cycle10")).toBe(true);
+    const wave = UNLOCK_WAVES.find((w) => w.cycleId === "cycle10")!;
+    expect(wave.name).toBe("Civil War");
+    expect(wave.gate).toEqual({
+      kind: "campaignWin",
+      campaignId: "aos",
+      hint: "Complete the Agents of S.H.I.E.L.D. campaign",
+    });
+    expect(wave.campaignId).toBeUndefined();
+    // Wonder Man (58001a) and Hercules (59001a) are not in the pool, so no reward can name them yet.
+    expect(wave.heroRewards).toEqual([]);
+    expect(wave.starterHeroIds).toEqual(["56001a", "56029a"]);
+
+    const fresh = make(NO_PROGRESS);
+    expect(fresh.waveLock("cycle10")).toBe("Complete the Agents of S.H.I.E.L.D. campaign to unlock Civil War");
+    expect(fresh.scenarioLock(scenario("registration-iron-man"))).toBe(
+      "Complete the Agents of S.H.I.E.L.D. campaign to unlock Civil War",
+    );
+    expect(fresh.heroLock(heroNamed("Tigra"))).not.toBeNull();
+
+    const finished = make(won([], ["aos"]));
+    expect(finished.waveLock("cycle10")).toBeNull();
+    expect(finished.scenarioLock(scenario("resistance-captain-america"))).toBeNull();
+    expect(finished.heroLock(heroNamed("Tigra"))).toBeNull();
+    expect(finished.heroLock(heroNamed("Hulkling"))).toBeNull();
+  });
+
   it("names a villain by its scenario when they differ", () => {
     expect(villainLabelOf("rhino")).toBe("Rhino");
     expect(villainLabelOf("infiltrate-the-museum")).toMatch(/\(Infiltrate the Museum\)$/);

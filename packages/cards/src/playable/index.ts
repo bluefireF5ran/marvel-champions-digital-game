@@ -1,5 +1,5 @@
 /**
- * The playable pool: every scripted wave at once (Core through cycle 9, minus the wave 9 sets in `./unscripted.ts`). `WAVE1_*` and `WAVE2_*` are sibling
+ * The playable pool: every scripted wave at once (Core through cycle 10's Civil War box, minus the sets in `./unscripted.ts`). `WAVE1_*` and `WAVE2_*` are sibling
  * pools that each start from Core and know nothing of each other, which is right for a pack's own tests and wrong
  * for an app where a cycle 1 hero sits down against a wave 1 villain. This module is that union, built from the
  * waves' own exports so a pack is still added in exactly one place (its wave's `index.ts`).
@@ -31,7 +31,9 @@ import {
   WAVE9_ENCOUNTER_SETS,
   WAVE9_SCENARIOS,
   WAVE9_STARTER_DECKS,
+  WAVE10_ENCOUNTER_SETS,
   WAVE10_SCENARIOS,
+  WAVE10_STARTER_DECKS,
   autoIncludedSetsOf,
   type AnyCard,
   type StarterDeck,
@@ -56,6 +58,7 @@ import { WAVE8_ABILITIES } from "../wave8/index.js";
 import { wave8Scenario, type Wave8ScenarioOptions } from "../wave8/setup.js";
 import { WAVE9_ABILITIES } from "../wave9/index.js";
 import { wave9Scenario } from "../wave9/setup.js";
+import { WAVE10_ABILITIES } from "../wave10/index.js";
 import { wave10Scenario } from "../wave10/setup.js";
 import { checkPlayableDifficultySets } from "./scenario-options.js";
 import { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./unscripted.js";
@@ -94,6 +97,7 @@ export const PLAYABLE_ABILITIES: AbilityRegistry = unionRegistries(
   WAVE7_ABILITIES,
   WAVE8_ABILITIES,
   WAVE9_ABILITIES,
+  WAVE10_ABILITIES,
 );
 
 /** Engine dependencies for a game on the playable pool. */
@@ -122,6 +126,7 @@ const STARTER_DECKS: readonly StarterDeck[] = [
   ...WAVE7_STARTER_DECKS,
   ...WAVE8_STARTER_DECKS,
   ...WAVE9_STARTER_DECKS,
+  ...WAVE10_STARTER_DECKS,
 ];
 
 /** Any starter deck in the playable pool as a player seat (quantities expanded; the identity isn't part of the deck). */
@@ -184,6 +189,7 @@ const EXTRA_MODULAR_SET_IDS: ReadonlySet<string> = new Set(
     ...WAVE7_ENCOUNTER_SETS,
     ...WAVE8_ENCOUNTER_SETS,
     ...WAVE9_ENCOUNTER_SETS,
+    ...WAVE10_ENCOUNTER_SETS,
   ]
     .filter((set) => set.extraModular && !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id))
     .map((set) => set.id as string),
@@ -250,10 +256,9 @@ const isWave10Scenario = (scenarioId: string): boolean =>
  * A Civil War scenario (docs/phase7-wave10.md §3.1): `wave10Scenario` builds it from the leader's record and the
  * players' choices, and checks every one of them itself (the count of modular sets, their side, the stage pair).
  *
- * The builder is reachable here so the route the app will take is the tested one, but the wave is **not joined to the
- * playable pool yet**: its scenarios are not in `PLAYABLE_SCENARIO_RECORDS`, its sets not in
- * `PLAYABLE_ENCOUNTER_SETS`, its starter decks not in `playableStarterDeckSetup` and its scripts not in
- * `PLAYABLE_ABILITIES`, so no table setup lists a leader and a game built here runs on `WAVE10_DEPS`.
+ * The wave is joined to the playable pool: its scenarios are in `PLAYABLE_SCENARIO_RECORDS`, its sets in
+ * `PLAYABLE_ENCOUNTER_SETS` (the hero packs' own sets stay gated, `./unscripted.ts`), its starter decks in
+ * `playableStarterDeckSetup` and its scripts in `PLAYABLE_ABILITIES`, so a game built here runs on `PLAYABLE_DEPS`.
  */
 function wave10Playable(
   scenarioId: string,

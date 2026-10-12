@@ -13,7 +13,7 @@
  * header, step rail, review column and sticky foot are fixed. Every control is also a focus stop keyed by its action string.
  */
 import Phaser from "phaser";
-import { CW_CARDS, CW_ENCOUNTER_SETS, CW_SCENARIOS, type AnyCard } from "@mc/content";
+import { CW_SCENARIOS } from "@mc/content";
 import { CARDS_BY_ID, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
 import { dotGrid, ink, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { cssOf, textStyle } from "../ui/theme.js";
@@ -49,13 +49,6 @@ export interface CivilWarBuilderData {
   /** The step to open on: the review for "Customize", the side step for "Build your own". */
   readonly step?: BuilderStep;
 }
-
-/** The Civil War cards and sets from the content package, over the client pool's (the scenarios join the pool in C10). */
-const CARDS: ReadonlyMap<string, AnyCard> = new Map<string, AnyCard>([
-  ...CARDS_BY_ID,
-  ...CW_CARDS.map((card): [string, AnyCard] => [card.id as string, card]),
-]);
-const ENCOUNTER_SETS = [...POOL_ENCOUNTER_SETS, ...CW_ENCOUNTER_SETS];
 
 const NAME: TypeSpec = typeRole.rowTitle;
 const DETAIL: TypeSpec = typeRole.body;
@@ -126,9 +119,9 @@ export class CivilWarBuilderScene extends Phaser.Scene {
 
   #context(): BuilderContext {
     return {
-      cards: CARDS,
+      cards: CARDS_BY_ID,
       scenarios: CW_SCENARIOS,
-      encounterSets: ENCOUNTER_SETS,
+      encounterSets: POOL_ENCOUNTER_SETS,
       offer: offerOf(this.#draft),
       step: this.#step,
       otherSideExpanded: this.#otherSideExpanded,

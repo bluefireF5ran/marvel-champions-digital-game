@@ -1,5 +1,5 @@
 /**
- * Wave 9 content that is in the card pool but not playable yet, and the one place that says so.
+ * Content that is in the card pool but not playable yet, and the one place that says so.
  *
  * Gating is by encounter set, in one list: `UNSCRIPTED_ENCOUNTER_SET_IDS`. A listed set is left out of the playable
  * encounter sets (so no modular pick, no extra-set pick and no table setup can name it), a scenario that uses one of
@@ -13,13 +13,24 @@
  */
 import type { Scenario } from "@mc/content";
 
-export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([]);
+export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
+  // The Wonder Man and Hercules packs (cycle 10) are not playable yet: their kits are mostly unscripted. Their nemesis
+  // sets are gated with them, and so is All Versus All (see `GATED_THOUGH_SCRIPTED`).
+  "wonder_man_nemesis",
+  "hercules_nemesis",
+  "all_versus_all",
+]);
 
 /**
  * Gated sets whose every ability is scripted but which are held back for another reason, each with that reason. The
  * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
  */
-export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {};
+export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
+  all_versus_all:
+    "every ref is scripted (wave10/hercules/all-versus-all.ts), but its cards are Hercules' (59041 and four more) and the " +
+    "Hercules pack is not in PLAYABLE_CARDS yet (its Team-Up art is missing), so a game that shuffled the set in would " +
+    "name cards the engine does not know. Un-gate it with the pack.",
+};
 
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */
 export function scenarioIsScripted(scenario: Pick<Scenario, "encounterSetIds" | "multipleVillains">): boolean {

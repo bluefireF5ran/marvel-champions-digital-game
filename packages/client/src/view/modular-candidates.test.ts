@@ -75,6 +75,24 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "whiteout",
           "trickster_magic",
         ],
+        "Civil War": [
+          "atlanteans",
+          "cape_killer",
+          "cloak_and_dagger_modular",
+          "dangerous_recruits",
+          "defenders",
+          "hells_kitchen",
+          "heroes_for_hire",
+          "maria_hill_modular",
+          "martial_law",
+          "mighty_avengers",
+          "namor_modular",
+          "new_avengers",
+          "paladin",
+          "secret_avengers",
+          "spider_man_modular",
+          "the_initiative",
+        ],
         "Core Set": [
           "legions_of_hydra",
           "masters_of_evil",
@@ -213,6 +231,24 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "techno",
           "whiteout",
           "trickster_magic",
+        ],
+        "Civil War": [
+          "atlanteans",
+          "cape_killer",
+          "cloak_and_dagger_modular",
+          "dangerous_recruits",
+          "defenders",
+          "hells_kitchen",
+          "heroes_for_hire",
+          "maria_hill_modular",
+          "martial_law",
+          "mighty_avengers",
+          "namor_modular",
+          "new_avengers",
+          "paladin",
+          "secret_avengers",
+          "spider_man_modular",
+          "the_initiative",
         ],
         "Core Set": [
           "bomb_scare",
@@ -390,7 +426,7 @@ describe("what counts as modular", () => {
     for (const g of groups) if (seen[seen.length - 1] !== g) seen.push(g);
     expect(new Set(seen).size, "each group is one run").toBe(seen.length);
     expect(seen.slice(0, 3)).toEqual([RECOMMENDED_GROUP_ID, "core", "wave1"]);
-    expect(seen[seen.length - 1]).toBe("cycle9");
+    expect(seen[seen.length - 1]).toBe("cycle10");
   });
 });
 

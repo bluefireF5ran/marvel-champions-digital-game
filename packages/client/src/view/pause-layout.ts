@@ -70,6 +70,10 @@ const PANEL_GAP = 16;
 const LEFT_PAD = 24;
 const TITLE_HEIGHT = 40;
 const STATUS_HEIGHT = 18;
+/** One line of a Civil War blind game's scenario sheet (`blindSheetLines`), under the status line. */
+const BLIND_LINE_HEIGHT = 13;
+/** The height a blind sheet of `lines` lines takes; 0 for none. */
+const blindSheetHeight = (lines: number): number => (lines > 0 ? lines * BLIND_LINE_HEIGHT + 6 : 0);
 const MENU_TOP_GAP = 20;
 const MENU_GAP = 10;
 
@@ -98,6 +102,8 @@ export interface PauseWideLayout {
   readonly right: Rect;
   readonly title: Rect;
   readonly status: Rect;
+  /** Where a blind Civil War game's scenario sheet is drawn, under the status line; null for every other game. */
+  readonly blindSheet: Rect | null;
   readonly menu: PauseMenuLayout;
   readonly concede: Rect;
   /** Where the confirm's "Yes, concede" / "Cancel" pair replace Concede's own slot — placed just above it, in the gap between the menu and the foot. */
@@ -131,6 +137,7 @@ function wideLayout(
   keywordCount: number,
   guidedRunActive: boolean,
   keywordTexts?: readonly PauseKeywordCardText[],
+  blindLines = 0,
 ): PauseWideLayout {
   const width = Math.min(SHEET_WIDTH, Math.max(1, bounds.width - SHEET_MARGIN * 2));
   const height = Math.min(SHEET_HEIGHT, Math.max(1, bounds.height - SHEET_MARGIN * 2));
@@ -158,7 +165,11 @@ function wideLayout(
   };
   const status: Rect = { x: title.x, y: title.y + title.height, width: title.width, height: STATUS_HEIGHT };
 
-  const menuTop = status.y + status.height + MENU_TOP_GAP;
+  const blindSheet: Rect | null =
+    blindLines > 0
+      ? { x: title.x, y: status.y + status.height + 4, width: title.width, height: blindSheetHeight(blindLines) }
+      : null;
+  const menuTop = (blindSheet ? blindSheet.y + blindSheet.height : status.y + status.height) + MENU_TOP_GAP;
   const menuButtonHeight = hit.primary;
   const menuWidth = title.width;
   const menuRect = (index: number): Rect => ({
@@ -245,6 +256,7 @@ function wideLayout(
     right,
     title,
     status,
+    blindSheet,
     menu,
     concede,
     concedeConfirmYes,
@@ -319,6 +331,8 @@ export interface PausePhoneLayout {
   readonly panel: Rect;
   readonly header: Rect;
   readonly closeButton: Rect;
+  /** Where a blind Civil War game's scenario sheet is drawn, in the header under the status line; null for every other game. */
+  readonly blindSheet: Rect | null;
   readonly footer: Rect;
   readonly search: Rect;
   readonly quickReferenceHeading: Rect;
@@ -415,10 +429,11 @@ function phoneLayout(
   tableDetails: readonly string[],
   guideRowDetails: readonly string[] = [],
   guidedRunActive = false,
+  blindLines = 0,
 ): PausePhoneLayout {
   const { panel, header, body, footer } = overlayPanelLayout(
     bounds,
-    PHONE_HEADER_HEIGHT,
+    PHONE_HEADER_HEIGHT + blindSheetHeight(blindLines),
     PHONE_FOOTER_HEIGHT,
     PHONE_PANEL_MAX_WIDTH,
   );
@@ -428,6 +443,16 @@ function phoneLayout(
     width: PHONE_CLOSE_SIZE,
     height: PHONE_CLOSE_SIZE,
   };
+
+  const blindSheet: Rect | null =
+    blindLines > 0
+      ? {
+          x: header.x + 16,
+          y: header.y + PHONE_HEADER_HEIGHT - 2,
+          width: Math.max(0, closeButton.x - header.x - 16 - 12),
+          height: blindSheetHeight(blindLines),
+        }
+      : null;
 
   const inset: Rect = {
     x: body.x + 16,
@@ -481,6 +506,7 @@ function phoneLayout(
     panel,
     header,
     closeButton,
+    blindSheet,
     footer,
     search,
     quickReferenceHeading,
@@ -517,6 +543,8 @@ export interface PauseLayoutInput {
    * as they were before this option existed.
    */
   readonly guidedRunActive?: boolean;
+  /** Lines of a blind Civil War game's scenario sheet (`PauseStatus.blindSheet`); absent or 0 for every other game. */
+  readonly blindLineCount?: number;
 }
 
 export function pauseLayout(bounds: Rect, input: PauseLayoutInput): PauseLayout {
@@ -527,8 +555,15 @@ export function pauseLayout(bounds: Rect, input: PauseLayoutInput): PauseLayout 
       input.tableDetails,
       input.guideRowDetails,
       input.guidedRunActive,
+      input.blindLineCount ?? 0,
     );
-  return wideLayout(bounds, input.keywordCount, input.guidedRunActive ?? false, input.keywordTexts);
+  return wideLayout(
+    bounds,
+    input.keywordCount,
+    input.guidedRunActive ?? false,
+    input.keywordTexts,
+    input.blindLineCount ?? 0,
+  );
 }
 
 /** Every rect this layout places, for a no-overlap test — excluding heading/label text bands, which aren't controls (the same convention `settings-layout.test.ts` and `rules-layout.test.ts` use). */

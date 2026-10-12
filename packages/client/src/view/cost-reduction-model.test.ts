@@ -6,12 +6,24 @@
  */
 
 import { beforeEach, describe, expect, test } from "vitest";
-import { applyCommand, type GameState, type LegalAction, type PlayerId } from "@mc/engine";
+import {
+  applyCommand,
+  type GameState,
+  type InstanceId,
+  type LegalAction,
+  type PaymentSource,
+  type PlayerId,
+} from "@mc/engine";
 import { LocalEngineHost } from "../engine/local-host.js";
 import { SessionStore } from "../store/session-store.js";
 import type { SessionConfig } from "../engine/host.js";
 import { POOL_DEPS } from "../content/pool.js";
-import { costReductionOptionsFor, costReductionTotal, tryReducedPlay } from "./cost-reduction-model.js";
+import {
+  costReductionOptionsFor,
+  costReductionTotal,
+  paymentsFromPicked,
+  tryReducedPlay,
+} from "./cost-reduction-model.js";
 import { tryPayment } from "@mc/engine";
 
 const STAR_LORD_SOLO: SessionConfig = {
@@ -120,5 +132,65 @@ describe("cost-reduction options", () => {
     const entry = costedPlay();
     const attempt = tryPayment(state, me, entry.action, [], {}, POOL_DEPS);
     if (attempt.ok) expect(attempt.command).not.toHaveProperty("costReductionAbilities");
+  });
+});
+
+describe("paymentsFromPicked: a hand card spent through its own ability, and the amount a cost takes", () => {
+  const pool = { energy: 3, physical: 0, mental: 0, wild: 0 } as never;
+  const siphon = "i7" as InstanceId;
+  const source = (extra: Partial<PaymentSource> & Pick<PaymentSource, "optionId" | "kind">): PaymentSource =>
+    ({ instanceId: siphon, label: "Energy Siphon", pool, ...extra }) as PaymentSource;
+
+  test("Energy Siphon spent with 2 damage: fromHand carrying whenSpent with the ability and the amount", () => {
+    const optionId = `hand:${siphon}:58006.energy-siphon-interrupt@#damageSelf=2`;
+    const sources = [
+      source({ optionId: `hand:${siphon}`, kind: "handCard" }),
+      source({
+        optionId,
+        kind: "resourceAbility",
+        spendsHandCard: true,
+        costSelection: { damageSelf: 2 },
+      }),
+    ];
+    expect(paymentsFromPicked([optionId], sources)).toEqual([
+      {
+        fromHand: siphon,
+        whenSpent: { abilityId: "58006.energy-siphon-interrupt", costSelection: { damageSelf: 2 } },
+      },
+    ]);
+    // The plain spending of the same card is still a plain spending.
+    expect(paymentsFromPicked([`hand:${siphon}`], sources)).toEqual([{ fromHand: siphon }]);
+  });
+
+  test("a when-spent use keeps the cards its own cost picked", () => {
+    const optionId = `hand:${siphon}:50999.organizational-support@discard=i1,i2`;
+    const sources = [
+      source({
+        optionId,
+        kind: "resourceAbility",
+        spendsHandCard: true,
+        costChoices: { discard: ["i1" as InstanceId, "i2" as InstanceId] },
+      }),
+    ];
+    expect(paymentsFromPicked([optionId], sources)).toEqual([
+      {
+        fromHand: siphon,
+        whenSpent: {
+          abilityId: "50999.organizational-support",
+          costChoices: { discard: ["i1", "i2"] },
+        },
+      },
+    ]);
+  });
+
+  test("a resource ability on a card in play keeps its chosen amount", () => {
+    const vein = "i9" as InstanceId;
+    const optionId = `ability:${vein}:58010.vein@#removeThreat=2`;
+    const sources = [
+      source({ optionId, kind: "resourceAbility", instanceId: vein, costSelection: { removeThreat: 2 } }),
+    ];
+    expect(paymentsFromPicked([optionId], sources)).toEqual([
+      { ability: { instanceId: vein, abilityId: "58010.vein", costSelection: { removeThreat: 2 } } },
+    ]);
   });
 });

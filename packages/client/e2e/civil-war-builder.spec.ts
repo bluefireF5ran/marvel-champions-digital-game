@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { pressHookStop, settle, trackPageErrors, waitFor } from "./helpers.js";
+import { activeScenes, pressHookStop, settle, trackPageErrors, waitFor } from "./helpers.js";
 import { openApp } from "./wave6-helpers-b.js";
 
 /**
  * The Civil War scenario builder (docs/phase7-wave10-client.md section 2, task C7). The scenes are reached through the dev
- * jump `?screen=civil-war-builder` (the scenarios join the client pool in task C10, so Scenario select cannot show the
- * Civil War shelf yet) and driven through `__mcBuilderDebug`: `view()` is the tested view model's `BuilderView`, `act()`
+ * jump `?screen=civil-war-builder` (the Civil War shelf and its Customize / Build your own entries are
+ * `wave10-civil-war.spec.ts`'s) and driven through `__mcBuilderDebug`: `view()` is the tested view model's `BuilderView`, `act()`
  * sends one action string (what a tap or key sends), `status()` is the status line as drawn. Read back, never recomputed.
  */
 
@@ -94,11 +94,12 @@ for (const size of sizes) {
         expect(v.step).toBe(n);
         expect(v.steps.find((s) => s.active)?.title).toBe(v.steps[n - 1]!.title);
       }
-      // Start hands the draft to Take your seats; with no Civil War scenario in the client pool yet it stops short and says so.
+      // Start hands the draft to Take your seats: the scenarios are in the client pool.
       await act(page, "civil:start");
       const handoff = await debug<{ kind: string } | null>(page, "handoff");
       expect(handoff).not.toBeNull();
-      if (handoff!.kind === "blocked") expect(await status(page)).toContain("not in this build");
+      expect(handoff!.kind).toBe("seats");
+      await waitFor(async () => ((await activeScenes(page)).includes("Seats") ? true : null), "Take your seats", 10000);
       expect(errors).toEqual([]);
     });
 

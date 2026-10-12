@@ -1,6 +1,5 @@
 import {
   CORE_STARTER_DECKS,
-  WAVE10_ENCOUNTER_SETS,
   WAVE10_SCENARIOS,
   WAVE10_STARTER_DECKS,
   difficultyEncounterSetIds,
@@ -53,14 +52,10 @@ export interface Wave10ScenarioOptions extends Omit<CoreScenarioOptions, "cardPo
 }
 
 /**
- * Every encounter set a Civil War game can name: the playable sets and the wave's own, each once. The wave is not
- * joined to `modular-pool.ts`'s playable list yet, so its sets are added here (as `wave9/setup.ts` did for wave 9).
+ * Every encounter set a Civil War game can name: the playable sets, which now hold the wave's own (the hero packs' sets
+ * are gated, `playable/unscripted.ts`).
  */
-export const WAVE10_GAME_ENCOUNTER_SETS: readonly EncounterSet[] = [
-  ...new Map(
-    [...PLAYABLE_ENCOUNTER_SETS, ...WAVE10_ENCOUNTER_SETS].map((set) => [set.id as string, set] as const),
-  ).values(),
-];
+export const WAVE10_GAME_ENCOUNTER_SETS: readonly EncounterSet[] = PLAYABLE_ENCOUNTER_SETS;
 
 const cardsById = new Map<string, AnyCard>(WAVE10_CARDS.map((card) => [card.id, card]));
 

@@ -53,6 +53,7 @@ import {
   type TableRules,
 } from "@mc/engine";
 import { POOL_DEPS } from "../content/pool.js";
+import type { BlindReveal } from "./civil-war-blind.js";
 import { encounterDeckPreviewOf, type EncounterDeckPreview } from "./encounter-preview.js";
 import { encounterDeckSizeText } from "./modular-summary.js";
 import { foeWord } from "./foe-words.js";
@@ -364,6 +365,8 @@ export function tableSetupPreviewOf(
   cardsById: ReadonlyMap<string, AnyCard>,
   encounterSets: readonly EncounterSet[],
   deps: EngineDeps = POOL_DEPS,
+  /** A Civil War game started blind (`blindRevealOf`): the deck's unrevealed modular sets print under the hidden word. */
+  blind: BlindReveal | null = null,
 ): TableSetupPreview {
   const playerCount = config.players.length;
   const stageRange = stageRangeFor(scenario, difficulty, config.villainStartStageIndex);
@@ -385,7 +388,7 @@ export function tableSetupPreviewOf(
             ),
           }
         : { ...config, encounterDeck: [...config.encounterDeck, ...shuffledIn] };
-  const encounterDeck = encounterDeckPreviewOf(deckConfig, [...cardsById.values()], encounterSets);
+  const encounterDeck = encounterDeckPreviewOf(deckConfig, [...cardsById.values()], encounterSets, blind);
   const firstStage = mainScheme.stages[0]!;
   const villainCard = cardsById.get(scenario.villainCardId as string);
   const villainSide =
