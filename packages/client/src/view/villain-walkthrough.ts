@@ -16,8 +16,9 @@
  */
 
 import type { AbilityId } from "@mc/content";
-import { activeAbilityRefs, cardOf } from "@mc/engine";
+import { activeAbilityRefs, cardOf, ENEMY_TEAM_CHOICE_INSTRUCTION, ENEMY_TEAM_CHOICE_RULE } from "@mc/engine";
 import type {
+  ChoiceBehalf,
   ChoiceOption,
   ChoicePrompt,
   DecisionAuthority,
@@ -429,6 +430,11 @@ export function decisionLabel(choice: ChoiceLike, state: GameState, viewer: Play
     // RRG "First Player", "Simultaneous Resolution".
     case "firstPlayerOrders":
       return yours ? "As first player, you order these effects" : `${who} orders these effects as first player`;
+    // MC56 p. 6 (the grim rule): "the enemy team" is the players, and the first player decides for it.
+    case "enemyTeam":
+      return yours
+        ? "As first player, you choose for the enemy team"
+        : `${who} chooses for the enemy team as first player`;
     default:
       if (choice.prompt.kind === "declareDefender") {
         return yours ? "Declare your defender" : `${who} declares a defender`;
@@ -513,6 +519,47 @@ interface ChoiceLike {
   readonly authority: DecisionAuthority;
   readonly soleDecider: boolean;
   readonly options: readonly ChoiceOption[];
+  /** Present exactly when `authority` is `enemyTeam`. */
+  readonly onBehalfOf?: ChoiceBehalf | undefined;
+}
+
+/** The authority tag on a choice sheet's bar: Peril outranks it, since Peril forbids any table talk. */
+export function authorityTagOf(choice: Pick<ChoiceLike, "authority" | "soleDecider">): string {
+  if (choice.soleDecider) return "PERIL";
+  return choice.authority === "enemyTeam" ? "ENEMY TEAM'S CHOICE" : "AUTHORITY: PLAYER";
+}
+
+/**
+ * What an enemy-team choice shows under its title, from the engine's own strings (never retyped here): who is
+ * deciding, whom the team acts against, the instruction, and the grim rule that is the "Why?". Null for every other
+ * authority, whose sheets are unchanged.
+ */
+export interface EnemyTeamNotice {
+  readonly tag: string;
+  readonly decider: string;
+  /** "The enemy team acts against Ana."; null when the effect resolves for no player. */
+  readonly against: string | null;
+  readonly instruction: string;
+  readonly whyTitle: string;
+  readonly rule: string;
+}
+
+export function enemyTeamNoticeOf(
+  choice: ChoiceLike,
+  state: GameState,
+  viewer: PlayerId | null,
+): EnemyTeamNotice | null {
+  if (choice.authority !== "enemyTeam") return null;
+  const facing = choice.onBehalfOf?.facingPlayerId ?? null;
+  return {
+    tag: authorityTagOf(choice),
+    decider: decisionLabel(choice, state, viewer),
+    against:
+      facing === null ? null : `The enemy team acts against ${facing === viewer ? "you" : playerName(state, facing)}.`,
+    instruction: ENEMY_TEAM_CHOICE_INSTRUCTION,
+    whyTitle: "Why?",
+    rule: `“${ENEMY_TEAM_CHOICE_RULE}” (rulebook, p. 6)`,
+  };
 }
 
 const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);

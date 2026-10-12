@@ -48,3 +48,56 @@ describe("mainSchemeAdvanced", () => {
     expect(text({ type: "mainSchemeAdvanced", stageIndex: 6 }, game)).toBe("The main scheme advances to stage 2.");
   });
 });
+
+describe("choiceResolved on the enemy team's behalf (MC56 p. 6)", () => {
+  const behalf = { kind: "enemyTeam", teamId: "team-1", facingPlayerId: null } as never;
+  const requested = (): GameEvent =>
+    ({
+      type: "choiceRequested",
+      choice: {
+        choiceId: "c1",
+        playerId: me,
+        prompt: { kind: "chooseTarget" },
+        minSelections: 1,
+        maxSelections: 1,
+        options: [
+          { optionId: "a", label: "Stark Tower", ref: { kind: "none" } },
+          { optionId: "b", label: "Avengers Mansion", ref: { kind: "none" } },
+        ],
+        frameId: null,
+        ordered: false,
+        soleDecider: false,
+        authority: "enemyTeam",
+        onBehalfOf: behalf,
+      },
+    }) as unknown as GameEvent;
+  const resolved = (ids: string[], playerId: PlayerId = me): GameEvent =>
+    ({
+      type: "choiceResolved",
+      choiceId: "c1",
+      playerId,
+      selectedOptionIds: ids,
+      onBehalfOf: behalf,
+    }) as unknown as GameEvent;
+  const line = (event: GameEvent, events: GameEvent[]) =>
+    logLine(event, state, me, POOL_DEPS, false, undefined, { events, at: events.indexOf(event) })?.text;
+
+  test("names who decided and what the enemy team chose", () => {
+    const done = resolved(["a"]);
+    expect(line(done, [requested(), done])).toBe("The enemy team (decided by You) chose Stark Tower.");
+    const other = resolved(["a", "b"], "player-ana" as PlayerId);
+    expect(line(other, [requested(), other])).toBe(
+      "The enemy team (decided by player-ana) chose Stark Tower and Avengers Mansion.",
+    );
+  });
+
+  test("without the request in view, only who decided", () => {
+    expect(text(resolved(["a"]))).toBe("The enemy team's choice was decided by You.");
+  });
+
+  test("an ordinary choice resolving is not logged", () => {
+    expect(
+      text({ type: "choiceResolved", choiceId: "c1", playerId: me, selectedOptionIds: ["a"] } as unknown as GameEvent),
+    ).toBeUndefined();
+  });
+});

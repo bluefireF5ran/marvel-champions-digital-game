@@ -43,7 +43,7 @@ import { CARD_BACKS, artFor } from "../art/art-source.js";
 import { abilityFaceOf, characterPanel, faceOf } from "../view/board-model.js";
 import type { Rect } from "../view/layout.js";
 import { cardChoiceSlots, formFactorFor, isTabbed } from "../view/layout.js";
-import { decisionLabel } from "../view/villain-walkthrough.js";
+import { authorityTagOf, decisionLabel, enemyTeamNoticeOf } from "../view/villain-walkthrough.js";
 import { abilityShortLabelOf } from "../view/ability-label.js";
 import { choiceTileBarsOf, type TileBar } from "../view/choice-tile-bars.js";
 import { divideSheetOf, shownDivideChoice } from "../view/divide-sheet.js";
@@ -570,11 +570,21 @@ export class ChoiceOverlay extends Phaser.Scene {
     // Why this player is the one deciding. The villain-phase screen's
     // "auto-advance paused" wording belongs to that screen, not here.
     const reason = decisionLabel(choice, state.game, state.perspectiveId);
+    // An enemy-team choice (MC56 p. 6) carries its tag, whom it acts against, the instruction and the grim rule.
+    const enemyTeam = enemyTeamNoticeOf(choice, state.game, state.perspectiveId);
+    const reasonText = choice.soleDecider ? `${reason} · Peril — nobody else may act` : reason;
     const advisory = this.add
       .text(
         sheet.x + 12,
         bodyTop + 10,
-        choice.soleDecider ? `${reason} · Peril — nobody else may act` : reason,
+        enemyTeam
+          ? [
+              `${enemyTeam.tag} · ${reasonText}`,
+              ...(enemyTeam.against ? [enemyTeam.against] : []),
+              enemyTeam.instruction,
+              `${enemyTeam.whyTitle} ${enemyTeam.rule}`,
+            ].join("\n")
+          : reasonText,
         textStyle(typeRole.body, surface.ink.hex, ink.secondary),
       )
       .setWordWrapWidth(sheet.width - 24);
@@ -1004,7 +1014,7 @@ export class ChoiceOverlay extends Phaser.Scene {
     headerG
       .fillStyle(surface.ink.hex, 1)
       .fillRect(layout.header.x, layout.header.y, layout.header.width, layout.header.height);
-    const authorityTag = choice.soleDecider ? "PERIL" : "AUTHORITY: PLAYER";
+    const authorityTag = authorityTagOf(choice);
     label(
       this,
       layout.header.x + layout.header.width - 12,

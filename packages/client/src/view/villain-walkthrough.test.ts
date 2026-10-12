@@ -4,7 +4,7 @@
  * phase inside one command, so a synthetic event list would prove nothing.
  */
 
-import { activeAbilityRefs, activeVillain } from "@mc/engine";
+import { activeAbilityRefs, activeVillain, ENEMY_TEAM_CHOICE_RULE } from "@mc/engine";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { ChoiceOption, ChoicePrompt, GameState, InstanceId, PendingChoice, PlayerId } from "@mc/engine";
 import { cardName } from "./names.js";
@@ -15,9 +15,11 @@ import { revealOf } from "./villain-phase-reveal.js";
 import {
   advanceReveal,
   appendWalkthrough,
+  authorityTagOf,
   decisionLabel,
   defenderLineOf,
   emptyWalkthrough,
+  enemyTeamNoticeOf,
   inlineInterruptFor,
   interruptActionLabel,
   pauseFor,
@@ -763,4 +765,68 @@ describe("defenderLineOf", () => {
     expect(defenderLineOf(played.state, attack(null))).toBeNull();
     expect(defenderLineOf(played.state, attack({ instanceId: null, declined: true }))).toBeNull();
   }, 60_000);
+});
+
+describe("enemy team choices (MC56 p. 6, the grim rule)", () => {
+  let played: Played;
+
+  beforeAll(async () => {
+    played = await playThroughVillainPhase();
+  }, 60_000);
+
+  const other = "player-nobody" as PlayerId;
+  const enemy = (playerId: PlayerId, facingPlayerId: PlayerId | null) => ({
+    playerId,
+    prompt: { kind: "chooseTarget" } as ChoicePrompt,
+    authority: "enemyTeam" as const,
+    soleDecider: false,
+    options: [] as ChoiceOption[],
+    onBehalfOf: { kind: "enemyTeam" as const, teamId: "team-1" as never, facingPlayerId },
+  });
+
+  test("the deciding player reads that they choose for the enemy team", () => {
+    expect(decisionLabel(enemy(played.viewer, played.viewer), played.state, played.viewer)).toBe(
+      "As first player, you choose for the enemy team",
+    );
+  });
+
+  test("another seat reads whose decision it is", () => {
+    const label = decisionLabel(enemy(other, played.viewer), played.state, played.viewer);
+    expect(label).toMatch(/ chooses for the enemy team as first player$/);
+    expect(label).not.toMatch(/^You/);
+  });
+
+  test("the tag, the engine's instruction, the quoted rule and the player it is aimed at", () => {
+    const notice = enemyTeamNoticeOf(enemy(played.viewer, played.viewer), played.state, played.viewer);
+    expect(notice).toEqual({
+      tag: "ENEMY TEAM'S CHOICE",
+      decider: "As first player, you choose for the enemy team",
+      against: "The enemy team acts against you.",
+      instruction: "Choose as the enemy team would.",
+      whyTitle: "Why?",
+      rule: "“Imagine what an opponent would do if it were their choice.” (rulebook, p. 6)",
+    });
+    expect(ENEMY_TEAM_CHOICE_RULE).toBe("Imagine what an opponent would do if it were their choice.");
+    expect(enemyTeamNoticeOf(enemy(played.viewer, null), played.state, played.viewer)?.against).toBeNull();
+    expect(enemyTeamNoticeOf(enemy(other, other), played.state, played.viewer)?.against).toMatch(
+      /^The enemy team acts against .+\.$/,
+    );
+  });
+
+  test("ordinary and first-player choices carry no notice and keep their tag", () => {
+    const plain = { ...enemy(played.viewer, null), authority: "player" as const, onBehalfOf: undefined };
+    const targets = { ...plain, authority: "firstPlayerTargets" as const };
+    expect(enemyTeamNoticeOf(plain, played.state, played.viewer)).toBeNull();
+    expect(enemyTeamNoticeOf(targets, played.state, played.viewer)).toBeNull();
+    expect(authorityTagOf(plain)).toBe("AUTHORITY: PLAYER");
+    expect(authorityTagOf(targets)).toBe("AUTHORITY: PLAYER");
+    expect(authorityTagOf({ authority: "enemyTeam", soleDecider: true })).toBe("PERIL");
+    expect(decisionLabel(plain, played.state, played.viewer)).toBe("Your decision");
+  });
+
+  test("the pause line reads the same decision", () => {
+    expect(pauseFor(enemy(played.viewer, null), played.state, played.viewer).label).toBe(
+      "Auto-advance paused — as first player, you choose for the enemy team",
+    );
+  });
 });

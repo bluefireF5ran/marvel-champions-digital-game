@@ -29,7 +29,7 @@ import {
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
 import { foeWord } from "./foe-words.js";
-import { cardName, faceUpName, formWords, playerName, seatName } from "./names.js";
+import { cardName, faceUpName, formWords, optionLabelOf, playerName, seatName } from "./names.js";
 
 export type StatusName = "stunned" | "confused" | "tough";
 
@@ -739,6 +739,23 @@ function describe(
       };
     case "overkillSpilled":
       return { text: `Overkill: ${event.amount} damage spills to ${card(event.toInstanceId)}.`, voice: "player" };
+    // MC56 p. 6: a choice the first player made for "the enemy team" (the grim rule). The chosen names come from the
+    // matching `choiceRequested` earlier in the same burst; without it the line says only who decided.
+    case "choiceResolved": {
+      if (!event.onBehalfOf) return null;
+      const requested = burst?.events.find(
+        (other) => other.type === "choiceRequested" && other.choice.choiceId === event.choiceId,
+      );
+      const options = requested?.type === "choiceRequested" ? requested.choice.options : null;
+      if (!options)
+        return { text: `The enemy team's choice was decided by ${who(event.playerId)}.`, voice: "scenario" };
+      const chosen = event.selectedOptionIds.map((id) => {
+        const option = options.find((o) => o.optionId === id);
+        return option ? optionLabelOf(state, option) : id;
+      });
+      const named = chosen.length === 0 ? "nothing" : chosen.join(chosen.length === 2 ? " and " : ", ");
+      return { text: `The enemy team (decided by ${who(event.playerId)}) chose ${named}.`, voice: "scenario" };
+    }
     case "firstPlayerChanged":
       return {
         text: `${who(event.playerId)} ${verb(event.playerId, "are", "is")} the first player.`,

@@ -72,6 +72,8 @@ export interface OpenChoice {
   readonly soleDecider: boolean;
   /** Whose decision it is by rule; anything but "player" is made for the encounter side. */
   readonly authority: DecisionAuthority;
+  /** Set exactly when `authority` is "enemyTeam": the player the team's choice is aimed at (null: none). */
+  readonly facingPlayerId?: PlayerId | null;
   readonly minSelections: number;
   readonly maxSelections: number;
   readonly ordered: boolean;
@@ -133,6 +135,7 @@ export function highlights(actions: LegalActions): Highlights {
         promptKind: choice.prompt.kind,
         soleDecider: choice.soleDecider,
         authority: choice.authority,
+        ...(choice.onBehalfOf ? { facingPlayerId: choice.onBehalfOf.facingPlayerId } : {}),
         minSelections: choice.minSelections,
         maxSelections: choice.maxSelections,
         ordered: choice.ordered,
