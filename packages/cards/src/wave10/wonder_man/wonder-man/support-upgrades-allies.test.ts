@@ -34,8 +34,8 @@ import {
 vi.setConfig({ testTimeout: 120_000 });
 
 /**
- * Wonder Man's support and upgrades (58007 Wonder Fans, 58008 Jet Belt, 58010 Signature Sunglasses, 58011 "What Are
- * You?"; 58009 Mr. Hollywood is skipped until engine task HT11), docs/phase7-wave10-hero-packs.md H3.12 and H8.4 line
+ * Wonder Man's support and upgrades (58007 Wonder Fans, 58008 Jet Belt, 58009 Mr. Hollywood, 58010 Signature Sunglasses, 58011 "What Are
+ * You?", 58009 Mr. Hollywood), docs/phase7-wave10-hero-packs.md H3.12 and H8.4 line
  * HS3, in real games against Core's Rhino with the hand-built Justice deck `WONDER_MAN_DECK`. Ionic Physiology (58002)
  * is in play from setup; cards are tucked under it by surgery where a case needs them already there, and a card goes to
  * the discard pile by surgery where it needs to be there. No ruling since RRG 1.7 names these cards.
@@ -144,14 +144,13 @@ describe("Wonder Man support and upgrades registry", () => {
     expect(R[WHAT_ARE_YOU]!.trigger).toMatchObject({ kind: "interrupt", forced: true });
   });
 
-  it("every printed ref is registered or skipped with a reason; only Mr. Hollywood waits (HT11)", () => {
+  it("every printed ref is registered or skipped with a reason; none is skipped", () => {
     const refs = ["58007", "58008", "58009", "58010", "58011"].flatMap((c) =>
       (data(c) as unknown as { abilities: { id: unknown }[] }).abilities.map((a) => a.id as string),
     );
     expect(refs.sort()).toEqual([FANS_ACTION, BELT_EVENT, BELT_TUCKED, HOLLYWOOD, SUNGLASSES, WHAT_ARE_YOU].sort());
-    expect(Object.keys(R).sort()).toEqual([FANS_ACTION, BELT_EVENT, BELT_TUCKED, SUNGLASSES, WHAT_ARE_YOU].sort());
-    expect(Object.keys(WONDER_MAN_SUPPORT_UPGRADES_ALLIES_SKIPPED)).toEqual([HOLLYWOOD]);
-    expect(WONDER_MAN_SUPPORT_UPGRADES_ALLIES_SKIPPED[HOLLYWOOD]).toContain("HT11");
+    expect(Object.keys(R).sort()).toEqual(refs.sort());
+    expect(WONDER_MAN_SUPPORT_UPGRADES_ALLIES_SKIPPED).toEqual({});
   });
 });
 
@@ -196,11 +195,14 @@ describe(`${FANS_ACTION}: Alter-Ego Action, exhaust Wonder Fans, choose to tuck 
     expect(handOf(state)).toHaveLength(handOf(t.state).length + 1);
   });
 
-  it("a physical event and an energy resource card in the discard pile are not eligible: choosing to tuck tucks nothing", () => {
+  it("a physical event and an energy resource card in the discard pile are not eligible: the tuck is not offered, drawing resolves without asking", () => {
     const t = table([BENEVOLENCE, ENERGY]);
-    const { state } = run(t.state, t.command, choosing("Tuck"));
-    expect(tucked(state)).toEqual([]);
-    expect(discardOf(state)).toEqual(expect.arrayContaining(t.discarded));
+    const choice = firstChoice(t.state, t.command);
+    expect(choice.pendingChoice).toBeFalsy();
+    expect(handOf(choice)).toHaveLength(handOf(t.state).length + 1);
+    expect(tucked(choice)).toEqual([]);
+    expect(discardOf(choice)).toEqual(expect.arrayContaining(t.discarded));
+    expect(inst(choice, t.id).exhausted).toBe(true);
   });
 
   it("an alter-ego action: refused in hero form and when exhausted", () => {
@@ -295,6 +297,79 @@ describe(`${BELT_EVENT} and ${BELT_TUCKED}: Jet Belt generates energy`, () => {
   });
 });
 
+describe(`${HOLLYWOOD}: Resource, generate an energy resource to overpay for a card (limit once per card)`, () => {
+  const MR_HOLLYWOOD = "58009";
+  function table(...hand: readonly string[]) {
+    const given = moveToHand(wonderManHeroGame(), P1, ...hand);
+    const cardsInHand = [...given.ids];
+    const stripped: GameState = {
+      ...given.state,
+      players: given.state.players.map((p) => (p.playerId === P1 ? { ...p, hand: cardsInHand } : p)),
+    };
+    const upgrade = stagedInPlay(stripped, MR_HOLLYWOOD, { attach: true });
+    const pay = { ability: { instanceId: upgrade.id, abilityId: HOLLYWOOD as never } };
+    const playing = (id: InstanceId, paid: readonly InstanceId[], ...more: (typeof pay)[]) =>
+      play(P1, id, paid, { abilities: more.map((m) => ({ ability: m.ability })) as never });
+    return { state: upgrade.state, hollywood: upgrade.id, hand: cardsInHand, pay, playing };
+  }
+  const threatOf = (s: GameState) => inst(s, s.mainScheme.instanceId).threat;
+
+  it("is a resource ability that only overpays, once per paid card", () => {
+    expect(R[HOLLYWOOD]).toMatchObject({
+      trigger: { kind: "resource" },
+      generates: { energy: 1 },
+      overpayOnly: true,
+      limit: { count: 1, per: "paidCard" },
+    });
+  });
+
+  it("never counts toward the cost: Starstruck (cost 1) with only Mr. Hollywood is refused", () => {
+    const t = table(STRUCK);
+    expect(accepted(t.state, t.playing(t.hand[0]!, [], t.pay))).toBe(false);
+  });
+
+  it("overpays an energy: Active Altruism (cost 0) with Mr. Hollywood removes 3 threat instead of 1", () => {
+    const t = table(ALTRUISM);
+    const staged = patchInstance(t.state, t.state.mainScheme.instanceId, { threat: 9 });
+    const plain = run(staged, play(P1, t.hand[0]!));
+    expect(threatOf(plain.state)).toBe(8);
+    const paid = run(staged, t.playing(t.hand[0]!, [], t.pay));
+    expect(threatOf(paid.state)).toBe(6);
+    expect(discardOf(paid.state)).toContain(t.hand[0]);
+  });
+
+  it("the energy is overpaid on top of a physical payer: Starstruck is paid by Heroic Benevolence and still stuns (energy overpaid)", () => {
+    const t = table(STRUCK, BENEVOLENCE);
+    const [struck, payer] = t.hand as [InstanceId, InstanceId];
+    const plain = run(t.state, play(P1, struck, [payer]));
+    expect(inst(plain.state, plain.state.activeVillainId!).statuses.stunned).toBe(0);
+    const paid = run(t.state, t.playing(struck, [payer], t.pay));
+    expect(inst(paid.state, paid.state.activeVillainId!).statuses.stunned).toBe(1);
+  });
+
+  it("is used once per paid card: twice for one card is refused, once for each of two cards is not", () => {
+    const t = table(ALTRUISM, ALTRUISM);
+    const [first, second] = t.hand as [InstanceId, InstanceId];
+    const staged = patchInstance(t.state, t.state.mainScheme.instanceId, { threat: 9 });
+    expect(accepted(staged, t.playing(first, [], t.pay, t.pay))).toBe(false);
+    const one = run(staged, t.playing(first, [], t.pay));
+    const two = run(one.state, t.playing(second, [], t.pay));
+    expect(threatOf(two.state)).toBe(3);
+    expect(inst(two.state, t.hollywood).exhausted).toBe(false);
+  });
+
+  it("is offered only while a card is being played: not for an ability's cost", () => {
+    const fans = stagedInPlay(wonderManGame(), FANS);
+    const given = stagedInPlay(fans.state, MR_HOLLYWOOD, { attach: true });
+    const command = {
+      ...use(P1, fans.id, FANS_ACTION),
+      payment: [{ ability: { instanceId: given.id, abilityId: HOLLYWOOD as never } }],
+    } as Command;
+    expect(accepted(given.state, use(P1, fans.id, FANS_ACTION))).toBe(true);
+    expect(accepted(given.state, command)).toBe(false);
+  });
+});
+
 describe(`${SUNGLASSES}: Response, after you change form, tuck an energy event or resource, or take a tucked card`, () => {
   function table(discard: readonly string[], held = 0) {
     const d = toDiscard(wonderManGame(), ...discard);
@@ -342,11 +417,25 @@ describe(`${SUNGLASSES}: Response, after you change form, tuck an energy event o
     expect(tucked(state)).toEqual([t.discarded[0]]);
   });
 
-  it("tuck: a physical event is not eligible, so choosing to tuck takes nothing", () => {
-    const t = table([BENEVOLENCE]);
-    const { state } = run(t.state, t.command, choosing(SUNGLASSES, "Tuck"));
+  it("a physical event is not eligible, so the tuck is not offered: with a card tucked only taking is", () => {
+    const t = table([BENEVOLENCE], 1);
+    const next = afterTaking(t);
+    expect(next.pendingChoice?.prompt.kind).toBe("chooseCards");
+    expect(cardsOffered(next)).toEqual(t.held);
+  });
+
+  it("neither option doable (nothing tucked, nothing eligible in the discard pile): the response is not offered", () => {
+    const t = table([BENEVOLENCE], 0);
+    const result = applyCommand(t.state, t.command, WAVE10_DEPS);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(offered(result.state).some((o) => o.includes(SUNGLASSES))).toBe(false);
+    const { state } = run(t.state, t.command, choosing(SUNGLASSES));
     expect(tucked(state)).toEqual([]);
     expect(discardOf(state)).toContain(t.discarded[0]);
+    // At the limit with nothing eligible to take either way, taking keeps it offered.
+    const full = table([BENEVOLENCE], 3);
+    const offeredAtLimit = firstChoice(full.state, full.command);
+    expect(offered(offeredAtLimit).some((o) => o.includes(SUNGLASSES))).toBe(true);
   });
 
   it("take: a chosen tucked card is added to your hand", () => {
