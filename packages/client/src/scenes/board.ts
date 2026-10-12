@@ -356,6 +356,10 @@ export class BoardScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown-E", () => {
       if (!binding.blocked() && this.#hasEvidence()) this.#openEvidence();
     });
+    // Z (and Ctrl/Cmd+Z) is Undo (`view/undo.ts`), the keyboard route to the action bar's Undo button.
+    this.input.keyboard?.on("keydown-Z", () => {
+      if (!binding.blocked()) void this.#controller.undo();
+    });
     // 1 to 3 answer "Which one?" (a played event with several usable Action abilities).
     ["ONE", "TWO", "THREE"].forEach((key, index) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
