@@ -2,7 +2,7 @@
 
 import { placeAttachment } from "./imminent-attach.js";
 import { displayNameOf } from "../visibility.js";
-import type { AttachmentHost } from "@mc/content";
+import type { AnyCard, AttachmentHost } from "@mc/content";
 import { type Ctx, emit, moveCard, popFrame, pushFrames, requestChoice, setFrame, updateInstance } from "../ctx.js";
 import { dealEncounterCardOrAnnounce, dealEncounterCardTo, encounterDealAwaitingInterrupt } from "../effects.js";
 import { type FrameId, type InstanceId, instanceId as asInstanceId, type PlayerId } from "../ids.js";
@@ -157,6 +157,35 @@ const UNREVEALABLE: ReadonlySet<string> = new Set([
   "evidence",
 ]);
 
+/**
+ * The unique rule's answer for an encounter card being revealed (RRG 1.8 "Unique Icon", pp. 45-46; the `uniqueCheck`
+ * stage quotes it). With a matching card in play the card is turned away: logged `uniqueEntryBlocked`, discarded, its
+ * reveal ended with nothing more of it resolving, and the player revealing it dealt a facedown encounter card. Returns
+ * whether it was; false leaves everything as it was for the reveal to go on.
+ */
+function turnedAwayByUniqueRule(ctx: Ctx, frame: Frame<"reveal">, card: AnyCard): boolean {
+  const blocker = matchingCardInPlay(ctx.state, card, new Set([frame.instanceId]), frame.playerId, ctx.deps);
+  if (!blocker) return false;
+  emit(ctx, {
+    type: "uniqueEntryBlocked",
+    instanceId: frame.instanceId,
+    cardId: card.id,
+    matchedInstanceId: blocker,
+    disposition: "discarded",
+  });
+  markPreThenUnresolved(ctx, frame.preThenOf, "revealCancelled", frame.instanceId);
+  moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
+  setFrame(ctx, { ...frame, stage: "done" });
+  // "… the player revealing it is dealt a facedown encounter card": a deal, not a reveal (the owner's decisions,
+  // docs/phase7-wave9.md §4.1 Q38 = A after Q22 = B; RRG 1.8 "Deal, Deal an Encounter Card", p. 15: "This card is
+  // not revealed at this time"). Like a surge's card (`resolveSurge`) it waits facedown among the player's dealt
+  // encounter cards: in step three or four of the villain phase it is revealed in that same step four, after the
+  // cards already waiting; anywhere else, at the next one. Announced as every deal is, and open to a "would be
+  // dealt an encounter card" interrupt. Before Q38 this engine revealed it at once.
+  dealEncounterCardOrAnnounce(ctx, frame.playerId, "uniqueRule", frame.instanceId);
+  return true;
+}
+
 export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
   const card = mustCardOf(ctx.state, frame.instanceId);
   switch (frame.stage) {
@@ -235,6 +264,11 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
         setFrame(ctx, { ...frame, stage: "finish" });
         return;
       }
+      // A unique attachment is checked before it is placed anywhere: turned away, it never attaches, so nothing hears a
+      // `cardAttached` and none of its attach instruction, `cannotAttach` or When Revealed abilities resolves (RRG 1.8
+      // "Unique Icon", pp. 45-46; docs/phase7-wave10.md §3.8). Unlike a minion, it has no enter-play window of its own
+      // in which to clear the match first (`uniqueCheck`).
+      if (card.type === "attachment" && turnedAwayByUniqueRule(ctx, frame, card)) return;
       const attachesTo = card.type === "attachment" ? card.attachesTo : undefined;
       // "If [a card] is in play, attach to [one host]. Otherwise, attach to [another]." is the card's attach
       // instruction, resolved here where a data host would be applied (RRG 1.8 "Reveal", p. 38, step 2). It is not a
@@ -260,7 +294,8 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
       // A minion's `cardEntersPlay` frame (its engagement interrupts and enter-play keywords) resolves first, then its
       // quickstrike stage (quickstrike, then teamwork). A held minion engaged nobody, so that stage finds neither.
       const afterEntering = card.type === "minion" ? "quickstrike" : "whenRevealed";
-      // A unique minion, side scheme or environment is checked once its enter-play window has resolved (below).
+      // A unique minion, side scheme or environment is checked once its enter-play window has resolved (below). An
+      // attachment was checked above, before it attached. An obligation or a treachery does not enter play this way.
       const checksUnique = card.type === "minion" || card.type === "side_scheme" || card.type === "environment";
       setFrame(
         ctx,
@@ -283,28 +318,8 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
        * (`enterPlay`): a card whose "when this enters play, discard the matching card" interrupt (the Nebula nemesis
        * minion, 18026) clears the match itself and is let in.
        */
-      const blocker = matchingCardInPlay(ctx.state, card, new Set([frame.instanceId]), frame.playerId, ctx.deps);
-      if (!blocker) {
+      if (!turnedAwayByUniqueRule(ctx, frame, card))
         setFrame(ctx, { ...frame, stage: frame.afterUnique ?? "whenRevealed" });
-        return;
-      }
-      emit(ctx, {
-        type: "uniqueEntryBlocked",
-        instanceId: frame.instanceId,
-        cardId: card.id,
-        matchedInstanceId: blocker,
-        disposition: "discarded",
-      });
-      markPreThenUnresolved(ctx, frame.preThenOf, "revealCancelled", frame.instanceId);
-      moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
-      setFrame(ctx, { ...frame, stage: "done" });
-      // "… the player revealing it is dealt a facedown encounter card": a deal, not a reveal (the owner's decisions,
-      // docs/phase7-wave9.md §4.1 Q38 = A after Q22 = B; RRG 1.8 "Deal, Deal an Encounter Card", p. 15: "This card is
-      // not revealed at this time"). Like a surge's card (`resolveSurge`) it waits facedown among the player's dealt
-      // encounter cards: in step three or four of the villain phase it is revealed in that same step four, after the
-      // cards already waiting; anywhere else, at the next one. Announced as every deal is, and open to a "would be
-      // dealt an encounter card" interrupt. Before Q38 this engine revealed it at once.
-      dealEncounterCardOrAnnounce(ctx, frame.playerId, "uniqueRule", frame.instanceId);
       return;
     }
     case "quickstrike": {

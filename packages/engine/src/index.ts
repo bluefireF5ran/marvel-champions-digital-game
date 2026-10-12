@@ -282,6 +282,7 @@ export type { DeferredEffects, ReportTarget, Vars } from "./stack.js";
 export { attackPreventedVars, currentActivationFrameId, PAID_CARDS_SLOT } from "./stack.js";
 export {
   abilityUseKey,
+  BORROWED_BOOST_ICONS_SLOT,
   DEFAULT_DEPS,
   fixedResourcesOf,
   GRANTED_BY_SLOT,

@@ -53,6 +53,7 @@ import {
   leavePlayAtOnce,
 } from "../effects.js";
 import { ANY_COUNTER, anyCounterPickOf, anyCounterTake, landingCounterType } from "../counter-types.js";
+import { BORROWED_BOOST_ICONS_SLOT } from "../abilities.js";
 import { EngineInvariantError } from "../errors.js";
 import { boundCardTotals, recountDeckDiscardIcons } from "./deck-discard.js";
 import { resolveTuck, tuckInsteadOfLeaving, tuckOrAnnounce } from "./tuck.js";
@@ -1405,9 +1406,13 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           : (f.kind === "enemyAttack" || f.kind === "enemyScheme") &&
             (f.boost?.step === "count" || f.boost?.step === "ability"),
       );
+      // Inside a borrowed Boost ability: the boost cards whose count its gained icons join (often none).
+      const borrowedFor = effect.kind === "adjustBoostCount" ? context.bindings[BORROWED_BOOST_ICONS_SLOT] : undefined;
       if (counting?.kind === "event") {
         const event = counting.event;
         if (event.kind !== "boostIconsCounting") return;
+        // A card effect's count is of no activation's boost card: a borrowed ability's icons never join it.
+        if (borrowedFor) return;
         if (effect.kind === "adjustBoostCount") {
           const countAdjust = (event.countAdjust ?? 0) + value(effect.delta);
           setFrame(ctx, { ...counting, event: { ...event, countAdjust } });
@@ -1421,6 +1426,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const boost = procedure?.boost;
       if (!procedure || !boost) return;
       if (effect.kind === "adjustBoostCount") {
+        // Icons a borrowed Boost ability gains (docs/phase7-wave10.md §3.11, question 10) join this count only when
+        // its `resolveSpecials` named this boost card (`borrowedBoostIcons: "joinActivation"`); by default none.
+        if (borrowedFor && !borrowedFor.includes(boost.instanceId)) return;
         setFrame(ctx, {
           ...procedure,
           boost: { ...boost, countAdjust: (boost.countAdjust ?? 0) + value(effect.delta) },

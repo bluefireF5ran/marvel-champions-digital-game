@@ -68,6 +68,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkSchemeDivert(definition, problems);
   checkCardTotals(definition, problems);
   checkPreparations(definition, problems);
+  checkBorrowedBoosts(definition, problems);
   checkAttackPrevention(definition, problems);
   checkRearranges(definition, problems);
   checkRandomPicks(definition, "definition", problems);
@@ -708,6 +709,27 @@ function checkPreparations(definition: AbilityDefinition, problems: string[]): v
     if (effect.asIf) problems.push("resolveSpecials preparation: `asIf` is not read for a Preparation ability");
     if (effect.includeKeywords)
       problems.push("resolveSpecials preparation: `includeKeywords` is for When Revealed abilities");
+  }
+}
+
+/**
+ * `resolveSpecials` with `trigger: "boost"` (docs/phase7-wave10.md §3.11): `borrowedBoostIcons` is that kind's own
+ * option and takes one of its two names (question 10: `"nothing"`, the default, or `"joinActivation"`). The "as if"
+ * floor and the When Revealed keywords belong to other kinds.
+ */
+function checkBorrowedBoosts(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind !== "resolveSpecials") continue;
+    const option: unknown = effect.borrowedBoostIcons;
+    if (effect.trigger !== "boost") {
+      if (option !== undefined) problems.push('resolveSpecials: `borrowedBoostIcons` is for `trigger: "boost"`');
+      continue;
+    }
+    if (option !== undefined && option !== "nothing" && option !== "joinActivation")
+      problems.push('resolveSpecials boost: `borrowedBoostIcons` is "nothing" or "joinActivation"');
+    if (effect.asIf) problems.push("resolveSpecials boost: `asIf` is not read for a Boost ability");
+    if (effect.includeKeywords)
+      problems.push("resolveSpecials boost: `includeKeywords` is for When Revealed abilities");
   }
 }
 

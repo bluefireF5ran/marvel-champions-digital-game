@@ -4,7 +4,13 @@ import { displayNameOf } from "../visibility.js";
 import type { AbilityId } from "@mc/content";
 import { announceDeckTops } from "../deck-top.js";
 import { positionsOf, rearrangeable, rearrangeCards } from "./rearrange.js";
-import { type EngineDeps, GRANTED_BY_SLOT, labeledResolvedVar, resolvableAs } from "../abilities.js";
+import {
+  BORROWED_BOOST_ICONS_SLOT,
+  type EngineDeps,
+  GRANTED_BY_SLOT,
+  labeledResolvedVar,
+  resolvableAs,
+} from "../abilities.js";
 import {
   cardsInPlayFromZone,
   hostChoicesForEffectPlay,
@@ -135,7 +141,7 @@ import {
   reachOf,
 } from "../select.js";
 import type { EffectSpec, PlayerRef, StatusName, ValueSpec } from "../spec.js";
-import type { StackFrame, TriggerCandidate } from "../stack.js";
+import type { Bindings, StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
 import { executeSettleCostDamage } from "../cost-damage.js";
 import { executePayEncounterLookDiscard } from "../encounter-look-cost.js";
@@ -3070,6 +3076,15 @@ function executeResolveSpecials(
               targetInstanceId: attacked.identity.instanceId,
             }
           : frame.event;
+  // A borrowed Boost ability (docs/phase7-wave10.md §3.11) is marked as one, with the boost cards whose count the
+  // icons it gains join: none (question 10, answer A, the default), or the card resolving this effect (B).
+  const borrowedBoost: Bindings =
+    trigger === "boost"
+      ? {
+          [BORROWED_BOOST_ICONS_SLOT]:
+            effect.borrowedBoostIcons === "joinActivation" && frame.selfInstanceId ? [frame.selfInstanceId] : [],
+        }
+      : {};
   const frames = ordered.map(
     (step, index): StackFrame =>
       ({
@@ -3079,7 +3094,7 @@ function executeResolveSpecials(
           eventFor(step),
           null,
           // "Then, discard [the granting card]": the card a granted ability names (`GRANTED_BY_SLOT`).
-          step.grantedBy ? { [GRANTED_BY_SLOT]: [step.grantedBy] } : {},
+          step.grantedBy ? { [GRANTED_BY_SLOT]: [step.grantedBy] } : borrowedBoost,
           { "sequence.step": index + 1, "sequence.final": index === ordered.length - 1 ? 1 : 0 },
         ),
         ...returnTo,

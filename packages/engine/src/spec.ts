@@ -2316,6 +2316,9 @@ export type EffectSpec =
    * the count in progress (`boostIconsCounting`: the boost card the current activation is about to count, or the card
    * a `countBoostIcons` effect is counting, whichever is innermost), for this count only;
    * the total is floored at 0. docs/phase7-wave2.md §3.6.
+   *
+   * Inside a borrowed Boost ability (`resolveSpecials` with `trigger: "boost"`; docs/phase7-wave10.md §3.11) it
+   * changes only the count that effect's `borrowedBoostIcons` names: none by default.
    */
   | { readonly kind: "adjustBoostCount"; readonly delta: ValueSpec }
   /**
@@ -2853,7 +2856,33 @@ export type EffectSpec =
        * in the order the calling ability's player chooses, as Specials do. `<bind>.count` is how many resolved, and the
        * same number is added to the innermost attack on the stack as its `labeledResolvedVar("preparation")` result.
        */
+      /**
+       * `"boost"`: "Resolve the 'Boost' ability of each minion in play" (Freedom Fighters, `cw` 56153;
+       * docs/phase7-wave10.md §3.11). Each card's Boost abilities resolve with the card where it is, in play: it is not
+       * turned up, dealt or discarded as a boost card, and no `boostCardTurnedFaceup` or count is announced. Inside
+       * them "this card" is that card (RRG 1.8 "Self-Referential", p. 39), "you" is the resolving player (`player`,
+       * else the calling ability's "you": the revealing player, or the player the activation is against) and the
+       * triggering event is the calling ability's own, so inside an activation "the activating enemy" is still that
+       * enemy. Several resolve in the order the calling ability's player chooses, as Specials do. `<bind>.count` is how
+       * many resolved ("If no 'Boost' abilities were resolved this way"). What "this card gains [boost]" does there is
+       * `borrowedBoostIcons`.
+       */
       readonly trigger?: ResolvableAbilityKind;
+      /**
+       * With `trigger: "boost"`: what the icons a borrowed ability gains ("this card gains [boost][boost]", `EffectSpec
+       * adjustBoostCount` inside it) do. Question 10 of docs/phase7-wave10.md §4.0, decided by the owner on
+       * 2026-10-11: A, with B kept as this switch.
+       *
+       * - `"nothing"` (absent; **A, the default**): they do nothing. RRG 1.8 "Boost" (p. 9) adds "the number of boost
+       *   icons on each [boost] card" of the activation, and a card in play whose Boost ability is resolved this way is
+       *   not a boost card of any activation: the icons land on a card nothing counts.
+       * - `"joinActivation"` (**B**): they are added to the count of the boost card that is resolving this effect, for
+       *   the activation it is boosting. When the instructing card is not the boost card an activation is resolving
+       *   (it was revealed), there is no such count and they do nothing, as under A.
+       *
+       * No FFG ruling names the card; a question to FFG is open.
+       */
+      readonly borrowedBoostIcons?: "nothing" | "joinActivation";
       /**
        * "… as if it has at least 1 hit point" (Rough Riders): while each resolved ability's effects resolve, the card
        * they are printed on is considered to have at least this many remaining hit points, exactly as under

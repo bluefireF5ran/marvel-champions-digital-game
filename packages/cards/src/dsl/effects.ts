@@ -1761,6 +1761,35 @@ export const resolvePreparationsOf = (
   ...(opts.player ? { player: opts.player } : {}),
   ...withBind(opts.bind),
 });
+/**
+ * "Resolve the 'Boost' ability of each minion in play" / "… of each minion engaged with you" (Freedom Fighters, `cw`
+ * 56153; docs/phase7-wave10.md §3.11): `resolveBoostAbilitiesOf(each(query("minion")), { bind: "boosts" })`. Each
+ * card's Boost abilities (`boost(...)`) resolve with the card where it is, in play: it is not turned up or discarded as
+ * a boost card. Inside them "this card" is that card, "you" is the resolving player (`player`, else this ability's
+ * "you": the revealing player, or the player the activation is against) and the triggering event is this ability's
+ * own. `bind`: `<bind>.count`, how many resolved ("If no 'Boost' abilities were resolved this way":
+ * `not(varAtLeast("<bind>.count"))`), with what they bound under `<bind>.`.
+ *
+ * `borrowedBoostIcons`: what "this card gains [boost][boost]" (`adjustBoostCount`) inside a borrowed ability does.
+ * Question 10 of the spec (§4.0; owner, 2026-10-11): absent or `"nothing"` is answer A, the default, and the icons do
+ * nothing (the minion is not a boost card of the activation; RRG 1.8 "Boost", p. 9); `"joinActivation"` is answer B,
+ * and they are added to the count of the boost card resolving this effect.
+ */
+export const resolveBoostAbilitiesOf = (
+  ref: TargetRef,
+  opts: {
+    readonly bind?: string;
+    readonly player?: PlayerRef;
+    readonly borrowedBoostIcons?: "nothing" | "joinActivation";
+  } = {},
+): EffectSpec => ({
+  kind: "resolveSpecials",
+  of: ref,
+  trigger: "boost",
+  ...(opts.player ? { player: opts.player } : {}),
+  ...(opts.borrowedBoostIcons ? { borrowedBoostIcons: opts.borrowedBoostIcons } : {}),
+  ...withBind(opts.bind),
+});
 /** Records `value` now as var `name`, for a comparison later in the same ability (docs/phase7-wave4.md §3.46). */
 export const setVar = (name: string, value: Amount): EffectSpec => ({ kind: "setVar", name, value: amount(value) });
 /**

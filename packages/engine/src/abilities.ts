@@ -2872,7 +2872,8 @@ export type ResolvableAbilityKind =
   | "whenDefeated"
   | "forcedResponse"
   | "forcedInterrupt"
-  | "preparation";
+  | "preparation"
+  | "boost";
 
 /** The ability labels a `RuleSpec grantsLabeledAbility` can give to other cards (docs/phase7-wave9.md §3.3). */
 export type GrantableAbilityLabel = Extract<ResolvableAbilityKind, "preparation">;
@@ -2884,6 +2885,16 @@ export type GrantableAbilityLabel = Extract<ResolvableAbilityKind, "preparation"
  * ability still names that card if it leaves play first. Absent on a printed ability.
  */
 export const GRANTED_BY_SLOT = "_grantedBy";
+
+/**
+ * The binding slot that marks a "Boost" ability as borrowed: resolved on a card in play by another card's instruction
+ * (`EffectSpec resolveSpecials` with `trigger: "boost"`; docs/phase7-wave10.md §3.11), not by its card being turned up
+ * as a boost card. Bound on that ability's frame, so it reaches every effect of it, nested ones included. Its cards
+ * are the boost cards whose count the icons that ability gains join (`EffectSpec adjustBoostCount`): none under the
+ * default `borrowedBoostIcons: "nothing"`, the instructing card under `"joinActivation"` (§4.0, question 10). Absent
+ * on an ability resolving for its own boost card.
+ */
+export const BORROWED_BOOST_ICONS_SLOT = "_borrowedBoostIcons";
 
 /**
  * The result an attack records for the labeled abilities resolved during it (docs/phase7-wave9.md §3.2): how many
