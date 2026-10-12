@@ -13,7 +13,7 @@
 import type { Command, GameEvent, GameState, InstanceId } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
 import { P1, endTurn, identityOf, inst, patchInstance, stackEncounterDeck } from "../testing/harness.js";
-import { engageMinion, stagedInPlay } from "../wave10/testing.js";
+import { WAVE10_DEPS, engageMinion, stagedInPlay } from "../wave10/testing.js";
 import { attacksLoseKeywords, constant, gainsKeywordX } from "./abilities.js";
 import { validateDefinition } from "./validate.js";
 import { inMode } from "./values.js";
@@ -38,11 +38,8 @@ const ADVANCE = "01186"; // Standard set: no boost icon, no Boost ability
 const DEFEND = "56193"; // Defend Hell's Kitchen, a side scheme of the Hell's Kitchen set
 const SETS = { modularSetIds: ["new_avengers", "defenders", "hells_kitchen"] } as const;
 
-/** "Attached character gains retaliate 1 and attacks against them lose piercing." */
-const CONSTANT = constant(
-  gainsKeywordX("retaliate", 1, { hostOfSelf: true }),
-  attacksLoseKeywords(["piercing"], { target: { hostOfSelf: true } }),
-);
+/** "Attached character gains retaliate 1 and attacks against them lose piercing." As the real module scripts it. */
+const CONSTANT = WAVE10_DEPS.abilities[SHIELD_CONSTANT]!;
 /** The Shield without the loss, as a control. */
 const RETALIATE_ONLY = constant(gainsKeywordX("retaliate", 1, { hostOfSelf: true }));
 const DEPS = depsWith({ [SHIELD_CONSTANT]: CONSTANT });

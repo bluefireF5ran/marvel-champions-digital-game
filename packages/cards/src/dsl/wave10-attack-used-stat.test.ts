@@ -26,25 +26,11 @@ import {
   stackEncounterDeck,
 } from "../testing/harness.js";
 import { codeOf } from "../wave9/testing.js";
-import { engageMinion, stagedInPlay } from "../wave10/testing.js";
-import { constant, forcedResponse, gainsKeywordX, heroAction, on } from "./abilities.js";
-import { attachCard, attack, attackAnEnemy, dealDamage } from "./effects.js";
+import { WAVE10_DEPS, engageMinion, stagedInPlay } from "../wave10/testing.js";
+import { forcedResponse, heroAction, on } from "./abilities.js";
+import { attack, attackAnEnemy, dealDamage } from "./effects.js";
 import { validateDefinition } from "./validate.js";
-import {
-  allOf,
-  attackUsedAtk,
-  chosen,
-  eventDamageTaken,
-  eventSource,
-  host,
-  query,
-  readsAtkOf,
-  self,
-  statOf,
-  sum,
-  theVillain,
-  yourIdentity,
-} from "./values.js";
+import { attackUsedAtk, chosen, query, readsAtkOf, self, statOf, sum, theVillain, yourIdentity } from "./values.js";
 import {
   SHIELD_CONSTANT,
   SHIELD_RESPONSE,
@@ -69,18 +55,14 @@ const ADVANCE = "01186"; // Standard set: no boost icon, no Boost ability
 const DEFEND = "56193"; // Defend Hell's Kitchen, a side scheme of the Hell's Kitchen set
 const FEARLESS = "56149"; // Fearless Determination, Captain America's side scheme (amplify icon)
 
-/** "Attached character gains retaliate 1 …" */
-const CONSTANT = constant(gainsKeywordX("retaliate", 1, { hostOfSelf: true }));
 /**
- * "Forced Response: After a hero or the Captain America leader uses their ATK to attack and damage attached
- * character, attach Cap's Shield to the attacker." After the attack, so the attached character's retaliate has
- * answered; the damage is read per character, so overkill onto the attached character counts.
+ * Cap's Shield as the Captain America module scripts it ("Attached character gains retaliate 1 …"; "Forced Response:
+ * After a hero or the Captain America leader uses their ATK to attack and damage attached character, attach Cap's
+ * Shield to the attacker." After the attack, so the attached character's retaliate has answered; the damage is read per
+ * character, so overkill onto the attached character counts). The real registry is used, not a copy.
  */
-const RESPONSE = forcedResponse(
-  on.either(on.attacks(query("hero")), on.enemyAttacks(query("villain", { name: "Captain America" }))),
-  { while: allOf(attackUsedAtk(), eventDamageTaken(host)) },
-  attachCard(self, eventSource),
-);
+const CONSTANT = WAVE10_DEPS.abilities[SHIELD_CONSTANT]!;
+const RESPONSE = WAVE10_DEPS.abilities[SHIELD_RESPONSE]!;
 const SHIELD_ABILITIES = { [SHIELD_CONSTANT]: CONSTANT, [SHIELD_RESPONSE]: RESPONSE };
 const DEPS = depsWith(SHIELD_ABILITIES);
 /** Tooth and Claw rewritten to read ATK: "Hero Action (attack): Deal damage to an enemy equal to your ATK." */
