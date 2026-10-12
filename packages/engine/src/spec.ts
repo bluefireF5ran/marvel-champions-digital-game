@@ -32,7 +32,7 @@ export type LastingGrantUntil = LastingUntil | NextBasicPowerUntil;
 // Type-only, and the only reference spec.ts makes to `abilities.ts` (which imports types back from here):
 // `EffectSpec applyRuleUntil` carries the same `RuleSpec` union a constant ability's own `rules` do, so a
 // restriction is written once whether a card in play or a lasting effect imposes it (docs/phase7-wave2.md §22).
-import type { CardIcon, EventPattern, ResolvableAbilityKind, RuleSpec } from "./abilities.js";
+import type { AbilityCost, CardIcon, EventPattern, ResolvableAbilityKind, RuleSpec } from "./abilities.js";
 import type { RulesCardType } from "./card-types.js";
 // Type-only, and erased at compile time, so the cycle with `campaign.ts` (which names `EffectSpec` and friends) is
 // only in the type graph: the campaign *vocabulary* is data, and the campaign *primitives* are effects.
@@ -4996,6 +4996,18 @@ export type EffectSpec =
       readonly enemy: InstanceId;
       readonly bind: string;
       readonly paidFor: FrameId | null;
+    }
+  /**
+   * **Engine-internal; no DSL builder.** Paying one additional cost to attack an enemy (`RuleSpec additionalAttackCost`,
+   * `attack-cost.ts`, docs/phase7-wave10-hero-packs.md H3.16), pushed above the attack as it is made against
+   * `targetInstanceId`: the frame's player pays `cost`, with the frame's card (the rule's) as its source. Logged
+   * `additionalAttackCostPaid`, or `additionalAttackCostNotPaid` with the reason.
+   */
+  | {
+      readonly kind: "payAttackCost";
+      readonly attackerInstanceId: InstanceId;
+      readonly targetInstanceId: InstanceId;
+      readonly cost: AbilityCost;
     }
   /**
    * **Engine-internal; no DSL builder.** Paying a "discard up to N cards from the top of your deck →" cost

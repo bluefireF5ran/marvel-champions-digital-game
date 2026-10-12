@@ -97,6 +97,7 @@ import {
   type EffectContext,
 } from "./select.js";
 import type { Form, GameState } from "./state.js";
+import { healCostChoices } from "./heal-cost.js";
 import { anyThwartCost } from "./thwart-cost.js";
 
 /** One thing a player could do on their turn, independent of target and payment. */
@@ -725,13 +726,35 @@ function damageChoiceSets(
   cost: AbilityCost | undefined,
   given: readonly CostChoiceSet[],
 ): readonly CostChoiceSet[] {
-  const sets = dealToChoiceSets(state, cost, given);
+  const sets = healChoiceSets(state, deps, playerId, source, cost, dealToChoiceSets(state, cost, given));
   const choose = cost?.dealDamage?.choose;
   if (!choose) return sets;
   const candidates = dealDamageCostChoices(state, deps, source, playerId, choose);
   if (candidates.length === 0) return sets;
   return sets.flatMap(({ costChoices, target }) =>
     candidates.map((card) => ({ costChoices: { ...costChoices, [choose.slot]: [card] }, target: target ?? card })),
+  );
+}
+
+/**
+ * "Heal 2 damage from an enemy →" (`AbilityCost.healCharacter`, docs/phase7-wave10-hero-packs.md H3.17): each variant
+ * once per character the payer may pick, which is the variant's target. With no candidate the variants are left as
+ * they are and the engine's own check (`planCost`) refuses them, so the ability is not offered.
+ */
+function healChoiceSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  cost: AbilityCost | undefined,
+  sets: readonly CostChoiceSet[],
+): readonly CostChoiceSet[] {
+  const heal = cost?.healCharacter;
+  if (!heal) return sets;
+  const candidates = healCostChoices(state, deps, source, playerId, heal);
+  if (candidates.length === 0) return sets;
+  return sets.flatMap(({ costChoices, target }) =>
+    candidates.map((card) => ({ costChoices: { ...costChoices, [heal.slot]: [card] }, target: target ?? card })),
   );
 }
 

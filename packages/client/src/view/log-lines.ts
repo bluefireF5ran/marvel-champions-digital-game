@@ -1285,6 +1285,18 @@ function describe(
         text: `${card(event.characterInstanceId)} does not defend: the extra cost was not paid.`,
         voice: "player",
       };
+    // docs/phase7-wave10-hero-packs.md H3.16: an extra cost to attack one enemy (Brother vs. Brother). The discard
+    // itself has no line, so this one says why a card left the hand.
+    case "additionalAttackCostPaid":
+      return {
+        text: `${who(event.playerId)} paid the extra cost of ${card(event.sourceInstanceId)} to attack ${card(event.targetInstanceId)}.`,
+        voice: "player",
+      };
+    case "additionalAttackCostNotPaid":
+      return {
+        text: `The extra cost of ${card(event.sourceInstanceId)} to attack ${card(event.targetInstanceId)} was not paid.`,
+        voice: "player",
+      };
 
     // §3.29 (b): Baron Zemo's accusation. The guess and the mole are open to every player (the pile was turned faceup
     // just before `moleIdentified`), so the board members may be named.

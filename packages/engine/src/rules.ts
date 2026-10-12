@@ -978,6 +978,31 @@ export function additionalPowerCostFor(
   return resources !== null && requirementTotal(resources) > 0 ? { resources, sourceInstanceIds } : null;
 }
 
+/** One additional cost to attack an enemy: the cost and the card whose rule asks it (`additionalAttackCostsFor`). */
+export interface AttackCostOwed {
+  readonly sourceInstanceId: InstanceId;
+  readonly cost: AbilityCost;
+}
+
+/**
+ * The additional costs a player owes to attack `targetId` (`RuleSpec additionalAttackCost`,
+ * docs/phase7-wave10-hero-packs.md H3.16): one per rule in force whose `target` matches it, in rule order. Who pays,
+ * and whether they can, is `attack-cost.ts`'s.
+ */
+export function additionalAttackCostsFor(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+): readonly AttackCostOwed[] {
+  const owed: AttackCostOwed[] = [];
+  for (const { rule, context } of activeRules(state, deps, "additionalAttackCost")) {
+    if (context.selfInstanceId === null || context.selfInstanceId === undefined) continue;
+    if (!matchesQuery(state, targetId, rule.target, context)) continue;
+    owed.push({ sourceInstanceId: context.selfInstanceId, cost: rule.cost });
+  }
+  return owed;
+}
+
 /** How many additional times this player resolves each When Revealed ability they reveal (Media Coverage). */
 export const whenRevealedRepeats = (state: GameState, deps: EngineDeps, playerId: PlayerId): number =>
   activeRules(state, deps, "repeatWhenRevealed")

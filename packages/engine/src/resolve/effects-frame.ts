@@ -143,6 +143,7 @@ import {
 import type { EffectSpec, PlayerRef, StatusName, ValueSpec } from "../spec.js";
 import type { Bindings, StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
+import { executePayAttackCost } from "../attack-cost.js";
 import { executeSettleCostDamage } from "../cost-damage.js";
 import { executePayEncounterLookDiscard } from "../encounter-look-cost.js";
 import { executeSettleEnemyAttackCost } from "../enemy-attack-cost.js";
@@ -336,6 +337,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   // docs/phase7-wave5.md §4.1 Q27: a basic thwart's additional cost is settled, and the thwart carried out or not.
   if (effect.kind === "settleBasicThwartCost") return executeSettleBasicThwartCost(ctx, frame, effect);
   if (effect.kind === "settleCostDamage") return executeSettleCostDamage(ctx, frame, effect);
+  // docs/phase7-wave10-hero-packs.md H3.16: an additional cost to attack an enemy is paid as the attack is made.
+  if (effect.kind === "payAttackCost") return executePayAttackCost(ctx, frame, effect);
   // docs/phase7-wave6.md §3.54: "look at the top 2 cards of the encounter deck, discard 1 of those cards →".
   if (effect.kind === "payEncounterLookDiscard") return executePayEncounterLookDiscard(ctx, frame, effect);
   // docs/phase7-wave7.md §3.19 (b): "attached villain attacks you →", settled once the attack has resolved.

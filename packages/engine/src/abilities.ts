@@ -1735,6 +1735,27 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "As an additional cost to attack [an enemy], you must discard 1 card from your hand."
+   * (docs/phase7-wave10-hero-packs.md H3.16.) A cost a rule adds to every attack a player makes against an enemy
+   * `target` matches (read from the rule's card): a basic attack by a hero or an ally, an `attack` effect, and an
+   * "(attack)"-labeled ability alike. `cost` is paid by the attacking character's controller, with the rule's card as
+   * its source, as the attack is made against that enemy; an enemy that player cannot pay for cannot be attacked by
+   * their characters. Damage that is not an attack owes nothing. Several rules on one enemy are each paid. The rules,
+   * the timing and what is not charged are in `attack-cost.ts`.
+   *
+   * `cost`: parts `planCost` checks and `payCost` pays at once, without resources (a discard from hand; the payer
+   * picks which cards when there is a choice). `@mc/cards`' validator refuses the others.
+   *
+   * Scoped by the enemy attacked, where `additionalPowerCost` is scoped by the character using a basic power and
+   * `basicPowerCosts` by the character whose own power it is; all three add up on one basic attack.
+   */
+  | {
+      readonly kind: "additionalAttackCost";
+      readonly target: TargetQuery;
+      readonly cost: AbilityCost;
+      readonly while?: Predicate;
+    }
+  /**
    * "Treat the printed resource of each card in your hand as if it were [energy]." (Haywire, `ironheart` 29038;
    * docs/phase7-wave5.md §3.20): every printed resource icon of each card in the hand of each player `player` names
    * (read from the rule's speaker, the identity it is attached to) counts as one `as` resource, wild included — for
@@ -2733,6 +2754,28 @@ export interface AbilityCost {
   readonly giveBoostCards?: { readonly count: number; readonly to: TargetRef };
   /** "Heal 1 damage from Captain Marvel →": the controller's identity must have that much damage to heal. */
   readonly healIdentity?: number;
+  /**
+   * "Heal 2 damage from an enemy → confuse that enemy" (docs/phase7-wave10-hero-packs.md H3.17): the payer picks one
+   * character in play matching `query` (read with the payer as "you" and the ability's card as "self") and `amount`
+   * damage is healed from it as the cost. The pick is in `costChoices[slot]` (forced, and so omittable, with one
+   * candidate) and is bound to `slot` for the effects ("that enemy"). See `heal-cost.ts`.
+   *
+   * - **A candidate holds at least `amount` damage and can be healed by this card** (`RuleSpec cannotBeHealed`): a
+   *   cost is paid in full or not at all (RRG 1.8 "Cost", p. 14: "A player cannot pay the original cost or any of the
+   *   additional costs individually"; `healIdentity` reads its identity the same way).
+   * - **Any character the query names, an enemy included.** RRG 1.8 "Cost" (p. 14) has a player pay "with cards and/or
+   *   game elements they control"; a cost whose text names the character it is paid on ("an enemy", "a friendly
+   *   character") is paid on that character, as `dealDamage.choose` and an attach cost's host are.
+   * - **What the effect needs of the pick goes in `query`.** RRG 1.8 "Cost" (p. 14): "An ability's cost cannot be paid
+   *   if that ability's effect requires one or more targets and there is not at least one valid target", and "Target"
+   *   (p. 43): "The cost of an ability or game function is not considered when determining if that ability or game
+   *   function can affect a target." So the heal does not make a character a valid pick; the effect must be able to
+   *   affect it: "confuse that enemy" is `{ categories: ["enemy"], canTakeStatus: "confused" }`, which leaves out a
+   *   stalwart enemy, one that "cannot be confused", and one with no room for another confused status card.
+   * - With no candidate the cost cannot be paid and the ability is not offered (RRG 1.8 "Initiating Abilities", p. 24,
+   *   steps 3 and 5). `legalActions` offers one variant per candidate.
+   */
+  readonly healCharacter?: { readonly slot: string; readonly query: TargetQuery; readonly amount: number };
   /**
    * "Discard [this card] →" (Cosmic Flight, Tenacity, Energy Channel). The
    * card's counters are snapshotted into vars `self.counters.<type>` first, so

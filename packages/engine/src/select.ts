@@ -102,6 +102,7 @@ import {
   putIntoPlayHostCandidates,
   upgradeHostCandidates,
 } from "./attachment-hosts.js";
+import { attackCostBars } from "./attack-cost.js";
 import { canPaySpend } from "./payable.js";
 import { canUseBasicPower } from "./basic-power-uses.js";
 import { uniqueEntryBlocker } from "./unique.js";
@@ -2170,6 +2171,9 @@ export function canAttack(
   // one still can, and does apply to an enemy attacker — see `attackForbidden`).
   if (attackForbidden(state, attackerId, controller, targetId, deps, basic) !== null) return false;
   if (controller === null) return true;
+  // "As an additional cost to attack [this enemy] …" (`RuleSpec additionalAttackCost`, `attack-cost.ts`): an enemy
+  // the attacker's controller cannot pay for is one they cannot attack (RRG 1.8 "Cost", p. 14).
+  if (attackCostBars(state, deps, attackerId, targetId)) return false;
   if (!isVillain(state, targetId)) return true;
   if (hasKeyword(state, targetId, "guard", deps)) return true;
   if (characterIgnores(state, deps, attackerId, "guard")) return true;

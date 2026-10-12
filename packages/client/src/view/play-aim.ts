@@ -24,7 +24,7 @@ import { cardName } from "./names.js";
 
 /**
  * The cost-choice slot a cost's pick is sent in: an attach host, a chosen hand card, a card whose cost is paid, the
- * character a cost deals its damage to (Rogue 48012, `dealDamage.choose`), or the card whose Special a cost resolves
+ * character a cost deals its damage to (Rogue 48012, `dealDamage.choose`) or heals (`healCharacter`), or the card whose Special a cost resolves
  * (the [SETTING] environment, `resolveAbility.choose`). Picks among cards in play that pay a cost (Teleport Drop's Bamf!,
  * Mutant Mayhem's two returned allies) are not here: they are several cards over one or more slots, asked by
  * `in-play-cost-choice.ts`.
@@ -35,6 +35,7 @@ export function costPickSlot(cost: AbilityCost | undefined): string | null {
     cost?.chooseCard?.slot ??
     cost?.payPrintedCostOf?.slot ??
     cost?.dealDamage?.choose?.slot ??
+    cost?.healCharacter?.slot ??
     cost?.resolveAbility?.choose ??
     null
   );
@@ -111,6 +112,8 @@ export function playAimPrompt(state: GameState, deps: EngineDeps, entry: LegalAc
   if (cost?.payPrintedCostOf) return `${name}: choose the card whose cost you pay`;
   // "Deal 1 damage to another friendly character →": the target of the cost, any player's character.
   if (cost?.dealDamage?.choose) return `${name}: choose who takes the damage`;
+  // "Heal 2 damage from an enemy →": the character the cost heals, an enemy or any player's character.
+  if (cost?.healCharacter) return `${name}: choose who is healed`;
   if (cost?.resolveAbility?.choose) return `${name}: choose the Setting`;
   if (action.kind !== "playCard") return "Choose a target";
   const card = cardOf(state, action.instanceId);

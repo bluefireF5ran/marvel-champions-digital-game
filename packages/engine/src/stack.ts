@@ -286,6 +286,13 @@ export type StackFrame =
        */
       readonly attacked?: readonly Extract<TriggerEvent, { kind: "characterAttacked" }>[];
       /**
+       * On a player's `attack` event: the enemies this attack has been made against and charged for (`RuleSpec
+       * additionalAttackCost`, docs/phase7-wave10-hero-packs.md H3.16; `attack-cost.ts` `chargeAttackCosts`), whether
+       * or not a cost was owed for them. The events of one "(attack)" ability (`attackOf`) read each other's, so an
+       * enemy is paid for once per attack.
+       */
+      readonly attackCostsCharged?: readonly InstanceId[];
+      /**
        * With `attackOf`: this attack began as its ability began resolving, before the `attack` instruction that deals
        * its damage (RRG 1.8 "Labeled Ability", p. 26; owner decision, 2026-10-08, docs/phase7-wave8.md §4.1 row 73), and
        * no `attack` instruction has taken it over yet. Its interrupt window has resolved and it waits beneath the

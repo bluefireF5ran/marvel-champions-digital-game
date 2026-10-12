@@ -1078,6 +1078,26 @@ export const additionalPowerCost = (
 ): ConstantPart =>
   rule({ kind: "additionalPowerCost", character, powers, resources, ...(opts.while ? { while: opts.while } : {}) });
 /**
+ * "As an additional cost to attack Grim Reaper, you must discard 1 card from your hand"
+ * (docs/phase7-wave10-hero-packs.md H3.16) → `constant(additionalAttackCost(query("enemy", { name: "Grim Reaper" }),
+ * discardFromHandCost(1, 1)))`. Every attack a player makes against an enemy `target` matches pays `cost`: a basic
+ * attack by a hero or an ally, an `attack` effect and an "(attack)" ability alike, paid by the attacking character's
+ * controller as the attack is made against that enemy (before its "when … attacks" window, before an "(attack)"
+ * ability's damage to it). An enemy that player cannot pay for is one their characters cannot attack: no legal target
+ * of a basic attack, not offered to a "choose an enemy" of an "(attack)" ability, skipped by "each enemy". An ability's
+ * one attack pays once per enemy however many instances of damage it deals (RRG 1.8 "Attack (Player Ability Type)",
+ * p. 10). Damage that is not an attack owes nothing.
+ *
+ * `cost` is a discard of a fixed number of cards from hand, `discardFromHandCost(n, n)` (a `filter` may narrow which);
+ * the payer picks the cards when there is a choice. Nothing else is paid as an attack is made, and the validator
+ * refuses it.
+ */
+export const additionalAttackCost = (
+  target: TargetQuery,
+  cost: AbilityCost,
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "additionalAttackCost", target, cost, ...(opts.while ? { while: opts.while } : {}) });
+/**
  * "While there are no other [Symbiote] environments in play, this card is considered a [Symbiote] environment"
  * (Festering Mass, `sm` 27124; docs/phase7-wave5.md §3.9): `constant(countsAs({ self: true }, ["environment"], {
  * traits: [SYMBIOTE], while: not(exists(query("environment", { trait: SYMBIOTE, self: false }))) }))`. Read by query
@@ -2301,6 +2321,21 @@ export const chooseCardCost = (
 export const damageThisCardCost = (n: number): AbilityCost => ({ damageThisCard: n });
 /** "Heal N damage from [your identity] →" */
 export const healYourIdentityCost = (n: number): AbilityCost => ({ healIdentity: n });
+/**
+ * "Heal 2 damage from an enemy → confuse that enemy" (docs/phase7-wave10-hero-packs.md H3.17): the payer picks one
+ * character in play matching `q` that holds at least `n` damage and can be healed by this card, and `n` damage is
+ * healed from it as the cost. The pick is bound to `opts.bind` (default `"healed"`) for the effects: "that enemy" is
+ * `chosen("healed")`. Any player's character and an enemy alike.
+ *
+ * Put what the effect needs of the pick in `q`. The heal is the cost, and a cost does not make a card a valid target
+ * (RRG 1.8 "Target", p. 43), while a cost cannot be paid without a valid target for the effect ("Cost", p. 14):
+ * "→ confuse that enemy" is `healCost({ ...query("enemy"), ...canTakeStatus("confused") }, 2)`, which leaves out a
+ * stalwart enemy and one that already holds the confused status card it has room for. Only on an action.
+ * `AbilityCost.healCharacter`.
+ */
+export const healCost = (q: TargetQuery, n: number, opts: { readonly bind?: string } = {}): AbilityCost => ({
+  healCharacter: { slot: opts.bind ?? "healed", query: q, amount: n },
+});
 /**
  * "Take N indirect damage →" (Kinetic Armor, `sm` 27149): divided among the characters you control, before the
  * effects. Offered only while your characters can take all of it (none with a tough status card counts), and if any

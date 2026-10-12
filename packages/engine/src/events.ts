@@ -715,6 +715,28 @@ export type GameEvent =
       readonly sourceInstanceIds: readonly InstanceId[];
     }
   /**
+   * An additional cost to attack an enemy was paid by the attacking character's controller as the attack was made
+   * against it (`RuleSpec additionalAttackCost`, docs/phase7-wave10-hero-packs.md H3.16; `attack-cost.ts`).
+   * `sourceInstanceId`: the card whose rule asked. What was paid is logged by the payment itself (a
+   * `cardDiscardedFromHand` for each card discarded).
+   */
+  | {
+      readonly type: "additionalAttackCostPaid";
+      readonly playerId: PlayerId;
+      readonly attackerInstanceId: InstanceId;
+      readonly targetInstanceId: InstanceId;
+      readonly sourceInstanceId: InstanceId;
+    }
+  /** The same cost could not be paid as the attack was made (`executePayAttackCost`): the attack is not undone. */
+  | {
+      readonly type: "additionalAttackCostNotPaid";
+      readonly playerId: PlayerId;
+      readonly attackerInstanceId: InstanceId;
+      readonly targetInstanceId: InstanceId;
+      readonly sourceInstanceId: InstanceId;
+      readonly reason: string;
+    }
+  /**
    * A defender was declared whose defense has an additional cost: its controller is asked to pay it
    * (`additionalPowerCostAsked`), and one who does not pay has not declared it (`additionalPowerCostNotPaid`): the
    * character stays ready and the Declare Defender step is asked again without it.

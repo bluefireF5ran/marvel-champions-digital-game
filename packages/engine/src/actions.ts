@@ -269,6 +269,8 @@ import {
   type Vars,
 } from "./stack.js";
 import type { GameState } from "./state.js";
+import { attackCostsPayable, pushAttackCosts, unpayableAttackCostSource } from "./attack-cost.js";
+import { payHealCost, planHealCost } from "./heal-cost.js";
 import { anyThwartCost, askBasicThwartCost, thwartCostsPayable, thwartCostTotal } from "./thwart-cost.js";
 import {
   formChangeCostMessage,
@@ -3038,6 +3040,12 @@ export function planCost(
     if (isFault(chosen)) return chosen;
     Object.assign(bindings, chosen);
   }
+  // "Heal 2 damage from an enemy →" (`healCharacter`, `heal-cost.ts`; hero-packs H3.17): the payer's pick.
+  if (cost.healCharacter) {
+    const chosen = planHealCost(state, deps, sourceId, playerId, cost.healCharacter, choices, bindings);
+    if (isFault(chosen)) return chosen;
+    Object.assign(bindings, chosen);
+  }
   // "Deal a player 1 facedown encounter card →" (`dealEncounterCardsTo`): the payer's pick of a player.
   if (cost.dealEncounterCardsTo) {
     const chosen = planDealToCost(state, cost.dealEncounterCardsTo, choices);
@@ -3747,6 +3755,7 @@ export function payCost(
     }
   }
   if (cost.healIdentity) healDamage(ctx, identityId, cost.healIdentity, sourceId);
+  if (cost.healCharacter) payHealCost(ctx, sourceId, cost.healCharacter, plan.bindings);
   // "Deal yourself 1 facedown encounter card →" (docs/phase7-wave3.md §3.20). A cost is paid in one piece: should one
   // of several cards dealt here reset the encounter deck, the response to the reset follows the whole payment (no
   // card in the pool deals more than one this way; docs/phase7-wave6.md §4.1 Q58).
@@ -6042,6 +6051,17 @@ function basicAttackPaying(
     if (!sameGameArea(areaOfPlayer(ctx.state, command.playerId), areaOfCard(ctx.state, targetInstanceId))) {
       return engineError("no_valid_target", "that enemy is in another game area", command);
     }
+    // "As an additional cost to attack [this enemy] …" (`RuleSpec additionalAttackCost`, `attack-cost.ts`; hero-packs
+    // H3.16): an enemy the attacker's controller cannot pay for is no legal target, refused in the rule card's name
+    // before anything is paid, so the character does not exhaust (RRG 1.8 "Cost", p. 14).
+    const unpayable = unpayableAttackCostSource(ctx.state, ctx.deps, command.attackerInstanceId, targetInstanceId);
+    if (unpayable !== null) {
+      return engineError(
+        "insufficient_resources",
+        `${cardOf(ctx.state, unpayable)?.name ?? "a card"}: you cannot pay the additional cost to attack that enemy`,
+        command,
+      );
+    }
     if (!canAttack(ctx.state, command.attackerInstanceId, targetInstanceId, ctx.deps, true)) {
       // "You cannot make basic attacks" (`cannotAttack.basicOnly`, docs/phase7-wave9.md §3.72) is refused in its card's
       // name. Every other refusal keeps the one message clients match on (guard, and a `cannotAttack` rule on any
@@ -6073,12 +6093,29 @@ function basicAttackPaying(
   if (characterProfile(ctx.state, command.attackerInstanceId, ctx.deps)?.missing.includes("atk")) {
     return engineError("no_valid_target", "a character with a printed '—' ATK cannot attack", command);
   }
+  // The additional costs to attack these enemies are paid as the attack is made (`attack-cost.ts`), after the power's
+  // own costs: together they must be payable now, with the hand cards the power's own costs take left out (RRG 1.8
+  // "Cost", p. 14: all of the costs at once, or none).
+  const targetIds = shares.map((share) => share.targetInstanceId);
+  const spending = new Set([...handCardsIn(command.payment ?? []), ...(command.costChoices?.discard ?? [])]);
+  if (
+    by.assumeCostPaid !== true &&
+    !attackCostsPayable(ctx.state, ctx.deps, command.attackerInstanceId, targetIds, spending)
+  ) {
+    return engineError(
+      "insufficient_resources",
+      "you cannot pay this attack's own costs and the additional cost to attack that enemy",
+      command,
+    );
+  }
   const unpaid = payBasicPowerCost(ctx, command, command.attackerInstanceId, "attack", spent, by);
   if (unpaid) return unpaid;
   exhaustCard(ctx, command.attackerInstanceId);
   if (statusActive(ctx.state, command.attackerInstanceId, "stunned", ctx.deps)) {
-    // RRG "Stun": the attack is cancelled but its costs (exhausting) are still paid.
+    // RRG "Stun": the attack is cancelled but its costs (exhausting) are still paid, an additional cost to attack the
+    // enemy among them (RRG 1.8 "Stun, Stunned", p. 41; `attack-cost.ts`). No `attack` event is made to charge it.
     announceStatusDiscarded(ctx, discardStatusCards(ctx, command.attackerInstanceId, "stunned", "cancelledAttack"));
+    pushAttackCosts(ctx, command.attackerInstanceId, targetIds);
     return null;
   }
   const attackerProfile = characterProfile(ctx.state, command.attackerInstanceId, ctx.deps);
