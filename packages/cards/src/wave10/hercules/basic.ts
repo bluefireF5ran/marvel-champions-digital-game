@@ -31,6 +31,7 @@ import {
 import { BASIC } from "../../core/aspects/basic.js";
 import { BKW_PACK_CARDS } from "../../wave1/bkw/pack-cards.js";
 import { SPDR_EVENTS } from "../../wave5/spdr/events.js";
+import { WONDER_MAN_BASIC } from "../wonder_man/basic.js";
 
 /**
  * Wave 10 scripting module `hercules/basic` (docs/phase7-wave10-hero-packs.md H8.4).
@@ -70,8 +71,7 @@ import { SPDR_EVENTS } from "../../wave5/spdr/events.js";
  * that phase, even if it is bounced (discarded and returned to hand); July 9, 2026 - Ruling 3 (3): for the next time
  * it is played, not repeatedly (docs/phase7-wave10-hero-packs.md H3.11).
  *
- * **Reprints, aliased** to the original's script: 59027 Limitless Stamina (31023), 59033 Helicarrier (01092), 59034 Quincarrier (08023). Checked in the test.
- * 59032 Avengers Compound reprints 58034 (`wonder_man/basic`), which is not scripted yet: it stays skipped, and whoever scripts 58034 aliases 59032 to it here.
+ * **Reprints, aliased** to the original's script: 59027 Limitless Stamina (31023), 59032 Avengers Compound (58034, `wonder_man/basic`), 59033 Helicarrier (01092), 59034 Quincarrier (08023). Checked in the test.
  */
 const ETERNAL = trait("Eternal");
 const AVENGER = trait("Avenger");
@@ -110,11 +110,9 @@ export const HERCULES_BASIC: AbilityRegistry = defineAbilities({
   "59027.limitless-stamina-constant": SPDR_EVENTS["31023.limitless-stamina-constant"]!,
   "59027.limitless-stamina-action": SPDR_EVENTS["31023.limitless-stamina-action"]!,
   "59033.helicarrier-action": BASIC["01092.helicarrier-action"]!,
+  "59032.avengers-compound-action": WONDER_MAN_BASIC["58034.avengers-compound-action"]!,
   "59034.quincarrier-resource": BKW_PACK_CARDS["08023.quincarrier-resource"]!,
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const HERCULES_BASIC_SKIPPED: Readonly<Record<string, string>> = {
-  "59032.avengers-compound-action":
-    "wave 10 scripting in progress: hercules/basic (reprint of 58034: alias wonder_man/basic's script once it is scripted)",
-};
+export const HERCULES_BASIC_SKIPPED: Readonly<Record<string, string>> = {};

@@ -41,6 +41,7 @@ import { WAVE10_CARDS } from "../cards.js";
 import { BASIC } from "../../core/aspects/basic.js";
 import { BKW_PACK_CARDS } from "../../wave1/bkw/pack-cards.js";
 import { SPDR_EVENTS } from "../../wave5/spdr/events.js";
+import { WONDER_MAN_BASIC } from "../wonder_man/basic.js";
 import { validateDefinition } from "../../dsl/validate.js";
 import { HERCULES_BASIC as REGISTRY, HERCULES_BASIC_SKIPPED as SKIPPED } from "./basic.js";
 
@@ -50,7 +51,7 @@ vi.setConfig({ testTimeout: 120_000 });
  * Wave 10 `hercules/basic` (docs/phase7-wave10-hero-packs.md H8.4, HS0 for the reprints, HS15 for the rest): the
  * reprints, 59025 Gilgamesh, 59026 Ancient Rivalry and 59028 Evaluate Threat, played from real Hercules games against
  * Core's Rhino. 59029 Energy, 59030 Genius and 59031 Strength print no ability and need nothing; 59032 Avengers
- * Compound reprints 58034 (`wonder_man/basic`, not scripted yet), so it stays skipped.
+ * Compound reprints 58034 and is aliased to `wonder_man/basic`'s script.
  *
  * Rulings: June 2, 2026 - Ruling 2 (4) and July 9, 2026 - Ruling 3 (3) for Evaluate Threat (a found card's reduction
  * survives a bounce but is used by its next play only).
@@ -65,6 +66,7 @@ const LIMITLESS_CONSTANT = "59027.limitless-stamina-constant";
 const LIMITLESS_ACTION = "59027.limitless-stamina-action";
 const HELICARRIER = "59033.helicarrier-action";
 const QUINCARRIER = "59034.quincarrier-resource";
+const COMPOUND = "59032.avengers-compound-action";
 const GILGAMESH_REF = "59025.gilgamesh-constant";
 const OWN = [GILGAMESH_REF, "59026.ancient-rivalry-action", "59028.evaluate-threat-constant", "59028.when-defeated"];
 
@@ -78,15 +80,15 @@ const dataOf = (code: string) =>
   };
 
 describe("reprints", () => {
-  it("scripts the four aliased refs and the three cards' own, each validating and none skipped", () => {
+  it("scripts the five aliased refs and the three cards' own, each validating and none skipped", () => {
     expect(Object.keys(REGISTRY).sort()).toEqual(
-      [LIMITLESS_ACTION, LIMITLESS_CONSTANT, HELICARRIER, QUINCARRIER, ...OWN].sort(),
+      [LIMITLESS_ACTION, LIMITLESS_CONSTANT, HELICARRIER, QUINCARRIER, COMPOUND, ...OWN].sort(),
     );
     for (const id of Object.keys(REGISTRY)) {
       expect(validateDefinition(REGISTRY[id]!), id).toEqual([]);
       expect(Object.keys(SKIPPED)).not.toContain(id);
     }
-    expect(Object.keys(SKIPPED).sort()).toEqual(["59032.avengers-compound-action"]);
+    expect(Object.keys(SKIPPED)).toEqual([]);
   });
 
   it("each copy resolves to the definition object of its original", () => {
@@ -94,11 +96,13 @@ describe("reprints", () => {
     expect(REGISTRY[LIMITLESS_ACTION]).toBe(SPDR_EVENTS["31023.limitless-stamina-action"]);
     expect(REGISTRY[HELICARRIER]).toBe(BASIC["01092.helicarrier-action"]);
     expect(REGISTRY[QUINCARRIER]).toBe(BKW_PACK_CARDS["08023.quincarrier-resource"]);
+    expect(REGISTRY[COMPOUND]).toBe(WONDER_MAN_BASIC["58034.avengers-compound-action"]);
   });
 
   it("the copies print the originals' cost, icons and traits and name the same refs", () => {
     for (const [copy, original] of [
       ["59027", "31023"],
+      ["59032", "58034"],
       ["59033", "01092"],
       ["59034", "08023"],
     ] as const) {
