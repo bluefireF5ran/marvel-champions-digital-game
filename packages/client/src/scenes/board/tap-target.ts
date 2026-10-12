@@ -29,6 +29,8 @@ export interface TapGesture {
    * down, and this is how the recreated target knows the press is its own.
    */
   key?: string | undefined;
+  /** When given, a mouse moving onto (true) or off (false) the card; never a touch, which has no hover. */
+  onHover?: ((over: boolean) => void) | undefined;
 }
 
 export function addTapTarget(scene: Phaser.Scene, rect: Rect, gesture: TapGesture): void {
@@ -37,4 +39,12 @@ export function addTapTarget(scene: Phaser.Scene, rect: Rect, gesture: TapGestur
     .setOrigin(0, 0)
     .setInteractive({ useHandCursor: true });
   bindHoldTarget(scene, zone, gesture);
+  const { onHover } = gesture;
+  if (onHover) {
+    zone
+      .on("pointerover", (pointer: Phaser.Input.Pointer) => {
+        if (!pointer.wasTouch) onHover(true);
+      })
+      .on("pointerout", () => onHover(false));
+  }
 }

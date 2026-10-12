@@ -356,6 +356,10 @@ export class BoardScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown-E", () => {
       if (!binding.blocked() && this.#hasEvidence()) this.#openEvidence();
     });
+    // Z (and Ctrl/Cmd+Z) is Undo (`view/undo.ts`), the keyboard route to the action bar's Undo button.
+    this.input.keyboard?.on("keydown-Z", () => {
+      if (!binding.blocked()) void this.#controller.undo();
+    });
     // 1 to 3 answer "Which one?" (a played event with several usable Action abilities).
     ["ONE", "TWO", "THREE"].forEach((key, index) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
@@ -1012,7 +1016,7 @@ export class BoardScene extends Phaser.Scene {
       motion: this.#motion,
       teamUpRings: this.#teamUpRings(layout.tabbed),
       teamUpRoles: this.#teamUpRoles(model),
-      makeTapTarget: (rect, id, onTap, drag) => this.#makeTapTarget(rect, id, onTap, drag),
+      makeTapTarget: (rect, id, onTap, drag, onHover) => this.#makeTapTarget(rect, id, onTap, drag, onHover),
       inspect: (id, siblings) => this.#inspect(id, siblings),
       inspectReference: (reference) => this.scene.launch(SCENES.inspect, { reference }),
     };
@@ -1335,7 +1339,13 @@ export class BoardScene extends Phaser.Scene {
    * Registers a card as focusable and tappable. An open target or payment
    * prompt gets the tap first; otherwise it falls through to `onTap`.
    */
-  #makeTapTarget(rect: Rect, id: InstanceId, onTap?: () => void, drag?: RowDrag): void {
+  #makeTapTarget(
+    rect: Rect,
+    id: InstanceId,
+    onTap?: () => void,
+    drag?: RowDrag,
+    onHover?: (over: boolean) => void,
+  ): void {
     this.#frame.focusRects.set(focusKey({ kind: "card", instanceId: id }), rect);
     addTapTarget(this, rect, {
       onTap: () => {
@@ -1345,6 +1355,7 @@ export class BoardScene extends Phaser.Scene {
       onDrag: drag?.onDrag,
       onDragEnd: drag?.onDragEnd,
       key: id as string,
+      onHover,
     });
   }
 

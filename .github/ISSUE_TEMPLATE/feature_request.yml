@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a new feature, a missing hero, scenario or pack, or an improvement to the game.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Heroes, cards or packs (content)
+        - Villains, scenarios or campaigns
+        - Gameplay and controls
+        - Board, visuals and animation
+        - Multiplayer
+        - Deck building
+        - Accessibility
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like, and why?
+      description: Describe the problem or what's missing, and how it affects playing the game.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: How you picture it working
+      description: Optional. Sketches, screenshots or examples from other card games are welcome.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not been requested yet.
+          required: true

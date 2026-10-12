@@ -21,7 +21,7 @@ import type { IllegalReason } from "../../view/highlights.js";
 import { DEFENSE_LOCKOUT_TAG, isDefenseBarMessage } from "../../view/defense-lockout.js";
 import { handRow, type HandRowLayout } from "../../view/hand-row.js";
 import type { Rect } from "../../view/layout.js";
-import type { PaymentView } from "../../view/payment-model.js";
+import { ON_TOP_NOTE, spentTagText, type PaymentView } from "../../view/payment-model.js";
 import type { BoardDrawContext } from "./context.js";
 import {
   SOURCE_BAR_NOTE,
@@ -277,13 +277,15 @@ function drawPaymentTable(ctx: BoardDrawContext, row: HandRowLayout, payment: Pa
       wash.fillStyle(surface.ink.hex, 0.3).fillRect(tile.x + 3, tile.y + 3, tile.width - 6, tile.height - 6);
     }
     const where = source.helperName !== null ? source.helperName : "in play";
-    tableTag(scene, tile, source.spent ? "spent" : where, surface.ink.hex, "top");
+    tableTag(scene, tile, source.spent ? spentTagText(source) : where, surface.ink.hex, "top");
     tableTag(scene, tile, poolText(source.pool), signal.cost.hex, "bottom");
     ctx.frame.focusRects.set(focusKey({ kind: "card", instanceId: source.instanceId }), tile);
+    const onHover = onTopHover(scene, tile, source.instanceId, source.onTop);
     // By option, not by card: a card offering two resource abilities is two tiles.
     addTapTarget(scene, tile, {
       onTap: () => ctx.controller.togglePaymentOption(source.optionId),
       onInspect: () => ctx.inspect(source.instanceId),
+      onHover,
     });
   });
 
@@ -422,6 +424,7 @@ function drawHandCard(
 ): void {
   const { scene } = ctx;
   const { spent, subject, alpha } = paintHandSlot(ctx, slot, card, payment, discard);
+  const source = payment?.sources.find((candidate) => candidate.instanceId === card.instanceId);
 
   // A hand slot keeps the physical card's 2.5:3.5, and a scan is that same
   // shape, so the scan *is* the card face: it fills the slot with nothing
@@ -439,7 +442,7 @@ function drawHandCard(
     ? subject
       ? { text: "paying for", ground: accent.heroRed.hex }
       : spent
-        ? { text: "spent", ground: surface.ink.hex }
+        ? { text: source ? spentTagText(source) : "spent", ground: surface.ink.hex }
         : null
     : discard
       ? subject
@@ -488,7 +491,63 @@ function drawHandCard(
     wash.fillStyle(surface.ink.hex, 0.3).fillRect(slot.x + 3, slot.y + 3, slot.width - 6, slot.height - 6);
   }
 
-  ctx.makeTapTarget(slot, card.instanceId, () => ctx.controller.tapHandCard(card.instanceId), ctx.hand.drag);
+  const onHover = onTopHover(scene, slot, card.instanceId, source?.onTop ?? false);
+  ctx.makeTapTarget(slot, card.instanceId, () => ctx.controller.tapHandCard(card.instanceId), ctx.hand.drag, onHover);
+}
+
+/** The card the mouse is over while it carries the "on top" note, so a redraw under the mouse keeps the note open. */
+let hoveredOnTop: InstanceId | null = null;
+const ON_TOP_NOTE_DEPTH = 900;
+const ON_TOP_NOTE_WIDTH = 260;
+
+/**
+ * The "on top" card's hover handler, or none for any other card. A card that is no longer on top lets go of a hover
+ * it held when its target was rebuilt under the mouse (no `pointerout` reaches a destroyed zone).
+ */
+function onTopHover(
+  scene: Phaser.Scene,
+  anchor: Rect,
+  id: InstanceId,
+  onTop: boolean,
+): ((over: boolean) => void) | undefined {
+  if (onTop) return onTopNote(scene, anchor, id);
+  if (hoveredOnTop === id) hoveredOnTop = null;
+  return undefined;
+}
+
+/**
+ * The hover note over the payment's "on top" card (`ON_TOP_NOTE`), built hidden above the card and only shown or
+ * hidden after: a hover must never redraw the board, which would rebuild the card's own tap target under the mouse
+ * (the team-up ring's label does the same, `team-up-badge.ts`). Returns the card's hover handler.
+ */
+function onTopNote(scene: Phaser.Scene, anchor: Rect, id: InstanceId): (over: boolean) => void {
+  const viewport = scene.scale.gameSize;
+  const text = scene.add
+    .text(0, 0, ON_TOP_NOTE, {
+      ...textStyle({ ...typeRole.body, size: 13 }, surface.paper.hex),
+      wordWrap: { width: ON_TOP_NOTE_WIDTH - 16, useAdvancedWrap: true },
+    })
+    .setPadding(8, 6, 8, 6)
+    .setDepth(ON_TOP_NOTE_DEPTH + 1);
+  const x = Math.max(4, Math.min(anchor.x + anchor.width / 2 - text.width / 2, viewport.width - text.width - 4));
+  const y = Math.max(4, anchor.y - text.height - 8);
+  text.setPosition(x, y);
+  const plate = scene.add
+    .graphics()
+    .setDepth(ON_TOP_NOTE_DEPTH)
+    .fillStyle(surface.ink.hex, 1)
+    .fillRect(x, y, text.width, text.height)
+    .lineStyle(2, surface.paper.hex, 1)
+    .strokeRect(x, y, text.width, text.height);
+  const show = (visible: boolean): void => {
+    text.setVisible(visible);
+    plate.setVisible(visible);
+  };
+  show(hoveredOnTop === id);
+  return (over) => {
+    hoveredOnTop = over ? id : null;
+    show(over);
+  };
 }
 
 /**

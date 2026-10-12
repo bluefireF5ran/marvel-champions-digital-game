@@ -84,6 +84,7 @@ export default defineConfig({
         "threat-popup.spec.ts",
         "routed-tucked.spec.ts",
         "assault-thwart-preview.spec.ts",
+        "undo.spec.ts",
       ],
     },
   ],

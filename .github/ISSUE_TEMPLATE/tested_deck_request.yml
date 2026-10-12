@@ -1,0 +1,44 @@
+name: Tested deck request
+description: Ask for a public MarvelCDB decklist to be tested and added to the TESTED community decks.
+title: "[Deck]: "
+labels: ["tested-deck"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Decks on the TESTED list are public MarvelCDB decklists that have been imported, checked for deck legality, and played through a full test game.
+        A deck can only be added once every card in it is playable in the game, so a request may wait until its hero or packs are supported.
+  - type: input
+    id: url
+    attributes:
+      label: MarvelCDB decklist link
+      description: A published decklist (marvelcdb.com/decklist/view/...), not a private deck.
+      placeholder: "https://marvelcdb.com/decklist/view/12345/..."
+    validations:
+      required: true
+  - type: input
+    id: hero
+    attributes:
+      label: Hero and aspect
+      placeholder: "e.g. Spider-Man (Justice)"
+    validations:
+      required: true
+  - type: input
+    id: author
+    attributes:
+      label: Deck author
+      description: The author's MarvelCDB name, so the deck is credited correctly in the game.
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this deck?
+      description: Optional. What makes it a good pick (beginner friendly, a strong build, a popular archetype).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: The decklist is published on MarvelCDB (not private).
+          required: true
+        - label: I searched existing issues and this deck has not been requested yet.
+          required: true
