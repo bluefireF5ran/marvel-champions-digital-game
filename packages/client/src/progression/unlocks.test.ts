@@ -6,6 +6,7 @@ import {
   POINTS,
   UNLOCK_CAMPAIGNS,
   UNLOCK_HEROES,
+  hasUnlockWave,
   UNLOCK_WAVES,
   Unlocks,
   devUnlockAllFrom,
@@ -35,6 +36,11 @@ const make = (progress: UnlockProgress = NO_PROGRESS, prefs: UnlockPrefs = DEFAU
   new Unlocks({ progress, prefs });
 
 describe("the unlock path", () => {
+  it("knows which cycles are on the unlock path", () => {
+    expect(hasUnlockWave("cycle9")).toBe(true);
+    expect(hasUnlockWave("cycle99")).toBe(false);
+  });
+
   it("lists every wave the pool's scenarios and heroes come from", () => {
     const listed = new Set(UNLOCK_WAVES.map((w) => w.cycleId));
     for (const s of POOL_SCENARIOS) expect(listed, `${s.id as string}`).toContain(scenarioCycleOf(s));

@@ -31,6 +31,7 @@ import { guidePrefs, onGuidePrefsChange } from "../guide/guide-store.js";
 import { mechanicLessonDoneKey } from "../guide/mechanic-tryits.js";
 import { startMechanicTryItGame } from "../guide/start-mechanic-tryit.js";
 import { unlocks } from "../progression/progression.js";
+import { hasUnlockWave } from "../progression/unlocks.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
@@ -47,9 +48,12 @@ const ROW_TITLE_TYPE: TypeSpec = typeRole.rowTitle;
 const ROW_DETAIL_TYPE: TypeSpec = typeRole.body;
 const ARROW_WIDTH = 64;
 
-/** The pages the player has unlocked right now (`?unlock=all` opens every one). */
+/**
+ * The pages the player has unlocked right now (`?unlock=all` opens every one). A box whose wave is not on the unlock
+ * path yet has no page: `waveLock` reads a missing wave as open, which would show the page on a fresh profile.
+ */
 export function openBoxPages(): readonly BoxPage[] {
-  return boxPages((unlockKey) => unlocks().waveLock(unlockKey) === null);
+  return boxPages((unlockKey) => hasUnlockWave(unlockKey) && unlocks().waveLock(unlockKey) === null);
 }
 
 export class NewInBoxScene extends Phaser.Scene {

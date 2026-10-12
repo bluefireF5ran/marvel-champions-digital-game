@@ -52,7 +52,8 @@ describe("boxPages", () => {
   it("names every cycle box the way the unlock path does, and every box's unlock key is on the path", () => {
     for (const box of BOXES) {
       const wave = UNLOCK_WAVES.find((w) => w.cycleId === box.unlockKey);
-      // The Civil War unlock row is task C10 (docs/phase7-wave10-client.md); until it lands the box opens with the pool.
+      // The Civil War unlock row is task C10 (docs/phase7-wave10-client.md); until it lands the box has no page
+      // (`openBoxPages` asks `hasUnlockWave`).
       if (box.id === "cycle10") continue;
       expect(wave, `${box.id} unlock key ${box.unlockKey}`).toBeDefined();
       if (box.id.startsWith("cycle")) expect(box.name).toBe(wave!.name);

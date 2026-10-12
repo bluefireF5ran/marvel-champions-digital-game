@@ -232,6 +232,9 @@ export interface UnlockProgress {
   readonly wonExpertCampaignIds: readonly string[];
 }
 
+/** Whether the unlock path has a row for this cycle. A box with none yet (its wave is still being built) has no page. */
+export const hasUnlockWave = (cycleId: string): boolean => UNLOCK_WAVES.some((wave) => wave.cycleId === cycleId);
+
 export const NO_PROGRESS: UnlockProgress = {
   wonScenarioIds: [],
   wonExpertScenarioIds: [],
