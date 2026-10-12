@@ -2594,6 +2594,11 @@ export const searchEncounterIntoPlayCost = (
  * slot, and is discarded if that card is no longer in play. `effects` resolve as the card enters play, with the
  * cost's slots bound: `additionalCostToPlay(searchEncounterIntoPlayCost(query("minion"), "hunted"), { attachTo:
  * "hunted" }, stun(chosen("hunted")))`.
+ *
+ * The cost may have a `costIf` part, picked by the board for the player playing the card: "As an additional cost to
+ * play this card, if you do not have the Eternal trait, confuse your identity" (Gilgamesh, `hercules` 59025) is
+ * `additionalCostToPlay(costIf(youHaveTrait(ETERNAL), {}, giveStatusCost(yourIdentity, "confused")))`. Only the picked
+ * branch is checked, so the card cannot be played while that branch cannot be paid. No resources and no `eitherCost`.
  */
 export const additionalCostToPlay = (
   cost: AbilityCost,

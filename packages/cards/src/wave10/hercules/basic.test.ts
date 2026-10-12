@@ -1,8 +1,10 @@
-import { HERCULES_CARDS, cardId } from "@mc/content";
+import { HERCULES_CARDS, cardId, trait } from "@mc/content";
 import {
   applyCommand,
   createGame,
+  legalActions,
   playCostOf,
+  traitsOf,
   type Command,
   type GameState,
   type InstanceId,
@@ -63,7 +65,8 @@ const LIMITLESS_CONSTANT = "59027.limitless-stamina-constant";
 const LIMITLESS_ACTION = "59027.limitless-stamina-action";
 const HELICARRIER = "59033.helicarrier-action";
 const QUINCARRIER = "59034.quincarrier-resource";
-const OWN = ["59026.ancient-rivalry-action", "59028.evaluate-threat-constant", "59028.when-defeated"];
+const GILGAMESH_REF = "59025.gilgamesh-constant";
+const OWN = [GILGAMESH_REF, "59026.ancient-rivalry-action", "59028.evaluate-threat-constant", "59028.when-defeated"];
 
 const dataOf = (code: string) =>
   [...WAVE10_CARDS, ...HERCULES_CARDS].find((c) => c.id === code) as unknown as {
@@ -75,7 +78,7 @@ const dataOf = (code: string) =>
   };
 
 describe("reprints", () => {
-  it("scripts the four aliased refs and the two cards' own, each validating and none skipped", () => {
+  it("scripts the four aliased refs and the three cards' own, each validating and none skipped", () => {
     expect(Object.keys(REGISTRY).sort()).toEqual(
       [LIMITLESS_ACTION, LIMITLESS_CONSTANT, HELICARRIER, QUINCARRIER, ...OWN].sort(),
     );
@@ -83,7 +86,7 @@ describe("reprints", () => {
       expect(validateDefinition(REGISTRY[id]!), id).toEqual([]);
       expect(Object.keys(SKIPPED)).not.toContain(id);
     }
-    expect(Object.keys(SKIPPED).sort()).toEqual(["59025.gilgamesh-constant", "59032.avengers-compound-action"]);
+    expect(Object.keys(SKIPPED).sort()).toEqual(["59032.avengers-compound-action"]);
   });
 
   it("each copy resolves to the definition object of its original", () => {
@@ -156,11 +159,106 @@ function withThorInPlay(state: GameState, exhausted: boolean): { state: GameStat
   return { state: patchInstance(placed, thor, { exhausted, faceup: true }), thor };
 }
 
-describe("59025 Gilgamesh: left skipped", () => {
-  it("names the missing primitive: a conditional additional cost to play", () => {
-    expect(Object.keys(SKIPPED)).toContain("59025.gilgamesh-constant");
-    expect(SKIPPED["59025.gilgamesh-constant"]).toContain("conditional");
-    expect(dataOf(GILGAMESH).abilities.map((r) => r.id)).toEqual(["59025.gilgamesh-constant"]);
+/**
+ * 59025 Gilgamesh, "As an additional cost to play this card, if you do not have the Eternal trait, confuse your
+ * identity." RRG 1.8 "Cost" (p. 13: an additional cost is paid with the cost it is added to, or neither is paid),
+ * "Confuse, Confused" (p. 12), "Status Cards" (p. 41: one status card of each type). The engine primitive is tested in
+ * `packages/engine/src/conditional-additional-play-cost.test.ts`.
+ */
+describe("59025 Gilgamesh: confuse your identity to play him, unless you have the Eternal trait", () => {
+  const ETERNAL = trait("Eternal");
+  const confused = (s: GameState): number => inst(s, identityOf(s)).statuses.confused;
+  const inPlay = (s: GameState, id: InstanceId): boolean => playerOf(s, P1).playArea.includes(id);
+  /**
+   * No identity in the pool has the Eternal trait and no card gives it, so Hercules gains it the way "gain the
+   * [trait] trait until the end of the phase" records it (the engine's lasting `traitGrant`), by surgery.
+   */
+  function withEternal(state: GameState): GameState {
+    const id = identityOf(state);
+    return {
+      ...state,
+      lastingEffects: [
+        ...state.lastingEffects,
+        {
+          id: "test-eternal",
+          kind: "traitGrant",
+          trait: ETERNAL,
+          targets: [id],
+          affects: null,
+          scope: { selfInstanceId: id, controllerId: P1, vars: {}, bindings: {} },
+          duration: { kind: "endOfPhase" },
+        },
+      ],
+    };
+  }
+  function playAction(state: GameState, id: InstanceId) {
+    const actions = legalActions(state, P1, WAVE10_DEPS);
+    if (actions.kind !== "turn") throw new Error(`expected P1's turn, got ${actions.kind}`);
+    const isPlay = (a: { action: { kind: string; instanceId?: InstanceId } }) =>
+      a.action.kind === "playCard" && a.action.instanceId === id;
+    return { legal: actions.legal.find(isPlay), illegal: actions.illegal.find(isPlay) };
+  }
+
+  it("is an additional cost to play on his one printed ability, and he has the Eternal trait himself", () => {
+    expect(dataOf(GILGAMESH).abilities.map((r) => r.id)).toEqual([GILGAMESH_REF]);
+    expect(REGISTRY[GILGAMESH_REF]!.trigger).toEqual({ kind: "constant", additionalCostToPlay: {} });
+    expect(dataOf(GILGAMESH).traits).toContain(ETERNAL);
+  });
+
+  it("played by Hercules (no Eternal trait): his 3 resources are paid, the identity is confused and Gilgamesh enters play", () => {
+    const { state, id, payers } = staged(GILGAMESH, 3);
+    expect(traitsOf(state, identityOf(state), WAVE10_DEPS)).not.toContain(ETERNAL);
+    expect(confused(state)).toBe(0);
+    expect(playAction(state, id).legal).toBeDefined();
+    const out = run(state, play(P1, id, payers));
+    expect(confused(out.state)).toBe(1);
+    expect(inPlay(out.state, id)).toBe(true);
+    for (const payer of payers) expect(playerOf(out.state, P1).discard).toContain(payer);
+  });
+
+  it("in alter-ego form too: 'your identity' is whichever side is up", () => {
+    const { state, id, payers } = staged(GILGAMESH, 3);
+    const out = run(withForm(state, "alterEgo"), play(P1, id, payers));
+    expect(confused(out.state)).toBe(1);
+    expect(inPlay(out.state, id)).toBe(true);
+  });
+
+  it("with the Eternal trait: no additional cost, and the identity is not confused", () => {
+    const { state: base, id, payers } = staged(GILGAMESH, 3);
+    const state = withEternal(base);
+    expect(traitsOf(state, identityOf(state), WAVE10_DEPS)).toContain(ETERNAL);
+    const out = run(state, play(P1, id, payers));
+    expect(confused(out.state)).toBe(0);
+    expect(inPlay(out.state, id)).toBe(true);
+  });
+
+  it("an identity that is already confused cannot pay: not offered, refused with the cost's reason, nothing spent", () => {
+    const { state: base, id, payers } = staged(GILGAMESH, 3);
+    const state = patchInstance(base, identityOf(base), {
+      statuses: { ...inst(base, identityOf(base)).statuses, confused: 1 },
+    });
+    const { legal, illegal } = playAction(state, id);
+    expect(legal).toBeUndefined();
+    expect(illegal?.reason).toBe("no_valid_target");
+    expect(illegal?.message).toContain("cannot be given another confused status card");
+    expect(refused(state, play(P1, id, payers))).toBe("no_valid_target");
+    expect(playerOf(state, P1).hand).toEqual([id, ...payers]);
+  });
+
+  it("already confused with the Eternal trait: there is no cost to fail, so he is played and no status card is added", () => {
+    const { state: base, id, payers } = staged(GILGAMESH, 3);
+    const state = withEternal(
+      patchInstance(base, identityOf(base), { statuses: { ...inst(base, identityOf(base)).statuses, confused: 1 } }),
+    );
+    const out = run(state, play(P1, id, payers));
+    expect(confused(out.state)).toBe(1);
+    expect(inPlay(out.state, id)).toBe(true);
+  });
+
+  it("without enough resources nothing is paid: the identity is not confused", () => {
+    const { state, id, payers } = staged(GILGAMESH, 3);
+    expect(refused(state, play(P1, id, payers.slice(0, 1)))).toBe("insufficient_resources");
+    expect(confused(state)).toBe(0);
   });
 });
 

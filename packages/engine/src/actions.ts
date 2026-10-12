@@ -4175,6 +4175,9 @@ export function eventActionForQuery(
  * A card's "As an additional cost to play this [card], …" (`additionalCostToPlay` on a printed constant; box-heroes
  * B3.1): the cost, the slot of it the played upgrade attaches to, and the effects that resolve as the card enters
  * play. Read from the card's printed text wherever it is played from, like `paymentOnly`. Null for every other card.
+ *
+ * The cost is the one written: a `conditional` component ("if you do not have the Eternal trait, confuse your
+ * identity") is still undecided here, since it depends on who plays the card. `playCostWith` decides it.
  */
 export function additionalPlayCostOf(
   state: GameState,
@@ -4204,19 +4207,31 @@ export function additionalPlayCostOf(
 }
 
 /**
- * The non-resource cost of playing a card: its additional cost to play (`additionalPlayCostOf`) with the cost of the
- * Action ability the play triggers, when it is an event with one. RRG 1.8 "Cost" (p. 14): an additional cost is paid
- * "simultaneously with the cost that is being added to", so both are planned and paid as one cost. A component both
- * name is the Action's. For every card with no additional cost this is `abilityCost` itself.
+ * The non-resource cost of `playerId` playing a card: its additional cost to play (`additionalPlayCostOf`) with the
+ * cost of the Action ability the play triggers, when it is an event with one. RRG 1.8 "Cost" (p. 14): an additional
+ * cost is paid "simultaneously with the cost that is being added to", so both are planned and paid as one cost. A
+ * component both name is the Action's. For every card with no additional cost this is `abilityCost` itself.
+ *
+ * A `conditional` component of the additional cost ("As an additional cost to play this card, if you do not have the
+ * Eternal trait, confuse your identity", `hercules` 59025) is decided here, before the two costs are merged: the board
+ * picks its branch with `playerId` as "you" and the card being played as `self` (`costAsDetermined`; RRG 1.8
+ * "Initiating Abilities", p. 24, step 3, the cost is determined before it is paid), so the Action's own `conditional`,
+ * if it has one, is still the only one left for the plan to decide. Every reader of a play's cost comes through here
+ * (the play command, `legalActions`, the payment preview, a play an effect makes), each reading the same board, so the
+ * play is priced, offered and paid on the same branch. Only the picked branch is ever checked (`AbilityCost.
+ * conditional`, "No fallback"): one that cannot be paid means the card cannot be played (p. 14, above), with that
+ * component's own reason. The pick is not recorded as `cost.condition`, which stays the Action's.
  */
 export function playCostWith(
   state: GameState,
   deps: EngineDeps,
   id: InstanceId,
+  playerId: PlayerId,
   abilityCost: AbilityCost | undefined,
 ): AbilityCost | undefined {
   const additional = additionalPlayCostOf(state, deps, id);
-  return additional ? { ...additional.cost, ...abilityCost } : abilityCost;
+  if (!additional) return abilityCost;
+  return { ...costAsDetermined(state, deps, id, playerId, additional.cost), ...abilityCost };
 }
 
 /**
@@ -4979,7 +4994,7 @@ export function playCard(ctx: Ctx, command: Command & { type: "playCard" }): Eng
   );
 
   // The card's additional cost to play is planned and paid with its Action's own (RRG 1.8 "Cost", p. 14).
-  const playCost = playCostWith(ctx.state, ctx.deps, command.cardInstanceId, ability?.cost);
+  const playCost = playCostWith(ctx.state, ctx.deps, command.cardInstanceId, command.playerId, ability?.cost);
   const priced = pricePlay(
     ctx,
     command.playerId,
@@ -5219,8 +5234,8 @@ export function playIgnoringCostFault(
   }
   if (card.type === "upgrade" && card.attachesTo) return "an upgrade with a host of its own";
   // An additional cost to play is still paid (`playIgnoringCost`); nothing asks for a pick here, so it must be forced.
-  const additional = additionalPlayCostOf(ctx.state, ctx.deps, id);
-  if (additional && isFault(planCost(ctx.state, ctx.deps, id, playerId, additional.cost, {}, new Set([id])))) {
+  const additional = playCostWith(ctx.state, ctx.deps, id, playerId, undefined);
+  if (additional && isFault(planCost(ctx.state, ctx.deps, id, playerId, additional, {}, new Set([id])))) {
     return "its additional cost to play cannot be paid without a further choice";
   }
   if (card.type !== "event") return null;
@@ -5341,7 +5356,7 @@ function paidPlayFault(
     ctx.deps,
     id,
     playerId,
-    playCostWith(ctx.state, ctx.deps, id, abilityCost),
+    playCostWith(ctx.state, ctx.deps, id, playerId, abilityCost),
     {},
     new Set([id]),
   );
@@ -5414,7 +5429,7 @@ export function playFromEffectRequirement(
     ctx.deps,
     id,
     playerId,
-    playCostWith(ctx.state, ctx.deps, id, abilityCost),
+    playCostWith(ctx.state, ctx.deps, id, playerId, abilityCost),
     {},
     new Set([id]),
   );
@@ -5461,7 +5476,7 @@ export function playWithPayment(
     (deckTop?.costReduction ?? 0) +
     Math.max(0, areaCostReductionFor(ctx.state, ctx.deps, playerId, id, into));
   // An additional cost to play is paid here too, with a pick only when it is forced (`paidPlayFault`).
-  const playCost = playCostWith(ctx.state, ctx.deps, id, ability?.cost);
+  const playCost = playCostWith(ctx.state, ctx.deps, id, playerId, ability?.cost);
   const priced = pricePlay(ctx, playerId, id, playCost, payment, {}, attachTo, undefined, reduction, {}, null, {
     abilityId: chosen?.abilityId ?? null,
     wildAs,
@@ -5511,7 +5526,7 @@ export function playIgnoringCost(
   if (usable.length > 0 && actionId === undefined) return null;
   // Ignoring the resource cost leaves an additional cost to play to be paid (RRG 1.8 "Ignore", p. 23: "no resources
   // are paid for that card"), with a pick only when it is forced; one that cannot be paid stops the play.
-  const playCost = playCostWith(ctx.state, ctx.deps, id, undefined);
+  const playCost = playCostWith(ctx.state, ctx.deps, id, playerId, undefined);
   const plan = planCost(ctx.state, ctx.deps, id, playerId, playCost, {}, new Set());
   if (isFault(plan)) return null;
   const vars = {

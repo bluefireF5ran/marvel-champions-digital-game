@@ -1,14 +1,17 @@
 import type { AbilityRegistry } from "@mc/engine";
 import { trait } from "@mc/content";
 import {
+  additionalCostToPlay,
   anyOf,
   cards,
   chooseCards,
   chosen,
   constant,
+  costIf,
   defineAbilities,
   forEachPlayer,
   eachPlayer,
+  giveStatusCost,
   heroAction,
   moveCards,
   ofClassification,
@@ -22,6 +25,7 @@ import {
   playOnlyIf,
   youHaveTrait,
   you,
+  yourIdentity,
   zone,
 } from "../../dsl/index.js";
 import { BASIC } from "../../core/aspects/basic.js";
@@ -43,9 +47,14 @@ import { SPDR_EVENTS } from "../../wave5/spdr/events.js";
  * - 59033 Helicarrier (support)
  * - 59034 Quincarrier (support)
  *
- * **59025.gilgamesh-constant** stays skipped: "As an additional cost to play this card, if you do not have the Eternal
- * trait, confuse your identity." is `additionalCostToPlay(costIf(youHaveTrait(ETERNAL), {}, giveStatusCost(yourIdentity,
- * "confused")))`, and `validateDefinition` refuses a conditional part in an additional cost to play (see SKIPPED).
+ * **59025.gilgamesh-constant**: "As an additional cost to play this card, if you do not have the Eternal trait, confuse
+ * your identity." An additional cost with a conditional part, picked by the board for the player playing him: nothing
+ * while their identity has the Eternal trait, else a confused status card given to their identity as the card is paid
+ * for (RRG 1.8 "Confuse, Confused", p. 12: an ability that "confuses" a character gives it a confused status card).
+ * The cost is paid with the resource cost or not at all (RRG 1.8 "Cost", p. 13), so an identity that cannot be given
+ * another confused status card (it already holds one, or two with steady; a stalwart identity; "Status Cards", p. 41)
+ * cannot play Gilgamesh, and he is listed unplayable with that reason. Read for a play only: put into play by an
+ * effect, he costs nothing (RRG 1.8 "Play, Put into Play", p. 32).
  *
  * **59026.ancient-rivalry-action**: "Hero Action: Search your discard pile for an identity-specific upgrade and add it
  * to your hand. Ready Hercules and Thor." The Team-Up characters are readied (`teamUpCharacters`) whether or not the
@@ -64,11 +73,16 @@ import { SPDR_EVENTS } from "../../wave5/spdr/events.js";
  * **Reprints, aliased** to the original's script: 59027 Limitless Stamina (31023), 59033 Helicarrier (01092), 59034 Quincarrier (08023). Checked in the test.
  * 59032 Avengers Compound reprints 58034 (`wonder_man/basic`), which is not scripted yet: it stays skipped, and whoever scripts 58034 aliases 59032 to it here.
  */
+const ETERNAL = trait("Eternal");
 const AVENGER = trait("Avenger");
 const SHIELD = trait("S.H.I.E.L.D.");
 const AVENGER_OR_SHIELD = { anyOf: [{ trait: AVENGER }, { trait: SHIELD }] };
 
 export const HERCULES_BASIC: AbilityRegistry = defineAbilities({
+  "59025.gilgamesh-constant": additionalCostToPlay(
+    costIf(youHaveTrait(ETERNAL), {}, giveStatusCost(yourIdentity, "confused")),
+  ),
+
   "59026.ancient-rivalry-action": heroAction(
     chooseCards("found", zone("discard", you, { filter: query("upgrade", ofClassification("identitySpecific")) }), {
       min: 1,
@@ -101,8 +115,6 @@ export const HERCULES_BASIC: AbilityRegistry = defineAbilities({
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
 export const HERCULES_BASIC_SKIPPED: Readonly<Record<string, string>> = {
-  "59025.gilgamesh-constant":
-    'missing DSL/engine primitive: a conditional (costIf) additional cost to play. additionalCostToPlay(costIf(youHaveTrait(ETERNAL), {}, giveStatusCost(yourIdentity, "confused"))) is refused by validateDefinition (dsl/validate.ts: "an additional cost to play has no resources, either/or or conditional part"); the engine\'s playCostWith/additionalPlayCostOf would also need to resolve the conditional against the identity\'s traits',
   "59032.avengers-compound-action":
     "wave 10 scripting in progress: hercules/basic (reprint of 58034: alias wonder_man/basic's script once it is scripted)",
 };

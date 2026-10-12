@@ -938,7 +938,7 @@ function evaluatePlayOf(
   abilityId: AbilityId | undefined,
 ): Evaluated {
   // With the card's additional cost to play (`playCostWith`, box-heroes B3.1), as the play command plans it.
-  const cost = costAsDetermined(state, deps, id, playerId, playCostWith(state, deps, id, ability?.cost));
+  const cost = costAsDetermined(state, deps, id, playerId, playCostWith(state, deps, id, playerId, ability?.cost));
   const picks = discardPicks(state, deps, playerId, id, cost);
   const reserved = new Set([id, ...picks]);
   const spend = spendOrder(state, deps, playerId, reserved, id);
@@ -1604,7 +1604,7 @@ function payableFor(
       deps,
       id,
       playerId,
-      playCostWith(state, deps, id, query?.action?.definition.cost),
+      playCostWith(state, deps, id, playerId, query?.action?.definition.cost),
     );
     const picks = options.costChoices?.discard ?? discardPicks(state, deps, playerId, id, cost);
     const sets = costChoiceSets(state, deps, playerId, id, cost, picks);

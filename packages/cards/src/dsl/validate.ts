@@ -579,8 +579,11 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
     const slot = additionalPlayCost.attachToSlot;
     if (slot !== undefined && definition.cost?.searchEncounterIntoPlay?.slot !== slot)
       problems.push(`an additional cost to play attaches to a slot its cost puts into play (${slot})`);
-    if (definition.cost?.resources !== undefined || definition.cost?.either || definition.cost?.conditional)
-      problems.push("an additional cost to play has no resources, either/or or conditional part");
+    // A conditional part is the board's pick, made for the player playing the card (engine `playCostWith`). Resources
+    // and an either/or choice would need the play's payment and its command to carry them, in a branch as outside one.
+    const parts = definition.cost ? costVariants(definition.cost) : [];
+    if (parts.some((part) => part.resources !== undefined || part.either))
+      problems.push("an additional cost to play has no resources or either/or part");
   }
   // docs/phase7-wave10.md §3.12: a keyword grant names one keyword, or the cards whose printed keywords are gained.
   if (trigger.kind === "constant") {
@@ -1725,7 +1728,9 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
   // granting card from a slot the engine binds as it resolves (`grantingCard`).
   if (trigger.kind === "preparation") scope.slots.add(GRANTED_BY_SLOT);
   // A `conditional` cost (docs/phase7-wave3.md §3.49) binds what either branch binds, and `cost.condition`.
-  if (definition.cost?.conditional) scope.vars.add("cost.condition");
+  // Not on an additional cost to play: its pick is made as the play is priced and is not recorded (`playCostWith`).
+  const additionalPlayCost = trigger.kind === "constant" && trigger.additionalCostToPlay !== undefined;
+  if (definition.cost?.conditional && !additionalPlayCost) scope.vars.add("cost.condition");
   // A resource ability's effects resolve with the payment, the card paid for bound to `paidFor` (engine
   // `announceResourcesSpent`; docs/phase7-wave4.md §3.30, wave 6 §3.30).
   if (definition.trigger.kind === "resource") scope.slots.add(PAID_FOR_SLOT);

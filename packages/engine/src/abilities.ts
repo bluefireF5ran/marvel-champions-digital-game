@@ -583,6 +583,12 @@ export type AbilityTriggerSpec =
        *   box-heroes question 17 = A, provisional).
        * - **Its picks** are the play command's `costChoices`, as an Action's cost picks are, and are bound on the play's
        *   frame.
+       * - **A `conditional` component** ("As an additional cost to play this card, if you do not have the Eternal
+       *   trait, confuse your identity", Gilgamesh, `hercules` 59025) is decided for the player playing the card each
+       *   time the play is priced, offered or paid (`playCostWith`): `you` is that player, `self` the card. As for any
+       *   conditional cost only the picked branch is checked, so a branch that cannot be paid (an identity that cannot
+       *   be given another confused status card, RRG 1.8 "Status Cards", p. 41) leaves the card unplayable. Its pick
+       *   is not recorded as `cost.condition`. Resources and an either/or choice are not supported in this cost.
        * - **What paying it triggers resolves before the card enters play** (RRG 1.8 "Cost Arrow Icon", p. 14; ruling
        *   February 28, 2026 - Ruling 1: "Any abilities triggered by paying a cost resolve immediately before the effect
        *   following the arrow resolves"): the cost's steps sit above the play's frame.
