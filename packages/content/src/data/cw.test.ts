@@ -583,6 +583,33 @@ describe("cw: curation corrections (each cites its evidence in scripts/marvelcdb
     );
   });
 
+  it("56084 Life Model Decoy: 'Limit 1 per character' and the enemy team's choice of host are data", () => {
+    const decoy = get<AttachmentCard>("56084") as unknown as { playRestrictions: unknown; hostChosenBy: unknown };
+    expect(decoy.playRestrictions).toEqual({ maxPerHost: 1 });
+    expect(decoy.hostChosenBy).toBe("enemyTeam");
+    // Neither is applied to text: both sentences are printed as the raw record has them.
+    expect(text(get("56084")).printed).toContain(
+      "The enemy team attaches this card to a minion or their leader. (Limit 1 per character.)",
+    );
+    expect(notes("56084")).toContain('RRG 1.8 "Max, Maximum" (p. 28)');
+    expect(notes("56084")).toContain("MC56 p. 6");
+  });
+
+  it("56191 Resistance Fighter: the host is the enemy team's choice, and the card prints no limit", () => {
+    const fighter = get<AttachmentCard>("56191") as unknown as { playRestrictions: unknown; hostChosenBy: unknown };
+    expect(fighter.hostChosenBy).toBe("enemyTeam");
+    expect(fighter.playRestrictions).toBeUndefined();
+    expect(notes("56191")).toContain("MC56 p. 6");
+  });
+
+  it("no other Civil War attachment carries a host chooser or a per-host limit", () => {
+    const marked = CW_CARDS.filter((c) => c.type === "attachment")
+      .map((c) => c as unknown as { id: string; playRestrictions?: unknown; hostChosenBy?: unknown })
+      .filter((c) => c.playRestrictions !== undefined || c.hostChosenBy !== undefined)
+      .map((c) => c.id);
+    expect(marked).toEqual(["56084", "56191"]);
+  });
+
   it("56069 Mark V Armor is a Forced Interrupt, not the cache's Forced Response (registration scan check item 2)", () => {
     const armor = get(`56069`);
     expect(text(armor).printed).toContain("Forced Interrupt: When Iron Man would take any amount of damage");

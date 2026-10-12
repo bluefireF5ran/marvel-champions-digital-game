@@ -5,6 +5,7 @@
  */
 import type {
   AttachmentHost,
+  AttachmentHostChooser,
   CivilWarSide,
   CoreAspect,
   EvidenceColor,
@@ -193,6 +194,18 @@ export interface Correction {
    */
   readonly preambleWhenRevealed?: string;
   readonly impliedAttachHost?: "mainScheme" | "ally" | "minion" | "ownWhenRevealed" | AttachmentHost;
+  /**
+   * Who picks among an encounter attachment's legal hosts when its text gives the choice away
+   * (`AttachmentCard.hostChosenBy`; wave 10, `cw` 56084 "The enemy team attaches this card to …" and 56191 "a minion
+   * of the enemy team's choice"). Attachments with a data host only. Never applied to text.
+   */
+  readonly hostChosenBy?: AttachmentHostChooser;
+  /**
+   * An encounter attachment's printed per-host limit (`AttachmentCard.playRestrictions.maxPerHost`; wave 10, `cw`
+   * 56084 "(Limit 1 per character.)", printed in parentheses inside the attach sentence, where the parser reads no
+   * restriction). Encounter attachments only: a player card's limit is parsed from its text. Never applied to text.
+   */
+  readonly attachmentMaxPerHost?: number;
 }
 
 /**

@@ -35,6 +35,7 @@ export type {
 export type {
   AttachmentHost,
   AttachmentHostCategory,
+  AttachmentHostChooser,
   AttachmentHostKind,
   HostClassification,
   HostMeasure,
@@ -44,6 +45,7 @@ export type {
 } from "./attachment-host.js";
 export {
   ATTACHMENT_HOST_CATEGORIES,
+  ATTACHMENT_HOST_CHOOSERS,
   ATTACHMENT_HOST_KINDS,
   HOST_CLASSIFICATIONS,
   HOST_MEASURES,

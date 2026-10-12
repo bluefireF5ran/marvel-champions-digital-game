@@ -678,7 +678,9 @@ export function maxPerPlayerReached(state: GameState, id: InstanceId, controller
  * element" (`maxPerHost`, copies by title), and "Max 1 TRAINING upgrade per ally" counts attachments with that trait,
  * printed or gained (`maxWithTrait` with `per: "host"`, docs/phase7-wave6.md §3.28). The card never counts against
  * itself, so an attached card re-checked on its own host is not refused. Checked wherever a host is chosen
- * (`attachmentHostCandidates`, the play command), so a put-into-play obeys it as a play does.
+ * (`attachmentHostCandidates`, the play command), so a put-into-play obeys it as a play does, and so does an encounter
+ * attachment's data host at the reveal ("(Limit 1 per character.)", `AttachmentCard.playRestrictions`): a host at the
+ * limit is not legal when the card would be attached (RRG 1.8 "Attach To", p. 8).
  */
 export function attachLimitFault(
   state: GameState,

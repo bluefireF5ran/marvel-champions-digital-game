@@ -4,6 +4,7 @@ import {
   applyCommand,
   createGame,
   hasKeyword,
+  SINGLE_TEAM,
   type Command,
   type GameState,
   type InstanceId,
@@ -43,6 +44,7 @@ import {
   inPlayCard,
   piles,
   revealedCodes,
+  types,
 } from "../../../wave9/testing.js";
 import { WAVE10_CARDS } from "../../cards.js";
 import { WAVE10_DEPS, engageMinion } from "../../testing.js";
@@ -69,13 +71,15 @@ const BLANK_B = "01104"; // Core treachery with no boost icons
 const SANDMAN = "01102"; // Core minion
 const REFS = [
   "56083.when-revealed",
+  "56084.life-model-decoy-constant",
   "56084.life-model-decoy-constant-2",
   "56084.life-model-decoy-forced-interrupt",
   "56085.when-revealed",
   "56085.boost",
   "56086.when-defeated",
 ];
-const SKIPPED_REF = "56084.life-model-decoy-constant";
+/** The attach sentence and "(Limit 1 per character.)": card data, so the ref is an empty constant. */
+const DATA_REF = "56084.life-model-decoy-constant";
 
 type Seat = typeof SPIDER_MAN | typeof CAPTAIN_MARVEL | typeof IRON_MAN;
 const dataOf = (code: string) => CW_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
@@ -186,16 +190,19 @@ function untilAttachmentChoice(state: GameState): GameState {
 }
 
 describe("registry", () => {
-  it("registers the six refs, each a valid definition, and skips the one the data cannot state yet", () => {
+  it("registers the seven refs, each a valid definition, and skips nothing", () => {
     expect(Object.keys(MODULAR_MARIA_HILL).sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(MODULAR_MARIA_HILL)) expect(validateDefinition(def), id).toEqual([]);
-    expect(Object.keys(MODULAR_MARIA_HILL_SKIPPED)).toEqual([SKIPPED_REF]);
-    expect(MODULAR_MARIA_HILL_SKIPPED[SKIPPED_REF]).toContain("maxPerHost");
+    expect(MODULAR_MARIA_HILL_SKIPPED).toEqual({});
+  });
+
+  it("the Decoy's attach sentence and limit are data: its ref is a constant with no effect of its own", () => {
+    expect(MODULAR_MARIA_HILL[DATA_REF]).toMatchObject({ trigger: { kind: "constant" }, effects: [] });
   });
 
   it("the data names exactly these refs for the four cards", () => {
     const refs = SET.flatMap((code) => ((dataOf(code).abilities ?? []) as { id: string }[]).map((a) => a.id));
-    expect(refs.sort()).toEqual([...REFS, SKIPPED_REF].sort());
+    expect(refs.sort()).toEqual([...REFS].sort());
   });
 
   it("carries the printed timing of each ability", () => {
@@ -329,6 +336,79 @@ describe("Life Model Decoy (56084)", () => {
       [trait("TECH")],
     ]);
     expect(card.attachesTo).toEqual({ kind: "anyOf", hosts: [{ kind: "minion" }, { kind: "leader", of: "enemy" }] });
+    // "(Limit 1 per character.)" and "The enemy team attaches this card".
+    expect(card.playRestrictions).toEqual({ maxPerHost: 1 });
+    expect(card.hostChosenBy).toBe("enemyTeam");
+  });
+
+  it("LIMIT 1 PER CHARACTER: a second Decoy cannot go on the minion that has one, so it goes on Rhino unasked", () => {
+    const start = engageMinion(game(), SHOCKER, "shocker");
+    const first = decoyOn(start, "shocker" as InstanceId);
+    const run = villainPhase(first.state, [BLANK, DECOY, FILLER_A]);
+    const asked = types(run.events, "choiceRequested").filter((e) => e.choice.prompt.kind === "chooseAttachmentTarget");
+    expect(asked).toEqual([]);
+    expect(inst(run.state, "shocker" as InstanceId).attachments).toEqual([first.id]);
+    expect(attachedCodes(run.state, villainOf(run.state))).toEqual([DECOY]);
+    expect(inDiscard(run.state, DECOY)).toEqual([]);
+  });
+
+  it("LIMIT 1 PER CHARACTER: the character that has one is not offered; the others are", () => {
+    const two = engageMinion(engageMinion(game(), SHOCKER, "shocker"), SANDMAN, "sandman");
+    const first = decoyOn(two, "shocker" as InstanceId);
+    const asked = untilAttachmentChoice(stackEncounterDeck(first.state, BLANK, DECOY, FILLER_B));
+    expect(asked.pendingChoice!.options.map((o) => o.optionId).sort()).toEqual([villainOf(asked), "sandman"].sort());
+    // Rhino holding it instead: the two minions are offered and he is not.
+    const onRhino = decoyOn(two, villainOf(two));
+    const other = untilAttachmentChoice(stackEncounterDeck(onRhino.state, BLANK, DECOY, FILLER_B));
+    expect(other.pendingChoice!.options.map((o) => o.optionId).sort()).toEqual(["sandman", "shocker"]);
+  });
+
+  it("LIMIT 1 PER CHARACTER: with every candidate holding one it has no host and is discarded, with no surge", () => {
+    // No minion in play and Rhino holds the first copy: the second has nowhere to go (RRG 1.8 "Attach To", p. 8).
+    const start = game();
+    const first = decoyOn(start, villainOf(start));
+    const run = villainPhase(first.state, [BLANK, DECOY, FILLER_A]);
+    expect(inst(run.state, villainOf(run.state)).attachments).toEqual([first.id]);
+    const second = copies(run.state, DECOY).find((i) => i !== first.id)!;
+    expect(inDiscard(run.state, DECOY)).toEqual([second]);
+    expect(inst(run.state, second).attachedTo).toBeNull();
+    expect(revealedCodes(run.state, run.events)).toEqual([DECOY]);
+    // The same with a minion in play that holds one too (a third copy is added to the deck by hand).
+    const both = decoyOn(engageMinion(game([SPIDER_MAN], [DECOY]), SHOCKER, "shocker"), "shocker" as InstanceId);
+    const onRhino = decoyOn(both.state, villainOf(both.state));
+    const none = villainPhase(onRhino.state, [BLANK, DECOY, FILLER_A]);
+    expect(inst(none.state, "shocker" as InstanceId).attachments).toEqual([both.id]);
+    expect(inst(none.state, villainOf(none.state)).attachments).toEqual([onRhino.id]);
+    expect(inDiscard(none.state, DECOY)).toHaveLength(1);
+    expect(revealedCodes(none.state, none.events)).toEqual([DECOY]);
+  });
+
+  it("THE ENEMY TEAM ATTACHES: in a 2-player game P2 reveals it and P1 is asked as the enemy team; P2 is refused", () => {
+    const start = engageMinion(game([SPIDER_MAN, CAPTAIN_MARVEL]), SHOCKER, "shocker", P2);
+    const asked = untilAttachmentChoice(stackEncounterDeck(start, BLANK, BLANK_B, FILLER_A, DECOY, FILLER_B));
+    const choice = asked.pendingChoice!;
+    expect(asked.firstPlayerId).toBe(P1);
+    expect(choice.prompt.kind).toBe("chooseAttachmentTarget");
+    expect(choice.playerId).toBe(P1);
+    expect(choice.authority).toBe("enemyTeam");
+    expect(choice.onBehalfOf).toEqual({ kind: "enemyTeam", teamId: SINGLE_TEAM, facingPlayerId: P2 });
+    expect(choice.options.map((o) => o.optionId).sort()).toEqual([villainOf(asked), "shocker"].sort());
+    const refused = applyCommand(
+      asked,
+      { type: "resolveChoice", playerId: P2, choiceId: choice.choiceId, selectedOptionIds: ["shocker"] },
+      WAVE10_DEPS,
+    );
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.error.code).toBe("invalid_choice");
+    expect(refused.error.message).toBe("p1 must make this choice");
+    const answered = driveEventsPicking(WAVE10_DEPS, asked, () => ["shocker"]);
+    expect(attachedCodes(answered.state, "shocker" as InstanceId)).toEqual([DECOY]);
+    expect(types(answered.events, "choiceResolved")[0]).toMatchObject({
+      playerId: P1,
+      selectedOptionIds: ["shocker"],
+      onBehalfOf: { kind: "enemyTeam", teamId: SINGLE_TEAM, facingPlayerId: P2 },
+    });
   });
 
   it("question 13 = A, REVEALED with no minion in play: it attaches to the enemy leader, which is Rhino", () => {

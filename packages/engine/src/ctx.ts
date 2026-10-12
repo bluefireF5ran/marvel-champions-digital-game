@@ -432,11 +432,17 @@ const perilOnStack = (state: GameState, deps: EngineDeps): boolean =>
 /**
  * What a choice with the `enemyTeam` authority is made on behalf of (`ChoiceBehalf`). The addressed player is
  * `enemyTeamDecider`, a player of the enemy team, so that team is theirs; the player it is made against is the one the
- * asking effects frame resolves for, read as `contextTeam` reads it.
+ * asking effects frame resolves for, read as `contextTeam` reads it, or the player revealing the card when a reveal
+ * asks (an attachment's host "of the enemy team's choice", `AttachmentCard.hostChosenBy`).
  */
 function enemyTeamBehalf(state: GameState, decider: PlayerId, frameId: FrameId | null): ChoiceBehalf {
   const frame = frameId ? state.stack.find((candidate) => candidate.frameId === frameId) : undefined;
-  const facingPlayerId = frame?.kind === "effects" ? (frame.controllerId ?? frame.scopedPlayerId) : null;
+  const facingPlayerId =
+    frame?.kind === "effects"
+      ? (frame.controllerId ?? frame.scopedPlayerId)
+      : frame?.kind === "reveal"
+        ? frame.playerId
+        : null;
   return { kind: "enemyTeam", teamId: teamOf(state, decider).teamId, facingPlayerId };
 }
 

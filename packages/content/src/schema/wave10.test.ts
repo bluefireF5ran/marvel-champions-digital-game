@@ -3,12 +3,13 @@ import {
   cardId,
   encounterSetId,
   modularSetCountRangeOf,
+  validateAttachmentCard,
   validateMainSchemeCard,
   validateScenario,
   validateScenarioEncounterSets,
   validateScenarioMainSchemeStages,
 } from "./index.js";
-import type { EncounterSet, MainSchemeCard, Scenario } from "./index.js";
+import type { AttachmentCard, EncounterSet, MainSchemeCard, Scenario } from "./index.js";
 import { CORE_CARDS } from "../data/core/cards.js";
 import { CORE_ENCOUNTER_SETS } from "../data/core/encounterSets.js";
 import { CW_CARDS } from "../data/cw/cards.js";
@@ -136,5 +137,51 @@ describe("MainSchemeStage.printedCardId", () => {
     expect(schemes.length).toBeGreaterThan(0);
     for (const card of schemes)
       for (const stage of card.stages) expect(stage.printedCardId, card.id as string).toBeUndefined();
+  });
+});
+
+/**
+ * An encounter attachment's per-host limit and host chooser (docs/phase7-wave10.md §3.5): "(Limit 1 per character.)" is
+ * `playRestrictions.maxPerHost`, the player-card field (RRG 1.8 "Max, Maximum", p. 28), and "of the enemy team's
+ * choice" is `hostChosenBy` (MC56 p. 6).
+ */
+describe("AttachmentCard.playRestrictions and AttachmentCard.hostChosenBy", () => {
+  const decoy = CW_CARDS.find((c) => c.id === "56084") as AttachmentCard;
+  const errorsOf = (extra: Record<string, unknown>): readonly string[] =>
+    validateAttachmentCard({ ...decoy, ...extra } as unknown as AttachmentCard).errors;
+
+  it("the emitted Life Model Decoy is valid with both", () => {
+    expect(decoy.playRestrictions).toEqual({ maxPerHost: 1 });
+    expect(decoy.hostChosenBy).toBe("enemyTeam");
+    expect(validateAttachmentCard(decoy)).toEqual({ valid: true, errors: [] });
+    expect(errorsOf({ playRestrictions: { maxPerHost: 2 } })).toEqual([]);
+    expect(errorsOf({ playRestrictions: undefined, hostChosenBy: undefined })).toEqual([]);
+  });
+
+  it("the limit is a positive whole number", () => {
+    for (const maxPerHost of [0, -1, 1.5, "1"])
+      expect(errorsOf({ playRestrictions: { maxPerHost } }), String(maxPerHost)).toEqual([
+        "attachment playRestrictions.maxPerHost must be a positive integer",
+      ]);
+    expect(errorsOf({ playRestrictions: {} })).toEqual([
+      "attachment playRestrictions.maxPerHost must be a positive integer",
+    ]);
+    expect(errorsOf({ playRestrictions: null })).toEqual(["attachment playRestrictions must be an object"]);
+  });
+
+  it("a restriction about playing a card is refused on an attachment", () => {
+    expect(errorsOf({ playRestrictions: { maxPerHost: 1, maxPerPlayer: 1 } })).toEqual([
+      "attachment playRestrictions.maxPerPlayer is not allowed on an attachment",
+    ]);
+    expect(errorsOf({ playRestrictions: { maxPerHost: 1, form: "hero" } })).toEqual([
+      "attachment playRestrictions.form is not allowed on an attachment",
+    ]);
+  });
+
+  it("the chooser is a known one and needs a data host to choose among", () => {
+    expect(errorsOf({ hostChosenBy: "firstPlayer" })).toEqual([
+      "attachment hostChosenBy 'firstPlayer' is not a known chooser",
+    ]);
+    expect(errorsOf({ attachesTo: undefined })).toEqual(["attachment hostChosenBy needs attachesTo"]);
   });
 });

@@ -4,7 +4,8 @@ import type { AbilityReference } from "../abilities.js";
 import type { EncounterSetId, ImageRef } from "../ids.js";
 import type { BaseCard } from "./base.js";
 import type { SchemeIcon } from "./schemes.js";
-import type { AttachmentHost, PrintedStatModifiers } from "./attachment-host.js";
+import type { AttachmentHost, AttachmentHostChooser, PrintedStatModifiers } from "./attachment-host.js";
+import type { PlayRestrictions } from "./player-cards.js";
 
 /**
  * The other face of a double-sided encounter card whose two faces have the same card type: the Criminal
@@ -131,6 +132,29 @@ export interface AttachmentCard extends EncounterCardCommon {
    * 2026 (4): "If an attachment lacks 'attach to' text, it attaches when its 'When Revealed' ability triggers".
    */
   readonly attachesTo?: AttachmentHost;
+  /**
+   * Who picks among several legal `attachesTo` hosts when the card's text gives that choice away. Absent: the first
+   * player, as for any encounter card with several eligible targets (RRG 1.8 "First Player", p. 19).
+   *
+   * `"enemyTeam"`: "The enemy team attaches this card to a minion or their leader." (Life Model Decoy, `cw` 56084),
+   * "Attach to a minion of the enemy team's choice." (Resistance Fighter, `cw` 56191). MC56 p. 6: cooperatively "any
+   * rule or ability that refers to 'the enemy team' refers to the players", resolved by the grim rule. The engine asks
+   * the enemy team's decider in a prompt marked as that team's, exactly as a scripted "the enemy team chooses" does.
+   *
+   * It sits on the card, not inside `AttachmentHost`: that type is shared with a player upgrade, whose host is its
+   * player's own choice, and nests (`ifAble`, `anyOf`), where a chooser on a part would mean nothing. Only with
+   * `attachesTo`.
+   */
+  readonly hostChosenBy?: AttachmentHostChooser;
+  /**
+   * A printed limit on copies per host: "(Limit 1 per character.)" (Life Model Decoy, `cw` 56084) is `{ maxPerHost:
+   * 1 }`, the same field and meaning as a player card's (RRG 1.8 "Max, Maximum", p. 28: "'Max 1 per [game element]'
+   * restricts the number of copies of that card that can be attached to each indicated game element"; copies by
+   * title). A host already holding that many copies is not a legal host when the card would be attached (RRG 1.8
+   * "Attach To", p. 8). `maxPerHost` is the only restriction an encounter attachment may carry: the others are about
+   * a player playing a card.
+   */
+  readonly playRestrictions?: PlayRestrictions;
   /** Printed stat-box modifiers applied to the host (Charge +3 ATK). */
   readonly statModifiers?: PrintedStatModifiers;
 }

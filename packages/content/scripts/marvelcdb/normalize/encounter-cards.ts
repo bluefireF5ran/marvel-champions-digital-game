@@ -157,6 +157,9 @@ export function normalizeEncounterCard(
           errors.push(`${r.code}: "Attach to ${parsed.attachesToVillainNamed}." is not this set's villain`);
         }
       }
+      // Curated only (`Correction.hostChosenBy`): the chooser picks among the data hosts, so a card with none has no use
+      // for one.
+      if (p.hostChosenBy && !attachesTo) errors.push(`${r.code}: hostChosenBy on an attachment with no data host`);
       const mods: { -readonly [K in keyof PrintedStatModifiers]: number } = {};
       // MarvelCDB's -1 is its printed-X encoding (the same sentinel the minion branch above reads), but
       // `PrintedStatModifiers.atk` is a fixed number with no "X" — a dynamic stat-box bonus is a scripted ability's
@@ -183,6 +186,8 @@ export function normalizeEncounterCard(
         ...common,
         type: "attachment",
         ...(attachesTo ? { attachesTo } : {}),
+        ...(p.hostChosenBy ? { hostChosenBy: p.hostChosenBy } : {}),
+        ...(p.attachmentMaxPerHost !== undefined ? { playRestrictions: { maxPerHost: p.attachmentMaxPerHost } } : {}),
         ...(Object.keys(mods).length > 0 ? { statModifiers: mods } : {}),
         ...encounterCommon,
       };

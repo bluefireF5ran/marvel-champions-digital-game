@@ -4,6 +4,7 @@ import {
   characterProfile,
   createGame,
   hasKeyword,
+  SINGLE_TEAM,
   type Command,
   type GameEvent,
   type GameState,
@@ -396,6 +397,9 @@ describe("Resistance Fighter (56191)", () => {
       { kind: "minion" },
     ]);
     expect(card.traits).toEqual([trait("CONDITION")]);
+    // "Of the enemy team's choice"; the card prints no limit per character.
+    expect(card.hostChosenBy).toBe("enemyTeam");
+    expect(card.playRestrictions).toBeUndefined();
   });
 
   it("WHEN REVEALED with no minion in play: it cannot attach, gains surge (the next card is revealed too) and is discarded", () => {
@@ -426,14 +430,48 @@ describe("Resistance Fighter (56191)", () => {
     const choice = asked.state.pendingChoice!;
     expect(choice.prompt.kind).toBe("chooseAttachmentTarget");
     expect(choice.playerId).toBe(P1);
-    // The engine marks a data-host attach choice as the first player's (not as the enemy team's): see the report.
-    expect(choice.authority).toBe("firstPlayerTargets");
+    expect(choice.authority).toBe("enemyTeam");
+    expect(choice.onBehalfOf).toEqual({ kind: "enemyTeam", teamId: SINGLE_TEAM, facingPlayerId: P2 });
     expect(optionIds(asked.state)).toEqual(["mercenary", "shocker"]);
     expect(refused(asked.state, P2, "shocker")).toBe(true);
     expect(refused(asked.state, P3, "mercenary")).toBe(true);
     const done = answer(asked.state, P1, "mercenary");
     expect(attachedCodes(done.state, "mercenary" as InstanceId)).toEqual([FIGHTER]);
     expect(attachedCodes(done.state, "shocker" as InstanceId)).toEqual([]);
+  });
+
+  it("OF THE ENEMY TEAM'S CHOICE: in a 2-player game P2 reveals it and P1 is asked as the enemy team; P2 is refused", () => {
+    const start = engageMinion(
+      engageMinion(game([SPIDER_MAN, CAPTAIN_MARVEL]), SHOCKER, "shocker", P2),
+      MERCENARY,
+      "mercenary",
+      P2,
+    );
+    const asked = villainPhaseUntil(start, [BLANK, BLANK_B, FILLER_A, FIGHTER, FILLER_B], ANY_CHOICE);
+    const choice = asked.state.pendingChoice!;
+    expect(asked.state.firstPlayerId).toBe(P1);
+    expect(choice.prompt.kind).toBe("chooseAttachmentTarget");
+    expect(choice.playerId).toBe(P1);
+    expect(choice.authority).toBe("enemyTeam");
+    expect(choice.onBehalfOf).toEqual({ kind: "enemyTeam", teamId: SINGLE_TEAM, facingPlayerId: P2 });
+    expect(optionIds(asked.state)).toEqual(["mercenary", "shocker"]);
+    const refusal = applyCommand(
+      asked.state,
+      { type: "resolveChoice", playerId: P2, choiceId: choice.choiceId, selectedOptionIds: ["shocker"] },
+      WAVE10_DEPS,
+    );
+    expect(refusal.ok).toBe(false);
+    if (refusal.ok) return;
+    expect(refusal.error.code).toBe("invalid_choice");
+    expect(refusal.error.message).toBe("p1 must make this choice");
+    const done = answer(asked.state, P1, "shocker");
+    expect(attachedCodes(done.state, "shocker" as InstanceId)).toEqual([FIGHTER]);
+    expect(attachedCodes(done.state, "mercenary" as InstanceId)).toEqual([]);
+    expect(types(done.events, "choiceResolved")[0]).toMatchObject({
+      playerId: P1,
+      selectedOptionIds: ["shocker"],
+      onBehalfOf: { kind: "enemyTeam", teamId: SINGLE_TEAM, facingPlayerId: P2 },
+    });
   });
 
   it("CONSTANT: the attached minion has +4 hit points, +1 ATK, +1 SCH and stalwart; another minion and the villain do not", () => {

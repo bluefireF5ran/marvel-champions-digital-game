@@ -375,6 +375,7 @@ export const CW_PROVENANCE: readonly CardProvenance[] = [
     marvelcdbCodes: ["56084"],
     corrections: [
       "56084: Life Model Decoy prints \"The enemy team attaches this card to a minion or their leader. (Limit 1 per character.)\", a sentence the parser does not read as an attach rule. Never applied to text; \"their leader\" is the enemy leader (MC56 p. 6: in cooperative play the leader in play is \"the enemy leader\"; RRG p. 26 a leader follows the villain rules). [evidence: Raw text and Maria Hill 56083 scan (read 2026-10-11): \"The enemy team searches the encounter deck and discard pile for a copy of Life Model Decoy and attaches it to Maria Hill.\" Survey gap G4 (\"a minion or their leader\").]",
+      "56084: Life Model Decoy's attach sentence gives the choice of host to the enemy team (\"The enemy team attaches this card to a minion or their leader.\") and carries a limit in parentheses (\"(Limit 1 per character.)\"), which the parser does not read as a restriction on an encounter card. Both are data, because the engine applies a data host at the reveal without reading any ability: a character already holding a copy is not a legal host, and several legal hosts are the enemy team's choice. Never applied to text. [evidence: Raw text of 56084 (both sentences as quoted). RRG 1.8 \"Max, Maximum\" (p. 28): \"'Max 1 per [game element]' restricts the number of copies of that card that can be attached to each indicated game element\"; \"Attach To\" (p. 8): legality is checked when the card would be attached. MC56 p. 6: \"Any rule or ability that refers to 'the enemy team' refers to the players. Resolve these abilities using the grim rule\". Owner's answer to spec question 6 = A (2026-10-11): the first player makes the choice in a prompt marked as the enemy team's.]",
     ],
   },
   {
@@ -843,7 +844,9 @@ export const CW_PROVENANCE: readonly CardProvenance[] = [
     cardId: cardId("56191"),
     cardSetCode: "hells_kitchen",
     marvelcdbCodes: ["56191"],
-    corrections: [],
+    corrections: [
+      "56191: Resistance Fighter prints \"Attach to a minion of the enemy team's choice.\" The parser reads the host (a minion) and drops the chooser; the engine asks for a data host at the reveal without reading any ability, so the chooser is data. Never applied to text. [evidence: Raw text of 56191: \"Attach to a minion of the enemy team's choice. Otherwise, this card gains surge.\" MC56 p. 6 (the enemy team is the players, resolved by the grim rule); owner's answer to spec question 6 = A (2026-10-11). Survey gap G5.]",
+    ],
   },
   {
     cardId: cardId("56192"),

@@ -17,11 +17,13 @@ import type {
 } from "./cards/index.js";
 import {
   ATTACHMENT_HOST_CATEGORIES,
+  ATTACHMENT_HOST_CHOOSERS,
   ATTACHMENT_HOST_KINDS,
   HOST_CLASSIFICATIONS,
   HOST_MEASURES,
   SUPERLATIVE_HOST_POOLS,
   type AttachmentHostCategory,
+  type AttachmentHostChooser,
   type HostClassification,
   type HostMeasure,
   type SuperlativeHostPool,
@@ -931,6 +933,24 @@ export function validateAttachmentCard(card: AttachmentCard): ValidationResult {
   const errors = [...baseErrors(card), ...encounterCommonErrors(card, "attachment")];
   // An attachment with no "attach to" text attaches itself from its own When Revealed (RRG 1.8 "Reveal", p. 38).
   if (card.attachesTo !== undefined) errors.push(...validateAttachmentHost(card.attachesTo, "attachment"));
+  if (card.hostChosenBy !== undefined) {
+    if (!ATTACHMENT_HOST_CHOOSERS.includes(card.hostChosenBy as AttachmentHostChooser))
+      errors.push(`attachment hostChosenBy '${String(card.hostChosenBy)}' is not a known chooser`);
+    // The chooser picks among the `attachesTo` hosts; a card that attaches itself from its own When Revealed has none.
+    if (card.attachesTo === undefined) errors.push("attachment hostChosenBy needs attachesTo");
+  }
+  const limits = card.playRestrictions;
+  if (limits !== undefined) {
+    if (typeof limits !== "object" || limits === null) errors.push("attachment playRestrictions must be an object");
+    else {
+      // Only the per-host limit: every other restriction is about a player playing a card.
+      for (const key of Object.keys(limits)) {
+        if (key !== "maxPerHost") errors.push(`attachment playRestrictions.${key} is not allowed on an attachment`);
+      }
+      if (!isPositiveInteger(limits.maxPerHost))
+        errors.push("attachment playRestrictions.maxPerHost must be a positive integer");
+    }
+  }
   const mods = card.statModifiers;
   if (mods !== undefined) {
     if (typeof mods !== "object" || mods === null) errors.push("attachment statModifiers must be an object");

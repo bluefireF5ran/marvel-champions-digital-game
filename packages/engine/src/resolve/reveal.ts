@@ -17,7 +17,7 @@ import {
   mainSchemeFor,
   cardBackOf,
 } from "../query.js";
-import { type EffectContext } from "../select.js";
+import { enemyTeamDecider, type EffectContext } from "../select.js";
 import type { RevealSource, StackFrame } from "../stack.js";
 import type { ZoneId } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
@@ -744,9 +744,15 @@ function resolveAttachmentTarget(ctx: Ctx, frame: Frame<"reveal">, attachesTo: A
   }
   // RRG "First Player": an encounter card with several eligible targets — the
   // first player selects (not the revealing player).
+  // A host the card's text leaves to "the enemy team" (`AttachmentCard.hostChosenBy`; MC56 p. 6) is asked of that
+  // team's decider with the `enemyTeam` authority, as a scripted `chooser: enemyTeamDecider` choice is. The legal hosts
+  // are the same either way. A reveal read for no team has no such decider and falls back to the first player's rule.
+  const card = cardOf(ctx.state, frame.instanceId);
+  const enemyTeam = card?.type === "attachment" && card.hostChosenBy === "enemyTeam";
+  const decider = enemyTeam ? enemyTeamDecider(ctx.state, context) : null;
   requestChoice(ctx, {
-    playerId: encounterTargetSelector(ctx.state),
-    authority: "firstPlayerTargets",
+    playerId: decider ?? encounterTargetSelector(ctx.state),
+    authority: decider ? "enemyTeam" : "firstPlayerTargets",
     prompt: { kind: "chooseAttachmentTarget", instanceId: frame.instanceId },
     options: legal.map((id) => ({
       optionId: id,

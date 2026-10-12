@@ -195,6 +195,13 @@ export type StackFrame =
       /** "At the end of this attack" effects, run after the response window. */
       readonly endEffects: readonly DeferredEffects[];
       /**
+       * An enemy activation that began and then ended before resolving, because its enemy left play (RRG 1.8
+       * "Activation", p. 6). The frame is `cancelled` so that nothing more of it resolves, but unlike an activation
+       * cancelled outright (RRG 1.8 "Cancel", p. 11: "not considered to have occurred") it did occur and has ended, so
+       * its `endEffects` still resolve (ruling January 11, 2026 - Ruling 1, answer 3).
+       */
+      readonly endedEarly?: true;
+      /**
        * Events whose *response* window was deferred to the end of this activation: RRG 1.8 "Defend, Defense" (p. 16),
        * "Abilities that trigger after a character defends an attack resolve after that attack ends." Only an
        * activation event frame (`enemyAttack`) carries these; `resolve/event.ts` opens them in its `done` stage.

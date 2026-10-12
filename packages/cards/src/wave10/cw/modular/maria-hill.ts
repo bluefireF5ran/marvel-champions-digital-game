@@ -45,11 +45,14 @@ const HOST_ENEMY = query("enemy", { hostOfSelf: true });
  * "the enemy team searches" has nothing to decide and no prompt is shown (docs/phase7-wave10.md section 3.5: one
  * candidate, no prompt). Limit 1 per character: she takes no second one.
  *
- * **Life Model Decoy (56084)**: "The enemy team attaches this card to a minion or their leader" is the data host
- * (`attachesTo`: a minion or the enemy leader, which cooperatively is the villain; owner's answer to question 13 = A,
- * 2026-10-11). Several hosts are the first player's choice, as for any encounter attachment (owner's answer to
- * question 6). The attached enemy gains stalwart. Forced Interrupt: when it would take damage from an attack, that
- * damage is prevented and this card is discarded.
+ * **Life Model Decoy (56084)**: "The enemy team attaches this card to a minion or their leader. (Limit 1 per
+ * character.)" is all data, so its ref is an empty `constant()`: the host (`attachesTo`: a minion or the enemy leader,
+ * which cooperatively is the villain; owner's answer to question 13 = A, 2026-10-11), the limit
+ * (`playRestrictions.maxPerHost`: a character holding a copy is not a legal host; RRG 1.8 "Max, Maximum", p. 28) and
+ * the chooser (`hostChosenBy`: several hosts are the first player's choice in a prompt marked as the enemy team's;
+ * owner's answer to question 6 = A). With no legal host it is discarded (RRG 1.8 "Attach To", p. 8). The attached
+ * enemy gains stalwart. Forced Interrupt: when it would take damage from an attack, that damage is prevented and this
+ * card is discarded.
  *
  * **Executive Order (56085)**: When Revealed: 2 threat on each scheme; surge when Maria Hill is in play. Boost: three
  * more boost icons when Maria Hill is in play.
@@ -73,6 +76,8 @@ export const MODULAR_MARIA_HILL: AbilityRegistry = defineAbilities({
     shuffleEncounterDeck(),
   ),
 
+  // The attach sentence and its limit are card data, applied by the engine at the reveal: nothing is left to script.
+  "56084.life-model-decoy-constant": constant(),
   "56084.life-model-decoy-constant-2": constant(gainsKeyword({ name: "stalwart" }, HOST_ENEMY)),
   "56084.life-model-decoy-forced-interrupt": forcedInterrupt(
     on.damage("host", { fromAttack: true }),
@@ -90,7 +95,4 @@ export const MODULAR_MARIA_HILL: AbilityRegistry = defineAbilities({
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const MODULAR_MARIA_HILL_SKIPPED: Readonly<Record<string, string>> = {
-  "56084.life-model-decoy-constant":
-    "the attach sentence is the data host (attachesTo), but its '(Limit 1 per character.)' needs playRestrictions { maxPerHost: 1 } on 56084 in packages/content/src/data/cw/cards.ts (card-data-pipeline); no script can state it, because the data host is applied at the reveal without reading any ability",
-};
+export const MODULAR_MARIA_HILL_SKIPPED: Readonly<Record<string, string>> = {};

@@ -312,10 +312,16 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         // Earlier conditions of the same occurrence did happen: their shared window still opens (RRG 1.8 p. 45).
         if (openJoinedResponses(ctx, frame)) return;
         // "At the end of this attack" delayed effects created before the attack ended (in its "when [enemy] attacks"
-        // window) still resolve: the attack has ended, which is their timing point (RRG 1.8 "Delayed Effect", p. 16;
-        // ruling January 11, 2026 - Ruling 1, answer 3: Armored Defense defeating the attacking minion still gives the
-        // tough status card). An effect that names the departed attacker finds nothing to do.
-        if (pushEndEffects(ctx, frame)) return;
+        // window) still resolve when the attacker left play (`endedEarly`): the attack has ended, which is their timing
+        // point (RRG 1.8 "Delayed Effect", p. 16; ruling January 11, 2026 - Ruling 1, answer 3: Armored Defense
+        // defeating the attacking minion still gives the tough status card). An effect that names the departed attacker
+        // finds nothing to do.
+        //
+        // Not when the activation was cancelled outright ("cancel that attack"): RRG 1.8 "Cancel" (p. 11), "the
+        // canceled effect [is] replaced with no effect" and "is not considered to have occurred", so the attack has no
+        // end for a delayed effect to follow, and the held effects are dropped with the frame. Rhino's Charge then
+        // stays attached. No ruling found speaks to this; it is the reading of the two RRG entries, open to the owner.
+        if (frame.endedEarly && pushEndEffects(ctx, frame)) return;
         // RRG "Cancel": the canceled effect is not considered to have occurred, so no responses.
         emit(ctx, { type: "triggerEvent", event: frame.event, phase: "cancelled" });
         // A replaced discard from a hand or a deck did not discard its card (docs/phase7-wave9.md §4.1 Q20).
@@ -443,7 +449,7 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
  * Pushes the "at the end of this attack / activation" effects held on `frame` (`endEffects`), first held resolving
  * first, and empties the list; false when there are none. The frame stays on the stack beneath them and is resolved
  * again afterwards. Called where the event ends: its `done` stage, and the cancel path of an activation that ended
- * before it resolved.
+ * before it resolved because its enemy left play (`endedEarly`), never of one cancelled outright.
  */
 function pushEndEffects(ctx: Ctx, frame: Frame<"event">): boolean {
   if (frame.endEffects.length === 0) return false;
@@ -700,8 +706,14 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
           activation,
           reason: leftPlay ? "leftPlay" : "dashedStat",
         });
-        // The activation does not happen: no boost card, no responses, and a `bind` reports `made` 0.
-        setFrame(ctx, { ...frame, stage: "apply", cancelled: true });
+        // The activation does not happen: no boost card, no responses, and a `bind` reports `made` 0. One whose enemy
+        // left play began and has ended (`endedEarly`): its "at the end of this attack" effects still resolve.
+        setFrame(ctx, {
+          ...frame,
+          stage: "apply",
+          cancelled: true,
+          ...(leftPlay ? { endedEarly: true as const } : {}),
+        });
         return;
       }
       return event.kind === "enemyAttack"
