@@ -13,6 +13,7 @@ import {
   cannotEnterPlay,
   uniqueEntryBlocker,
   type ActionRef,
+  type DecisionAuthority,
   type EngineDeps,
   type EngineErrorCode,
   type ExclusionCode,
@@ -70,7 +71,7 @@ export interface OpenChoice {
   readonly promptKind: string;
   readonly soleDecider: boolean;
   /** Whose decision it is by rule; anything but "player" is made for the encounter side. */
-  readonly authority: "player" | "firstPlayerTargets" | "firstPlayerOrders";
+  readonly authority: DecisionAuthority;
   readonly minSelections: number;
   readonly maxSelections: number;
   readonly ordered: boolean;

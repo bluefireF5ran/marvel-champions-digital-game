@@ -18,7 +18,8 @@ import {
   separateDeckDefinition,
   zoneContents as zoneOf,
 } from "./query.js";
-import type { ChoiceOption, ChoicePrompt, DecisionAuthority, PendingChoice } from "./choices.js";
+import type { ChoiceBehalf, ChoiceOption, ChoicePrompt, DecisionAuthority, PendingChoice } from "./choices.js";
+import { teamOf } from "./team.js";
 import type { CardInstance, GameState, GameStep, PlayerState, ZoneId } from "./state.js";
 import { describeFrame, type StackFrame } from "./stack.js";
 import type { EngineDeps } from "./abilities.js";
@@ -428,6 +429,17 @@ const perilOnStack = (state: GameState, deps: EngineDeps): boolean =>
     return id !== null && hasKeyword(state, id, "peril", deps);
   });
 
+/**
+ * What a choice with the `enemyTeam` authority is made on behalf of (`ChoiceBehalf`). The addressed player is
+ * `enemyTeamDecider`, a player of the enemy team, so that team is theirs; the player it is made against is the one the
+ * asking effects frame resolves for, read as `contextTeam` reads it.
+ */
+function enemyTeamBehalf(state: GameState, decider: PlayerId, frameId: FrameId | null): ChoiceBehalf {
+  const frame = frameId ? state.stack.find((candidate) => candidate.frameId === frameId) : undefined;
+  const facingPlayerId = frame?.kind === "effects" ? (frame.controllerId ?? frame.scopedPlayerId) : null;
+  return { kind: "enemyTeam", teamId: teamOf(state, decider).teamId, facingPlayerId };
+}
+
 export function requestChoice(
   ctx: Ctx,
   spec: {
@@ -454,6 +466,9 @@ export function requestChoice(
     ordered: spec.ordered ?? false,
     soleDecider: perilOnStack(ctx.state, ctx.deps),
     authority: spec.authority ?? "player",
+    ...(spec.authority === "enemyTeam"
+      ? { onBehalfOf: enemyTeamBehalf(ctx.state, spec.playerId, spec.frameId ?? null) }
+      : {}),
   };
   ctx.state = { ...ctx.state, pendingChoice: choice };
   emit(ctx, { type: "choiceRequested", choice });

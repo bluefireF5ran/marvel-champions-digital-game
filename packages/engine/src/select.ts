@@ -1689,6 +1689,28 @@ export function contextTeam(state: GameState, context: EffectContext): TeamState
 }
 
 /**
+ * Who makes a choice a card gives to "the enemy team" (docs/competitive-mode-plan.md §3.4, §4 task 7; `PlayerRef
+ * enemyTeamDecider`), or null when the effect is read for no team.
+ *
+ * With one team it is the first player. MC56 p. 6: cooperatively "'the enemy team' refers to the players", who
+ * "resolve these abilities using the grim rule: Imagine what an opponent would do if it were their choice"; the
+ * rulebook names no one player, and the owner's decision (2026-10-11, docs/phase7-wave10.md question 6, answer A) is
+ * the first player, who already decides what an encounter card leaves open (RRG 1.8 "First Player", p. 19). The
+ * choice follows the token as every first-player choice does.
+ *
+ * With two teams it is a player of the other team still in the game: the first of them in player order. Which of a
+ * team's players speaks for it is that team's to settle and is not built; one seat is named so the choice is parked
+ * with a player of the right team.
+ */
+export function enemyTeamDecider(state: GameState, context: EffectContext): PlayerId | null {
+  const mine = contextTeam(state, context);
+  if (!mine) return null;
+  const enemy = enemyTeamOf(state, mine.teamId);
+  if (enemy.teamId === mine.teamId) return state.firstPlayerId;
+  return playerOrder(state).find((player) => enemy.playerIds.includes(player.playerId))?.playerId ?? null;
+}
+
+/**
  * "The enemy leader" (`of: "enemy"`) or "your leader" (`of: "yours"`) for an effect: the one definition behind
  * `TargetRef leader` and `AttachmentHost leader`.
  *
@@ -2295,6 +2317,10 @@ export function resolvePlayers(state: GameState, ref: PlayerRef, context: Effect
       return playerOrder(state)
         .map((p) => p.playerId)
         .filter((id) => team.playerIds.includes(id) && (!area || area.playerIds.includes(id)));
+    }
+    case "enemyTeamDecider": {
+      const decider = enemyTeamDecider(state, context);
+      return decider ? [decider] : [];
     }
     case "nextAfter": {
       // RRG 1.8 "In Player Order" (p. 24): the next clockwise player still in the game; a player is not their own.

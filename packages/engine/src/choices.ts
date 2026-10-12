@@ -1,6 +1,6 @@
 import type { AbilityId, CardId, EvidenceCombination } from "@mc/content";
 import type { InPlayCostMode } from "./abilities.js";
-import type { ChoiceId, FrameId, InstanceId, PlayerId } from "./ids.js";
+import type { ChoiceId, FrameId, InstanceId, PlayerId, TeamId } from "./ids.js";
 import type { ReportedFact, ReportedFactAnswer } from "./outside-facts.js";
 import type { ResourcePool, ResourceRequirement, ResourceType, TypedResource } from "./resources.js";
 import type { PairLimit, StatusName } from "./spec.js";
@@ -471,8 +471,33 @@ export interface ChoiceOption {
  *   (RRG "First Player").
  * - `firstPlayerOrders`: effects that would resolve simultaneously; the first
  *   player orders them (RRG "First Player", "Simultaneous Resolution").
+ * - `enemyTeam`: the card gives the choice to "the enemy team" (docs/competitive-mode-plan.md §3.4, §4 task 7). MC56
+ *   p. 6, cooperative play: "Any rule or ability that refers to 'the enemy team' refers to the players. Resolve these
+ *   abilities using the grim rule: Imagine what an opponent would do if it were their choice." The addressed player is
+ *   `enemyTeamDecider` (`select.ts`): the first player in a cooperative game (owner decision, 2026-10-11), a player of
+ *   the other team when there are two. The choice carries `onBehalfOf`. The engine offers every legal option and
+ *   ranks none: what an opponent would pick is the player's to judge.
  */
-export type DecisionAuthority = "player" | "firstPlayerTargets" | "firstPlayerOrders";
+export type DecisionAuthority = "player" | "firstPlayerTargets" | "firstPlayerOrders" | "enemyTeam";
+
+/** The one-line instruction of a choice made with the `enemyTeam` authority, for a client to show. */
+export const ENEMY_TEAM_CHOICE_INSTRUCTION = "Choose as the enemy team would.";
+/** The rule that instruction rests on, quoted: MC56 p. 6 (cooperative play). */
+export const ENEMY_TEAM_CHOICE_RULE = "Imagine what an opponent would do if it were their choice.";
+
+/**
+ * Whose choice the addressed player is making when it is not their own to make freely: the team the card gave it to.
+ *
+ * - `teamId`: the enemy team. In a cooperative game that is the one team, the addressed player's own (MC56 p. 6); with
+ *   two teams it is the addressed player's team, which is the other team to the player the card is resolving for.
+ * - `facingPlayerId`: the player the effect is resolving for ("you", then "that player"), whose enemy team this is;
+ *   null when the effect resolves for no player.
+ */
+export interface ChoiceBehalf {
+  readonly kind: "enemyTeam";
+  readonly teamId: TeamId;
+  readonly facingPlayerId: PlayerId | null;
+}
 
 /**
  * The engine never calls back into a client. When the rules need input it
@@ -499,4 +524,6 @@ export interface PendingChoice {
   readonly soleDecider: boolean;
   /** Whose decision this is by rule; anything but `player` is made on the encounter side's behalf. */
   readonly authority: DecisionAuthority;
+  /** Present exactly when `authority` is `enemyTeam`: the team this choice is made for, and against whom. */
+  readonly onBehalfOf?: ChoiceBehalf;
 }

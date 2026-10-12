@@ -1149,6 +1149,8 @@ function checkRefs(value: unknown, scope: Scope, where: string, problems: string
       problems.push(`${where}: ${key} needs a player, and a leader is a card (yourTeam / enemyTeam name players)`);
     if (kind === "team" && TARGET_FIELDS.has(key))
       problems.push(`${where}: ${key} needs a card, and a team is players (identityOf(team) names their identities)`);
+    if (kind === "enemyTeamDecider" && TARGET_FIELDS.has(key))
+      problems.push(`${where}: ${key} needs a card, and enemyTeamChooses is the player who chooses for the enemy team`);
     if (key === "effects" || key === "then" || key === "otherwise" || key === "with" || key === "options") continue;
     if (key === "consequential") continue;
     checkRefs(item, scope, where, problems);

@@ -78,6 +78,7 @@ export {
 export type {
   AttackInProgress,
   CardPosition,
+  ChoiceBehalf,
   ChoiceList,
   ChoiceOption,
   ChoicePrompt,
@@ -88,6 +89,8 @@ export type {
 export {
   cardTotalFault,
   cardTotalOf,
+  ENEMY_TEAM_CHOICE_INSTRUCTION,
+  ENEMY_TEAM_CHOICE_RULE,
   mostCardsUnderTotal,
   PLAY_TO_OWN_AREA,
   playDestinationOfOption,
@@ -525,6 +528,7 @@ export {
   consideredRemainingHitPoints,
   controllerOf,
   deckTopFaceupPlayers,
+  enemyTeamDecider,
   encounterTopFaceup,
   hitPointFloor,
   ignoredAbilities,

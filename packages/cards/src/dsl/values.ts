@@ -57,6 +57,15 @@ export const yourTeam: PlayerRef = { kind: "team", of: "yours" };
  * is given is a separate matter (plan §4 task 7).
  */
 export const enemyTeam: PlayerRef = { kind: "team", of: "enemy" };
+/**
+ * "**The enemy team** exhausts a character you control", "a minion of **the enemy team's choice**", "The enemy team
+ * searches the encounter deck for…" (docs/competitive-mode-plan.md §3.4, §4 task 7): the chooser of a choice the card
+ * gives to the enemy team, as in `chooseTarget(slot, q, { chooser: enemyTeamChooses })`. MC56 p. 6: cooperatively the
+ * enemy team is the players, who "resolve these abilities using the grim rule: Imagine what an opponent would do if it
+ * were their choice"; the first player makes the choice (owner decision, 2026-10-11), and the prompt and the log say
+ * it is made for the enemy team. The options are the ones any chooser would be offered.
+ */
+export const enemyTeamChooses: PlayerRef = { kind: "enemyTeamDecider" };
 /** The player picked by `choosePlayer(slot)`. */
 export const chosenPlayer = (slot = "player"): PlayerRef => ({ kind: "slot", slot });
 /** "Each other hero": every player except these. */

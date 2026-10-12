@@ -2,7 +2,7 @@ import type { AbilityId, CardId, CoreAspect, EvidenceCombination, Trait, Villain
 import type { CampaignCardFace, CampaignWindow, LogWrite } from "./campaign.js";
 import type { RulesCardType } from "./card-types.js";
 import type { ChoiceId, EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
-import type { CardPosition, PendingChoice } from "./choices.js";
+import type { CardPosition, ChoiceBehalf, PendingChoice } from "./choices.js";
 import type { GroupId } from "./ids.js";
 import type { SharedEvent, SharedPodState, SharedResult } from "./pod.js";
 import type {
@@ -1356,6 +1356,8 @@ export type GameEvent =
       readonly choiceId: ChoiceId;
       readonly playerId: PlayerId;
       readonly selectedOptionIds: readonly string[];
+      /** The answered choice's `PendingChoice.onBehalfOf`: `playerId` chose this for the enemy team (MC56 p. 6). */
+      readonly onBehalfOf?: ChoiceBehalf;
     }
   | {
       readonly type: "framePushed";

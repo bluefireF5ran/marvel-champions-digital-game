@@ -843,6 +843,16 @@ export type PlayerRef =
    * makes a choice the enemy team is given is not this ref (plan §4 task 7).
    */
   | { readonly kind: "team"; readonly of: "yours" | "enemy" }
+  /**
+   * The one player who makes a choice the card gives to "**the enemy team**" (docs/competitive-mode-plan.md §3.4, §4
+   * task 7; docs/phase7-wave10.md §3.5): "The enemy team exhausts a character you control", "a minion of the enemy
+   * team's choice", "The enemy team searches the encounter deck for…". Written as the `chooser` (or `player`) of the
+   * choosing effect, whose legal options it does not change. `enemyTeamDecider` (`select.ts`) names the player: the
+   * first player in a cooperative game, a player of the other team when there are two; nobody when the effect is read
+   * for no team. The choice it asks carries the `enemyTeam` authority and `PendingChoice.onBehalfOf`
+   * (`effectChoiceAuthority`); wrapped in another ref (`orElse`, `others`) it is only the player it names.
+   */
+  | { readonly kind: "enemyTeamDecider" }
   /** The player a card is engaged with: "the engaged player" on a minion's own ability. */
   | { readonly kind: "engagedWith"; readonly of: TargetRef }
   /**
