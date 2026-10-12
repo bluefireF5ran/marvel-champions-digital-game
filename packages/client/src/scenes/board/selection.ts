@@ -217,7 +217,9 @@ export const focusKey = (target: FocusTarget): string =>
         ? `teamUp:${target.pairKey}`
         : target.kind === "confirm"
           ? "confirm"
-          : "cancel";
+          : target.kind === "undo"
+            ? "undo"
+            : "cancel";
 
 /**
  * Re-aims the engine's example command at the target the player picked. Only

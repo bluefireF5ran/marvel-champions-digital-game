@@ -102,6 +102,19 @@ export interface PaymentSourceView extends PaymentSource {
    * a source with no chosen amount. The tile says it so the amount is read before the card is spent.
    */
   readonly amountNote: string | null;
+  /**
+   * Where a picked hand card falls in the order its discard pile receives the payment, from 1: the cards go one at a
+   * time in the order they were picked, so the last one ends on top (RRG 1.8 "Discard", p. 16: the player chooses the
+   * order of cards a singular effect discards; `payPayment` discards in payment order). Counted per discard pile, since
+   * an alliance helper's card goes to its owner's pile. Null for a card not picked, and for a resource ability, which
+   * discards nothing.
+   */
+  readonly discardOrder: number | null;
+  /**
+   * The last picked card for its discard pile: the one left on top once the payment is made, which is what "the top
+   * card of your discard pile" reads next (Pepper Potts, FAQ "Pepper Potts (#33)", RRG 1.8 p. 57).
+   */
+  readonly onTop: boolean;
 }
 
 export interface PaymentView {
@@ -346,11 +359,14 @@ export function paymentView(
     reductionAmount > 0
       ? { ...query.requirement, generic: Math.max(0, query.requirement.generic - reductionAmount) }
       : query.requirement;
+  const order = discardOrderOf(state, playerId, picked, byOption);
   const sources = query.sources.map((source) => ({
     ...source,
     spent: picked.includes(source.optionId),
     helperName: helperNameOf(state, playerId, source),
     amountNote: amountNoteOf(source),
+    discardOrder: order.get(source.optionId)?.position ?? null,
+    onTop: order.get(source.optionId)?.onTop ?? false,
   }));
   // A chosen-size cost (`chosenResources`) spends up to `max` and overpays the rest; any other cost spends what it
   // requires. Only counted once the engine accepts the selection.
@@ -432,6 +448,47 @@ export function allianceHelpersOf(
 }
 
 /** Whose hand an alliance helper's card sits in, by hero name; null for anything the payer holds or in play. */
+/**
+ * The tag on a picked source: "spent", numbered for a discarded card ("spent 2"), and "on top" for the card its pile
+ * will show last, which is why the order is worth seeing.
+ */
+export function spentTagText(source: Pick<PaymentSourceView, "discardOrder" | "onTop">): string {
+  if (source.discardOrder === null) return "spent";
+  return source.onTop ? `spent ${source.discardOrder} · on top` : `spent ${source.discardOrder}`;
+}
+
+/** The hover note on the "on top" card: what it means, and why the order matters. */
+export const ON_TOP_NOTE =
+  "Picked last, so it ends up on top of your discard pile. Pepper Potts and other cards that read the top card " +
+  "use it next. To change the order, unpick a card and pick it again: it moves to the end.";
+
+/**
+ * Each picked hand card's place in its discard pile's share of the payment (`PaymentSourceView.discardOrder`), by
+ * option id, and whether it is that pile's last, the one left on top.
+ */
+function discardOrderOf(
+  state: GameState,
+  payerId: PlayerId,
+  picked: readonly string[],
+  byOption: ReadonlyMap<string, PaymentSource>,
+): ReadonlyMap<string, { readonly position: number; readonly onTop: boolean }> {
+  const byPile = new Map<PlayerId, string[]>();
+  for (const optionId of picked) {
+    const source = byOption.get(optionId);
+    if (source?.kind !== "handCard") continue;
+    // A discarded player card goes to its owner's pile (RRG 1.8 "Discard", p. 16).
+    const pile = state.instances[source.instanceId]?.ownerId ?? payerId;
+    byPile.set(pile, [...(byPile.get(pile) ?? []), optionId]);
+  }
+  const order = new Map<string, { readonly position: number; readonly onTop: boolean }>();
+  for (const optionIds of byPile.values()) {
+    optionIds.forEach((optionId, index) =>
+      order.set(optionId, { position: index + 1, onTop: index === optionIds.length - 1 }),
+    );
+  }
+  return order;
+}
+
 function helperNameOf(state: GameState, payerId: PlayerId, source: PaymentSource): string | null {
   if (source.kind !== "handCard") return null;
   const owner = state.players.find((player) => player.hand.includes(source.instanceId));
