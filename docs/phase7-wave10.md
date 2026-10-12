@@ -871,6 +871,21 @@ provisional rather than confirmed rulings. The main session checked the four aga
   A, and both branches have a test that names question 10, so turning B on is one line in
   `cw/modular/new-avengers.ts`. Still worth a question to FFG.
 
+**Questions 28 and 29 (owner, 2026-10-12).** Both arose after the first batch of answers. Neither is to be labeled an
+FFG ruling on these cards: 28A is the stronger rules conclusion, 29B a well-supported interpretation (owner's words).
+
+- **28A.** An "at the end of this attack" effect does not resolve when the attack is cancelled outright: a cancelled
+  effect is "not considered to have occurred" (RRG "Cancel", p. 11). An attack that begins and ends early because
+  the attacker is defeated is different, and its end-of-attack effects do resolve (January 11, 2026 – Ruling 1, answer
+  3, on Armored Defense; the ruling supports the distinction without ruling on cancellation). Built at e28b310b.
+- **29B.** Two copies of Cosmic Flight 56100 and one hit of more than 3: she takes 3 and only one copy is discarded;
+  the second stays attached. The engine re-evaluates each remaining interrupt's triggering condition after an earlier
+  interrupt has changed the pending damage, and does not resolve one whose condition no longer holds: RRG
+  "Interrupt" ("If an interrupt changes (via a replacement effect) or cancels an imminent triggering condition,
+  further interrupts to the original triggering condition cannot be triggered"), "Replacement Effect" (a replaced
+  effect "is no longer considered imminent") and "Then". Being built with the QA fixes; until it lands both copies
+  are discarded.
+
 Questions 23 to 27 are product choices, not rules (owner's note). Each B or C is recorded where its question lives:
 14 to 18 in `docs/phase7-wave10-box-heroes.md` B4, 19 to 22 in `docs/phase7-wave10-hero-packs.md` H4, 23 to 27 in
 `docs/phase7-wave10-client.md` §12.
