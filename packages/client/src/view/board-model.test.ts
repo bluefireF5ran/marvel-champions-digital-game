@@ -4,7 +4,7 @@
  * the engine actually publishes.
  */
 
-import { activeEncounterDeck, cardOf, isMinion } from "@mc/engine";
+import { activeEncounterDeck, activeVillain, cardOf, isMinion } from "@mc/engine";
 import { beforeAll, describe, expect, test } from "vitest";
 import { CORE_DEPS } from "@mc/cards";
 import { cardId } from "@mc/content";
@@ -50,6 +50,15 @@ async function intoPlay(config: SessionConfig, maxSteps = 40): Promise<SessionSt
   return store;
 }
 
+/** The active villain's card re-printed as a leader (the pool has no Civil War data yet). */
+function asLeader(game: GameState): GameState {
+  const card = cardOf(game, activeVillain(game).instanceId)!;
+  return {
+    ...game,
+    cardPool: { ...game.cardPool, [card.id]: { ...card, printedType: "leader" } },
+  } as unknown as GameState;
+}
+
 describe("boardModel", () => {
   let store: SessionStore;
   let state: GameState;
@@ -68,6 +77,11 @@ describe("boardModel", () => {
     expect(model.mainScheme.name.length).toBeGreaterThan(0);
     // The perspective seat is one of the two Core heroes we seated.
     expect(["She-Hulk", "Jennifer Walters", "Black Panther", "T'Challa"]).toContain(model.me.name);
+  });
+
+  test("a leader's panel reads Leader where the villain's reads Villain", () => {
+    const model = boardModel(asLeader(state), viewer, CORE_DEPS);
+    expect(model.villain.subtitle).toMatch(/^Leader · Stage (I|II|III)$/);
   });
 
   test("the villain panel carries the stage, stats and HP the engine reports", () => {

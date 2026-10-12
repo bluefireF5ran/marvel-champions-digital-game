@@ -6,7 +6,7 @@
  * the player isn't entitled to see.
  */
 
-import { activeEncounterDeck, activeVillain, keywordsOf } from "@mc/engine";
+import { activeEncounterDeck, activeVillain, cardOf, keywordsOf } from "@mc/engine";
 import { cardTextDisplay } from "./card-text-display.js";
 import { beforeAll, describe, expect, test } from "vitest";
 import { CORE_DEPS } from "@mc/cards";
@@ -46,7 +46,24 @@ beforeAll(async () => {
 
 const inspect = (id: InstanceId) => inspectModel(state, id, store.state.legal?.actions ?? null, me, CORE_DEPS);
 
+/** The active villain's card re-printed as a leader (the pool has no Civil War data yet). */
+function asLeader(game: GameState): GameState {
+  const card = cardOf(game, activeVillain(game).instanceId)!;
+  return {
+    ...game,
+    cardPool: { ...game.cardPool, [card.id]: { ...card, printedType: "leader" } },
+  } as unknown as GameState;
+}
+
 describe("inspectModel", () => {
+  test("a villain's type line says VILLAIN, a leader's says LEADER", () => {
+    const id = activeVillain(state).instanceId;
+    expect(inspect(id).typeLine).toMatch(/^VILLAIN/);
+    const leader = inspectModel(asLeader(state), id, null, me, CORE_DEPS);
+    expect(leader.typeLine).toMatch(/^LEADER/);
+    expect(leader.typeLine).not.toMatch(/VILLAIN/);
+  });
+
   test("shows a card in your own hand, which is not 'faceup' to the engine", () => {
     const inHand = state.players.find((player) => player.playerId === me)!.hand[0]!;
     // The engine models a hand card as not faceup — it isn't on the table. The

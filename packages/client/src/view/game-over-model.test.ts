@@ -6,7 +6,7 @@
 
 import { beforeAll, describe, expect, test } from "vitest";
 import { CORE_DEPS } from "@mc/cards";
-import type { GameState, InstanceId } from "@mc/engine";
+import { activeVillain, cardOf, type GameState, type InstanceId } from "@mc/engine";
 import { POOL_DEPS } from "../content/pool.js";
 import { LocalEngineHost } from "../engine/local-host.js";
 import { SessionStore } from "../store/session-store.js";
@@ -40,6 +40,15 @@ async function passiveLoss(): Promise<SessionStore> {
     await store.dispatch(end.example);
   }
   return store;
+}
+
+/** The active villain's card re-printed as a leader (the pool has no Civil War data yet). */
+function asLeader(game: GameState): GameState {
+  const card = cardOf(game, activeVillain(game).instanceId)!;
+  return {
+    ...game,
+    cardPool: { ...game.cardPool, [card.id]: { ...card, printedType: "leader" } },
+  } as unknown as GameState;
 }
 
 describe("game over model", () => {
@@ -106,6 +115,28 @@ describe("game over model", () => {
     expect(model.finalBlow?.body).not.toMatch(/threat/);
     // The card itself goes in the final blow slot.
     expect(model.finalBlow?.cardInstanceId).toBe(source);
+  });
+
+  test("the enemy's stat note says villain, and leader for a leader", () => {
+    const { game, record, config } = store.state;
+    const name = cardName(game!, activeVillain(game!).instanceId);
+    const note = (state: GameState) => gameOverModel(state, record, config, CORE_DEPS).stats[0]!.note;
+    expect(note(game!)).toBe(`${record.damageToVillain} damage dealt to ${name}`);
+    const lost = { ...asLeader(game!), outcome: { result: "loss", reason: "encounterDeckExhausted" } as const };
+    const leader = gameOverModel(lost, record, config, CORE_DEPS);
+    expect(leader.headline).toBe(`${name} wins this one`);
+    expect(leader.stats[0]!.label).toBe(name);
+  });
+
+  test("a won game's summary calls the damage dealt to the villain, or to the leader", () => {
+    const { game, record, config } = store.state;
+    const won = (state: GameState) => ({
+      ...state,
+      outcome: { result: "win", reason: "allVillainsDefeated" } as const,
+    });
+    const summary = (state: GameState) => gameOverModel(won(state), record, config, CORE_DEPS).summary;
+    expect(summary(game!)).toContain("damage dealt to the villain across the game");
+    expect(summary(asLeader(game!))).toContain("damage dealt to the leader across the game");
   });
 
   test("a win a card's text called (the villain still standing) reads as the players winning, not a villain falling", () => {

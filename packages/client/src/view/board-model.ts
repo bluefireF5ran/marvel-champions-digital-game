@@ -66,6 +66,7 @@ import { counterLimitsOf } from "./counter-limit.js";
 import { otherFaceVisible } from "./hidden-reverse.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
+import { foeWord } from "./foe-words.js";
 import { deckTopStatus, shownTopOf } from "./deck-top.js";
 import { STATUS_DISABLES } from "../tokens.js";
 import { hpFraction } from "./hp-format.js";
@@ -1293,8 +1294,8 @@ function subtitleOf(state: GameState, instance: CardInstance, card: AnyCard | un
       // The Four Horsemen print a version letter (A/B) on each card instead of a stage (`stageLabel`): a roman
       // numeral would call War's B card "Stage I".
       const letter = villainStageOf(state, instance.instanceId).stageLabel;
-      if (letter) return `Villain · Side ${letter}${victory}`;
-      return `Villain · Stage ${ROMAN[villain.stageIndex] ?? String(villain.stageIndex + 1)}${victory}`;
+      if (letter) return `${foeWord(card)} · Side ${letter}${victory}`;
+      return `${foeWord(card)} · Stage ${ROMAN[villain.stageIndex] ?? String(villain.stageIndex + 1)}${victory}`;
     }
     case "hero_identity": {
       const player = state.players.find((seat) => seat.identity.instanceId === instance.instanceId);

@@ -15,6 +15,7 @@
  */
 
 import {
+  activeVillain,
   cardOf,
   cardTypeName,
   getCard,
@@ -27,6 +28,7 @@ import {
 } from "@mc/engine";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
+import { foeWord } from "./foe-words.js";
 import { cardName, faceUpName, formWords, playerName, seatName } from "./names.js";
 
 export type StatusName = "stunned" | "confused" | "tough";
@@ -297,7 +299,10 @@ function describe(
         voice: "scenario",
       };
     case "villainAdded":
-      return { text: `${card(event.instanceId)} joins the fight as another villain.`, voice: "villain" };
+      return {
+        text: `${card(event.instanceId)} joins the fight as another ${foeWord(cardOf(state, event.instanceId), { lower: true })}.`,
+        voice: "villain",
+      };
     case "villainRemoved":
       return { text: `${card(event.instanceId)} leaves the game.`, voice: "villain" };
     case "villainSetAside":
@@ -306,8 +311,8 @@ function describe(
       return {
         text:
           event.reason === "swap"
-            ? `${getCard(state, event.fromCardId)?.name ?? "The villain"} swaps to ${getCard(state, event.toCardId)?.name ?? "another card"}.`
-            : `${getCard(state, event.toCardId)?.name ?? "Another villain"} takes the place of ${getCard(state, event.fromCardId)?.name ?? "the defeated villain"}.`,
+            ? `${getCard(state, event.fromCardId)?.name ?? `The ${foeWord(getCard(state, event.fromCardId), { lower: true })}`} swaps to ${getCard(state, event.toCardId)?.name ?? "another card"}.`
+            : `${getCard(state, event.toCardId)?.name ?? `Another ${foeWord(getCard(state, event.toCardId), { lower: true })}`} takes the place of ${getCard(state, event.fromCardId)?.name ?? `the defeated ${foeWord(getCard(state, event.fromCardId), { lower: true })}`}.`,
         voice: "villain",
       };
     case "scenarioDeckReset":
@@ -666,7 +671,10 @@ function describe(
     case "schemeDefeated":
       return { text: `${card(event.instanceId)} was cleared.`, voice: "player" };
     case "villainStageAdvanced":
-      return { text: `The villain advances to stage ${event.stageIndex + 1}.`, voice: "villain" };
+      return {
+        text: `The ${foeWord(cardOf(state, event.instanceId), { lower: true })} advances to stage ${event.stageIndex + 1}.`,
+        voice: "villain",
+      };
     // The Wrecking Crew's active counter moving to another villain (`state.activeVillainId`) is otherwise silent —
     // no damage, threat or status marks it — so without a line here the board's other three panels lit up ACTIVE
     // for no reason the log ever gave.
@@ -675,7 +683,7 @@ function describe(
         text:
           event.reason === "nextInRow"
             ? `The active counter moves along the row to ${card(event.to)}.`
-            : `The active villain is now ${card(event.to)}.`,
+            : `The active ${foeWord(cardOf(state, event.to), { lower: true })} is now ${card(event.to)}.`,
         voice: "villain",
       };
     // The Collector flipping between its finite front and ∞ back (docs/phase7-wave3.md §3.1) — `hitPointsReset`
@@ -759,7 +767,11 @@ function describe(
       return { text: `A facedown ${event.as} entered play engaged with ${who(event.playerId)}.`, voice: "villain" };
     case "gameEnded":
       return {
-        text: outcomeText(event.outcome, card),
+        text: outcomeText(
+          event.outcome,
+          card,
+          foeWord(cardOf(state, activeVillain(state).instanceId), { lower: true }),
+        ),
         // A concession is neither a win nor a defeat (the RRG has no concede rule; see `GameOutcome`), so it takes
         // the neutral voice rather than being colored as a loss.
         voice: event.outcome.result === "win" ? "win" : event.outcome.result === "conceded" ? "scenario" : "loss",
@@ -978,7 +990,7 @@ function describe(
     // docs/phase7-wave8.md §3.7: villains laid out in a row, left to right.
     case "villainRowSet":
       return {
-        text: `Villains in a row, left to right: ${event.order.map((id) => card(id)).join(", ")}.`,
+        text: `${foeWord(event.order[0] ? cardOf(state, event.order[0]) : undefined, { plural: true })} in a row, left to right: ${event.order.map((id) => card(id)).join(", ")}.`,
         voice: "scenario",
       };
     // docs/phase7-wave8.md §3.39 / §3.71: a raised moment is bookkeeping, except one that carries a count of cards
@@ -1293,7 +1305,9 @@ function plainRuleText(text: string): string {
 
 /** A card's type as a word for a log sentence: "minion", "villain", "side scheme". */
 function typeWord(state: GameState, id: InstanceId): string {
-  return (cardOf(state, id)?.type ?? "card").replace(/_/g, " ");
+  const card = cardOf(state, id);
+  if (card?.type === "villain") return foeWord(card, { lower: true });
+  return (card?.type ?? "card").replace(/_/g, " ");
 }
 
 /**
@@ -1388,12 +1402,13 @@ const outcomeText = (
     readonly causeInstanceId?: InstanceId;
   },
   card: (id: InstanceId) => string,
+  foe = "villain",
 ): string => {
   switch (outcome.reason) {
     case "villainDefeated":
-      return "The villain is defeated. You win.";
+      return `The ${foe} is defeated. You win.`;
     case "allVillainsDefeated":
-      return "Every villain is defeated. You win.";
+      return `Every ${foe} is defeated. You win.`;
     case "mainSchemeCompleted":
       return "The main scheme completed. You lose.";
     case "playerConceded":

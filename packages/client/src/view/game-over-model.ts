@@ -14,6 +14,7 @@
  */
 
 import {
+  cardOf,
   controllerOf,
   getInstance,
   mainSchemeStage,
@@ -30,6 +31,7 @@ import {
 } from "@mc/engine";
 import type { GameRecord } from "../engine/game-record.js";
 import type { SessionConfig } from "../engine/host.js";
+import { foeWord } from "./foe-words.js";
 import { hpFraction, hpNumber } from "./hp-format.js";
 import { inspectModel } from "./inspect-model.js";
 import { cardName, playerName } from "./names.js";
@@ -173,6 +175,7 @@ export function gameOverModel(
   const lokiId = dial?.instanceId ?? null;
   const villain = dial && lokiId ? cardName(state, lokiId) : avatar;
   const stage = numeral(villainState.stageIndex);
+  const foe = foeWord(cardOf(state, villainState.instanceId), { lower: true });
   const round = state.round;
 
   const scheme = mainSchemeStage(state);
@@ -219,7 +222,7 @@ export function gameOverModel(
       }
       kicker = dial && lokiId ? "The shared villain fell" : `Stage ${stage} cleared`;
       headline = `${villain} defeated`;
-      summary = `${villain} went down in round ${round}, with ${dial && lokiId ? dial.damage : record.damageToVillain} damage dealt to the villain across the game.`;
+      summary = `${villain} went down in round ${round}, with ${dial && lokiId ? dial.damage : record.damageToVillain} damage dealt to the ${foe} across the game.`;
       const blow = record.lastVillainDamage;
       if (dial && lokiId) {
         // The last hit landed on an Avatar and moved the dial (or a shatter did): the record's blow names the Avatar, so

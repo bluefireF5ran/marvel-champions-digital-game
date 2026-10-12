@@ -82,6 +82,7 @@ import {
   type StatTile,
 } from "./board-model.js";
 import { aspectName } from "./aspect-stamp.js";
+import { foeWord } from "./foe-words.js";
 
 /** One action ability this card could use right now, named and priced. */
 export interface UsableAbility {
@@ -910,7 +911,7 @@ function typeLineOf(card: AnyCard, face: CardFace = { kind: "front" }): string {
       .join(" · ")
       .toUpperCase();
   }
-  const parts: string[] = [card.type.replace(/_/g, " ")];
+  const parts: string[] = [card.type === "villain" ? foeWord(card, { lower: true }) : card.type.replace(/_/g, " ")];
   // The face showing, not the front: Phoenix Force flipped to Unleashed reads UNLEASHED, never RESTRAINED.
   if (face.kind === "flipSide" && "flipSide" in card && card.flipSide) {
     parts.push(...(card.flipSide.traits as readonly string[]).slice(0, 2));
