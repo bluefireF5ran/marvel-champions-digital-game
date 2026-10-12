@@ -51,10 +51,12 @@ describe("wave 10 data: pool wiring", () => {
     expect(DATA_ONLY_ENCOUNTER_SETS).toEqual([]);
   });
 
-  it("PLAYABLE_CARDS carries every wave 10 card exactly once, after the wave 9 cards, in pack order", () => {
+  it("PLAYABLE_CARDS carries cw and wonder_man exactly once, after the wave 9 cards, in pack order; hercules waits for its Team-Up art", () => {
     const ids = PLAYABLE_CARDS.map((c) => c.id as string);
     expect(new Set(ids).size).toBe(ids.length);
-    const wave10 = [...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS];
+    // Hercules joins when art/teamups/hercules-thor/ has a splash and a badge (the client requires them of every pair).
+    const wave10 = [...CW_CARDS, ...WONDER_MAN_CARDS];
+    for (const c of HERCULES_CARDS) expect(ids, c.id as string).not.toContain(c.id as string);
     for (const c of wave10)
       expect(
         ids.filter((id) => id === (c.id as string)),

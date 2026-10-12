@@ -817,7 +817,11 @@ export const PLAYABLE_CARDS: readonly AnyCard[] = [
   ...WAVE7_CARDS.slice(CORE_CARDS.length),
   ...WAVE8_CARDS.slice(CORE_CARDS.length),
   ...WAVE9_CARDS.slice(CORE_CARDS.length),
-  ...WAVE10_CARDS.slice(CORE_CARDS.length),
+  // Wave 10 without `hercules` for now: its Ancient Rivalry 59026 makes Hercules and Thor a Team-Up pair, and the client
+  // requires a splash and a badge for every pair in the pool (`packages/client/e2e/teamup.spec.ts`). The pack joins when
+  // `art/teamups/hercules-thor/` has its pictures; until then it is reachable only through `WAVE10_CARDS`.
+  ...CW_CARDS,
+  ...WONDER_MAN_CARDS,
 ];
 
 /**
