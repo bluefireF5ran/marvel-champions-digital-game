@@ -4,7 +4,8 @@
  *
  * Every `cw` card belongs to one module file under `cw/` (see `card-groups.ts`); `modules.ts` lists them all. The
  * module files exist from the scaffold with an empty registry and every ref in its `_SKIPPED` map, so scripting a
- * module is editing that file and its test, nothing else. At the scaffold the wave is NOT joined to the playable pool
+ * module is editing that file and its test, nothing else. `setup.ts` builds any Civil War scenario (`wave10Scenario`);
+ * `../playable/index.ts` routes a leader's id to it. The wave is NOT joined to the playable pool
  * (`../playable/index.ts`, `../modular-pool.ts`) and `cw` is listed unscripted in `../playable-precon-legality.test.ts`.
  */
 import type { AbilityRegistry, EngineDeps } from "@mc/engine";
@@ -25,4 +26,11 @@ export { WAVE10_CARDS } from "./cards.js";
 export { CARD_GROUPS } from "./card-groups.js";
 export { WAVE10_MODULES } from "./modules.js";
 export type { Wave10Module } from "./modules.js";
-export { wave10StarterDeckSetup } from "./setup.js";
+export {
+  WAVE10_GAME_ENCOUNTER_SETS,
+  wave10MainSchemeCard,
+  wave10Scenario,
+  wave10ScenarioRecord,
+  wave10StarterDeckSetup,
+} from "./setup.js";
+export type { Wave10Difficulty, Wave10ScenarioOptions } from "./setup.js";

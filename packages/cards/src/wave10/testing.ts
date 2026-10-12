@@ -1,17 +1,19 @@
 import { cardId } from "@mc/content";
-import { createGame, type EngineDeps, type GameState, type PlayerSetup } from "@mc/engine";
+import { createGame, type EngineDeps, type GameSetupConfig, type GameState, type PlayerSetup } from "@mc/engine";
 import { coreScenario } from "../core/setup.js";
-import { firstLegal, settle } from "../testing/harness.js";
+import { firstLegal, settle, type Picker } from "../testing/harness.js";
 import { withForm } from "../testing/staging.js";
 import { WAVE10_CARDS } from "./cards.js";
 import { WAVE10_DEPS } from "./index.js";
-import { wave10StarterDeckSetup } from "./setup.js";
+import { wave10Scenario, wave10StarterDeckSetup, type Wave10ScenarioOptions } from "./setup.js";
 
 /**
- * Shared helpers for the Civil War player-side tests (every module under `cw/tigra`, `cw/hulkling` and
- * `cw/aspect-basic`): one of the box's two precons against Core's Rhino, with every script registered so far. The
- * Civil War scenario builders do not exist yet (docs/phase7-wave10.md section 8.2 task 3), and Rhino is a fully scripted
- * villain. A module not yet scripted leaves its cards without abilities; a test that needs one borrows a Core card
+ * Shared helpers for the Civil War tests.
+ *
+ * Player-side modules (`cw/tigra`, `cw/hulkling`, `cw/aspect-basic`) use `cwGame` and its kin: one of the box's two
+ * precons against Core's Rhino, a fully scripted villain, with every script registered so far. Leader, main scheme and
+ * modular set modules use `civilWarGame` and its kin at the end of this file: the same precons in a real Civil War
+ * scenario built by `wave10Scenario`. A module not yet scripted leaves its cards without abilities; a test that needs one borrows a Core card
  * instead (`swap`), so the deck is no longer the legal precon and the game is created with deck legality unchecked.
  */
 export { WAVE10_DEPS };
@@ -75,3 +77,74 @@ export const tigraGame = (opts: CwGameOptions = {}): GameState => cwGame(TIGRA_D
 export const tigraHeroGame = (opts: CwGameOptions = {}): GameState => cwHeroGame(TIGRA_DECK, opts);
 export const hulklingGame = (opts: CwGameOptions = {}): GameState => cwGame(HULKLING_DECK, opts);
 export const hulklingHeroGame = (opts: CwGameOptions = {}): GameState => cwHeroGame(HULKLING_DECK, opts);
+
+export const IRON_MAN_SCENARIO = "registration-iron-man";
+export const CAPTAIN_MARVEL_SCENARIO = "registration-captain-marvel";
+export const CAPTAIN_AMERICA_SCENARIO = "resistance-captain-america";
+export const SPIDER_WOMAN_SCENARIO = "resistance-spider-woman";
+
+/**
+ * The choices of a Civil War test game: `wave10Scenario`'s own (difficulty, the three or four `modularSetIds`, the
+ * `mainSchemeStageIds` pair, `gameMode`), each defaulting to the leader's preconstructed scenario, plus the seats.
+ */
+export interface CivilWarGameOptions
+  extends
+    CwGameOptions,
+    Pick<
+      Wave10ScenarioOptions,
+      | "difficulty"
+      | "modularSetIds"
+      | "mainSchemeStageIds"
+      | "difficultySets"
+      | "gameMode"
+      | "firstPlayerIndex"
+      | "stack"
+    > {
+  /** The first seat's starter deck: `TIGRA_DECK` (default) or `HULKLING_DECK`. */
+  readonly starterDeckId?: string;
+}
+
+/**
+ * The `GameSetupConfig` of a Civil War scenario seated with the Tigra or Hulkling precon (and the Core Spider-Man
+ * deck as a second seat with `twoPlayers`). A `swap` makes the deck no longer the legal precon, so deck legality is
+ * then unchecked.
+ */
+export function civilWarConfig(scenarioId: string, opts: CivilWarGameOptions = {}): GameSetupConfig {
+  const { swap, seed, twoPlayers, deps: _deps, starterDeckId, ...choices } = opts;
+  const first = cwSeat(starterDeckId ?? TIGRA_DECK, swap);
+  const config = wave10Scenario(scenarioId, {
+    ...choices,
+    seed: seed ?? 1,
+    players: [
+      { identityCardId: first.identityCardId, deck: first.deck, ...(first.aspects ? { aspects: first.aspects } : {}) },
+      ...(twoPlayers ? [{ starterDeckId: CORE_SPIDER_MAN }] : []),
+    ],
+  });
+  return swap && Object.keys(swap).length > 0 ? { ...config, requireLegalDecks: false } : config;
+}
+
+/**
+ * A Civil War game as `createGame` returns it: setup's first choice (the mulligan) is pending and no card ability has
+ * resolved yet, so the leader's and stage 1A's "Setup" text is still ahead. For a test of what setup does.
+ */
+export function civilWarSetup(scenarioId: string, opts: CivilWarGameOptions = {}): GameState {
+  const created = createGame(civilWarConfig(scenarioId, opts), opts.deps ?? WAVE10_DEPS);
+  if (!created.ok) throw new Error(`${created.error.code}: ${created.error.message}`);
+  return created.state;
+}
+
+/**
+ * A Civil War game past setup (the first player's turn, alter-ego form, full hand), every setup choice answered with
+ * its first legal option. Pass `pick` to answer them yourself (which Iron Man attachment the Setup reveals).
+ */
+export function civilWarGame(scenarioId: string, opts: CivilWarGameOptions = {}, pick: Picker = firstLegal): GameState {
+  const deps = opts.deps ?? WAVE10_DEPS;
+  return settle(civilWarSetup(scenarioId, opts), pick, (s) => s.step.phase === "player", deps);
+}
+
+/** The same game with the first seat in hero form. */
+export const civilWarHeroGame = (
+  scenarioId: string,
+  opts: CivilWarGameOptions = {},
+  pick: Picker = firstLegal,
+): GameState => withForm(civilWarGame(scenarioId, opts, pick), { heroForm: 0 });

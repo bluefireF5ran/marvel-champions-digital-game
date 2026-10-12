@@ -31,6 +31,7 @@ import {
   WAVE9_ENCOUNTER_SETS,
   WAVE9_SCENARIOS,
   WAVE9_STARTER_DECKS,
+  WAVE10_SCENARIOS,
   autoIncludedSetsOf,
   type AnyCard,
   type StarterDeck,
@@ -55,6 +56,7 @@ import { WAVE8_ABILITIES } from "../wave8/index.js";
 import { wave8Scenario, type Wave8ScenarioOptions } from "../wave8/setup.js";
 import { WAVE9_ABILITIES } from "../wave9/index.js";
 import { wave9Scenario } from "../wave9/setup.js";
+import { wave10Scenario } from "../wave10/setup.js";
 import { checkPlayableDifficultySets } from "./scenario-options.js";
 import { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./unscripted.js";
 import {
@@ -143,6 +145,10 @@ export function playableScenario(scenarioId: string, options: PlayableScenarioOp
   // The picks are checked against the scenario's required count here, where the app's table setup builds a game; each
   // builder checks what a pick may be (`chosenModularSetIds`).
   const scenario = PLAYABLE_SCENARIO_RECORDS.find((candidate) => candidate.id === scenarioId);
+  // Which stages the main scheme deck is made of is a choice at a Civil War leader only (MC56 p. 5); every other
+  // builder would drop the option silently.
+  if (options.mainSchemeStageIds !== undefined && !isWave10Scenario(scenarioId))
+    throw new Error(`${scenarioId}: the main scheme's stages are not a setup choice at this scenario`);
   if (scenario) {
     checkModularPickCount(scenario, options.modularSetIds);
     // One rule for every wave's builder: which Standard or Expert set may stand in for the printed one (Q10 = A).
@@ -199,7 +205,8 @@ function withExtraModularSets(
     WAVE6_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
     WAVE7_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
     WAVE8_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
-    WAVE9_SCENARIOS.some((scenario) => scenario.id === scenarioId)
+    WAVE9_SCENARIOS.some((scenario) => scenario.id === scenarioId) ||
+    isWave10Scenario(scenarioId)
   )
     return built;
   if (new Set(extra).size !== extra.length) throw new Error(`${scenarioId}: an extra modular set is added twice`);
@@ -236,6 +243,44 @@ function withGenePoolThreat(
   return { ...built, setupOptions: [...(built.setupOptions ?? []), infinitesGenePoolThreat(perPlayer)] };
 }
 
+const isWave10Scenario = (scenarioId: string): boolean =>
+  WAVE10_SCENARIOS.some((scenario) => scenario.id === scenarioId);
+
+/**
+ * A Civil War scenario (docs/phase7-wave10.md §3.1): `wave10Scenario` builds it from the leader's record and the
+ * players' choices, and checks every one of them itself (the count of modular sets, their side, the stage pair).
+ *
+ * The builder is reachable here so the route the app will take is the tested one, but the wave is **not joined to the
+ * playable pool yet**: its scenarios are not in `PLAYABLE_SCENARIO_RECORDS`, its sets not in
+ * `PLAYABLE_ENCOUNTER_SETS`, its starter decks not in `playableStarterDeckSetup` and its scripts not in
+ * `PLAYABLE_ABILITIES`, so no table setup lists a leader and a game built here runs on `WAVE10_DEPS`.
+ */
+function wave10Playable(
+  scenarioId: string,
+  options: PlayableScenarioOptions,
+  players: readonly CorePlayer[],
+): GameSetupConfig {
+  if (options.horsemanSides) throw new Error(`${scenarioId}: horsemanSides belongs to the Four Horsemen scenario`);
+  if (options.easierStart) throw new Error(`${scenarioId}: easierStart belongs to the Apocalypse scenario`);
+  if (options.setAsideModularSetIds)
+    throw new Error(`${scenarioId}: a Civil War scenario sets no modular sets aside (MC56 p. 4)`);
+  if (options.difficulty === "extreme")
+    throw new Error(`${scenarioId} is a cycle 10 scenario; "extreme" is Breakout's own multi-villain challenge`);
+  const {
+    horsemanSides: _horsemanSides,
+    easierStart: _easierStart,
+    genePoolThreatPerPlayer: _genePoolThreatPerPlayer,
+    villainVersions: _villainVersions,
+    setAsideModularSetIds: _setAsideModularSetIds,
+    difficulty,
+    ...rest
+  } = options;
+  return {
+    ...wave10Scenario(scenarioId, { ...rest, players, ...(difficulty ? { difficulty } : {}) }),
+    cards: PLAYABLE_CARDS,
+  };
+}
+
 function playableScenarioUnstacked(scenarioId: string, options: PlayableScenarioOptions): GameSetupConfig {
   checkScenarioSetupOptions(scenarioId, options.setupOptions);
   const players: readonly CorePlayer[] = options.players.map((seat) => {
@@ -247,6 +292,7 @@ function playableScenarioUnstacked(scenarioId: string, options: PlayableScenario
       ...(setup.aspects ? { aspects: setup.aspects } : {}),
     };
   });
+  if (isWave10Scenario(scenarioId)) return wave10Playable(scenarioId, options, players);
   if (WAVE9_SCENARIOS.some((scenario) => scenario.id === scenarioId))
     return wave9Playable(scenarioId, options, players);
   if (WAVE8_SCENARIOS.some((scenario) => scenario.id === scenarioId)) {

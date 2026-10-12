@@ -25,6 +25,11 @@ const NO_OFFER: PlayableScenarioOffer = {
   horsemanSides: null,
   easierStart: false,
   genePoolThreat: null,
+  modularSetCount: { min: 0, max: 0, problem: null },
+  sides: null,
+  mainSchemeStages: null,
+  modularSets: null,
+  gameModes: null,
 };
 
 /** The offer for the draft's scenario under its difficulty and modular picks; nothing is offered for an unknown id. */

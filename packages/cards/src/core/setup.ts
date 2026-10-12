@@ -107,6 +107,13 @@ export interface CoreScenarioOptions {
   readonly stack?: SetupStack;
   /** The game mode (`GameSetupConfig.gameMode`). Absent is cooperative; the engine refuses `"competitive"`. */
   readonly gameMode?: GameMode;
+  /**
+   * The main scheme stages a game is played with, for a scenario whose record offers the choice
+   * (`Scenario.mainSchemeStages`: the Civil War leaders, MC56 p. 5): the `printedCardId` of one stage per stage number,
+   * in stage order. Absent is the record's recommended pair. Read by `wave10Scenario` (`chooseMainSchemeStages`);
+   * `playableScenario` refuses it at every scenario whose stages are not a choice.
+   */
+  readonly mainSchemeStageIds?: readonly string[];
 }
 
 const cardsById = new Map<string, AnyCard>(CORE_CARDS.map((card) => [card.id, card]));
