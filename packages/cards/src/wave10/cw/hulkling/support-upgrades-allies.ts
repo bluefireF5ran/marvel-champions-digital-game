@@ -17,16 +17,20 @@ import {
   forcedInterrupt,
   gainsKeyword,
   gainsTrait,
+  generatesAmount,
   gets,
   heal,
   heroResponse,
+  ifElse,
   instead,
   moveCards,
   ofClassification,
   ofIdentitySetTitled,
   on,
+  payingFor,
   query,
   removeThreatFromAScheme,
+  resource,
   response,
   shuffleDeck,
   yourIdentity,
@@ -48,7 +52,7 @@ const SHAPE_RESPONSE = { cost: exhaustThis };
  * - 56033 Hulk Shape (upgrade)
  * - 56034 Armored Shape (upgrade)
  * - 56035 Imitation Shape (upgrade)
- * - 56036 Alien Physiology (upgrade), skipped (below)
+ * - 56036 Alien Physiology (upgrade)
  *
  * **56030.wiccan-response**: "After you play Wiccan from your hand, search your deck and discard pile for an
  * identity-specific event and add it to your hand. (Shuffle.)" `youPlayThis` hears the play from hand only, not a
@@ -66,11 +70,10 @@ const SHAPE_RESPONSE = { cost: exhaustThis };
  * replacement that stays in play. Status cards come first (RRG 1.8 "Status Cards", p. 41), so a stunned enemy
  * discards its stunned card and does not scheme.
  *
- * **56036 Alien Physiology** (resource): "generate a [wild] resource ([wild][wild] instead if paying for a Hulkling
- * card)" cannot be expressed. A resource ability's `generates` is read without the card being paid for, and
- * `doublesResourcesWhilePayingFor` is read only from a hand card's printed constants (`resourceMultiplier` in
- * `actions.ts`, `printedConstants`); `resource()` takes no multiplier. Two refs by `generatesFor` is impossible, the
- * card has one ref. Waits on an engine primitive: the paid-for card readable by a resource ability's amount.
+ * **56036.alien-physiology-resource**: "Resource: Exhaust Alien Physiology -> generate a [wild] resource ([wild]
+ * [wild] resources instead if paying for a Hulkling card)." The amount reads the card the payment is for
+ * (`payingFor`): a card of Hulkling's identity-specific set being played, or one whose ability's cost is being paid
+ * (FAQ "Finesse (#33)", RRG 1.8 p. 60). For any other card, and for a payment for no card, it is 1.
  */
 export const HULKLING_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   "56030.wiccan-response": response(
@@ -119,10 +122,12 @@ export const HULKLING_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities
     instead(enemyScheme(eventSource)),
   ),
   "56035.imitation-shape-response": heroResponse(AFTER_YOU_PLAY_AN_EVENT, SHAPE_RESPONSE, draw(1)),
+
+  "56036.alien-physiology-resource": resource(
+    generatesAmount("wild", ifElse(payingFor(ofIdentitySetTitled("Hulkling")), 2, 1)),
+    { cost: exhaustThis },
+  ),
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const HULKLING_SUPPORT_UPGRADES_ALLIES_SKIPPED: Readonly<Record<string, string>> = {
-  "56036.alien-physiology-resource":
-    "needs an engine primitive: a resource ability's amount cannot read the card being paid for (doublesResourcesWhilePayingFor is read from hand cards only)",
-};
+export const HULKLING_SUPPORT_UPGRADES_ALLIES_SKIPPED: Readonly<Record<string, string>> = {};

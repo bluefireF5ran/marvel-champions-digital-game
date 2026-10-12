@@ -1,6 +1,8 @@
 import { CORE_CARDS, CW_CARDS, cardId, type AnyCard } from "@mc/content";
 import {
   activeEncounterDeckId,
+  hasKeyword,
+  legalActions,
   replay,
   sessionApply,
   startSession,
@@ -36,18 +38,24 @@ vi.setConfig({ testTimeout: 120_000 });
 /**
  * Tigra's allies, supports and upgrades, docs/phase7-wave10-box-heroes.md B3.6, B3.8, B3.17 and B7.1: Moon Knight 56002,
  * Precinct HQ 56003, Cat's Head Amulet 56004, Sharp Claws 56005 and Cat-Like Reflexes 56006, in the printed precon
- * `tigra-aggression` against Core's Rhino. Hunted 56007 waits on box-heroes B8.2 task 1 (B3.1) and is skipped.
+ * `tigra-aggression` against Core's Rhino, and Hunted 56007 (B3.1).
  *
- * Question 18 = A (owner, 2026-10-11, provisional): a quickstrike minion Moon Knight fetches attacks first, when the
- * player is in hero form, and is then stunned and confused (February 28, 2026 rulings 1 and 4). Question 17 (Hunted with
- * nothing to find) is Hunted's and waits with it.
+ * Question 18 = A (owner, 2026-10-11, provisional): a quickstrike minion Moon Knight or Hunted fetches attacks first,
+ * when the player is in hero form, and is then stunned (and confused, for Moon Knight) (February 28, 2026 rulings 1
+ * and 4). Question 17 = A (the same day, provisional): with no minion in the encounter deck or its discard pile Hunted
+ * cannot be played and is not offered (the search is a cost; RRG 1.8 "Cost", p. 14).
  */
 const MOON_KNIGHT = "56002.moon-knight-forced-response";
 const PRECINCT = "56003.precinct-hq-action";
 const AMULET = "56004.cats-head-amulet-resource";
 const CLAWS = "56005.sharp-claws-interrupt";
 const REFLEXES = "56006.cat-like-reflexes-interrupt";
-const REFS = [MOON_KNIGHT, PRECINCT, AMULET, CLAWS, REFLEXES];
+const HUNTED_COST = "56007.hunted-constant";
+const HUNTED_READY = "56007.hunted-interrupt";
+const UNDERCOVER = "56001b.undercover-work";
+const REFS = [MOON_KNIGHT, PRECINCT, AMULET, CLAWS, REFLEXES, HUNTED_COST, HUNTED_READY];
+const HUNTED = "56007";
+const MERCENARY = "01101"; // Core minion with guard, 3 hit points
 const MK = "56002";
 const HQ = "56003";
 const AMULET_CODE = "56004";
@@ -177,18 +185,22 @@ describe("Tigra supports, upgrades and ally registry", () => {
     expect(t(AMULET)).toMatchObject({ kind: "resource" });
     expect(t(CLAWS)).toMatchObject({ kind: "interrupt", forced: false });
     expect(t(REFLEXES)).toMatchObject({ kind: "interrupt", forced: false, form: "hero" });
+    expect(t(HUNTED_COST)).toEqual({ kind: "constant", additionalCostToPlay: { attachToSlot: "hunted" } });
+    expect(TIGRA_SUPPORT_UPGRADES_ALLIES[HUNTED_COST]!.cost).toEqual({
+      searchEncounterIntoPlay: { slot: "hunted", query: { categories: ["minion"] }, zones: ["deck", "discard"] },
+    });
+    expect(t(HUNTED_READY)).toMatchObject({ kind: "interrupt", forced: false });
   });
 
-  it("five printed refs are registered; Hunted's two wait on box-heroes B8.2 task 1 (B3.1)", () => {
+  it("all seven printed refs are registered and none is skipped", () => {
     expect(printed(MK)).toEqual([MOON_KNIGHT]);
     expect(printed(HQ)).toEqual([PRECINCT]);
     expect(printed(AMULET_CODE)).toEqual([AMULET]);
     expect(printed(CLAWS_CODE)).toEqual([CLAWS]);
     expect(printed(REFLEXES_CODE)).toEqual([REFLEXES]);
+    expect(printed(HUNTED)).toEqual([HUNTED_COST, HUNTED_READY]);
     expect(Object.keys(TIGRA_SUPPORT_UPGRADES_ALLIES).sort()).toEqual([...REFS].sort());
-    expect(printed("56007")).toEqual(Object.keys(TIGRA_SUPPORT_UPGRADES_ALLIES_SKIPPED));
-    for (const reason of Object.values(TIGRA_SUPPORT_UPGRADES_ALLIES_SKIPPED))
-      expect(reason).toContain("waits on box-heroes B8.2 task 1 (B3.1)");
+    expect(TIGRA_SUPPORT_UPGRADES_ALLIES_SKIPPED).toEqual({});
   });
 });
 
@@ -527,5 +539,204 @@ describe(`${REFLEXES}: Hero Interrupt, when you would take damage, discard: prev
     const { state } = game(false);
     const { state: after } = villainPhase(state, take(true));
     expect(inst(after, identityOf(after)).damage).toBe(1);
+  });
+});
+
+describe(`${HUNTED_COST}: as an additional cost to play, search the encounter deck and discard pile for a minion and put it into play engaged with you; attach Hunted to it and stun it`, () => {
+  /** Hunted in P1's hand over an encounter deck holding exactly these minions. */
+  function hunt(base: GameState, inDeck: readonly string[], inDiscard: readonly string[] = []) {
+    const seeded = withEncounterMinions(base, inDeck, inDiscard);
+    const given = moveToHand(seeded.state, P1, HUNTED);
+    const [id] = given.ids as [InstanceId];
+    return { state: given.state, id, deckIds: seeded.deckIds, discardIds: seeded.discardIds };
+  }
+  /** What `legalActions` says of playing `id`. */
+  function offer(state: GameState, id: InstanceId) {
+    const actions = legalActions(state, P1, WAVE10_DEPS);
+    if (actions.kind !== "turn") throw new Error(actions.kind);
+    const isPlay = (a: { action: { kind: string; instanceId?: InstanceId } }) =>
+      a.action.kind === "playCard" && a.action.instanceId === id;
+    return { legal: actions.legal.find(isPlay), illegal: actions.illegal.find(isPlay) };
+  }
+  const playHunted = (id: InstanceId, minion?: InstanceId): Command =>
+    play(P1, id, [], minion ? { costChoices: { hunted: [minion] } } : {});
+  const guards = (s: GameState, id: InstanceId): boolean => hasKeyword(s, id, "guard", WAVE10_DEPS);
+
+  it("with a minion in the encounter deck it is offered at cost 0; the minion is engaged with Tigra, holds Hunted and is stunned, and the deck is shuffled once", () => {
+    const { state, id, deckIds } = hunt(tigraGame(), [SHOCKER]);
+    const [shocker] = deckIds as [InstanceId];
+    const { legal } = offer(state, id);
+    expect(legal?.targets).toEqual([shocker]);
+    expect(legal?.needsPayment).toBe(false);
+    const hand = playerOf(state, P1).hand.length;
+    const { state: after, events } = drive(state, playHunted(id));
+    expect(playerOf(after, P1).playArea).toContain(shocker);
+    expect(inst(after, shocker).engagedWith).toBe(P1);
+    expect(inst(after, id).attachedTo).toBe(shocker);
+    expect(inst(after, shocker).attachments).toEqual([id]);
+    expect(inst(after, id).controllerId).toBe(P1);
+    expect(stunnedOf(after, shocker)).toBe(1);
+    expect(confusedOf(after, shocker)).toBe(0);
+    expect(piles(after).deck).not.toContain(shocker);
+    expect(playerOf(after, P1).hand).toHaveLength(hand - 1);
+    expect(ofType(events, "deckShuffled")).toHaveLength(1);
+    expect(ofType(events, "cardPlayed").map((e) => [e.instanceId, e.resourcesPaid])).toEqual([[id, 0]]);
+  });
+
+  it("with a minion only in the encounter discard pile it is played on that minion, and the deck is still shuffled", () => {
+    const { state, id, discardIds } = hunt(tigraGame(), [], [MODOK]);
+    const [modok] = discardIds as [InstanceId];
+    expect(offer(state, id).legal?.targets).toEqual([modok]);
+    const { state: after, events } = drive(state, playHunted(id));
+    expect(inst(after, modok).engagedWith).toBe(P1);
+    expect(inst(after, id).attachedTo).toBe(modok);
+    expect(stunnedOf(after, modok)).toBe(1);
+    expect(piles(after).discard).not.toContain(modok);
+    expect(ofType(events, "deckShuffled")).toHaveLength(1);
+  });
+
+  it("question 17 = A: with no minion in the encounter deck or its discard pile it is not offered and cannot be played", () => {
+    const { state, id } = hunt(tigraGame(), []);
+    const { legal, illegal } = offer(state, id);
+    expect(legal).toBeUndefined();
+    expect(illegal?.reason).toBe("no_valid_target");
+    expect(rejected(state, playHunted(id))).toBe(true);
+    expect(playerOf(state, P1).hand).toContain(id);
+  });
+
+  it("with a minion in each pile the player chooses: both are offered, an unnamed pick is refused, the named one is hunted", () => {
+    const { state, id, deckIds, discardIds } = hunt(tigraGame(), [SHOCKER], [MODOK]);
+    const [shocker] = deckIds as [InstanceId];
+    const [modok] = discardIds as [InstanceId];
+    expect(offer(state, id).legal?.targets).toEqual([shocker, modok]);
+    expect(rejected(state, playHunted(id))).toBe(true);
+    const { state: after } = drive(state, playHunted(id, modok));
+    expect(inst(after, id).attachedTo).toBe(modok);
+    expect(stunnedOf(after, modok)).toBe(1);
+    expect(piles(after).deck).toContain(shocker);
+    expect(inst(after, shocker).engagedWith).toBeNull();
+  });
+
+  it("question 18 = A: a quickstrike minion attacks first in hero form (ATK 3 damage), and is then stunned with Hunted attached", () => {
+    const { state, id, deckIds } = hunt(tigraHeroGame(), [VULTURE]);
+    const [vulture] = deckIds as [InstanceId];
+    const hero = identityOf(state);
+    expect(inst(state, hero).damage).toBe(0);
+    const { state: after, events } = drive(state, playHunted(id));
+    expect(inst(after, hero).damage).toBe(3);
+    expect(inst(after, id).attachedTo).toBe(vulture);
+    expect(stunnedOf(after, vulture)).toBe(1);
+    const attacked = events.findIndex((e) => e.type === "damageDealt" && e.targetInstanceId === hero);
+    const attachedAt = events.findIndex((e) => e.type === "cardMoved" && e.instanceId === id);
+    const stunnedAt = events.findIndex((e) => e.type === "statusGiven" && e.instanceId === vulture);
+    expect(attacked).toBeGreaterThan(-1);
+    expect(attachedAt).toBeGreaterThan(attacked);
+    expect(stunnedAt).toBeGreaterThan(attachedAt);
+  });
+
+  it("in alter-ego form a quickstrike minion does not attack; it is stunned", () => {
+    const { state, id, deckIds } = hunt(tigraGame(), [VULTURE]);
+    const [vulture] = deckIds as [InstanceId];
+    const { state: after } = drive(state, playHunted(id));
+    expect(inst(after, identityOf(after)).damage).toBe(0);
+    expect(stunnedOf(after, vulture)).toBe(1);
+  });
+
+  it("Tigra's constant with a really played Hunted: the guard minion loses guard, so her basic attack may target the villain", () => {
+    const { state, id, deckIds } = hunt(tigraHeroGame(), [MERCENARY]);
+    const [merc] = deckIds as [InstanceId];
+    const attackVillain = (s: GameState): Command => ({
+      type: "basicAttack",
+      playerId: P1,
+      attackerInstanceId: identityOf(s),
+      targetInstanceId: villainOf(s),
+    });
+    // Control: the same minion engaged with no Hunted on it guards the villain.
+    const guarded = engageMinion(tigraHeroGame(), MERCENARY, "guard-merc");
+    expect(guards(guarded, "guard-merc" as InstanceId)).toBe(true);
+    expect(rejected(guarded, attackVillain(guarded))).toBe(true);
+
+    const { state: after } = drive(state, playHunted(id));
+    expect(inst(after, id).attachedTo).toBe(merc);
+    expect(guards(after, merc)).toBe(false);
+    const villain = villainOf(after);
+    const { state: attacked } = drive(after, attackVillain(after));
+    expect(inst(attacked, villain).damage).toBe(inst(after, villain).damage + 2);
+  });
+
+  it(`${UNDERCOVER} finds a copy of Hunted, which is then played from the hand`, () => {
+    const seeded = withEncounterMinions(tigraGame(), [SHOCKER]);
+    const [shocker] = seeded.deckIds as [InstanceId];
+    const copiesInHand = (s: GameState): InstanceId[] =>
+      playerOf(s, P1).hand.filter((i) => inst(s, i).cardId === cardId(HUNTED));
+    const before = copiesInHand(seeded.state);
+    const { state: found } = drive(seeded.state, use(P1, identityOf(seeded.state), UNDERCOVER));
+    const [fetched] = copiesInHand(found).filter((i) => !before.includes(i)) as [InstanceId];
+    expect(fetched).toBeDefined();
+    expect(copiesInHand(found)).toHaveLength(before.length + 1);
+    const { state: after } = drive(found, playHunted(fetched));
+    expect(inst(after, fetched).attachedTo).toBe(shocker);
+    expect(stunnedOf(after, shocker)).toBe(1);
+  });
+});
+
+describe(`${HUNTED_READY}: Interrupt, when attached minion is defeated, ready Tigra`, () => {
+  /** Hunted really played on a Shocker with 1 hit point left, Moon Knight (ATK 2) staged in play, Tigra exhausted. */
+  function hunted(base: GameState) {
+    const seeded = withEncounterMinions(base, [SHOCKER]);
+    const [shocker] = seeded.deckIds as [InstanceId];
+    const given = moveToHand(seeded.state, P1, HUNTED);
+    const [id] = given.ids as [InstanceId];
+    const played = drive(given.state, play(P1, id, [])).state;
+    expect(inst(played, id).attachedTo).toBe(shocker);
+    const knight = stagedInPlay(patchInstance(played, shocker, { damage: 2 }), MK);
+    const state = patchInstance(knight.state, identityOf(knight.state), { exhausted: true });
+    const attack: Command = {
+      type: "basicAttack",
+      playerId: P1,
+      attackerInstanceId: knight.id,
+      targetInstanceId: shocker,
+    };
+    return { state, id, shocker, attack };
+  }
+
+  it("Tigra exhausted, her ally defeats the hunted minion: the interrupt readies Tigra, and Hunted is discarded with its host", () => {
+    const { state, id, shocker, attack } = hunted(tigraHeroGame());
+    expect(inst(state, identityOf(state)).exhausted).toBe(true);
+    const { state: after } = drive(state, attack, choosing({ accept: [HUNTED_READY] }));
+    expect(piles(after).discard).toContain(shocker);
+    expect(inst(after, identityOf(after)).exhausted).toBe(false);
+    expect(playerOf(after, P1).discard).toContain(id);
+  });
+
+  it("it is optional: declined, Tigra stays exhausted", () => {
+    const { state, shocker, attack } = hunted(tigraHeroGame());
+    const decline: Picker = (s) => {
+      const choice = s.pendingChoice!;
+      const offered = choice.options.some((o) => o.optionId.endsWith(`:${HUNTED_READY}`));
+      return offered && choice.minSelections === 0 ? [] : firstLegal(s);
+    };
+    const { state: after } = drive(state, attack, decline);
+    expect(piles(after).discard).toContain(shocker);
+    expect(inst(after, identityOf(after)).exhausted).toBe(true);
+  });
+
+  it("in alter-ego form the identity does not show Tigra: nothing readies", () => {
+    const { state, shocker, attack } = hunted(tigraGame());
+    const { state: after } = drive(state, attack, choosing({ accept: [HUNTED_READY] }));
+    expect(piles(after).discard).toContain(shocker);
+    expect(inst(after, identityOf(after)).exhausted).toBe(true);
+  });
+
+  it("a minion without Hunted defeated the same way readies nobody", () => {
+    const { state, attack } = hunted(tigraHeroGame());
+    const other = patchInstance(engageMinion(state, SHOCKER, "plain"), "plain" as InstanceId, { damage: 2 });
+    const { state: after } = drive(
+      other,
+      { ...attack, targetInstanceId: "plain" as InstanceId } as Command,
+      choosing({ accept: [HUNTED_READY] }),
+    );
+    expect(piles(after).discard).toContain("plain");
+    expect(inst(after, identityOf(after)).exhausted).toBe(true);
   });
 });

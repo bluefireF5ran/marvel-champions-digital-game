@@ -4,15 +4,18 @@ import {
   attackAnEnemy,
   chosen,
   defineAbilities,
+  generatesAmount,
   heroAction,
   ifThen,
   scaled,
   statOf,
   stun,
   sum,
+  takeAnyDamageCost,
   thwart,
   varAtLeast,
   varOf,
+  whenSpentGenerate,
   yourIdentity,
 } from "../../../dsl/index.js";
 
@@ -44,13 +47,15 @@ import {
  * this card with a [energy] resource, stun that enemy." The stun follows the damage, so it needs no stun on an enemy
  * the attack defeated (a defeated enemy has left play).
  *
- * **58006.energy-siphon-interrupt** is left unscripted: "Hero Interrupt: When you spend this card, take up to 3 damage ->
- * this card generates 1 additional [energy] resource for each damage taken this way" needs the damage chosen as the
- * card is spent and read by its own generation. Probed: `whenSpentGenerate(generatesAmount("energy",
- * varOf("cost.damageSelf")), { cost: takeAnyDamageCost(3) })` is accepted in a payment but generates 0, asks no amount
- * and takes no damage (`Payment.whenSpent` has no damage selection and `resourceCostVars` binds only
- * `cost.removeThreat`). Spec H3.14 listed it as reusable; it needs an engine task beside HT11. Its plain spending
- * (1 [energy]) already works as a resource card and the events below are paid with it.
+ * **58006.energy-siphon-interrupt**: "Hero Interrupt: When you spend this card, take up to 3 damage -> this card
+ * generates 1 additional [energy] resource for each damage taken this way." (H3.14.) Used by the payment entry that
+ * spends the card (`Payment.whenSpent`), in hero form, with the damage named beside it
+ * (`costSelection.damageSelf`: 1, 2 or 3; "up to" in a cost is at least one, RRG 1.8 "Cost", p. 14, and none is the
+ * plain spending). The damage is taken before the card paid for resolves and the card then generates its printed
+ * [energy] and one more for each damage. Only an amount Wonder Man could take in full may be named (RRG 1.8 "Cost",
+ * p. 14: a damage cost "is not considered paid unless all of that damage was taken"), so with a tough status card
+ * the interrupt is not offered; the card names no limit by hit points, so damage past the last one is still taken.
+ * Its plain spending (1 [energy]) is the resource card's own.
  */
 export const WONDER_MAN_EVENTS: AbilityRegistry = defineAbilities({
   "58003.active-altruism-action": heroAction(
@@ -69,10 +74,12 @@ export const WONDER_MAN_EVENTS: AbilityRegistry = defineAbilities({
     attackAnEnemy(statOf(yourIdentity, "atk")),
     ifThen(varAtLeast("overpaid.energy"), stun(chosen("enemy"))),
   ),
+
+  "58006.energy-siphon-interrupt": whenSpentGenerate(generatesAmount("energy", varOf("cost.damageSelf")), {
+    form: "hero",
+    cost: takeAnyDamageCost(3, { min: 1 }),
+  }),
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const WONDER_MAN_EVENTS_SKIPPED: Readonly<Record<string, string>> = {
-  "58006.energy-siphon-interrupt":
-    "engine gap, no H8.2 task yet: a take-any-damage cost (takeAnyDamageCost) on a whenSpent resource is not asked, takes no damage and cannot be read by its generation (cost.damageSelf is not bound for a payment, unlike removeThreat)",
-};
+export const WONDER_MAN_EVENTS_SKIPPED: Readonly<Record<string, string>> = {};

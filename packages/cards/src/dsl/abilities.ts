@@ -282,7 +282,12 @@ export const resource = (
  * printed resources on each card exhausted this way"). A resource trigger with `whenSpent`: used only by the payment
  * entry that spends the card (`Payment.whenSpent`), once, by the player spending it, with what it generates joining
  * that payment. `generates` may read the cost's picks by slot, as a resource ability's does
- * (`printedResourcesOf(query(…, { inSlot: "exhausted" }))`).
+ * (`printedResourcesOf(query(…, { inSlot: "exhausted" }))`), and the damage a chosen damage cost takes: "When you
+ * spend this card, take up to 3 damage → this card generates 1 additional [energy] resource for each damage taken this
+ * way" (Energy Siphon, `wonder_man` 58006; docs/phase7-wave10-hero-packs.md H3.14) is
+ * `whenSpentGenerate(generatesAmount("energy", varOf("cost.damageSelf")), { form: "hero", cost: takeAnyDamageCost(3,
+ * { min: 1 }) })`. The amount is named in the payment entry (`costSelection.damageSelf`), one payment option per
+ * amount; the damage is taken before the card paid for resolves.
  */
 export const whenSpentGenerate = (
   generates: ResourceGeneration,
@@ -2236,7 +2241,10 @@ export const takeDamageCost = (n: number | ValueSpec): AbilityCost => ({ damageS
  * "Take any amount of damage up to your remaining hit points →" (Maximum Effort 44004, "Yoo-Hoo!" 44006;
  * docs/phase7-wave7.md §3.79): the payer picks the amount, from `min` (default 0: §4.1 Q46 = B, 0 damage may be
  * chosen) to `max`, as the cost is paid. The text after the arrow reads the pick as `varOf("cost.damageSelf")`. Only
- * amounts the identity could take in full are offered (RRG 1.8 "Cost", p. 14).
+ * amounts the identity could take in full are offered (RRG 1.8 "Cost", p. 14). A command may name the amount up front
+ * (`costSelection.damageSelf`), and is then not asked. On a resource ability used in a payment (`resource`,
+ * `whenSpentGenerate`) the amount is always the payment's: each amount is its own payment option, `generates` reads
+ * it as `varOf("cost.damageSelf")`, and an entry naming none takes the least (hero-packs H3.14).
  */
 export const takeAnyDamageCost = (max: Amount, opts: { readonly min?: Amount } = {}): AbilityCost => ({
   damageSelf: { choose: { min: amount(opts.min ?? 0), max: amount(max) } },
@@ -2529,6 +2537,40 @@ export const attachCost = (
   opts: { readonly bind?: string } = {},
 ): AbilityCost => ({
   attach: { card, to: { slot, query: to }, ...(opts.bind !== undefined ? { bind: opts.bind } : {}) },
+});
+/**
+ * "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost (Hunted,
+ * `cw` 56007; docs/phase7-wave10-box-heroes.md B3.1): the payer picks one card of the active encounter deck's `zones`
+ * matching `q` into `slot` (forced with one candidate), the deck is shuffled when it was searched, and the card is put
+ * into play under the payer without being revealed, a minion engaged with them; what its entry triggers (quickstrike)
+ * resolves before the effects. With nothing to find the cost cannot be paid and the ability or play is not offered
+ * (box-heroes question 17 = A). `AbilityCost.searchEncounterIntoPlay`.
+ */
+export const searchEncounterIntoPlayCost = (
+  q: TargetQuery,
+  slot: string,
+  zones: readonly ("deck" | "discard")[] = ["deck", "discard"],
+): AbilityCost => ({ searchEncounterIntoPlay: { slot, query: q, zones } });
+/**
+ * "As an additional cost to play this upgrade, [cost]. Attach Hunted to that minion and stun it." (Hunted, `cw` 56007;
+ * docs/phase7-wave10-box-heroes.md B3.1): a constant read from the card being played. `cost` is planned and paid with
+ * the card's resource cost, its picks named in the play command's `costChoices`; a card whose additional cost cannot
+ * be paid cannot be played. `attachTo`: the played upgrade enters play attached to the card the cost bound to that
+ * slot, and is discarded if that card is no longer in play. `effects` resolve as the card enters play, with the
+ * cost's slots bound: `additionalCostToPlay(searchEncounterIntoPlayCost(query("minion"), "hunted"), { attachTo:
+ * "hunted" }, stun(chosen("hunted")))`.
+ */
+export const additionalCostToPlay = (
+  cost: AbilityCost,
+  opts: { readonly attachTo?: string } = {},
+  ...effects: readonly EffectArg[]
+): AbilityDefinition => ({
+  trigger: {
+    kind: "constant",
+    additionalCostToPlay: opts.attachTo !== undefined ? { attachToSlot: opts.attachTo } : {},
+  },
+  cost,
+  effects: flatten(effects),
 });
 /**
  * "… and deal 2 damage to that character →" (Energy Transfer; docs/phase7-wave6.md §3.49): `n` damage from this card to

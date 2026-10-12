@@ -1,8 +1,11 @@
 import { WONDER_MAN_CARDS, cardId, type EventCard } from "@mc/content";
 import {
+  legalActions,
+  paymentFor,
   replay,
   sessionApply,
   startSession,
+  tryPayment,
   type Command,
   type GameEvent,
   type GameState,
@@ -31,6 +34,9 @@ vi.setConfig({ testTimeout: 120_000 });
  * 58004 and Starstruck 58005, played from the hand in the hand-built Justice deck `WONDER_MAN_DECK` against Core's
  * Rhino. Ionic Physiology is not scripted by this module (the identity module owns it), so nothing here depends on it:
  * Wonder Man's ATK is his printed 1 and no event is tucked after it resolves.
+ *
+ * Energy Siphon 58006 (H3.14) is the module's fourth card: spent with its Hero Interrupt it takes 1 to 3 damage, named
+ * in the payment, and generates that much more [energy].
  *
  * Each case seats exactly the event and the cards that pay for it in the hand, so the overpayment is the one the
  * test names. Payers: Energy 58023 (2 [energy]), Energy Siphon 58006 (1 [energy] when spent plainly), Battlefield
@@ -142,17 +148,168 @@ describe("Wonder Man events registry", () => {
   });
 });
 
-describe("Energy Siphon 58006 (resource)", () => {
-  it("its ability is skipped with a reason (engine gap), nothing of it is registered", () => {
-    expect(Object.keys(WONDER_MAN_EVENTS_SKIPPED)).toEqual([ENERGY_SIPHON_INTERRUPT]);
-    expect(WONDER_MAN_EVENTS[ENERGY_SIPHON_INTERRUPT]).toBeUndefined();
+describe(`${ENERGY_SIPHON_INTERRUPT}: Hero Interrupt, when you spend this card, take up to 3 damage: 1 additional [energy] for each damage taken`, () => {
+  const identity = (s: GameState): InstanceId => playerOf(s, P1).identity.instanceId;
+  const ENERGY_POOL = (n: number) => ({ physical: 0, mental: 0, energy: n, wild: 0 });
+  /** The Siphon spent with its interrupt taking `damage`, as a payment entry. */
+  const siphoned = (siphon: InstanceId, damage?: number) => ({
+    fromHand: siphon,
+    whenSpent: {
+      abilityId: ENERGY_SIPHON_INTERRUPT as never,
+      ...(damage === undefined ? {} : { costSelection: { damageSelf: damage } }),
+    },
+  });
+  /** `event` and one Energy Siphon alone in hand, and the command playing it with the Siphon taking `damage`. */
+  function siphoning(base: GameState, event: string, damage?: number) {
+    const t = staged(base, event, [SIPHON]);
+    const [siphon] = t.paying as [InstanceId];
+    const command: Command = { ...t.command, payment: [siphoned(siphon, damage)] } as Command;
+    return { ...t, siphon, command };
+  }
+  const generatedBy = (events: readonly GameEvent[]) =>
+    events.flatMap((e) => (e.type === "resourcesGenerated" ? [[e.abilityId, e.amount, e.pool]] : []));
+  const siphonSources = (state: GameState, id: InstanceId, siphon: InstanceId) =>
+    (paymentFor(state, P1, { kind: "playCard", instanceId: id }, {}, WAVE10_DEPS)?.sources ?? []).filter(
+      (source) => source.instanceId === siphon,
+    );
+
+  it("is registered as a when-spent resource in hero form, taking 1 to 3 damage, and nothing of the module is skipped", () => {
+    const definition = WONDER_MAN_EVENTS[ENERGY_SIPHON_INTERRUPT]!;
+    expect(validateDefinition(definition)).toEqual([]);
+    expect(definition.trigger).toEqual({ kind: "resource", whenSpent: true, form: "hero" });
+    expect(definition.cost).toEqual({
+      damageSelf: { choose: { min: { kind: "const", value: 1 }, max: { kind: "const", value: 3 } } },
+    });
+    expect(WONDER_MAN_EVENTS_SKIPPED).toEqual({});
   });
 
-  it("spent plainly it is 1 [energy]: it pays the cost of 1 of Starstruck exactly, nothing overpaid, no stun", () => {
+  it.each([
+    [1, 2, 5],
+    [2, 3, 7],
+    [3, 4, 9],
+  ])(
+    "taking %i damage: exactly that on Wonder Man, %i [energy] in all, and Ionic Blast (cost 1) deals %i",
+    (damage, energy, dealt) => {
+      const t = siphoning(wonderManHeroGame(), BLAST, damage);
+      const { state, events } = drive(t.state, t.command);
+      expect(damageOf(state, identity(state))).toBe(damage);
+      expect(generatedBy(events)).toEqual([[ENERGY_SIPHON_INTERRUPT, damage, ENERGY_POOL(damage)]]);
+      const played = events.find((e) => e.type === "cardPlayed" && e.instanceId === t.id);
+      expect(played).toMatchObject({ resourcesPaid: energy, paid: ENERGY_POOL(energy) });
+      expect(damageOf(state, villainOf(state))).toBe(dealt);
+      expect(playerOf(state, P1).discard).toEqual(expect.arrayContaining([t.id, t.siphon]));
+    },
+  );
+
+  it("the damage is taken as the card is spent, before the event resolves", () => {
+    const t = siphoning(wonderManHeroGame(), BLAST, 2);
+    const { state, events } = drive(t.state, t.command);
+    const taken = events.findIndex((e) => e.type === "damageDealt" && e.targetInstanceId === identity(state));
+    const dealt = events.findIndex((e) => e.type === "damageDealt" && e.targetInstanceId === villainOf(state));
+    expect(taken).toBeGreaterThan(-1);
+    expect(dealt).toBeGreaterThan(taken);
+  });
+
+  it("the cap is 3 and the least is 1: taking 4 or 0 is refused, and nothing is taken", () => {
+    const four = siphoning(wonderManHeroGame(), BLAST, 4);
+    expect(rejected(four.state, four.command)).toBe(true);
+    const none = siphoning(wonderManHeroGame(), BLAST, 0);
+    expect(rejected(none.state, none.command)).toBe(true);
+    expect(damageOf(four.state, identity(four.state))).toBe(0);
+  });
+
+  it("the payment prompt offers the plain spending (1 [energy]) and one option per amount (2, 3 and 4 [energy])", () => {
+    const t = siphoning(wonderManHeroGame(), BLAST);
+    const option = (n: number) => `hand:${t.siphon}:${ENERGY_SIPHON_INTERRUPT}@#damageSelf=${n}`;
+    expect(
+      siphonSources(t.state, t.id, t.siphon).map((s) => [s.optionId, s.pool, s.costSelection, s.spendsHandCard]),
+    ).toEqual([
+      [`hand:${t.siphon}`, ENERGY_POOL(1), undefined, undefined],
+      [option(1), ENERGY_POOL(2), { damageSelf: 1 }, true],
+      [option(2), ENERGY_POOL(3), { damageSelf: 2 }, true],
+      [option(3), ENERGY_POOL(4), { damageSelf: 3 }, true],
+    ]);
+    const attempt = tryPayment(t.state, P1, { kind: "playCard", instanceId: t.id }, [option(3)], {}, WAVE10_DEPS);
+    expect(attempt.ok).toBe(true);
+    if (attempt.ok) expect(attempt.command).toMatchObject({ payment: [siphoned(t.siphon, 3)] });
+  });
+
+  it("the suggested payment is the plain spending when that pays: no damage is suggested", () => {
+    const t = siphoning(wonderManHeroGame(), BLAST);
+    const query = paymentFor(t.state, P1, { kind: "playCard", instanceId: t.id }, {}, WAVE10_DEPS)!;
+    expect(query.suggested).toEqual([`hand:${t.siphon}`]);
+    const actions = legalActions(t.state, P1, WAVE10_DEPS);
+    if (actions.kind !== "turn") throw new Error(actions.kind);
+    const legal = actions.legal.find((a) => a.action.kind === "playCard" && a.action.instanceId === t.id);
+    expect(legal?.example).toMatchObject({ payment: [{ fromHand: t.siphon }] });
+  });
+
+  it("a card only the interrupt can pay for (Firebird, cost 2) is offered, taking the least damage that pays (1)", () => {
+    const t = siphoning(wonderManHeroGame(), FIREBIRD);
+    expect(rejected(t.state, play(P1, t.id, [t.siphon]))).toBe(true);
+    const actions = legalActions(t.state, P1, WAVE10_DEPS);
+    if (actions.kind !== "turn") throw new Error(actions.kind);
+    const legal = actions.legal.find((a) => a.action.kind === "playCard" && a.action.instanceId === t.id);
+    expect(legal?.example).toMatchObject({ payment: [siphoned(t.siphon, 1)] });
+    const { state } = drive(t.state, legal!.example);
+    expect(damageOf(state, identity(state))).toBe(1);
+    expect(playerOf(state, P1).playArea).toContain(t.id);
+  });
+
+  it("with no amount named it takes the least (1): 2 [energy] in all", () => {
+    const t = siphoning(wonderManHeroGame(), BLAST);
+    const { state, events } = drive(t.state, t.command);
+    expect(damageOf(state, identity(state))).toBe(1);
+    expect(generatedBy(events)).toEqual([[ENERGY_SIPHON_INTERRUPT, 1, ENERGY_POOL(1)]]);
+    expect(damageOf(state, villainOf(state))).toBe(5);
+  });
+
+  it("with a tough status card the damage could not be taken: the interrupt is not offered and is refused, the status card stays", () => {
+    const base = wonderManHeroGame();
+    const tough = patchInstance(base, identity(base), { statuses: { stunned: 0, confused: 0, tough: 1 } });
+    const t = siphoning(tough, BLAST, 1);
+    expect(siphonSources(t.state, t.id, t.siphon).map((s) => s.optionId)).toEqual([`hand:${t.siphon}`]);
+    expect(rejected(t.state, t.command)).toBe(true);
+    // The plain spending still pays.
+    const { state } = drive(t.state, play(P1, t.id, [t.siphon]));
+    expect(statusesOf(state, identity(state)).tough).toBe(1);
+    expect(damageOf(state, identity(state))).toBe(0);
+  });
+
+  it("the card names no limit by hit points: with 1 hit point left all three amounts are still offered", () => {
+    const base = wonderManHeroGame();
+    const t = siphoning(patchInstance(base, identity(base), { damage: 11 }), BLAST);
+    expect(siphonSources(t.state, t.id, t.siphon).map((s) => s.costSelection?.damageSelf)).toEqual([
+      undefined,
+      1,
+      2,
+      3,
+    ]);
+  });
+
+  it("is a Hero Interrupt: in alter-ego form only the plain spending is offered, and the interrupt is refused", () => {
+    const t = siphoning(wonderManGame(), FANS, 1);
+    expect(siphonSources(t.state, t.id, t.siphon).map((s) => s.optionId)).toEqual([`hand:${t.siphon}`]);
+    expect(rejected(t.state, t.command)).toBe(true);
+    const { state } = drive(t.state, play(P1, t.id, [t.siphon]));
+    expect(playerOf(state, P1).playArea).toContain(t.id);
+    expect(damageOf(state, identity(state))).toBe(0);
+  });
+
+  it("spent plainly it is 1 [energy], unchanged: it pays the cost of 1 of Starstruck exactly, no damage, nothing overpaid, no stun", () => {
     const t = staged(wonderManHeroGame(), STRUCK, [SIPHON]);
-    const { state } = drive(t.state, t.command);
+    const { state, events } = drive(t.state, t.command);
     expect(playerOf(state, P1).discard).toEqual(expect.arrayContaining([t.id, ...t.paying]));
     expect(statusesOf(state, villainOf(state)).stunned).toBe(0);
+    expect(damageOf(state, identity(state))).toBe(0);
+    expect(generatedBy(events)).toEqual([]);
+  });
+
+  it("overpaying Starstruck through the interrupt stuns: 1 damage taken, 2 [energy] for a cost of 1", () => {
+    const t = siphoning(wonderManHeroGame(), STRUCK, 1);
+    const { state } = drive(t.state, t.command);
+    expect(damageOf(state, identity(state))).toBe(1);
+    expect(statusesOf(state, villainOf(state)).stunned).toBe(1);
   });
 });
 

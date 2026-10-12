@@ -3,6 +3,7 @@ import {
   activeEncounterDeckId,
   characterProfile,
   keywordsOf,
+  paymentFor,
   replay,
   sessionApply,
   startSession,
@@ -26,6 +27,7 @@ import {
   payWith,
   play,
   playerOf,
+  resourceAbility,
   stackEncounterDeck,
   use,
   type Picker,
@@ -41,9 +43,9 @@ vi.setConfig({ testTimeout: 120_000 });
 /**
  * Hulkling's ally, support and Shapeshift upgrades, docs/phase7-wave10-box-heroes.md B2, B3.9, B3.10 and B7.2: Wiccan
  * 56030, Altman Residence 56031, Winged / Hulk / Armored / Imitation Shape 56032 to 56035, in the printed precon
- * `hulkling-protection` against Core's Rhino. Hero face: THW 1, ATK 1, DEF 1. Alien Physiology 56036 needs an engine
- * primitive and is skipped. Hulkling's own Chosen Shape (56029a) is another module: every game here arranges its one
- * Shapeshift upgrade by surgery, and nothing relies on that ability firing.
+ * `hulkling-protection` against Core's Rhino, and Alien Physiology 56036 (B7.2). Hero face: THW 1, ATK 1, DEF 1.
+ * Hulkling's own Chosen Shape (56029a) is another module: every game here arranges its one Shapeshift upgrade by
+ * surgery, and nothing relies on that ability firing.
  */
 const WICCAN = "56030.wiccan-response";
 const RESIDENCE = "56031.altman-residence-action";
@@ -68,6 +70,7 @@ const REFS = [
   IMITATION_C,
   IMITATION_I,
   IMITATION_R,
+  "56036.alien-physiology-resource",
 ];
 const ALIEN = "56036.alien-physiology-resource";
 const STRIKE = "56037"; // Shapeshifter Strike: an identity-specific event of the Hulkling set
@@ -186,9 +189,11 @@ describe("Hulkling supports, upgrades and ally registry", () => {
     for (const id of [WINGED_R, HULK_R, ARMORED_R, IMITATION_R])
       expect(t(id)).toMatchObject({ kind: "response", forced: false, form: "hero" });
     expect(t(IMITATION_I)).toMatchObject({ kind: "interrupt", forced: true });
+    expect(t(ALIEN)).toEqual({ kind: "resource" });
+    expect(HULKLING_SUPPORT_UPGRADES_ALLIES[ALIEN]!.cost).toEqual({ exhaustSelf: true });
   });
 
-  it("eleven printed refs are registered; Alien Physiology's waits on an engine primitive", () => {
+  it("all twelve printed refs are registered and none is skipped", () => {
     expect(printed("56030")).toEqual([WICCAN]);
     expect(printed("56031")).toEqual([RESIDENCE]);
     expect(printed("56032")).toEqual([WINGED_C, WINGED_R]);
@@ -197,8 +202,7 @@ describe("Hulkling supports, upgrades and ally registry", () => {
     expect(printed("56035")).toEqual([IMITATION_C, IMITATION_I, IMITATION_R]);
     expect(Object.keys(HULKLING_SUPPORT_UPGRADES_ALLIES).sort()).toEqual([...REFS].sort());
     expect(printed("56036")).toEqual([ALIEN]);
-    expect(Object.keys(HULKLING_SUPPORT_UPGRADES_ALLIES_SKIPPED)).toEqual([ALIEN]);
-    expect(HULKLING_SUPPORT_UPGRADES_ALLIES_SKIPPED[ALIEN]).toContain("engine primitive");
+    expect(HULKLING_SUPPORT_UPGRADES_ALLIES_SKIPPED).toEqual({});
   });
 });
 
@@ -499,5 +503,84 @@ describe(`${IMITATION_I}: Forced Interrupt, when an enemy would attack you, it s
     const { state: after } = drive(state, endTurn(), firstLegal);
     expect(inst(after, shape).attachedTo).toBe(identityOf(after));
     expect(piles(after).discard.length).toBeGreaterThan(0);
+  });
+});
+
+describe(`${ALIEN}: Resource, exhaust: generate a wild resource, two instead if paying for a Hulkling card`, () => {
+  const WICCAN_CODE = "56030"; // Hulkling ally, cost 2
+  const RESIDENCE_CODE = "56031"; // Hulkling support, cost 1
+  const BASE_CODE = "56043"; // Hidden Base: Protection support, cost 2
+  const ALIEN_CODE = "56036";
+  const WILD = (n: number) => ({ physical: 0, mental: 0, energy: 0, wild: n });
+
+  /** Alien Physiology in play on Teddy Altman, `code` in hand, and the command playing it with the upgrade and `rest` hand cards. */
+  function payingFor(code: string, rest: number, exhausted = false) {
+    const alien = stagedInPlay(hulklingGame(), ALIEN_CODE, { attach: true });
+    const given = moveToHand(patchInstance(alien.state, alien.id, { exhausted }), P1, code);
+    const [id] = given.ids as [InstanceId];
+    const command = play(P1, id, payWith(given.state, P1, rest, [id]), {
+      abilities: [resourceAbility(alien.id, ALIEN)],
+    });
+    return { state: given.state, id, alien: alien.id, command };
+  }
+  const sourceOf = (state: GameState, id: InstanceId, alien: InstanceId) =>
+    paymentFor(state, P1, { kind: "playCard", instanceId: id }, {}, WAVE10_DEPS)?.sources.find(
+      (source) => source.instanceId === alien,
+    );
+
+  it("paying for a Hulkling card of cost 2 (Wiccan): it generates 2 wild and pays for it alone", () => {
+    const { state, id, alien, command } = payingFor(WICCAN_CODE, 0);
+    expect(command).toMatchObject({ payment: [{ ability: { instanceId: alien, abilityId: ALIEN } }] });
+    const { state: after, events } = drive(state, command);
+    expect(ofType(events, "resourcesGenerated").map((e) => [e.abilityId, e.amount, e.pool])).toEqual([
+      [ALIEN, 2, WILD(2)],
+    ]);
+    expect(ofType(events, "cardPlayed").map((e) => [e.instanceId, e.resourcesPaid])).toEqual([[id, 2]]);
+    expect(playerOf(after, P1).playArea).toContain(id);
+    expect(inst(after, alien).exhausted).toBe(true);
+  });
+
+  it("paying for a card that is not Hulkling's (Hidden Base, cost 2): it generates 1 wild, so one more resource is needed", () => {
+    const alone = payingFor(BASE_CODE, 0);
+    expect(rejected(alone.state, alone.command)).toBe(true);
+    const { state, id, alien, command } = payingFor(BASE_CODE, 1);
+    const hand = playerOf(state, P1).hand.length;
+    const { state: after, events } = drive(state, command);
+    expect(ofType(events, "resourcesGenerated").map((e) => [e.abilityId, e.amount, e.pool])).toEqual([
+      [ALIEN, 1, WILD(1)],
+    ]);
+    expect(playerOf(after, P1).playArea).toContain(id);
+    expect(inst(after, alien).exhausted).toBe(true);
+    expect(playerOf(after, P1).hand).toHaveLength(hand - 2);
+  });
+
+  it("toward a Hulkling card of cost 1 (Altman Residence) it still generates 2: the second is overpaid", () => {
+    const { state, id, command } = payingFor(RESIDENCE_CODE, 0);
+    const { state: after, events } = drive(state, command);
+    expect(ofType(events, "resourcesGenerated").map((e) => e.amount)).toEqual([2]);
+    expect(playerOf(after, P1).playArea).toContain(id);
+  });
+
+  it("the payment prompt lists it with 2 wild for the Hulkling card and 1 wild for the other, and suggests it alone for Wiccan", () => {
+    const wiccan = payingFor(WICCAN_CODE, 0);
+    expect(sourceOf(wiccan.state, wiccan.id, wiccan.alien)).toMatchObject({ kind: "resourceAbility", pool: WILD(2) });
+    const query = paymentFor(wiccan.state, P1, { kind: "playCard", instanceId: wiccan.id }, {}, WAVE10_DEPS)!;
+    expect(query.suggested).toEqual([`ability:${wiccan.alien}:${ALIEN}`]);
+    const base = payingFor(BASE_CODE, 0);
+    expect(sourceOf(base.state, base.id, base.alien)).toMatchObject({ kind: "resourceAbility", pool: WILD(1) });
+  });
+
+  it("already exhausted it cannot pay its own cost: it is not offered as a source and a payment naming it is refused", () => {
+    const { state, id, alien, command } = payingFor(WICCAN_CODE, 0, true);
+    expect(sourceOf(state, id, alien)).toBeUndefined();
+    expect(rejected(state, command)).toBe(true);
+  });
+
+  it("it cannot pay for itself: Alien Physiology in hand is paid for from the hand", () => {
+    const given = moveToHand(hulklingGame(), P1, ALIEN_CODE);
+    const [id] = given.ids as [InstanceId];
+    const query = paymentFor(given.state, P1, { kind: "playCard", instanceId: id }, {}, WAVE10_DEPS)!;
+    expect(query.sources.some((source) => source.instanceId === id)).toBe(false);
+    expect(query.requirement).toMatchObject({ generic: 3 });
   });
 });

@@ -569,6 +569,35 @@ export type AbilityTriggerSpec =
       readonly playableTopOfDeck?: { readonly player: PlayerRef; readonly costReduction?: number };
       /** "As an additional cost for Wonder Man to attack, you must discard 1 card." Costs on this character's own basic powers. */
       readonly basicPowerCosts?: readonly { readonly power: "attack" | "thwart"; readonly cost: AbilityCost }[];
+      /**
+       * "As an additional cost to play this upgrade, search the encounter deck and discard pile for a minion and put it
+       * into play engaged with you. Attach Hunted to that minion and stun it." (Hunted, `cw` 56007;
+       * docs/phase7-wave10-box-heroes.md B3.1): this ability's `AbilityDefinition.cost` is added to the cost of playing
+       * its card, read from the card wherever it is played from (`additionalPlayCostOf`).
+       *
+       * - **Paid with the play or not at all.** RRG 1.8 "Cost" (p. 14): "A player must pay all additional costs
+       *   simultaneously with the cost that is being added to … if they cannot pay for all of the costs at once, then
+       *   they do not pay any of the costs". It is planned and paid with the card's resource cost and, for an event,
+       *   its Action's own cost (a component both name is the Action's). A card whose additional cost cannot be paid
+       *   cannot be played and `legalActions` lists it illegal with the cost's reason (owner decision 2026-10-11,
+       *   box-heroes question 17 = A, provisional).
+       * - **Its picks** are the play command's `costChoices`, as an Action's cost picks are, and are bound on the play's
+       *   frame.
+       * - **What paying it triggers resolves before the card enters play** (RRG 1.8 "Cost Arrow Icon", p. 14; ruling
+       *   February 28, 2026 - Ruling 1: "Any abilities triggered by paying a cost resolve immediately before the effect
+       *   following the arrow resolves"): the cost's steps sit above the play's frame.
+       * - **`attachToSlot`**: the played upgrade enters play attached to the card the cost bound to this slot, not to a
+       *   printed "attach to" host or its controller's identity; the play command names no host. If that card is not
+       *   in play as the upgrade would enter, the upgrade has no host and is discarded (RRG 1.8 "Attach To", p. 8).
+       * - **The ability's `effects`** resolve as the card enters play, before its "enters play" windows, with the
+       *   cost's bindings and its player as "you" ("… and stun it"). Not when the card had no host.
+       *
+       * Read for a play only: a card put into play is not played and pays no cost (RRG 1.8 "Play, Put into Play",
+       * p. 32). A play command and a play an effect makes (paying or ignoring the resource cost, with a pick only
+       * when it is forced) read it; an Interrupt or Response event played from its timing window does not (no card
+       * prints one).
+       */
+      readonly additionalCostToPlay?: { readonly attachToSlot?: string };
     };
 
 /**
@@ -2833,6 +2862,11 @@ export interface AbilityCost {
    */
   readonly attach?: AttachCost;
   /**
+   * "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost (Hunted,
+   * `cw` 56007; docs/phase7-wave10-box-heroes.md B3.1). See `EncounterSearchIntoPlayCost`.
+   */
+  readonly searchEncounterIntoPlay?: EncounterSearchIntoPlayCost;
+  /**
    * "… and deal 2 damage to that character →" (Energy Transfer): `amount` damage from the ability's card to each card
    * `target` names (read with the cost's own picks bound, so `{ kind: "slot", slot: attach.to.slot }` is the host just
    * picked), as part of the cost. docs/phase7-wave6.md §3.49.
@@ -2988,6 +3022,37 @@ export interface AttachCost {
   readonly to: { readonly slot: string; readonly query: TargetQuery };
   /** The attached card, bound to this slot for the effects ("you gain each of the attached character's traits"). */
   readonly bind?: string;
+}
+
+/**
+ * `AbilityCost.searchEncounterIntoPlay` (docs/phase7-wave10-box-heroes.md B3.1; `encounter-search-cost.ts`): the payer
+ * searches the active encounter deck's `zones` for one card matching `query` and puts it into play, a minion engaged
+ * with them.
+ *
+ * - **Candidates.** The cards of those piles matching `query` (the payer as `you`, the ability's card as `self`) that
+ *   could enter play in the payer's area (the unique rule and "cannot enter play", as `TargetQuery.canEnterPlay`
+ *   reads them), the deck's in deck order and then the discard pile's. Set-aside cards are not searched. RRG 1.8
+ *   "Cost" (p. 14) has a cost that "requires a game element that is not in play" use only the payer's "own
+ *   out-of-play areas"; the card names the encounter deck and its discard pile, and a card's text takes precedence
+ *   over the Rules Reference ("The Golden Rules", p. 4).
+ * - **The pick.** RRG 1.8 "Search" (p. 39): the player chooses among the cards that satisfy the search. One card,
+ *   named in `costChoices[slot]` and bound to `slot` for the rest of the cost and for the effects; with exactly one
+ *   candidate the pick is forced and may be omitted. `legalActions` offers one variant per candidate.
+ * - **Payable only with a candidate** (owner decision 2026-10-11, box-heroes question 17 = A, provisional; RRG 1.8
+ *   "Cost", p. 13: paid in full or not at all): with none the ability or play is not offered and no deck is shuffled.
+ * - **Paid** in a step above the frame being paid for (RRG 1.8 "Cost Arrow Icon", p. 14): each searched deck is
+ *   shuffled (RRG 1.8 "Search", p. 39: "upon completion of that game step … shuffle that entire deck", so before
+ *   anything the card's entry triggers; a deck shuffled with the card still in it and then one card short is in as
+ *   random an order as one shuffled after), then the card is put into play as `EffectSpec putIntoPlay` does it: not
+ *   revealed, so no When Revealed and no surge (RRG 1.8 "Play, Put into Play", p. 32; "When Revealed", p. 48),
+ *   announced as entering play and engaging, with quickstrike and teamwork after it (owner decision 2026-10-11,
+ *   box-heroes question 18 = A, provisional; rulings February 28, 2026 - Rulings 1 and 4). Those resolve before the
+ *   frame paid for.
+ */
+export interface EncounterSearchIntoPlayCost {
+  readonly slot: string;
+  readonly query: TargetQuery;
+  readonly zones: readonly ("deck" | "discard")[];
 }
 
 /** `AbilityCost.damageCards`: an `InPlayCostPick` whose picks each take `amount` damage. */

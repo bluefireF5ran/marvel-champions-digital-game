@@ -1746,6 +1746,13 @@ export type GameEvent =
        */
       readonly reason: "noLegalHost" | "noSuchArea" | "cardType" | "cannotEnterPlay" | "maxPerPlayer";
     }
+  /**
+   * A played upgrade whose host is the card its additional cost to play put into play (`additionalCostToPlay
+   * .attachToSlot`; docs/phase7-wave10-box-heroes.md B3.1) found that card out of play as it would enter: it has no
+   * host and went to its owner's discard pile, its effects unresolved (RRG 1.8 "Attach To", p. 8). What was paid
+   * stays paid.
+   */
+  | { readonly type: "playedUpgradeHasNoHost"; readonly instanceId: InstanceId; readonly playerId: PlayerId }
   | { readonly type: "lastingEffectAdded"; readonly effect: LastingEffect }
   /**
    * A sequential damage pool has finished (`EffectSpec assignDamage.sequential`, docs/phase7-wave8.md §3.37): of

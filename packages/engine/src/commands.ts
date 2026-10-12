@@ -35,6 +35,12 @@ export interface SpentCardAbilityUse {
   readonly abilityId: AbilityId;
   /** The cards the ability's own cost picks, by slot (as `ResourceAbilityUse.costChoices`). */
   readonly costChoices?: CostChoices;
+  /**
+   * The amounts the ability's own cost leaves to the player (as `ResourceAbilityUse.costSelection`): "When you spend
+   * this card, take up to 3 damage → this card generates 1 additional [energy] resource for each damage taken this
+   * way" names the damage in `damageSelf` (docs/phase7-wave10-hero-packs.md H3.14).
+   */
+  readonly costSelection?: CostSelection;
 }
 
 /** One use of a resource ability in a payment (see `Payment`). */
@@ -45,8 +51,9 @@ export interface ResourceAbilityUse {
   readonly costChoices?: CostChoices;
   /**
    * The amounts the ability's own cost leaves to the player (`CostSelection.removeThreat`; docs/phase7-wave9.md
-   * §3.7 (b)). A use in a payment is never asked as its cost is paid, so the amount is part of the payment: absent,
-   * a chosen-amount threat cost removes the most it can.
+   * §3.7 (b); `CostSelection.damageSelf`, docs/phase7-wave10-hero-packs.md H3.14). A use in a payment is never asked
+   * as its cost is paid, so the amount is part of the payment: absent, a chosen-amount threat cost removes the most
+   * it can and a chosen-amount damage cost takes the least it may.
    */
   readonly costSelection?: CostSelection;
 }
@@ -83,6 +90,16 @@ export interface CostSelection {
    * (`ResourceAbilityUse.costSelection`), which removes the most it can. A fixed-amount threat cost ignores it.
    */
   readonly removeThreat?: number;
+  /**
+   * How much damage a chosen-amount damage cost takes (`AbilityCost.damageSelf { choose }`, "take any amount of damage
+   * up to … →"; docs/phase7-wave7.md §3.79, docs/phase7-wave10-hero-packs.md H3.14): a whole number in the range the
+   * cost offers right now, from its `min` to the most the identity could take in full; anything else is refused.
+   * Named, the cost is paid with that amount and no `chooseNumber` choice is asked. Absent: the payer is asked as the
+   * cost is paid, except for a resource ability used in a payment (`ResourceAbilityUse.costSelection`,
+   * `SpentCardAbilityUse.costSelection`), which takes the least the cost allows: a payment is priced before it is
+   * paid, and damage nobody named is not taken for the player. A fixed-amount damage cost ignores it.
+   */
+  readonly damageSelf?: number;
   /**
    * The number a chosen-size encounter deck discard cost discards (`AbilityCost.discardFromEncounterDeck { choose }`;
    * docs/phase7-wave9.md §3.43 (a)): a whole number from the cost's `min` to its `max`; anything else is refused. It

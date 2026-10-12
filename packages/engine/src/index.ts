@@ -134,7 +134,16 @@ export {
 
 /** What a card costs right now vs. what is printed on it, and the cards moving the price (Steve Rogers' Living Legend). */
 export type { PlayCost, PlayCostContribution } from "./actions.js";
-export { costAsDetermined, inPlayCostCandidates, playCostOf, playableOutsideHand } from "./actions.js";
+export {
+  PAID_FOR_SLOT,
+  additionalPlayCostOf,
+  costAsDetermined,
+  inPlayCostCandidates,
+  playCostOf,
+  playCostWith,
+  playableOutsideHand,
+} from "./actions.js";
+export { encounterSearchCostCandidates } from "./encounter-search-cost.js";
 export { deckTopPermission, deckTopPlayOf, type DeckTopPermission } from "./actions.js";
 export type { Command, CommandType, Payment, ResourceAbilityUse, SpentCardAbilityUse } from "./commands.js";
 export type { GameEvent, GameEventType } from "./events.js";
@@ -178,6 +187,7 @@ export type {
   TuckedCostPick,
   DamageCostPick,
   AttachCost,
+  EncounterSearchIntoPlayCost,
   AbilityDefinition,
   AbilityLabel,
   CardIcon,

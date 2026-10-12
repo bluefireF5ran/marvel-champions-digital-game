@@ -105,12 +105,15 @@ describe("B3.4 Teddy Altman 56029b against Core Rhino", () => {
     expect(offered(hulk.state, hulk.id)).toBe(false);
   });
 
-  it("as Hulkling the face is down: a second shape is played, and both are in play", () => {
+  it("as Hulkling the face is down: a second shape may be played; his own Chosen Shape then discards the first", () => {
     const shaped = stagedInPlay(hulklingHeroGame({ deps }), HULK_SHAPE, { attach: true });
     const winged = inHand(shaped.state, WINGED_SHAPE);
     expect(offered(winged.state, winged.id)).toBe(true);
     const { state } = driveEventsPicking(deps, winged.state, firstLegal, winged.command);
-    expect(cardsInPlay(state)).toEqual(expect.arrayContaining([shaped.id, winged.id]));
+    // Teddy's bar is the alter-ego face's, so Winged Shape enters play; Hulkling's Chosen Shape (56029a, scripted in
+    // wave10/cw/hulkling/identity.ts) then discards each other Shapeshift upgrade he controls.
+    expect(cardsInPlay(state)).toContain(winged.id);
+    expect(cardsInPlay(state)).not.toContain(shaped.id);
   });
 
   it("only Teddy's player is stopped: Winged Shape is barred for seat 1 and not for seat 2, who plays a support", () => {

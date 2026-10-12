@@ -3,6 +3,7 @@ import {
   attackPreventedVars,
   labeledResolvedVar,
   PAID_CARDS_SLOT,
+  PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
   TOTAL_ATK_RESULT,
   UNRESOLVED_VAR,
@@ -1249,6 +1250,16 @@ export const refMatches = (ref: TargetRef, q: TargetQuery, opts: { readonly anyw
   query: q,
   ...(opts.anywhere ? { anywhere: true } : {}),
 });
+/**
+ * "… if paying for a Hulkling card" in what a resource ability generates (Alien Physiology, `cw` 56036;
+ * docs/phase7-wave10-box-heroes.md B7.2): the card the payment is for matches `q`. That card is the one being played,
+ * or the one whose ability's cost is being paid (FAQ "Finesse (#33)", RRG 1.8 p. 60), wherever it is; a payment for
+ * no card (a basic power's additional cost) matches nothing. Read in a `resource(...)` ability's `generates` and in
+ * its effects, which both have the card as slot `paidFor`:
+ * `resource(generatesAmount("wild", ifElse(payingFor(ofIdentitySetTitled("Hulkling")), 2, 1)), { cost: exhaustThis })`.
+ * Unlike `generatesFor`, it does not stop the ability being used for any other card.
+ */
+export const payingFor = (q: TargetQuery): Predicate => refMatches(chosen(PAID_FOR_SLOT), q, { anywhere: true });
 export const damagedAtLeast = (of: TargetRef, n: number): Predicate => ({ kind: "damagedAtLeast", of, amount: n });
 /**
  * A numeric comparison between two live values — the general form behind "if there is 10 or more threat here"

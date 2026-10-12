@@ -5,6 +5,7 @@ import {
   isResourcesChoice,
   hearsEncounterDeckDiscard,
   MOMENT_PREFIX,
+  PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
   UNRESOLVED_VAR,
   type AbilityCost,
@@ -416,6 +417,13 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     problems.push("cost damageCards: amount must be a whole number of at least 1");
   // docs/phase7-wave6.md §3.49: "attach it to a character other than Rogue and deal 2 damage to that character →".
   if (cost.attach && cost.attach.to.slot === "") problems.push("cost attach: needs a slot for the host");
+  // docs/phase7-wave10-box-heroes.md B3.1: "search the encounter deck and discard pile for a minion and put it into play".
+  if (cost.searchEncounterIntoPlay) {
+    if (cost.searchEncounterIntoPlay.slot === "")
+      problems.push("cost searchEncounterIntoPlay: needs a slot for the card found");
+    if (cost.searchEncounterIntoPlay.zones.length === 0)
+      problems.push("cost searchEncounterIntoPlay: names the encounter deck, its discard pile or both");
+  }
   if (cost.attach?.bind === "") problems.push("cost attach: bind needs a slot name");
   const dealt = cost.dealDamage?.amount;
   if (dealt !== undefined && (!Number.isInteger(dealt) || dealt < 1))
@@ -444,6 +452,7 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     ...(cost.encounterLookDiscard ? [cost.encounterLookDiscard.slot] : []),
     ...(cost.discardFromEncounterDeck ? [cost.discardFromEncounterDeck.slot] : []),
     ...(cost.attach ? [cost.attach.to.slot, ...(cost.attach.bind ? [cost.attach.bind] : [])] : []),
+    ...(cost.searchEncounterIntoPlay ? [cost.searchEncounterIntoPlay.slot] : []),
     ...(cost.dealDamage?.choose ? [cost.dealDamage.choose.slot] : []),
     ...(cost.dealEncounterCardsTo ? [cost.dealEncounterCardsTo.slot] : []),
     ...inPlayPicksOf(cost).flatMap(({ pick }) => [pick.slot, ...(pick.bindHosts ? [pick.bindHosts] : [])]),
@@ -557,7 +566,19 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
   if ((trigger.kind === "interrupt" || trigger.kind === "response") && trigger.on)
     problems.push(...unlistedAlternativeKinds(trigger.on));
   if (trigger.kind === "response" && trigger.on) problems.push(...unreadDamage(trigger.on));
-  if (trigger.kind === "constant" && definition.effects.length > 0) problems.push("a constant ability has no effects");
+  // An additional cost to play (box-heroes B3.1) is the one constant with a cost, and with effects: they resolve as its
+  // card enters play.
+  const additionalPlayCost = trigger.kind === "constant" ? trigger.additionalCostToPlay : undefined;
+  if (trigger.kind === "constant" && definition.effects.length > 0 && !additionalPlayCost)
+    problems.push("a constant ability has no effects");
+  if (additionalPlayCost) {
+    if (!definition.cost) problems.push("an additional cost to play needs the cost");
+    const slot = additionalPlayCost.attachToSlot;
+    if (slot !== undefined && definition.cost?.searchEncounterIntoPlay?.slot !== slot)
+      problems.push(`an additional cost to play attaches to a slot its cost puts into play (${slot})`);
+    if (definition.cost?.resources !== undefined || definition.cost?.either || definition.cost?.conditional)
+      problems.push("an additional cost to play has no resources, either/or or conditional part");
+  }
   // docs/phase7-wave10.md §3.12: a keyword grant names one keyword, or the cards whose printed keywords are gained.
   if (trigger.kind === "constant") {
     for (const grant of trigger.keywordGrants ?? []) {
@@ -572,7 +593,10 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
   // The one limit a constant carries is its `playableTopOfDeck` permission's "once per phase" (docs/phase7-wave8.md
   // §3.49), counted when a card is played under it.
   const permissionLimit = trigger.kind === "constant" && trigger.playableTopOfDeck !== undefined;
-  if (trigger.kind === "constant" && (definition.cost || (definition.limit && !permissionLimit) || definition.label))
+  if (
+    trigger.kind === "constant" &&
+    ((definition.cost && !additionalPlayCost) || (definition.limit && !permissionLimit) || definition.label)
+  )
     problems.push("a constant ability has no cost, limit or label");
   if (permissionLimit && definition.limit?.per === "triggeringEvent")
     problems.push("a playableTopOfDeck limit is per turn, phase or round, not per triggering event");
@@ -1639,7 +1663,7 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
   if (definition.cost?.conditional) scope.vars.add("cost.condition");
   // A resource ability's effects resolve with the payment, the card paid for bound to `paidFor` (engine
   // `announceResourcesSpent`; docs/phase7-wave4.md §3.30, wave 6 §3.30).
-  if (definition.trigger.kind === "resource") scope.slots.add("paidFor");
+  if (definition.trigger.kind === "resource") scope.slots.add(PAID_FOR_SLOT);
   for (const cost of definition.cost ? costVariants(definition.cost) : []) {
     if (cost.discardFromHand) {
       scope.slots.add("discard");
@@ -1658,6 +1682,8 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
       scope.slots.add(cost.attach.to.slot);
       if (cost.attach.bind) scope.slots.add(cost.attach.bind);
     }
+    // docs/phase7-wave10-box-heroes.md B3.1: the card a search cost put into play.
+    if (cost.searchEncounterIntoPlay) scope.slots.add(cost.searchEncounterIntoPlay.slot);
     // docs/phase7-wave6.md §3.54: the cards discarded, their number and their boost icons.
     for (const component of [cost, ...(cost.either ?? [])]) {
       const look = component.encounterLookDiscard;
@@ -1715,6 +1741,8 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
         if (typeof amount !== "number") checkRefs(amount, reading, `constant modifiers[${index}] amount`, problems);
       });
     }
+    // The effects of an additional cost to play resolve with its cost's slots bound (box-heroes B3.1).
+    if (definition.trigger.additionalCostToPlay) walk(definition.effects, scope, "effects", problems);
     return;
   }
   walk(definition.effects, scope, "effects", problems);

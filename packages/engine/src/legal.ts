@@ -23,6 +23,7 @@ import {
 import {
   basicPowerCost,
   costAsDetermined,
+  playCostWith,
   counterCostHolder,
   eventActionForQuery,
   eventActions,
@@ -32,6 +33,7 @@ import {
   isAlternativeAmount,
   isWhenSpentUse,
   mostFromEachHandCard,
+  whenSpentCostSize,
   spentCardOptionId,
   priceOrNull,
   paidForMultiplied,
@@ -56,6 +58,7 @@ import { createCtx } from "./ctx.js";
 import { areaCostReductionFor } from "./effects.js";
 import { applyCommand } from "./engine.js";
 import { attachCostCard, attachCostHosts, dealDamageCostChoices } from "./attach-cost.js";
+import { encounterSearchCostCandidates } from "./encounter-search-cost.js";
 import { resolveAbilityCostCandidates } from "./resolve-ability-cost.js";
 import { encounterDiscardCostRange } from "./encounter-discard-cost.js";
 import { EngineInvariantError, type EngineErrorCode } from "./errors.js";
@@ -374,9 +377,7 @@ function walletsWithWhenSpent(
     const pool = priceOrNull(ctx, playerId, [payment], null, payingFor);
     return pool ? poolTotal(pool) : 0;
   };
-  const picksOf = (p: Payment): number =>
-    "fromHand" in p ? Object.values(p.whenSpent?.costChoices ?? {}).flat().length : 0;
-  const sizes = [...new Set(uses.map(picksOf))].sort((a, b) => a - b);
+  const sizes = [...new Set(uses.map(whenSpentCostSize))].sort((a, b) => a - b);
   return [
     ...plain,
     ...sizes.flatMap((size) => {
@@ -663,13 +664,13 @@ function costChoiceSets(
   cost: AbilityCost | undefined,
   picks: readonly InstanceId[],
 ): readonly CostChoiceSet[] {
-  const sets = resolveChoiceSets(
+  const sets = searchChoiceSets(
     state,
     deps,
     playerId,
     source,
     cost,
-    pickChoiceSets(state, deps, playerId, source, cost, picks),
+    resolveChoiceSets(state, deps, playerId, source, cost, pickChoiceSets(state, deps, playerId, source, cost, picks)),
   );
   const attach = cost?.attach;
   if (!attach) return damageChoiceSets(state, deps, playerId, source, cost, sets);
@@ -685,6 +686,29 @@ function costChoiceSets(
     sets.flatMap(({ costChoices, target }) =>
       hosts.map((host) => ({ costChoices: { ...costChoices, [attach.to.slot]: [host] }, target: target ?? host })),
     ),
+  );
+}
+
+/**
+ * "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost
+ * (`AbilityCost.searchEncounterIntoPlay`, docs/phase7-wave10-box-heroes.md B3.1): each variant once per card the payer
+ * may search out, which is the variant's target. With no candidate the variants are left as they are and the engine's
+ * own check (`planCost`) refuses them, so the play is listed illegal with its reason.
+ */
+function searchChoiceSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  cost: AbilityCost | undefined,
+  sets: readonly CostChoiceSet[],
+): readonly CostChoiceSet[] {
+  const search = cost?.searchEncounterIntoPlay;
+  if (!search) return sets;
+  const candidates = encounterSearchCostCandidates(state, deps, source, playerId, search);
+  if (candidates.length === 0) return sets;
+  return sets.flatMap(({ costChoices, target }) =>
+    candidates.map((card) => ({ costChoices: { ...costChoices, [search.slot]: [card] }, target: target ?? card })),
   );
 }
 
@@ -913,7 +937,8 @@ function evaluatePlayOf(
   ability: AbilityDefinition | undefined,
   abilityId: AbilityId | undefined,
 ): Evaluated {
-  const cost = costAsDetermined(state, deps, id, playerId, ability?.cost);
+  // With the card's additional cost to play (`playCostWith`, box-heroes B3.1), as the play command plans it.
+  const cost = costAsDetermined(state, deps, id, playerId, playCostWith(state, deps, id, ability?.cost));
   const picks = discardPicks(state, deps, playerId, id, cost);
   const reserved = new Set([id, ...picks]);
   const spend = spendOrder(state, deps, playerId, reserved, id);
@@ -1449,6 +1474,11 @@ export interface PaymentSource {
    * The amount this source's own cost removes when the source is one amount of several ("remove up to 2 threat from …
    * → generate a resource for each": a resource ability's `ResourceAbilityUse.costSelection`; docs/phase7-wave9.md
    * §3.7 (b)). The source for the most it can remove has none. A payment may hold one source of the same ability.
+   *
+   * Also the damage this source's own cost takes ("take up to 3 damage → … for each damage taken this way":
+   * `CostSelection.damageSelf`; docs/phase7-wave10-hero-packs.md H3.14): one source per amount, each with what that
+   * amount generates in `pool`. A `spendsHandCard` source carries it for the card's own ability
+   * (`SpentCardAbilityUse.costSelection`); the option id holds it too ("#damageSelf=<n>").
    */
   readonly costSelection?: CostSelection;
   /**
@@ -1569,7 +1599,13 @@ function payableFor(
     // usable one, which is what `LegalAction.example` triggers.
     const query = card ? eventActionForQuery(createCtx(state, deps), card, id, playerId, options.abilityId) : null;
     const abilityId = query?.named ? query.action?.abilityId : undefined;
-    const cost = costAsDetermined(state, deps, id, playerId, query?.action?.definition.cost);
+    const cost = costAsDetermined(
+      state,
+      deps,
+      id,
+      playerId,
+      playCostWith(state, deps, id, query?.action?.definition.cost),
+    );
     const picks = options.costChoices?.discard ?? discardPicks(state, deps, playerId, id, cost);
     const sets = costChoiceSets(state, deps, playerId, id, cost, picks);
     const chosen = sets.find((set) => set.target !== null && set.target === options.target) ?? sets[0];
@@ -1732,7 +1768,12 @@ export function paymentFor(
       if (spending && "fromHand" in spending && spending.whenSpent) {
         if (payable.reserved.has(spending.fromHand)) return [];
         const picks = spending.whenSpent.costChoices;
-        const use = { instanceId: spending.fromHand, abilityId: spending.whenSpent.abilityId };
+        const amounts = spending.whenSpent.costSelection;
+        const use = {
+          instanceId: spending.fromHand,
+          abilityId: spending.whenSpent.abilityId,
+          ...(amounts ? { costSelection: amounts } : {}),
+        };
         return [
           {
             optionId: option.optionId,
@@ -1751,12 +1792,14 @@ export function paymentFor(
                   { ...use, ...(picks ? { costChoices: picks } : {}) },
                   playerId,
                   discardTop,
+                  payable.payingFor,
                 ),
                 playerId,
               ),
             ),
             spendsHandCard: true,
             ...(picks ? { costChoices: picks } : {}),
+            ...(amounts ? { costSelection: amounts } : {}),
           },
         ];
       }
@@ -1784,6 +1827,7 @@ export function paymentFor(
               },
               playerId,
               discardTop,
+              payable.payingFor,
             ),
             playerId,
           ),

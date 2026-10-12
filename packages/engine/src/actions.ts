@@ -97,6 +97,7 @@ import {
   chosenSelfCostDamageEffects,
   DAMAGE_SELF_MAX_VAR,
   DAMAGE_SELF_MIN_VAR,
+  DAMAGE_SELF_VAR,
   damageSelfChoiceRange,
   isDamageSelfChoice,
   costDamageEffects,
@@ -135,6 +136,7 @@ import {
   planAttachCost,
   planDealDamageChoice,
 } from "./attach-cost.js";
+import { encounterSearchCostEffects, planEncounterSearchCost } from "./encounter-search-cost.js";
 import { dealToCostPlayer, planDealToCost } from "./deal-to-cost.js";
 import {
   EACH_PLAYER_COST_SLOT,
@@ -883,7 +885,12 @@ export function handCardResources(
     .find((trigger) => trigger?.kind === "constant" && trigger.handGenerates !== undefined);
   const generated =
     instead?.kind === "constant" && instead.handGenerates !== undefined
-      ? generatedResources(state, instead.handGenerates, null, { deps, sourceId: cardInstanceId, playerId })
+      ? generatedResources(state, instead.handGenerates, null, {
+          deps,
+          sourceId: cardInstanceId,
+          playerId,
+          payingFor,
+        })
       : printedResourcesOf(state, cardInstanceId, deps);
   const context: EffectContext = {
     selfInstanceId: cardInstanceId,
@@ -967,6 +974,12 @@ export function paidForMultiplied(
  * payment change it; callers asking before a payment is built (the payment
  * query) can only be told what the current top card is worth.
  */
+/**
+ * The slot naming the card a payment is for, for a resource ability's effects (`announceResourcesSpent`; docs/phase7-
+ * wave4.md §3.30) and for what it generates (`generatedResources`; box-heroes B7.2).
+ */
+export const PAID_FOR_SLOT = "paidFor";
+
 export function generatedResources(
   state: GameState,
   generation: ResourceGeneration | undefined,
@@ -986,6 +999,15 @@ export function generatedResources(
      * resource for each threat you removed this way" (`resourceCostVars`; docs/phase7-wave9.md §3.7 (b)).
      */
     readonly vars?: Vars;
+    /**
+     * The card the resources are generated to pay for, bound to slot `paidFor` (`PAID_FOR_SLOT`) for a generation
+     * that reads it: "generate a [wild] resource ([wild][wild] resources instead if paying for a Hulkling card)"
+     * (Alien Physiology, `cw` 56036; docs/phase7-wave10-box-heroes.md B7.2). It is the card `generatesFor` is read
+     * against: the card being played, or the card whose ability's cost is being paid (FAQ "Finesse (#33)", RRG 1.8
+     * p. 60). Null or absent when the payment is for no card (a basic power's or a form change's additional cost):
+     * the slot is then unbound and names nothing.
+     */
+    readonly payingFor?: InstanceId | null;
   },
 ): ResourcePool {
   if (generation === undefined) return poolOf({ wild: 1 });
@@ -1000,7 +1022,7 @@ export function generatedResources(
       selfInstanceId: from.sourceId,
       controllerId: from.playerId,
       event: null,
-      bindings: from.bindings ?? {},
+      bindings: from.payingFor ? { ...from.bindings, [PAID_FOR_SLOT]: [from.payingFor] } : (from.bindings ?? {}),
       ...(from.vars ? { vars: from.vars } : {}),
       deps: from.deps,
     };
@@ -1161,6 +1183,7 @@ const spentCardUse = (entry: Extract<Payment, { fromHand: InstanceId }>): Resour
         instanceId: entry.fromHand,
         abilityId: entry.whenSpent.abilityId,
         ...(entry.whenSpent.costChoices ? { costChoices: entry.whenSpent.costChoices } : {}),
+        ...(entry.whenSpent.costSelection ? { costSelection: entry.whenSpent.costSelection } : {}),
       }
     : null;
 
@@ -1213,7 +1236,16 @@ function whenSpentFault(
       return { code: "no_valid_target", message: `${abilityId} only generates resources for a certain kind of card` };
     }
   }
-  const plan = planCost(state, deps, instanceId, spender, definition.cost, use.costChoices ?? {}, new Set());
+  const plan = planCost(
+    state,
+    deps,
+    instanceId,
+    spender,
+    definition.cost,
+    use.costChoices ?? {},
+    new Set(),
+    use.costSelection ?? {},
+  );
   return isFault(plan) ? plan : null;
 }
 
@@ -1241,23 +1273,35 @@ function resourceCostPlan(
     use.costSelection ?? {},
   );
   if (isFault(plan)) return plan;
-  // "Remove up to 2 threat from … →" with no amount named: the most it can (`ResourceAbilityUse.costSelection`). A
-  // use in a payment is priced before it is paid and is not asked in between, so its range is one number here.
-  const most = plan.vars[REMOVE_THREAT_MAX_VAR];
-  if (most === undefined || plan.vars[REMOVE_THREAT_MIN_VAR] === most) return plan;
-  return { ...plan, vars: { ...plan.vars, [REMOVE_THREAT_MIN_VAR]: most } };
+  // A use in a payment is priced before it is paid and is not asked in between, so each range is one number here.
+  // "Take up to 3 damage →" with no amount named (`CostSelection.damageSelf`): the least it may, since damage nobody
+  // named is not taken for the player. `planCost` has already cut a named amount's range to that amount.
+  const vars = { ...plan.vars };
+  const least = vars[DAMAGE_SELF_MIN_VAR];
+  if (least !== undefined) vars[DAMAGE_SELF_MAX_VAR] = least;
+  // "Remove up to 2 threat from … →" with no amount named: the most it can (`ResourceAbilityUse.costSelection`).
+  const most = vars[REMOVE_THREAT_MAX_VAR];
+  if (most !== undefined) vars[REMOVE_THREAT_MIN_VAR] = most;
+  return { ...plan, vars };
 }
 
 /**
  * What a resource ability's planned cost will have paid, for a generation that reads it: `cost.removeThreat`, the
  * threat a `removeThreat` cost removes ("generate a [mental] resource for each threat you removed this way";
- * docs/phase7-wave9.md §3.7 (b)). The amount is the plan's (`resourceCostPlan` leaves a range of one number), which is
+ * docs/phase7-wave9.md §3.7 (b)), and `cost.damageSelf`, the damage a chosen `damageSelf` cost takes. The amount is the plan's (`resourceCostPlan` leaves a range of one number), which is
  * what paying it removes, so pricing a payment and paying it agree. RRG 1.8 "Initiating Abilities" (p. 24): the cost is
  * paid (step 5) before the resources are generated (step 6).
  */
 function resourceCostVars(plan: CostPlan): Vars {
   const removed = plan.vars[REMOVE_THREAT_MAX_VAR];
-  return removed === undefined ? {} : { [REMOVE_THREAT_VAR]: removed };
+  // "… 1 additional [energy] resource for each damage taken this way" (docs/phase7-wave10-hero-packs.md H3.14):
+  // `cost.damageSelf`, the planned amount of a chosen damage cost (one number, `resourceCostPlan`) or of a computed
+  // one, which `planCost` only lets through when the identity could take all of it.
+  const damage = plan.vars[DAMAGE_SELF_MIN_VAR] ?? plan.vars[DAMAGE_SELF_VAR];
+  return {
+    ...(removed === undefined ? {} : { [REMOVE_THREAT_VAR]: removed }),
+    ...(damage === undefined ? {} : { [DAMAGE_SELF_VAR]: damage }),
+  };
 }
 
 /**
@@ -1271,6 +1315,8 @@ export function resourceAbilityGenerates(
   use: ResourceAbilityUse,
   spender: PlayerId,
   discardTop: InstanceId | null,
+  /** The card the payment is for (`generatedResources`' `payingFor`): what the generation reads as slot `paidFor`. */
+  payingFor: InstanceId | null,
 ): ResourcePool {
   const plan = resourceCostPlan(state, deps, use, spender);
   return generatedResources(state, deps.abilities[use.abilityId]?.generates, discardTop, {
@@ -1279,6 +1325,7 @@ export function resourceAbilityGenerates(
     playerId: spender,
     bindings: isFault(plan) ? {} : plan.bindings,
     vars: isFault(plan) ? {} : resourceCostVars(plan),
+    payingFor,
   });
 }
 
@@ -1351,26 +1398,36 @@ function resourcePickChoices(
 /**
  * The option id of one use of a resource ability: "ability:<id>:<abilityId>", then ":<n>" for the n-th use of a
  * `repeatable` one (docs/phase7-wave5.md §3.25), then "@" and, separated by ";", "<slot>=<id>,<id>" for the cards its
- * cost picks and "#removeThreat=<n>" for the threat a chosen-amount threat cost removes (`CostSelection.removeThreat`;
- * docs/phase7-wave9.md §3.7 (b)). Parsed back by `paymentsFromOptionIds`.
+ * cost picks, "#removeThreat=<n>" for the threat a chosen-amount threat cost removes (`CostSelection.removeThreat`;
+ * docs/phase7-wave9.md §3.7 (b)) and "#damageSelf=<n>" for the damage a chosen-amount damage cost takes
+ * (`CostSelection.damageSelf`; docs/phase7-wave10-hero-packs.md H3.14). Parsed back by `paymentsFromOptionIds`.
  */
 export function resourceAbilityOptionId(use: ResourceAbilityUse, n = 1): string {
   const base = `ability:${use.instanceId}:${use.abilityId}${n > 1 ? `:${n}` : ""}`;
   const parts = Object.entries(use.costChoices ?? {}).map(([slot, ids]) => `${slot}=${ids.join(",")}`);
-  const threat = use.costSelection?.removeThreat;
-  if (threat !== undefined) parts.push(`${REMOVE_THREAT_OPTION}${threat}`);
+  parts.push(...costSelectionParts(use.costSelection));
   return parts.length === 0 ? base : `${base}@${parts.join(";")}`;
+}
+
+/** The option-id parts naming the amounts a use's own cost leaves to the player (`costSelectionFromSuffix`). */
+function costSelectionParts(selection: CostSelection | undefined): readonly string[] {
+  return [
+    ...(selection?.removeThreat !== undefined ? [`${REMOVE_THREAT_OPTION}${selection.removeThreat}`] : []),
+    ...(selection?.damageSelf !== undefined ? [`${DAMAGE_SELF_OPTION}${selection.damageSelf}`] : []),
+  ];
 }
 
 /**
  * The option id of a hand card's spending: "hand:<id>", and for a spending that uses the card's own "When you spend
  * this card" ability (`Payment.whenSpent`) "hand:<id>:<abilityId>" with the same "@<slot>=<id>,<id>" suffix for the
- * cards its cost picks as `resourceAbilityOptionId`. Parsed back by `paymentsFromOptionIds`.
+ * cards its cost picks, and "#damageSelf=<n>" for the damage it takes, as `resourceAbilityOptionId`. Parsed back by
+ * `paymentsFromOptionIds`.
  */
 export function spentCardOptionId(entry: Extract<Payment, { fromHand: InstanceId }>): string {
   if (!entry.whenSpent) return `hand:${entry.fromHand}`;
   const base = `hand:${entry.fromHand}:${entry.whenSpent.abilityId}`;
   const parts = Object.entries(entry.whenSpent.costChoices ?? {}).map(([slot, ids]) => `${slot}=${ids.join(",")}`);
+  parts.push(...costSelectionParts(entry.whenSpent.costSelection));
   return parts.length === 0 ? base : `${base}@${parts.join(";")}`;
 }
 
@@ -1382,6 +1439,31 @@ export function handCardOfOptionId(optionId: string): InstanceId | null {
 
 /** The option-id part naming the threat a resource ability's cost removes (`resourceAbilityOptionId`). */
 const REMOVE_THREAT_OPTION = "#removeThreat=";
+/** The option-id part naming the damage a resource ability's cost takes (`CostSelection.damageSelf`). */
+const DAMAGE_SELF_OPTION = "#damageSelf=";
+
+/**
+ * The amounts a resource ability's chosen-amount damage cost could take right now, fewest first ("take up to 3 damage
+ * →": 1, 2 and 3; docs/phase7-wave10-hero-packs.md H3.14); empty when the cost has no such choice or cannot be paid
+ * (a tough status card: RRG 1.8 FAQ "Focused Rage (#27)", p. 57). Each amount is its own payment option
+ * (`paymentOptions`), so each shows what it generates and none is taken unnamed.
+ */
+function resourceDamageAmounts(
+  state: GameState,
+  deps: EngineDeps,
+  instanceId: InstanceId,
+  abilityId: string,
+  spender: PlayerId,
+  choices: CostChoices = {},
+): readonly number[] {
+  const cost = deps.abilities[abilityId]?.cost;
+  if (!cost || !isDamageSelfChoice(cost.damageSelf)) return [];
+  const plan = planCost(state, deps, instanceId, spender, cost, choices, new Set());
+  if (isFault(plan)) return [];
+  const min = plan.vars[DAMAGE_SELF_MIN_VAR] ?? 0;
+  const max = plan.vars[DAMAGE_SELF_MAX_VAR] ?? 0;
+  return Array.from({ length: Math.max(0, max - min + 1) }, (_, i) => min + i);
+}
 
 /**
  * The amounts a resource ability's chosen-amount threat cost could remove right now, fewest first ("remove up to 2
@@ -1411,7 +1493,20 @@ function resourceThreatAmounts(
  * once (`legal.ts spendOrder`, the upper bound of `costPayable`) leaves these out, since one use pays one amount.
  */
 export const isAlternativeAmount = (payment: Payment): boolean =>
-  "ability" in payment && payment.ability.costSelection?.removeThreat !== undefined;
+  "ability" in payment &&
+  (payment.ability.costSelection?.removeThreat !== undefined ||
+    payment.ability.costSelection?.damageSelf !== undefined);
+
+/**
+ * How much a hand card's "When you spend this card" use asks of the player beyond the card: the cards its cost picks
+ * and the damage its cost takes (`Payment.whenSpent`). A caller wanting the cheapest use that pays tries the smallest
+ * first (`mostFromEachHandCard`'s `atMostPicks`, `legal.ts walletsWithWhenSpent`).
+ */
+export const whenSpentCostSize = (payment: Payment): number =>
+  "fromHand" in payment
+    ? Object.values(payment.whenSpent?.costChoices ?? {}).flat().length +
+      (payment.whenSpent?.costSelection?.damageSelf ?? 0)
+    : 0;
 
 /**
  * A payment source that is another way to spend a hand card already listed: the card with its own "When you spend this
@@ -1426,8 +1521,9 @@ export const isWhenSpentUse = (payment: Payment): boolean => "fromHand" in payme
  * "When you spend this card" ability. Cards are taken in the order listed, and a use whose cost picks a card an
  * earlier one already picked is passed over (one card pays one cost, RRG 1.8 "Cost", p. 13), so the result can be
  * priced whole as far as these entries go. Entries that are not hand cards are returned as they are, in place.
- * `atMostPicks`: only the uses whose cost picks that many cards or fewer, for a caller that wants the cheapest use
- * that pays (`legal.ts walletsWithWhenSpent`).
+ * `atMostPicks`: only the uses whose cost picks that many cards or fewer, a point of damage a chosen damage cost takes
+ * counting as a card (`whenSpentCostSize`), for a caller that wants the cheapest use that pays (`legal.ts
+ * walletsWithWhenSpent`).
  */
 export function mostFromEachHandCard(
   ctx: Ctx,
@@ -1444,7 +1540,7 @@ export function mostFromEachHandCard(
     for (const entry of payments) {
       if (!("fromHand" in entry) || entry.fromHand !== id) continue;
       const picks = Object.values(entry.whenSpent?.costChoices ?? {}).flat();
-      if (picks.length > atMostPicks || picks.some((pick) => picked.has(pick))) continue;
+      if (whenSpentCostSize(entry) > atMostPicks || picks.some((pick) => picked.has(pick))) continue;
       const pool = priceOrNull(ctx, playerId, [entry], excludeInstanceId, payingFor);
       if (pool === null || poolTotal(pool) <= most) continue;
       most = poolTotal(pool);
@@ -1485,7 +1581,13 @@ function spendableForAnyPlayer(state: GameState, deps: EngineDeps, id: InstanceI
  * ability generates, before any doubling of the whole payment. They travel with the other `paid.*` vars
  * (`playPaymentVars`), so the played card's own abilities read them.
  */
-function paymentSourceVars(ctx: Ctx, playerId: PlayerId, payment: readonly Payment[]): Record<string, number> {
+function paymentSourceVars(
+  ctx: Ctx,
+  playerId: PlayerId,
+  payment: readonly Payment[],
+  /** The card the payment is for, as `priceOf` reads it. */
+  payingFor: InstanceId | null,
+): Record<string, number> {
   const vars: Record<string, number> = {};
   for (const entry of payment) {
     // A hand card's "When you spend this card" use counts as its ability's, like any other use.
@@ -1502,6 +1604,7 @@ function paymentSourceVars(ctx: Ctx, playerId: PlayerId, payment: readonly Payme
       use,
       spender,
       mustPlayer(ctx.state, spender).discard[0] ?? null,
+      payingFor,
     );
     const key = `paid.ability.${abilityId}`;
     vars[key] = (vars[key] ?? 0) + poolTotal(generated);
@@ -1694,7 +1797,7 @@ export function priceOf(
             ctx.state,
             ctx.deps,
             payingFor,
-            resourceAbilityGenerates(ctx.state, ctx.deps, use, ownerId, topOf(ownerId)),
+            resourceAbilityGenerates(ctx.state, ctx.deps, use, ownerId, topOf(ownerId), payingFor),
             ownerId,
           ),
         );
@@ -1732,7 +1835,7 @@ export function priceOf(
         ctx.state,
         ctx.deps,
         payingFor,
-        resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, topOf(spender)),
+        resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, topOf(spender), payingFor),
         spender,
       ),
     );
@@ -1795,20 +1898,33 @@ export function paymentOptions(
       // joins a payment (`isWhenSpentUse`).
       for (const abilityId of whenSpentAbilitiesOf(ctx.state, ctx.deps, id)) {
         for (const choices of resourcePickChoices(ctx.state, ctx.deps, id, abilityId, payerId)) {
-          const use: ResourceAbilityUse = { instanceId: id, abilityId, ...(choices ? { costChoices: choices } : {}) };
-          if (whenSpentFault(ctx.state, ctx.deps, use, payerId, payingFor)) continue;
-          const picked = Object.values(choices ?? {}).flatMap((ids) => ids.map((p) => displayNameOf(ctx.state, p)));
-          options.push({
-            optionId: spentCardOptionId({
-              fromHand: id,
-              whenSpent: { abilityId, ...(choices ? { costChoices: choices } : {}) },
-            }),
-            label:
-              picked.length > 0
-                ? `${displayNameOf(ctx.state, id)} (${picked.join(", ")})`
-                : displayNameOf(ctx.state, id),
-            ref: { kind: "ability", instanceId: id, abilityId },
-          });
+          // "… take up to 3 damage → …" (`CostSelection.damageSelf`, hero-packs H3.14): one option per amount the
+          // cost could take now, fewest first; `[undefined]` for a cost with no such choice.
+          const amounts = resourceDamageAmounts(ctx.state, ctx.deps, id, abilityId, payerId, choices ?? {});
+          const chosenDamage = isDamageSelfChoice(ctx.deps.abilities[abilityId]?.cost?.damageSelf);
+          for (const damage of chosenDamage ? amounts : [undefined]) {
+            const selection = damage === undefined ? {} : { costSelection: { damageSelf: damage } };
+            const use: ResourceAbilityUse = {
+              instanceId: id,
+              abilityId,
+              ...(choices ? { costChoices: choices } : {}),
+              ...selection,
+            };
+            if (whenSpentFault(ctx.state, ctx.deps, use, payerId, payingFor)) continue;
+            const picked = Object.values(choices ?? {}).flatMap((ids) => ids.map((p) => displayNameOf(ctx.state, p)));
+            const notes = [...picked, ...(damage === undefined ? [] : [`take ${damage} damage`])];
+            options.push({
+              optionId: spentCardOptionId({
+                fromHand: id,
+                whenSpent: { abilityId, ...(choices ? { costChoices: choices } : {}), ...selection },
+              }),
+              label:
+                notes.length > 0
+                  ? `${displayNameOf(ctx.state, id)} (${notes.join(", ")})`
+                  : displayNameOf(ctx.state, id),
+              ref: { kind: "ability", instanceId: id, abilityId },
+            });
+          }
         }
       }
     }
@@ -1853,12 +1969,31 @@ export function paymentOptions(
       // option removes the most; each smaller amount is an option of its own, so each shows what it generates.
       const amounts = resourceThreatAmounts(ctx.state, ctx.deps, id, ref.id, spender);
       const most = amounts[amounts.length - 1];
+      // "Take up to 3 damage → generate a resource for each" on a card in play (`CostSelection.damageSelf`): the plain
+      // option takes the least; each larger amount is an option of its own, so each shows what it generates.
+      const damages = resourceDamageAmounts(ctx.state, ctx.deps, id, ref.id, spender);
+      const [least, ...larger] = damages;
       options.push({
         optionId: `ability:${id}:${ref.id}`,
         label:
-          most === undefined ? displayNameOf(ctx.state, id) : `${displayNameOf(ctx.state, id)} (remove ${most} threat)`,
+          most !== undefined
+            ? `${displayNameOf(ctx.state, id)} (remove ${most} threat)`
+            : least !== undefined && larger.length > 0
+              ? `${displayNameOf(ctx.state, id)} (take ${least} damage)`
+              : displayNameOf(ctx.state, id),
         ref: { kind: "ability", instanceId: id, abilityId: ref.id },
       });
+      for (const damage of larger) {
+        options.push({
+          optionId: resourceAbilityOptionId({
+            instanceId: id,
+            abilityId: ref.id,
+            costSelection: { damageSelf: damage },
+          }),
+          label: `${displayNameOf(ctx.state, id)} (take ${damage} damage)`,
+          ref: { kind: "ability", instanceId: id, abilityId: ref.id },
+        });
+      }
       for (const amount of amounts.slice(0, -1).reverse()) {
         options.push({
           optionId: resourceAbilityOptionId({
@@ -1901,7 +2036,14 @@ export function paymentsFromOptionIds(optionIds: readonly string[]): readonly Pa
     const [kind, first, second] = head.split(":");
     if (kind === "hand" && first) {
       const picks = at < 0 ? undefined : pickChoicesFromSuffix(optionId.slice(at + 1));
-      const whenSpent = second ? { abilityId: asAbilityId(second), ...(picks ? { costChoices: picks } : {}) } : null;
+      const selection = at < 0 ? undefined : costSelectionFromSuffix(optionId.slice(at + 1));
+      const whenSpent = second
+        ? {
+            abilityId: asAbilityId(second),
+            ...(picks ? { costChoices: picks } : {}),
+            ...(selection ? { costSelection: selection } : {}),
+          }
+        : null;
       payments.push({ fromHand: asInstanceId(first), ...(whenSpent ? { whenSpent } : {}) });
     }
     if (kind === "ability" && first && second) {
@@ -1920,12 +2062,20 @@ export function paymentsFromOptionIds(optionIds: readonly string[]): readonly Pa
   return payments;
 }
 
-/** "#removeThreat=<n>" among an option id's parts back into the use's `CostSelection`. */
+/** "#removeThreat=<n>" and "#damageSelf=<n>" among an option id's parts back into the use's `CostSelection`. */
 function costSelectionFromSuffix(suffix: string): CostSelection | undefined {
-  const part = suffix.split(";").find((each) => each.startsWith(REMOVE_THREAT_OPTION));
-  if (part === undefined) return undefined;
-  const amount = Number(part.slice(REMOVE_THREAT_OPTION.length));
-  return Number.isInteger(amount) ? { removeThreat: amount } : undefined;
+  const amountOf = (prefix: string): number | undefined => {
+    const part = suffix.split(";").find((each) => each.startsWith(prefix));
+    const amount = part === undefined ? Number.NaN : Number(part.slice(prefix.length));
+    return Number.isInteger(amount) ? amount : undefined;
+  };
+  const removeThreat = amountOf(REMOVE_THREAT_OPTION);
+  const damageSelf = amountOf(DAMAGE_SELF_OPTION);
+  if (removeThreat === undefined && damageSelf === undefined) return undefined;
+  return {
+    ...(removeThreat !== undefined ? { removeThreat } : {}),
+    ...(damageSelf !== undefined ? { damageSelf } : {}),
+  };
 }
 
 /** "<slot>=<id>,<id>;<slot>=<id>" back into `CostChoices`; a "#…" part is not a slot (`costSelectionFromSuffix`). */
@@ -1958,6 +2108,17 @@ export interface ResourceThreatCost {
   readonly instanceId: InstanceId;
   readonly spender: PlayerId;
   readonly fromId: InstanceId;
+  readonly amount: number;
+}
+
+/**
+ * The damage cost of a resource ability a payment used (`AbilityCost.damageSelf`; docs/phase7-wave10-hero-packs.md
+ * H3.14): `amount` damage `spender`'s identity takes from `instanceId`, the amount the payment was priced with
+ * (`resourceCostVars`).
+ */
+export interface ResourceDamageCost {
+  readonly instanceId: InstanceId;
+  readonly spender: PlayerId;
   readonly amount: number;
 }
 
@@ -1994,6 +2155,13 @@ export interface SpentPayment {
    * paid for so that it resolves first (RRG 1.8 "Initiating Abilities", p. 24, step 5 before step 6).
    */
   readonly threatCosts?: readonly ResourceThreatCost[];
+  /**
+   * The damage costs of the resource abilities used ("When you spend this card, take up to 3 damage → this card
+   * generates 1 additional [energy] resource for each damage taken this way"; docs/phase7-wave10-hero-packs.md H3.14),
+   * held for `announceResourcesSpent` like `threatCosts`: the damage is an ordinary deal, which has to sit above the
+   * card or ability paid for so that it is taken first (RRG 1.8 "Initiating Abilities", p. 24, step 5 before step 6).
+   */
+  readonly damageCosts?: readonly ResourceDamageCost[];
 }
 
 export const NOTHING_SPENT: SpentPayment = { cards: [], resourceAbilities: [], generated: [] };
@@ -2015,6 +2183,7 @@ export const joinSpent = (a: SpentPayment, b: SpentPayment): SpentPayment => ({
   generated: b.generated.reduce((all, entry) => addGenerated(all, entry.playerId, entry.amount), a.generated),
   ...(a.cardSpenders || b.cardSpenders ? { cardSpenders: { ...a.cardSpenders, ...b.cardSpenders } } : {}),
   countersRemoved: [...(a.countersRemoved ?? []), ...(b.countersRemoved ?? [])],
+  ...(a.damageCosts || b.damageCosts ? { damageCosts: [...(a.damageCosts ?? []), ...(b.damageCosts ?? [])] } : {}),
 });
 
 /**
@@ -2034,6 +2203,7 @@ export function payPayment(
   const used: UsedResourceAbility[] = [];
   const countersRemoved: TriggerEvent[] = [];
   const threatCosts: ResourceThreatCost[] = [];
+  const damageCosts: ResourceDamageCost[] = [];
   let generatedBy: readonly GeneratedByPlayer[] = [];
   // Read before anything is discarded: the payment's resources are generated simultaneously (see `priceOf`).
   // Each player's pile top before any card of this payment is discarded (FAQ "Pepper Potts (#33)", RRG 1.8 p. 58).
@@ -2067,12 +2237,13 @@ export function payPayment(
             use,
             spenderOfCard,
             discardTopBefore.get(spenderOfCard) ?? null,
+            payingFor,
           ),
           spenderOfCard,
         );
         const plan = resourceCostPlan(ctx.state, ctx.deps, use, spenderOfCard);
         if (!isFault(plan))
-          payCost(ctx, use.instanceId, spenderOfCard, definition.cost, plan, countersRemoved, threatCosts);
+          payCost(ctx, use.instanceId, spenderOfCard, definition.cost, plan, countersRemoved, threatCosts, damageCosts);
         recordAbilityUse(ctx, use.instanceId, use.abilityId, definition, null, spenderOfCard);
         emit(ctx, {
           type: "resourcesGenerated",
@@ -2105,11 +2276,19 @@ export function payPayment(
       ctx.state,
       ctx.deps,
       payingFor,
-      resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, discardTopBefore.get(spender) ?? null),
+      resourceAbilityGenerates(
+        ctx.state,
+        ctx.deps,
+        entry.ability,
+        spender,
+        discardTopBefore.get(spender) ?? null,
+        payingFor,
+      ),
       spender,
     );
     const plan = resourceCostPlan(ctx.state, ctx.deps, entry.ability, spender);
-    if (!isFault(plan)) payCost(ctx, instanceId, spender, definition.cost, plan, countersRemoved, threatCosts);
+    if (!isFault(plan))
+      payCost(ctx, instanceId, spender, definition.cost, plan, countersRemoved, threatCosts, damageCosts);
     recordAbilityUse(ctx, instanceId, abilityId, definition, null, spender);
     emit(ctx, {
       type: "resourcesGenerated",
@@ -2131,6 +2310,7 @@ export function payPayment(
     ...(Object.keys(tuckedSpenders).length > 0 ? { cardSpenders: tuckedSpenders } : {}),
     ...(countersRemoved.length > 0 ? { countersRemoved } : {}),
     ...(threatCosts.length > 0 ? { threatCosts } : {}),
+    ...(damageCosts.length > 0 ? { damageCosts } : {}),
   };
 }
 
@@ -2174,7 +2354,7 @@ export function announceResourcesSpent(
       effects: definition.effects,
       selfInstanceId: instanceId,
       controllerId: spender,
-      bindings: payingForInstanceId ? { paidFor: [payingForInstanceId] } : {},
+      bindings: payingForInstanceId ? { [PAID_FOR_SLOT]: [payingForInstanceId] } : {},
     });
   }
   // A resource ability's threat cost (`SpentPayment.threatCosts`): pushed last of all, so the threat comes off before
@@ -2183,6 +2363,18 @@ export function announceResourcesSpent(
   for (const { instanceId, spender, fromId, amount } of [...(paid.threatCosts ?? [])].reverse()) {
     pushEffects(ctx, {
       effects: removeThreatCostEffects({ fromId, min: amount, max: amount }, null),
+      selfInstanceId: instanceId,
+      controllerId: spender,
+    });
+  }
+  // A resource ability's damage cost (`SpentPayment.damageCosts`; hero-packs H3.14), pushed the same way: the
+  // spender's identity takes the damage, from the ability's card, before the card or ability paid for. `planCost` let
+  // the amount through only where all of it could be taken, and the resources were generated from it; damage an
+  // interrupt prevents as it is dealt is logged unpaid (`costDamageSettled`) and has no frame to report that to.
+  for (const { instanceId, spender, amount } of [...(paid.damageCosts ?? [])].reverse()) {
+    if (amount <= 0) continue;
+    pushEffects(ctx, {
+      effects: selfCostDamageEffects(amount, null),
       selfInstanceId: instanceId,
       controllerId: spender,
     });
@@ -2800,6 +2992,13 @@ export function planCost(
     if (isFault(attached)) return attached;
     Object.assign(bindings, attached);
   }
+  // "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost
+  // (`searchEncounterIntoPlay`, `encounter-search-cost.ts`; box-heroes B3.1): the payer's pick among what is there.
+  if (cost.searchEncounterIntoPlay) {
+    const searched = planEncounterSearchCost(state, deps, sourceId, playerId, cost.searchEncounterIntoPlay, choices);
+    if (isFault(searched)) return searched;
+    Object.assign(bindings, searched);
+  }
   // "Deal 1 damage to another friendly character →" (`dealDamage.choose`, docs/phase7-wave8.md §3.74): the payer's pick.
   if (cost.dealDamage?.choose) {
     const chosen = planDealDamageChoice(state, deps, sourceId, playerId, cost.dealDamage.choose, choices, bindings);
@@ -2851,8 +3050,16 @@ export function planCost(
       if (!range) {
         return { code: "insufficient_resources", message: "your identity cannot take the damage this cost needs" };
       }
-      vars[DAMAGE_SELF_MIN_VAR] = range.min;
-      vars[DAMAGE_SELF_MAX_VAR] = range.max;
+      // The amount named up front (`CostSelection.damageSelf`) is a range of one number, which is not asked.
+      const named = selection.damageSelf;
+      if (named !== undefined && (!Number.isInteger(named) || named < range.min || named > range.max)) {
+        return {
+          code: "invalid_choice",
+          message: `this cost takes ${range.min} to ${range.max} damage, not ${named}`,
+        };
+      }
+      vars[DAMAGE_SELF_MIN_VAR] = named ?? range.min;
+      vars[DAMAGE_SELF_MAX_VAR] = named ?? range.max;
     } else {
       vars["cost.damageSelf"] = Math.max(0, resolveValue(state, cost.damageSelf, context, deps));
     }
@@ -3428,6 +3635,12 @@ export function payCost(
    * cost (`SpentPayment.threatCosts`), pushed by `announceResourcesSpent` above the card or ability paid for.
    */
   collectThreatCosts?: ResourceThreatCost[],
+  /**
+   * Where a `damageSelf` cost goes instead of the stack, for the same reason: a resource ability's damage cost
+   * (`SpentPayment.damageCosts`), pushed by `announceResourcesSpent` above the card or ability paid for. A chosen
+   * amount is the plan's one number (`resourceCostPlan`).
+   */
+  collectDamageCosts?: ResourceDamageCost[],
 ): void {
   const cost = plan.cost ?? written;
   if (!cost) return;
@@ -3581,7 +3794,9 @@ export function payCost(
   // "Take 1 damage →" (`damageSelf`, `cost-damage.ts`): dealt above the frame being paid for, so it resolves first; if
   // not all of it is taken, that frame's effects don't (RRG 1.8 "Cost", p. 14).
   const damageSelf = costDamageSelf(cost, plan.vars);
-  if (damageSelf > 0) {
+  if (damageSelf > 0 && collectDamageCosts) {
+    collectDamageCosts.push({ instanceId: sourceId, spender: playerId, amount: damageSelf });
+  } else if (damageSelf > 0) {
     pushEffects(ctx, {
       effects: selfCostDamageEffects(damageSelf, paidFor),
       selfInstanceId: sourceId,
@@ -3590,7 +3805,13 @@ export function payCost(
   }
   // "Take any amount of damage up to … →" (docs/phase7-wave7.md §3.79): the payer picks from the planned range, takes
   // it, and the pick is recorded on the frame being paid for as `cost.damageSelf`.
-  if (isDamageSelfChoice(cost.damageSelf)) {
+  if (isDamageSelfChoice(cost.damageSelf) && collectDamageCosts) {
+    collectDamageCosts.push({
+      instanceId: sourceId,
+      spender: playerId,
+      amount: plan.vars[DAMAGE_SELF_MIN_VAR] ?? 0,
+    });
+  } else if (isDamageSelfChoice(cost.damageSelf)) {
     pushEffects(ctx, {
       effects: chosenSelfCostDamageEffects(
         plan.vars[DAMAGE_SELF_MIN_VAR] ?? 0,
@@ -3659,6 +3880,18 @@ export function payCost(
   // "Find Touched and attach it to a character other than Rogue and deal 2 damage to that character →" (`attach-cost.ts`,
   // docs/phase7-wave6.md §3.49): attached now, then the damage dealt above the frame being paid for.
   if (cost.attach) payAttachCost(ctx, sourceId, playerId, cost.attach, plan.bindings);
+  // "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost
+  // (`encounter-search-cost.ts`; box-heroes B3.1): the shuffle and the entry are a step above the frame being paid
+  // for, so what the entry triggers (quickstrike) resolves before that frame (ruling February 28, 2026 - Ruling 1).
+  if (cost.searchEncounterIntoPlay) {
+    const { slot } = cost.searchEncounterIntoPlay;
+    pushEffects(ctx, {
+      effects: encounterSearchCostEffects(cost.searchEncounterIntoPlay),
+      selfInstanceId: sourceId,
+      controllerId: playerId,
+      bindings: { [slot]: plan.bindings[slot] ?? [] },
+    });
+  }
   if (cost.dealDamage) payDealDamageCost(ctx, sourceId, playerId, cost.dealDamage, plan.bindings);
   // "Take 3 indirect damage →" (`indirectDamage`, `cost-damage.ts`): assigned and dealt above the ability's own frame,
   // which the caller has just pushed, so it resolves first; if not all of it is taken, that frame's effects don't.
@@ -3903,6 +4136,69 @@ export function eventActionForQuery(
     usableEventActions(ctx, card, id, playerId)[0] ??
     actions[0];
   return { action, named: actions.length > 1 };
+}
+
+/**
+ * A card's "As an additional cost to play this [card], …" (`additionalCostToPlay` on a printed constant; box-heroes
+ * B3.1): the cost, the slot of it the played upgrade attaches to, and the effects that resolve as the card enters
+ * play. Read from the card's printed text wherever it is played from, like `paymentOnly`. Null for every other card.
+ */
+export function additionalPlayCostOf(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+): {
+  readonly abilityId: AbilityId;
+  readonly cost: AbilityCost;
+  readonly attachToSlot?: string;
+  readonly effects: readonly EffectSpec[];
+} | null {
+  const card = cardOf(state, id);
+  if (!card) return null;
+  for (const ref of printedAbilityRefs(card)) {
+    const definition = deps.abilities[ref.id];
+    if (definition?.trigger.kind !== "constant" || !definition.trigger.additionalCostToPlay || !definition.cost)
+      continue;
+    const { attachToSlot } = definition.trigger.additionalCostToPlay;
+    return {
+      abilityId: ref.id,
+      cost: definition.cost,
+      ...(attachToSlot !== undefined ? { attachToSlot } : {}),
+      effects: definition.effects,
+    };
+  }
+  return null;
+}
+
+/**
+ * The non-resource cost of playing a card: its additional cost to play (`additionalPlayCostOf`) with the cost of the
+ * Action ability the play triggers, when it is an event with one. RRG 1.8 "Cost" (p. 14): an additional cost is paid
+ * "simultaneously with the cost that is being added to", so both are planned and paid as one cost. A component both
+ * name is the Action's. For every card with no additional cost this is `abilityCost` itself.
+ */
+export function playCostWith(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  abilityCost: AbilityCost | undefined,
+): AbilityCost | undefined {
+  const additional = additionalPlayCostOf(state, deps, id);
+  return additional ? { ...additional.cost, ...abilityCost } : abilityCost;
+}
+
+/**
+ * The card a played upgrade attaches to when its additional cost to play names it (`additionalCostToPlay.attachToSlot`;
+ * "Attach Hunted to that minion"): the card the planned cost bound to that slot. `undefined` for every other card,
+ * whose host is the play's own.
+ */
+export function playHostFromCost(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  bindings: Bindings,
+): InstanceId | null | undefined {
+  const slot = additionalPlayCostOf(state, deps, id)?.attachToSlot;
+  return slot === undefined ? undefined : (bindings[slot]?.[0] ?? null);
 }
 
 /**
@@ -4264,7 +4560,7 @@ export function pricePlay(
     {
       ...plan.vars,
       ...vars,
-      ...paymentSourceVars(ctx, playerId, payment),
+      ...paymentSourceVars(ctx, playerId, payment, payingFor),
       ...paidCardVars(ctx, paidCards),
       ...(printedX ? { x: xValue } : {}),
     },
@@ -4551,7 +4847,20 @@ export function playCard(ctx: Ctx, command: Command & { type: "playCard" }): Eng
 
   let attachTo: InstanceId | null = null;
   const ownIdentity = controller.identity.instanceId;
-  if (card.type === "upgrade" && command.into !== undefined && !card.attachesTo) {
+  // "Attach Hunted to that minion" (`additionalCostToPlay.attachToSlot`, box-heroes B3.1): the host is the card the
+  // additional cost puts into play, read from the planned cost below, so the command names none.
+  const hostedByCost =
+    card.type === "upgrade" &&
+    additionalPlayCostOf(ctx.state, ctx.deps, command.cardInstanceId)?.attachToSlot !== undefined;
+  if (hostedByCost) {
+    if (command.attachToInstanceId) {
+      return engineError(
+        "no_valid_target",
+        "this upgrade attaches to the card its additional cost puts into play",
+        command,
+      );
+    }
+  } else if (card.type === "upgrade" && command.into !== undefined && !card.attachesTo) {
     // An upgrade with no "attach to" text, played into an area: it is in the area attached to nothing. RRG 1.8 "Attach
     // To" (p. 8) binds only a card that "uses the phrase 'attach to'", and "Upgrade" (p. 46) puts the others "near a
     // player's identity card" as "an extension of the controlling player's identity", which a card in an area no
@@ -4625,11 +4934,13 @@ export function playCard(ctx: Ctx, command: Command & { type: "playCard" }): Eng
     areaCostReductionFor(ctx.state, ctx.deps, command.playerId, command.cardInstanceId, intoArea),
   );
 
+  // The card's additional cost to play is planned and paid with its Action's own (RRG 1.8 "Cost", p. 14).
+  const playCost = playCostWith(ctx.state, ctx.deps, command.cardInstanceId, ability?.cost);
   const priced = pricePlay(
     ctx,
     command.playerId,
     command.cardInstanceId,
-    ability?.cost,
+    playCost,
     command.payment,
     command.costChoices ?? {},
     attachTo,
@@ -4640,6 +4951,10 @@ export function playCard(ctx: Ctx, command: Command & { type: "playCard" }): Eng
     { abilityId: chosen?.abilityId ?? null, wildAs: command.wildAs },
   );
   if (isFault(priced)) return engineError(priced.code, priced.message, command);
+  if (hostedByCost) {
+    attachTo = playHostFromCost(ctx.state, ctx.deps, command.cardInstanceId, priced.plan.bindings) ?? null;
+    if (attachTo === null) return engineError("no_valid_target", "upgrade has no valid host", command);
+  }
 
   const spent = commitPlay(ctx, command.playerId, command.cardInstanceId, command.payment, priced, deckTop);
   if (intoArea !== null) consumeAreaCostReductions(ctx, command.playerId, command.cardInstanceId, intoArea);
@@ -4667,7 +4982,7 @@ export function playCard(ctx: Ctx, command: Command & { type: "playCard" }): Eng
     controllerId,
     command.into?.scenarioPlayArea,
   );
-  payCost(ctx, command.cardInstanceId, command.playerId, ability?.cost, priced.plan);
+  payCost(ctx, command.cardInstanceId, command.playerId, playCost, priced.plan);
   const unpayable = thwartCostUnpayableAfterPaying(ctx, card.type === "event" ? ability : undefined, command);
   if (unpayable) return unpayable;
   announceResourcesSpent(ctx, command.playerId, spent, command.cardInstanceId, "playCard");
@@ -4859,6 +5174,11 @@ export function playIgnoringCostFault(
     return "a Requirement card cannot be played ignoring its cost";
   }
   if (card.type === "upgrade" && card.attachesTo) return "an upgrade with a host of its own";
+  // An additional cost to play is still paid (`playIgnoringCost`); nothing asks for a pick here, so it must be forced.
+  const additional = additionalPlayCostOf(ctx.state, ctx.deps, id);
+  if (additional && isFault(planCost(ctx.state, ctx.deps, id, playerId, additional.cost, {}, new Set([id])))) {
+    return "its additional cost to play cannot be paid without a further choice";
+  }
   if (card.type !== "event") return null;
   return anyEventAction(ctx, card, abilityId, "an event with no cost-free action", (action) => {
     if (action.definition.cost) return "an event with no cost-free action";
@@ -4972,7 +5292,15 @@ function paidPlayFault(
 ): string | null {
   // The ability's own cost has to be settleable without asking: `planCost` fills in a pick with exactly one legal
   // candidate, and anything more ambiguous has nowhere to prompt from inside this effect (§9's capability note).
-  const plan = planCost(ctx.state, ctx.deps, id, playerId, abilityCost, {}, new Set([id]));
+  const plan = planCost(
+    ctx.state,
+    ctx.deps,
+    id,
+    playerId,
+    playCostWith(ctx.state, ctx.deps, id, abilityCost),
+    {},
+    new Set([id]),
+  );
   if (isFault(plan)) return "its own ability cost cannot be paid without a further choice";
   const attachTo = hostForEffectPlay(ctx, playerId, id);
   if (attachTo === undefined) return "no legal host";
@@ -5037,7 +5365,15 @@ export function playFromEffectRequirement(
 ): ResolvedRequirement | null {
   const abilityCost = eventActionForQuery(ctx, mustCardOf(ctx.state, id), id, playerId, abilityId).action?.definition
     .cost;
-  const plan = planCost(ctx.state, ctx.deps, id, playerId, abilityCost, {}, new Set([id]));
+  const plan = planCost(
+    ctx.state,
+    ctx.deps,
+    id,
+    playerId,
+    playCostWith(ctx.state, ctx.deps, id, abilityCost),
+    {},
+    new Set([id]),
+  );
   if (isFault(plan)) return null;
   const reduction = extraReduction + (deckTopPlayFrom(ctx.state, ctx.deps, playerId, id, from)?.costReduction ?? 0);
   return playRequirement(ctx.state, playerId, id, plan.requirement, ctx.deps, attachTo, 0, reduction);
@@ -5080,7 +5416,9 @@ export function playWithPayment(
     extraReduction +
     (deckTop?.costReduction ?? 0) +
     Math.max(0, areaCostReductionFor(ctx.state, ctx.deps, playerId, id, into));
-  const priced = pricePlay(ctx, playerId, id, ability?.cost, payment, {}, attachTo, undefined, reduction, {}, null, {
+  // An additional cost to play is paid here too, with a pick only when it is forced (`paidPlayFault`).
+  const playCost = playCostWith(ctx.state, ctx.deps, id, ability?.cost);
+  const priced = pricePlay(ctx, playerId, id, playCost, payment, {}, attachTo, undefined, reduction, {}, null, {
     abilityId: chosen?.abilityId ?? null,
     wildAs,
   });
@@ -5088,18 +5426,19 @@ export function playWithPayment(
   const spent = commitPlay(ctx, playerId, id, payment, priced, deckTop);
   if (into !== null) consumeAreaCostReductions(ctx, playerId, id, into);
   const bindings = { ...priced.plan.bindings, ...extraBindings };
+  const fromCost = playHostFromCost(ctx.state, ctx.deps, id, priced.plan.bindings);
   pushPlayCardFrame(
     ctx,
     id,
     playerId,
-    attachTo,
+    fromCost === undefined ? attachTo : fromCost,
     triggeredAction(chosen),
     playFrameCost(priced, bindings),
     playerId,
     into ?? undefined,
   );
   const frameId = ctx.state.stack[0]?.frameId ?? null;
-  payCost(ctx, id, playerId, ability?.cost, priced.plan);
+  payCost(ctx, id, playerId, playCost, priced.plan);
   announceResourcesSpent(ctx, playerId, spent, id, "playCard");
   return frameId;
 }
@@ -5126,7 +5465,10 @@ export function playIgnoringCost(
   const actionId = abilityId ?? (usable.length === 1 ? usable[0] : undefined);
   // Several usable and none named: the choice is the player's (RRG 1.8 "Event", p. 18), so nothing is played.
   if (usable.length > 0 && actionId === undefined) return null;
-  const plan = planCost(ctx.state, ctx.deps, id, playerId, undefined, {}, new Set());
+  // Ignoring the resource cost leaves an additional cost to play to be paid (RRG 1.8 "Ignore", p. 23: "no resources
+  // are paid for that card"), with a pick only when it is forced; one that cannot be paid stops the play.
+  const playCost = playCostWith(ctx.state, ctx.deps, id, undefined);
+  const plan = planCost(ctx.state, ctx.deps, id, playerId, playCost, {}, new Set());
   if (isFault(plan)) return null;
   const vars = {
     ...plan.vars,
@@ -5141,7 +5483,13 @@ export function playIgnoringCost(
   // "The next ally played to the mission": this was that ally, though nothing was paid for the reduction to lower.
   if (into !== null) consumeAreaCostReductions(ctx, playerId, id, into);
   const card = mustCardOf(ctx.state, id);
-  const attachTo = card.type === "upgrade" ? mustPlayer(ctx.state, playerId).identity.instanceId : null;
+  const fromCost = playHostFromCost(ctx.state, ctx.deps, id, plan.bindings);
+  const attachTo =
+    fromCost !== undefined
+      ? fromCost
+      : card.type === "upgrade"
+        ? mustPlayer(ctx.state, playerId).identity.instanceId
+        : null;
   const triggered = actionId ? { triggeredAbilityId: actionId, event: null, eventFrameId: null } : undefined;
   pushPlayCardFrame(
     ctx,
@@ -5153,7 +5501,9 @@ export function playIgnoringCost(
     playerId,
     into ?? undefined,
   );
-  return ctx.state.stack[0]?.frameId ?? null;
+  const frameId = ctx.state.stack[0]?.frameId ?? null;
+  payCost(ctx, id, playerId, playCost, plan);
+  return frameId;
 }
 
 /**
@@ -5295,7 +5645,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, 
 
   // Read before paying: paying may exhaust or discard the source.
   const sources = {
-    ...paymentSourceVars(ctx, command.playerId, command.payment),
+    ...paymentSourceVars(ctx, command.playerId, command.payment, payingFor),
     ...paidCardVars(
       ctx,
       cardsThatPaid(

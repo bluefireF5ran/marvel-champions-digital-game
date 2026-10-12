@@ -2,6 +2,7 @@ import type { AbilityRegistry } from "@mc/engine";
 import {
   YOUR_IDENTITY,
   aScheme,
+  additionalCostToPlay,
   alterEgoAction,
   after,
   chooseCards,
@@ -17,6 +18,7 @@ import {
   generatesAmount,
   heroInterrupt,
   interrupt,
+  isHero,
   modifyAttack,
   modifyStat,
   discardThis,
@@ -25,9 +27,11 @@ import {
   preventDamage,
   putIntoPlay,
   query,
+  ready,
   removeThreat,
   resource,
   scaled,
+  searchEncounterIntoPlayCost,
   shuffleEncounterDeck,
   stun,
   when,
@@ -47,7 +51,7 @@ const ENGAGED_MINIONS = () => countOf(query("minion", { engagedWith: "you" }));
  * - 56004 Cat's Head Amulet (upgrade)
  * - 56005 Sharp Claws (upgrade)
  * - 56006 Cat-Like Reflexes (upgrade)
- * - 56007 Hunted (upgrade), skipped (below)
+ * - 56007 Hunted (upgrade)
  *
  * **56002.moon-knight-forced-response**: "Forced Response: After Moon Knight enters play, search the encounter deck and
  * discard pile for a minion and put it into play engaged with you. Stun and confuse that minion." Forced, so with a
@@ -70,9 +74,17 @@ const ENGAGED_MINIONS = () => countOf(query("minion", { engagedWith: "you" }));
  * Reflexes -> prevent 3 of that damage. You may confuse a minion engaged with you." The confusion is optional and is
  * not tied to the damage being prevented.
  *
- * **56007 Hunted** (both refs) waits on box-heroes B8.2 task 1 (B3.1): its additional cost to play searches the
- * encounter deck and discard pile and puts a minion into play. `attachCost` searches only the payer's own piles, no
- * cost puts a card into play, and the upgrade has no data host to attach to.
+ * **56007.hunted-constant**: "[star] As an additional cost to play this upgrade, search the encounter deck and discard
+ * pile for a minion and put it into play engaged with you. Attach Hunted to that minion and stun it." (box-heroes
+ * B3.1.) The search is a cost paid with the play (RRG 1.8 "Cost", p. 14): the player picks the minion, the encounter
+ * deck is shuffled, and the minion enters play engaged with them, not revealed. Question 17 = A (owner, 2026-10-11,
+ * provisional): with no minion in the encounter deck or its discard pile Hunted cannot be played and is not offered.
+ * Question 18 = A (the same day, provisional): a quickstrike minion attacks first if the player is in hero form
+ * (February 28, 2026 rulings 1 and 4), then Hunted enters play attached to it and it is stunned. A minion that left
+ * play in between leaves Hunted with no host: it is discarded (RRG 1.8 "Attach To", p. 8).
+ *
+ * **56007.hunted-interrupt**: "Interrupt: When attached minion is defeated, ready Tigra." Only while the identity
+ * shows its Tigra face (wave 9 section 4.1 Q44: a seat in alter-ego form does not show its hero title).
  */
 export const TIGRA_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   "56002.moon-knight-forced-response": forcedResponse(
@@ -111,12 +123,14 @@ export const TIGRA_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
     chooseTarget("minion", query("minion", { engagedWith: "you" }), { optional: true }),
     confuse(chosen("minion")),
   ),
+
+  "56007.hunted-constant": additionalCostToPlay(
+    searchEncounterIntoPlayCost(query("minion"), "hunted"),
+    { attachTo: "hunted" },
+    stun(chosen("hunted")),
+  ),
+  "56007.hunted-interrupt": interrupt(on.attachedCardDefeated(), { while: isHero() }, ready(yourIdentity)),
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. */
-export const TIGRA_SUPPORT_UPGRADES_ALLIES_SKIPPED: Readonly<Record<string, string>> = {
-  "56007.hunted-constant":
-    "waits on box-heroes B8.2 task 1 (B3.1): an additional cost to play that puts a searched minion into play",
-  "56007.hunted-interrupt":
-    "waits on box-heroes B8.2 task 1 (B3.1): the upgrade cannot be played, so nothing is attached to defeat",
-};
+export const TIGRA_SUPPORT_UPGRADES_ALLIES_SKIPPED: Readonly<Record<string, string>> = {};
