@@ -2,6 +2,8 @@ import { HERCULES_CARDS, cardId } from "@mc/content";
 import {
   activeEncounterDeck,
   activeEncounterDeckId,
+  applyCommand,
+  createGame,
   locateCard,
   type Command,
   type GameEvent,
@@ -9,22 +11,38 @@ import {
   type InstanceId,
 } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
+import { coreScenario } from "../../core/setup.js";
 import { validateDefinition } from "../../dsl/validate.js";
 import {
   P1,
+  P2,
+  answer,
   endTurn,
   firstLegal,
   identityOf,
   inst,
+  instancesOf,
   moveToHand,
   patchInstance,
+  play,
   playerOf,
+  settle,
+  use,
   type Picker,
 } from "../../testing/harness.js";
 import { driveEventsPicking } from "../../testing/staging.js";
 import { ANGEL_PACK_CARDS } from "../../wave7/angel/pack-cards.js";
 import { WAVE10_CARDS } from "../cards.js";
-import { WAVE10_DEPS, engageMinion, stagedInPlay, wonderManHeroGame } from "../testing.js";
+import {
+  HERCULES_DECK,
+  WAVE10_DEPS,
+  WONDER_MAN_DECK,
+  engageMinion,
+  heroPackConfig,
+  heroPackSeat,
+  stagedInPlay,
+  wonderManHeroGame,
+} from "../testing.js";
 import { WONDER_MAN_OTHER_ASPECTS as REGISTRY, WONDER_MAN_OTHER_ASPECTS_SKIPPED as SKIPPED } from "./other-aspects.js";
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -32,8 +50,10 @@ vi.setConfig({ testTimeout: 120_000 });
 /**
  * Wave 10 `wonder_man/other-aspects` (docs/phase7-wave10-hero-packs.md H8.4, HS6): the reprint 58017 Bombs Away and the
  * scripted 58019 Stronger Together, 58020 Unified Strike, 58030 Caught in the Crossfire and 58033 Disarming Defense,
- * played from real Wonder Man games against Core's Rhino. 58031 Cameo (HT15) and 58032 Coordinated Effort (HT16) stay
- * in the skip map. No ruling in marvel-champions-rulings-post-rrg-1-7.md names the scripted cards.
+ * played from real Wonder Man games against Core's Rhino, and 58031 Cameo resolved at setup step 16 of such a game.
+ * 58032 Coordinated Effort (HT16) stays in the skip map. Cameo's rulings: March 19, 2026 - Ruling 6 (the unique rule),
+ * January 26, 2026 - Ruling 2 and June 2, 2026 - Ruling 1 (the ally is any copy of its card). No ruling in
+ * marvel-champions-rulings-post-rrg-1-7.md names the other scripted cards.
  */
 const BOMBS_AWAY = "58017.bombs-away-action";
 const TOGETHER = "58019.stronger-together-interrupt";
@@ -42,7 +62,7 @@ const CROSSFIRE = "58030.caught-in-the-crossfire-interrupt";
 const DISARMING = "58033.disarming-defense-interrupt";
 const CAMEO = "58031.setup";
 const EFFORT = "58032.coordinated-effort-constant";
-const SCRIPTED = [TOGETHER, STRIKE, CROSSFIRE, DISARMING];
+const SCRIPTED = [TOGETHER, STRIKE, CROSSFIRE, CAMEO, DISARMING];
 
 const FIREBIRD = "58012"; // Avenger like Wonder Man; 2 hp, consequential damage 2 on an attack
 const HAWKEYE = "58013"; // Avenger; 3 hp, ATK 1, THW 1, consequential damage 1
@@ -119,10 +139,10 @@ const heroDefends: Picker = (s) => {
 const holding = (state: GameState, code: string): GameState => moveToHand(state, P1, code).state;
 
 describe("registry", () => {
-  it("scripts the four cards and the reprint, each validating, and skips only Cameo and Coordinated Effort", () => {
+  it("scripts the five cards and the reprint, each validating, and skips only Coordinated Effort", () => {
     expect(Object.keys(REGISTRY).sort()).toEqual([BOMBS_AWAY, ...SCRIPTED].sort());
     for (const id of Object.keys(REGISTRY)) expect(validateDefinition(REGISTRY[id]!), id).toEqual([]);
-    expect(Object.keys(SKIPPED).sort()).toEqual([CAMEO, EFFORT].sort());
+    expect(Object.keys(SKIPPED)).toEqual([EFFORT]);
     for (const id of SCRIPTED) expect(Object.keys(SKIPPED)).not.toContain(id);
   });
 
@@ -130,11 +150,10 @@ describe("registry", () => {
     const printed = ["58017", "58019", "58020", "58030", "58031", "58032", "58033"].flatMap((c) =>
       dataOf(c).abilities.map((a) => a.id),
     );
-    expect(printed.sort()).toEqual([BOMBS_AWAY, ...SCRIPTED, CAMEO, EFFORT].sort());
+    expect(printed.sort()).toEqual([BOMBS_AWAY, ...SCRIPTED, EFFORT].sort());
   });
 
-  it("the skipped refs name their engine tasks and spec sections", () => {
-    expect(SKIPPED[CAMEO]).toMatch(/^waits on engine task HT15 .*H3\.18/);
+  it("the skipped ref names its engine task and spec section", () => {
     expect(SKIPPED[EFFORT]).toMatch(/^waits on engine task HT16 .*H3\.19/);
   });
 
@@ -144,6 +163,145 @@ describe("registry", () => {
     const crossfire = REGISTRY[CROSSFIRE]!.trigger as { kind: string; form?: string };
     expect(crossfire.kind).toBe("interrupt");
     expect(crossfire.form).toBeUndefined();
+    expect(REGISTRY[CAMEO]!.trigger).toEqual({ kind: "setup" });
+  });
+});
+
+describe("58031 Cameo", () => {
+  const CAMEO_CARD = "58031";
+  const SPIDER_WOMAN_ALLY = "27041"; // Justice ally, unique
+  const SPIDER_WOMAN_OF_CAPTAIN_MARVEL = "01011"; // Captain Marvel's own ally, unique, the same title
+  const BLACK_CAT = "01002"; // Spider-Man's own ally
+  const CHO_ACTION = "59008.amadeus-cho-action";
+  const isSearch = (s: GameState): boolean => s.pendingChoice?.prompt.kind === "searchCollection";
+  const offered = (s: GameState): string[] => s.pendingChoice!.options.map((o) => o.optionId);
+  const codesIn = (s: GameState, ids: readonly InstanceId[]): string[] => ids.map((id) => inst(s, id).cardId);
+
+  /** The Core Spider-Man starter deck as a seat, the way `cwGame` seats it. */
+  const spiderManSeat = () =>
+    coreScenario("rhino", {
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 1,
+      difficulty: "standard",
+      modularSetIds: [],
+    } as never).players[0]!;
+
+  /**
+   * A Wonder Man game against Core's Rhino with Cameo (and `extra`) in place of the deck's last cards, played to
+   * Cameo's collection search at setup step 16. `second` seats another identity beside him.
+   */
+  function atSearch(opts: { extra?: readonly string[]; second?: "hercules" | "spider-man" } = {}) {
+    const config = heroPackConfig(WONDER_MAN_DECK);
+    const seat = config.players[0]!;
+    const deck = [...seat.deck];
+    [CAMEO_CARD, ...(opts.extra ?? [])].forEach((code, i) => (deck[deck.length - 1 - i] = cardId(code)));
+    const others =
+      opts.second === "hercules"
+        ? [heroPackSeat(HERCULES_DECK)]
+        : opts.second === "spider-man"
+          ? [spiderManSeat()]
+          : [];
+    const created = createGame(
+      { ...config, requireLegalDecks: false, players: [{ ...seat, deck }, ...others] } as never,
+      WAVE10_DEPS,
+    );
+    if (!created.ok) throw new Error(`${created.error.code}: ${created.error.message}`);
+    // Step 11 has put Cameo into play before any hand is drawn.
+    const cameo = instancesOf(created.state, CAMEO_CARD)[0]!;
+    expect(locateCard(created.state, cameo)).toEqual({ kind: "playArea", playerId: P1 });
+    return { state: settle(created.state, firstLegal, isSearch, WAVE10_DEPS), cameo };
+  }
+  const toFirstTurn = (state: GameState): GameState =>
+    settle(state, firstLegal, (s) => s.step.phase === "player", WAVE10_DEPS);
+
+  it("at step 16, after the mulligan, offers the allies of identities nobody is using: Amadeus Cho, not his own", () => {
+    const { state } = atSearch();
+    expect(state.step).toMatchObject({ phase: "setup", kind: "playerSetupAbilities" });
+    expect(state.pendingChoice!.playerId).toBe(P1);
+    const options = offered(state);
+    expect(options).toContain(CHO);
+    expect(options).toContain(BLACK_CAT);
+    expect(options).toContain(SPIDER_WOMAN_OF_CAPTAIN_MARVEL);
+    // Every card offered is an ally with an identity's set icon, and none carries Wonder Man's.
+    for (const code of options) {
+      const card = [...WAVE10_CARDS, ...HERCULES_CARDS].find((c) => c.id === code) as unknown as {
+        type: string;
+        aspect: string;
+      };
+      expect(card.type, code).toBe("ally");
+      expect(card.aspect, code).toMatch(/^hero:/);
+      expect(card.aspect, code).not.toBe("hero:58001a");
+    }
+    // Aspect and basic allies are not identity-specific.
+    expect(options).not.toContain(HAWKEYE);
+    expect(options).not.toContain(SPIDER_WOMAN_ALLY);
+  });
+
+  it("does not offer the ally of an identity that is in the game", () => {
+    expect(offered(atSearch({ second: "hercules" }).state)).not.toContain(CHO);
+    const withSpiderMan = offered(atSearch({ second: "spider-man" }).state);
+    expect(withSpiderMan).not.toContain(BLACK_CAT);
+    expect(withSpiderMan).toContain(CHO);
+  });
+
+  it("shuffles the ally into the deck, discards 2 cards from hand and is removed from the game", () => {
+    const { state, cameo } = atSearch();
+    const before = playerOf(state, P1);
+    const after = toFirstTurn(answer(state, [CHO], WAVE10_DEPS));
+    const player = playerOf(after, P1);
+    expect(player.hand).toHaveLength(before.hand.length - 2);
+    expect(player.discard).toHaveLength(before.discard.length + 2);
+    expect(player.deck).toHaveLength(before.deck.length + 1);
+    expect(codesIn(after, player.deck)).toContain(CHO);
+    const cho = instancesOf(after, CHO)[0]!;
+    expect(inst(after, cho)).toMatchObject({ ownerId: P1, controllerId: P1 });
+    expect(locateCard(after, cameo)).toEqual({ kind: "removedFromGame" });
+    expect(after.round).toBe(1);
+  });
+
+  it("finding nothing still discards 2 cards and removes Cameo (the sentences are not joined by then)", () => {
+    const { state, cameo } = atSearch();
+    const before = playerOf(state, P1);
+    const after = toFirstTurn(answer(state, [], WAVE10_DEPS));
+    const player = playerOf(after, P1);
+    expect(player.hand).toHaveLength(before.hand.length - 2);
+    expect(player.deck).toHaveLength(before.deck.length);
+    expect(locateCard(after, cameo)).toEqual({ kind: "removedFromGame" });
+  });
+
+  it("the ally behaves as its own card does: Amadeus Cho exhausts to draw 1 card", () => {
+    const set = toFirstTurn(answer(atSearch().state, [CHO], WAVE10_DEPS));
+    const staged = stagedInPlay(set, CHO);
+    const hand = playerOf(staged.state, P1).hand.length;
+    const { state: after } = run(staged.state, firstLegal, use(P1, staged.id, CHO_ACTION));
+    expect(inst(after, staged.id).exhausted).toBe(true);
+    expect(playerOf(after, P1).hand).toHaveLength(hand + 1);
+  });
+
+  it("March 19, 2026 - Ruling 6: a unique ally titled as a card in the deck is found; in play the unique rule holds", () => {
+    const { state } = atSearch({ extra: [SPIDER_WOMAN_ALLY] });
+    const mine = playerOf(state, P1);
+    expect(codesIn(state, [...mine.deck, ...mine.hand, ...mine.discard])).toContain(SPIDER_WOMAN_ALLY);
+    expect(offered(state)).toContain(SPIDER_WOMAN_OF_CAPTAIN_MARVEL);
+    const set = toFirstTurn(answer(state, [SPIDER_WOMAN_OF_CAPTAIN_MARVEL], WAVE10_DEPS));
+    // Both Spider-Woman cards are now cards of this deck.
+    expect(instancesOf(set, SPIDER_WOMAN_ALLY)).toHaveLength(1);
+    expect(instancesOf(set, SPIDER_WOMAN_OF_CAPTAIN_MARVEL)).toHaveLength(1);
+    // RRG 1.8 "Unique" (p. 46): with one in play, the other cannot be played.
+    const inPlay = stagedInPlay(set, SPIDER_WOMAN_ALLY);
+    const held = moveToHand(inPlay.state, P1, SPIDER_WOMAN_OF_CAPTAIN_MARVEL);
+    const payment = playerOf(held.state, P1).hand.filter((id) => id !== held.ids[0]);
+    const refused = applyCommand(held.state, play(P1, held.ids[0]!, payment), WAVE10_DEPS);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe("duplicate_unique_card");
+  });
+
+  it("with a second seat the search is still the Cameo player's alone", () => {
+    const { state } = atSearch({ second: "spider-man" });
+    expect(state.pendingChoice!.playerId).toBe(P1);
+    const after = toFirstTurn(answer(state, [CHO], WAVE10_DEPS));
+    expect(codesIn(after, playerOf(after, P1).deck)).toContain(CHO);
+    expect(codesIn(after, playerOf(after, P2).deck)).not.toContain(CHO);
   });
 });
 

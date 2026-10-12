@@ -5,26 +5,33 @@ import {
   atEndOfAttack,
   basicPowerStatIs,
   cancelConsequentialDamage,
+  cards,
   chooseTarget,
   chosen,
   dealDamage,
   defineAbilities,
   discard,
+  discardFromHand,
   eventDealt,
   eventSource,
   eventTarget,
   exhaustYourHero,
+  forAnIdentityNotInThisGame,
   heroInterrupt,
   host,
   ifThen,
   interrupt,
   modifyBasicPower,
   modifyStat,
+  moveCards,
   not,
   on,
   preventDamage,
   printsAbility,
   query,
+  searchCollection,
+  self,
+  setup,
   sharesTraitWithHeroOf,
   statOf,
   when,
@@ -68,11 +75,27 @@ import { ANGEL_PACK_CARDS } from "../../wave7/angel/pack-cards.js";
  * one of the attacker's attachments that prints one of those two labels (`printsAbility`, as Electromagnetic Blast
  * 49008; a blanked text box does not hide it). It is a discard. With no such attachment nothing happens.
  *
- * **Left unscripted**: 58031 Cameo (needs the collection filter of H3.18, engine task HT15) and 58032 Coordinated
- * Effort (needs the payment rule of H3.19, engine task HT16); see the skip map.
+ * **58031.setup**: "Setup. Max 1 per deck. Setup: Search your collection for an identity-specific ally for an identity
+ * not in this game. Shuffle that ally into your deck. Discard 2 cards from your hand and remove this card from the game."
+ * The setup keyword puts Cameo into play at step 11 and its Setup resolves at step 16, after the mulligan (RRG 1.8
+ * Appendix II, p. 51). The collection is the game's card pool (docs/phase7-wave7.md section 4.1 Q47 = A); the ally is
+ * one with an identity's set icon whose identity card is not in this game (`forAnIdentityNotInThisGame`; the Wonder Man
+ * insert: "an ally that belongs to another identity's set of cards"), and it must still have a copy outside the game,
+ * so two players' Cameos cannot find the same one-copy ally. The sentences are not joined by "then": a search that
+ * finds nothing (RRG 1.8 "Search", p. 39) still costs the 2 cards, chosen by you, and Cameo. A hand of fewer than 2
+ * discards what it holds. The Max 1 per deck line and the dash cost are card data.
+ *
+ * Rulings on Cameo. March 19, 2026 - Ruling 6: "The deckbuilding uniqueness rule applies only during deck
+ * construction. Any unique cards added during Setup (via Cameo, scenario rules, etc.) can share titles with cards in
+ * player decks", so the search compares no titles, and the unique rule goes on applying in play (RRG 1.8 "Unique",
+ * p. 46). January 26, 2026 - Ruling 2 (Captain Americat on another player's table) and June 2, 2026 - Ruling 1 (a
+ * Cameo Jubilee functions "identically") treat the ally as any copy of its card: it is an ordinary instance of the
+ * card, with that card's own scripts.
+ *
+ * **Left unscripted**: 58032 Coordinated Effort (needs the payment rule of H3.19, engine task HT16); see the skip map.
  *
  * No ruling in marvel-champions-rulings-post-rrg-1-7.md (December 17, 2025 to August 13, 2026) names 58019, 58020, 58030
- * or 58033. March 19, 2026 - Ruling 6 (Cameo) belongs to the skipped 58031.
+ * or 58033.
  *
  * **Reprints, aliased** to the original's script: 58017 Bombs Away (reprint of 42029 `angel`). Checked in the test.
  */
@@ -97,6 +120,13 @@ export const WONDER_MAN_OTHER_ASPECTS: AbilityRegistry = defineAbilities({
 
   "58030.caught-in-the-crossfire-interrupt": interrupt(on.attacks(FRIENDLY_CHARACTER), dealDamage(1, host)),
 
+  "58031.setup": setup(
+    searchCollection({ categories: ["ally"], ...forAnIdentityNotInThisGame }, "ally"),
+    moveCards(cards(chosen("ally")), "deckShuffle"),
+    discardFromHand(2),
+    moveCards(cards(self), "removedFromGame"),
+  ),
+
   "58033.disarming-defense-interrupt": heroInterrupt(
     when.defends(YOUR_HERO),
     { label: "defense" },
@@ -115,8 +145,6 @@ export const WONDER_MAN_OTHER_ASPECTS: AbilityRegistry = defineAbilities({
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
 export const WONDER_MAN_OTHER_ASPECTS_SKIPPED: Readonly<Record<string, string>> = {
-  "58031.setup":
-    "waits on engine task HT15 (docs/phase7-wave10-hero-packs.md H3.18): CollectionSearchFilter has no 'identity-specific ally of an identity not in this game' field (identitySpecificToUnseated)",
   "58032.coordinated-effort-constant":
     "waits on engine task HT16 (docs/phase7-wave10-hero-packs.md H3.19): no RuleSpec lets any player help pay the costs of an ability printed on the attached card (costsPayableByAnyPlayer)",
 };

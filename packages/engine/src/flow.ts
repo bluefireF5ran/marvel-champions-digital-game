@@ -29,8 +29,10 @@ import { forcedActionOptionId, outstandingForcedActions } from "./legal.js";
 import { useLateForcedAction } from "./actions.js";
 import type { InstanceId, PlayerId } from "./ids.js";
 import {
+  cardOf,
   getPlayer,
   handSize,
+  isPlayerCardType,
   mustPlayer,
   playerOrder,
   scenarioPlayAreaOf,
@@ -324,14 +326,29 @@ export function afterMulliganChoice(ctx: Ctx, playerId: PlayerId, discarded: num
  * 14) and the mulligan (step 15). A search like Steve Rogers' therefore reads a deck and discard pile that already
  * hold the opening hand and whatever the mulligan put away (FAQ "Steve Rogers (#1B)", p. 59: "only the deck and the
  * discard pile are searched"). The abilities go on the stack and the first round begins once they have resolved.
+ *
+ * "Resolve any 'Setup' abilities on player cards in play": the identity's, and those of every other player card the
+ * player controls in play, which is where step 11 put a deck's setup-keyword cards (RRG 1.8 "Setup (Triggered
+ * Ability)", p. 40: "Setup abilities on player cards are resolved during the 'Resolve Character Setup Abilities' step
+ * of setup"). An encounter card's Setup was step 12's. The RRG gives no order within the step; the engine's is player
+ * order, and for each player their identity first, then their other cards in play-area order.
  */
 function executePlayerSetupAbilities(ctx: Ctx, step: Extract<GameStep, { kind: "playerSetupAbilities" }>): void {
   if (!step.resolved) {
     // A separated identity's alter-ego Setup puts the other card into play (docs/phase7-wave5.md §3.24).
     for (const player of playerOrder(ctx.state)) putSeparatedCardIntoPlay(ctx, player.playerId);
-    const frames = playerOrder(ctx.state).flatMap((player) =>
-      gameAbilityFrames(ctx, player.identity.instanceId, ["setup"], null),
-    );
+    const inPlay = cardsInPlay(ctx.state);
+    const frames = playerOrder(ctx.state).flatMap((player) => [
+      ...gameAbilityFrames(ctx, player.identity.instanceId, ["setup"], null),
+      ...inPlay
+        .filter((id) => {
+          const card = cardOf(ctx.state, id);
+          // The other card of a separated identity is an identity card: its Setup is the identity's, above.
+          if (!card || card.type === "hero_identity" || !isPlayerCardType(card)) return false;
+          return controllerOf(ctx.state, id) === player.playerId;
+        })
+        .flatMap((id) => gameAbilityFrames(ctx, id, ["setup"], null)),
+    ]);
     setStep(ctx, { phase: "setup", kind: "playerSetupAbilities", resolved: true });
     pushFrames(ctx, frames);
     return;

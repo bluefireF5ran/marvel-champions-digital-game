@@ -80,6 +80,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkPlays(definition, problems);
   checkNextCardCost(definition, problems);
   checkOwnerZones(definition, "definition", problems);
+  checkCollectionSearches(definition, "definition", problems);
   checkTuckReplacement(definition, problems);
   checkAttachReplacement(definition, problems);
   checkLeaveReplacement(definition, problems);
@@ -1098,6 +1099,37 @@ function checkNextCardCost(definition: AbilityDefinition, problems: string[]): v
         "reduceNextCardCost cards: the ref names the cards, so cardFilter, into and anyPlayer are not read",
       );
   }
+}
+
+/**
+ * `searchCollection` with `identitySpecificToUnseated` (docs/phase7-wave10-hero-packs.md H3.18): the field reads a
+ * card's identity set icon, which the card data carries in the field `aspects` reads, and it never matches an identity
+ * card, the one card `heroTitleNotInPlay` matches. Beside either the search would find no card, silently. It names no
+ * card type either, so the printed type ("ally") is `categories`; without it every card of the identity's set matches.
+ */
+function checkCollectionSearches(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => checkCollectionSearches(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Readonly<Record<string, unknown>>;
+  const filter = record.kind === "searchCollection" ? (record.filter as Readonly<Record<string, unknown>>) : undefined;
+  if (filter?.identitySpecificToUnseated !== undefined) {
+    if (filter.aspects !== undefined)
+      problems.push(
+        `${path}: identitySpecificToUnseated with aspects matches no card (an identity-specific card's aspect is its identity's set)`,
+      );
+    if (filter.heroTitleNotInPlay !== undefined)
+      problems.push(
+        `${path}: identitySpecificToUnseated with heroTitleNotInPlay matches no card (an identity card is not a card of its own set)`,
+      );
+    if (!Array.isArray(filter.categories) || filter.categories.length === 0)
+      problems.push(
+        `${path}: identitySpecificToUnseated names no card type: give the printed one as categories ("ally")`,
+      );
+  }
+  for (const [key, item] of Object.entries(record)) checkCollectionSearches(item, `${path}.${key}`, problems);
 }
 
 const OWNER_ZONES: readonly string[] = ["hand", "deck", "discard"];

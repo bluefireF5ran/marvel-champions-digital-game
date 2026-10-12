@@ -2404,6 +2404,18 @@ export const fromAnyAspect: readonly string[] = ["aggression", "justice", "leade
  */
 export const aDifferentCard: Pick<CollectionSearchFilter, "notAmongOwnCards"> = { notAmongOwnCards: true };
 /**
+ * "Search your collection for an identity-specific ally **for an identity not in this game**" (Cameo, `wonder_man`
+ * 58031; docs/phase7-wave10-hero-packs.md H3.18): the "identity-specific … for an identity not in this game" half of
+ * a collection search filter, spread into it beside the card type:
+ * `searchCollection({ categories: ["ally"], ...forAnIdentityNotInThisGame }, "ally")`. A card with an identity's set
+ * icon (RRG 1.8 "Identity-Specific Card", p. 23) whose identity card is not in the game: no seat is using it (any
+ * version of a progressing identity counts) and no card effect has brought it in. Titles are not compared (ruling,
+ * March 19, 2026 - Ruling 6). Not with `aspects` or `heroNoCharacterIsTitledAs`, which would match no card.
+ */
+export const forAnIdentityNotInThisGame: Pick<CollectionSearchFilter, "identitySpecificToUnseated"> = {
+  identitySpecificToUnseated: true,
+};
+/**
  * "Search your collection for a hero whose title does not match a character in play" (Reluctant Foe, `aos` 50171;
  * docs/phase7-wave9.md §3.30; MC50 p. 22) → `searchCollection(heroNoCharacterIsTitledAs, "hero")`: an identity card
  * no player is using whose hero-side title no character in play is showing (§4.1 Q40 = A, Q42 = A; Q44 = B: a seat

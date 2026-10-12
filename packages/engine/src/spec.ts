@@ -5612,4 +5612,19 @@ export type CollectionSearchFilter = Pick<CollectionFilter, "categories" | "aspe
    * title. With no searching player nothing is left out.
    */
   readonly notAmongOwnCards?: true;
+  /**
+   * "An identity-specific ally for an identity not in this game" (docs/phase7-wave10-hero-packs.md H3.18): the card is
+   * in the identity-specific classification (RRG 1.8 "Classifications", p. 12; "Identity-Specific Card", p. 23: it
+   * "belong[s] to an identity's set of accompanying cards", which the card data carries as `aspect: "hero:<identity
+   * card id>"`), and that identity's card is not in this game. An identity card is in the game while the game holds an
+   * instance of it, in any zone: each seat's identity, and an identity card a card effect brought in. The versions of
+   * a progressing identity are one identity, so a seat using any version keeps the whole set out. An identity card is
+   * not itself found (the field asks for a card of an identity's set), and neither is a card of no identity's set.
+   *
+   * It names a classification and an owner, not a card type: pair it with `categories` ("ally"). `aspects` would
+   * match nothing beside it, since `aspects` reads the same field. The search does not compare titles: a unique card
+   * added during setup "can share titles with cards in player decks" (ruling, March 19, 2026 - Ruling 6, on RRG 1.8
+   * "Unique", p. 46), and the unique rule goes on applying to cards in play.
+   */
+  readonly identitySpecificToUnseated?: true;
 };
