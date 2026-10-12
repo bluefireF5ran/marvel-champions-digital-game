@@ -125,6 +125,8 @@ export interface CivilWarDraft {
   readonly stageIds: readonly string[];
   /** The builder's blind option: sets and stages stay hidden in play until revealed. */
   readonly blind: boolean;
+  /** True while the picks are what the Random button rolled and the player has not edited; stored so "New random scenario" can be offered after the game. */
+  readonly random?: boolean;
 }
 
 /** RRG: 1–4 players. */
@@ -586,6 +588,7 @@ export function toSessionConfig(
           ...(options.civilWar.stageIds.length > 0 ? { mainSchemeStageIds: options.civilWar.stageIds } : {}),
           gameMode: "cooperative" as const,
           ...(options.civilWar.blind ? { blind: true } : {}),
+          ...(options.civilWar.random ? { randomScenario: true } : {}),
         }
       : {}),
     ...(setAsideModularSetIds ? { setAsideModularSetIds } : {}),

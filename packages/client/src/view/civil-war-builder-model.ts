@@ -620,6 +620,21 @@ function changeLeader(draft: SetupDraft, ctx: BuilderContext, scenarioId: string
 
 /** Applies one action string. Unknown or refused actions return the same draft object. */
 export function applyBuilderAction(draft: SetupDraft, action: string, ctx: BuilderContext): BuilderResult {
+  const result = applyAction(draft, action, ctx);
+  const was = draft.civilWar;
+  const now = result.draft.civilWar;
+  if (!was?.random || !now?.random || action.startsWith("civil:random")) return result;
+  // Editing a rolled scenario's leader, stages or sets makes it the player's own build, not a random one.
+  const same =
+    result.draft.scenarioId === draft.scenarioId &&
+    now.stageIds.join() === was.stageIds.join() &&
+    (result.draft.modularSetIds ?? []).join() === (draft.modularSetIds ?? []).join();
+  return same
+    ? result
+    : { ...result, draft: { ...result.draft, civilWar: { stageIds: now.stageIds, blind: now.blind } } };
+}
+
+function applyAction(draft: SetupDraft, action: string, ctx: BuilderContext): BuilderResult {
   const offer = offerOf(draft);
   const [prefix, kind, first, second] = action.split(":");
   if (prefix !== "civil" || !draft.civilWar || !offer.mainSchemeStages) return unchanged(draft);
@@ -716,6 +731,7 @@ export function applyBuilderAction(draft: SetupDraft, action: string, ctx: Build
         next = setMainSchemeStage(next, i + 1, id);
       });
       next = setCivilWarBlind({ ...next, seed: draft.seed + 1 }, blind);
+      if (next.civilWar) next = { ...next, civilWar: { ...next.civilWar, random: true } };
       return { draft: next, status: null, effect: { kind: "random", blind, request } };
     }
     default:

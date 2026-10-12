@@ -44,6 +44,7 @@ import type { SaveMeta } from "../engine/game-storage.js";
 import { appSession } from "../session.js";
 import { guidePrefs, setGuideRunLevelOverride } from "../guide/guide-store.js";
 import { isFirstLaunch } from "../guide/guide-prefs.js";
+import { describeCivilWar } from "../view/civil-war-label.js";
 import { tutorialResumeDecisionFor } from "../guide/tutorial-resume.js";
 import { TUTORIAL_LESSONS } from "../guide/tutorial-lessons.js";
 import { startTutorialGame } from "../guide/start-tutorial.js";
@@ -505,6 +506,7 @@ let lastTitleArtKey: string | null = null;
 /** "Continue — Rhino · Spider-Man · round 4". Names from content, never from the save's own text. */
 function continueLabel(save: SaveMeta): string {
   const scenario =
+    describeCivilWar(save.config) ??
     POOL_SCENARIOS.find((candidate) => (candidate.id as string) === save.config.scenarioId)?.name ??
     save.config.scenarioId;
   const heroes = save.config.players

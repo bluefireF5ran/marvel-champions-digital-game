@@ -121,6 +121,11 @@ export interface SessionConfig {
    */
   readonly blind?: boolean;
   /**
+   * The Civil War picks are what the builder's Random button rolled and were not edited afterwards. The engine never
+   * reads it; stored so Game Over can offer "New random scenario" (docs/phase7-wave10-client.md section 9).
+   */
+  readonly randomScenario?: boolean;
+  /**
    * This game is one scenario of a campaign, as `startGameFromLog` composed it (docs/campaign-mode-design.md §7.1,
    * §10.1). Goes straight into `GameSetupConfig.campaign` (`session-core.ts`'s `scenarioFor`) and therefore into
    * the replay baseline: **a saved campaign game replays without consulting the live `CampaignLog` at all**, which

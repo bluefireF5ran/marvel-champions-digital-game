@@ -28,10 +28,17 @@ import { coverFit, ensurePictureLoaded, type Picture } from "../art/pictures.js"
 import { ART_CATALOG, outcomeArtFor } from "../art/scenario-art.js";
 import { accent, dotGrid, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import { caseOf, cssOf, textStyle } from "../ui/theme.js";
+import { cardsRandomizer } from "../view/civil-war-random.js";
 import { McButton, fitText, label, paintDotGrid } from "../ui/widgets.js";
 import { bindHoldTarget } from "../ui/hold-target.js";
 import { faceOf } from "../view/board-model.js";
-import { gameOverModel, newsParts, type GameOverModel } from "../view/game-over-model.js";
+import {
+  gameOverModel,
+  newsParts,
+  rematchActionsOf,
+  rematchConfigOf,
+  type GameOverModel,
+} from "../view/game-over-model.js";
 import { formFactorFor, type Rect } from "../view/layout.js";
 import { rollSeed } from "../view/seed.js";
 import type { SessionConfig } from "../engine/host.js";
@@ -570,20 +577,12 @@ export class GameOverScene extends Phaser.Scene {
       ];
     }
     const missing = config ? undefined : "this game's setup isn't available";
-    return [
-      {
-        label: "Run it back",
-        primary: true,
-        run: () => config && void this.#rematch({ ...config, seed: rollSeed() }),
-        unavailable: missing,
-      },
-      {
-        label: "Same seed, same hands",
-        primary: false,
-        run: () => config && void this.#rematch(config),
-        unavailable: missing,
-      },
-    ];
+    return rematchActionsOf(config).map((action) => ({
+      label: action.label,
+      primary: action.primary,
+      run: () => config && void this.#rematch(rematchConfigOf(config, action.kind, rollSeed(), cardsRandomizer)),
+      unavailable: missing,
+    }));
   }
 
   /**

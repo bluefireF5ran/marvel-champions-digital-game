@@ -17,7 +17,7 @@ import {
 } from "./civil-war-builder-model.js";
 import { cardsRandomizer } from "./civil-war-random.js";
 import { GAME_MODE_OPTIONS, COMPETITIVE_TAPPED_MESSAGE } from "./game-mode-options.js";
-import { initialSetupDraft, setDifficulty, setModularSetIds, type SetupDraft } from "./setup-draft.js";
+import { initialSetupDraft, setDifficulty, setModularSetIds, toSessionConfig, type SetupDraft } from "./setup-draft.js";
 import { offerOf } from "./setup-options.js";
 
 const CARDS = new Map<string, AnyCard>(CW_CARDS.map((c) => [c.id as string, c]));
@@ -341,7 +341,7 @@ describe("8. Random seam (a stub stands for the cards function; task C9 wires th
   test("applies the result as ordinary picks, advances the seed, and leaves the player free to edit", () => {
     const r = act(draftFor(IRON, 7), "civil:random", { random: stub });
     expect(r.draft.scenarioId).toBe("resistance-spider-woman");
-    expect(r.draft.civilWar).toEqual({ stageIds: spiderStages, blind: false });
+    expect(r.draft.civilWar).toEqual({ stageIds: spiderStages, blind: false, random: true });
     expect(r.draft.seed).toBe(8);
     expect(r.effect).toMatchObject({ kind: "random", blind: false });
     const first = recommended("resistance-spider-woman")[0]!;
@@ -633,5 +633,26 @@ describe("8b. Random with the cards function behind it (task C9)", () => {
     expect(picked.summary[4]).toMatch(/^Stage 2: (?!hidden)/);
     expect(picked.summary[7]).toMatch(/^Modular sets: [A-Za-z]/);
     expect(picked.focusOrder).not.toContain("civil:blind:show");
+  });
+});
+
+describe("a rolled scenario is marked random until the player edits it", () => {
+  const real = { random: cardsRandomizer };
+
+  test("Random sets the mark, a blind toggle keeps it, and the mark reaches the session config", () => {
+    const rolled = act(draftFor(IRON, 5), "civil:random", real).draft;
+    expect(rolled.civilWar!.random).toBe(true);
+    expect(toSessionConfig(rolled, SPIDER).randomScenario).toBe(true);
+    const blind = act(rolled, "civil:blind:hide").draft;
+    expect(blind.civilWar!.random).toBe(true);
+    expect(toSessionConfig(draftFor(IRON), SPIDER).randomScenario).toBeUndefined();
+  });
+
+  test("changing the leader drops the mark", () => {
+    const rolled = act(draftFor(IRON, 5), "civil:random", real).draft;
+    const other = LEADERS.find((id) => id !== rolled.scenarioId)!;
+    const edited = act(rolled, `civil:leader:${other}`).draft;
+    expect(edited.scenarioId).toBe(other);
+    expect(edited.civilWar!.random).toBeUndefined();
   });
 });

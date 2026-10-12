@@ -112,7 +112,14 @@ function reconcileCivilWar(
     const kept = modularSetIds.filter((id) => !refused.has(id));
     if (kept.length !== modularSetIds.length) modularSetIds = kept.length > 0 ? kept : null;
   }
-  return { civilWar: { stageIds, blind: draft.civilWar?.blind ?? false }, modularSetIds };
+  return {
+    civilWar: {
+      stageIds,
+      blind: draft.civilWar?.blind ?? false,
+      ...(draft.civilWar?.random ? { random: true } : {}),
+    },
+    modularSetIds,
+  };
 }
 
 /**

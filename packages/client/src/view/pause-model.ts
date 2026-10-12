@@ -8,6 +8,7 @@ import type { PlayableScenarioOffer } from "@mc/cards";
 import type { GameState, PlayerId } from "@mc/engine";
 import type { Scenario } from "@mc/content";
 import type { SessionConfig } from "../engine/host.js";
+import { describeCivilWar } from "./civil-war-label.js";
 import { blindRevealOf, blindSheetLines } from "./civil-war-blind.js";
 import { playerName } from "./names.js";
 
@@ -86,7 +87,7 @@ export function pauseStatusOf(
   const reveal = blindNames ? blindRevealOf(config, game) : null;
   const scenario = config ? scenarios.find((candidate) => candidate.id === config.scenarioId) : undefined;
   return {
-    scenarioName: scenario?.name ?? config?.scenarioId ?? "This game",
+    scenarioName: (config && describeCivilWar(config)) ?? scenario?.name ?? config?.scenarioId ?? "This game",
     difficultyLabel: config ? DIFFICULTY_LABEL[config.difficulty] : "—",
     round: game.round,
     phaseLabel: phaseLabelOf(game),
