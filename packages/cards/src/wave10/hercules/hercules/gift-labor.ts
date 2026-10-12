@@ -11,6 +11,7 @@ import {
   constant,
   coveredByEngineRule,
   defineAbilities,
+  discard,
   draw,
   exists,
   findCard,
@@ -20,6 +21,7 @@ import {
   gets,
   heal,
   ifThen,
+  not,
   on,
   onlyThwartsRemoveThreat,
   placeThreat,
@@ -123,7 +125,12 @@ export const HERCULES_GIFT_LABOR: AbilityRegistry = defineAbilities({
   ),
 
   "59004.obligation": coveredByEngineRule(),
-  "59004.when-revealed": whenRevealed(findCard({ name: "Amadeus Cho" }, "play", { owner: you })),
+  // Nothing found (Cho removed from the game): "a Labor card fails to find a target when it is revealed" is discarded
+  // and ends on the bottom of the Labor deck (RRG 1.8 FAQ p. 65; March 6, 2026 - Ruling 3 (2); owner answer 3B).
+  "59004.when-revealed": whenRevealed(
+    findCard({ name: "Amadeus Cho" }, "play", { owner: you }),
+    ifThen(not(exists({ name: "Amadeus Cho" })), discard(self)),
+  ),
   "59004.protect-humanity-forced-interrupt": forcedInterrupt(
     on.villainAttacks({ againstYou: true }),
     ifThen(exists(YOUR_ALLIES), [

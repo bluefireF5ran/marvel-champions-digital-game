@@ -655,6 +655,25 @@ describe("59004 Protect Humanity", () => {
     expect(inst(state, theCard(state, AMADEUS_CHO)).controllerId).toBe(P1);
   });
 
+  it("question 3 = B: Amadeus Cho removed from the game (nothing to find), the Labor card is discarded and ends on the bottom of the Labor deck, never in play, with no Gift", () => {
+    const start0 = alterEgo(PROTECT_HUMANITY, DEFEAT_THE_HYDRA, EMBODY_PATHOS);
+    const cho = playerOf(start0, P1).deck.find((i) => codeOf(start0, i) === AMADEUS_CHO)!;
+    const start: GameState = {
+      ...start0,
+      removedFromGame: [...start0.removedFromGame, cho],
+      players: start0.players.map((p) => ({ ...p, deck: p.deck.filter((i) => i !== cho) })),
+    };
+    const { state } = run(start, newLabors(start));
+    const labor = theCard(state, PROTECT_HUMANITY);
+    expect(laborCodes(state)).toEqual([DEFEAT_THE_HYDRA, EMBODY_PATHOS, PROTECT_HUMANITY]);
+    expect(cardsInPlay(state)).not.toContain(labor);
+    expect(playerOf(state, P1).playArea).not.toContain(labor);
+    expect(inst(state, labor)).toMatchObject({ faceup: false });
+    expect(inNoPile(state, labor)).toBe(true);
+    expect(state.victoryDisplay).toEqual([]);
+    expect(giftsInPlay(state)).toEqual([]);
+  });
+
   it("Cho chosen and Hercules defends (DEF 2): the villain attacks Cho instead, Hercules defended, so counters go 3 to 2 and Cho takes 0", () => {
     const start = inPlayWithCho();
     const cho = theCard(start, AMADEUS_CHO);

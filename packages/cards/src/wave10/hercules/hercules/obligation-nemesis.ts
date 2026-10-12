@@ -70,7 +70,8 @@ const OLYMPUS = trait("OLYMPUS");
  *
  * **59039**: "Attach to Ares. Otherwise, attach to the villain" is data (`attachesTo`) and the +2 ATK is its stat
  * modifier. The Forced Response reads the attack's damage taken by any friendly character (an identity or an ally,
- * any player's): none taken (all defended and prevented, or the attack stunned) discards the card.
+ * any player's): none taken (all defended and prevented, or no attack was made because the attacker was stunned: a stunned attacker is not considered to have
+ * attacked, RRG 1.8 "Stun", p. 41) discards the card.
  *
  * **59040**: each minion attacks the player it is engaged with, whatever that player's form (the reminder text);
  * a minion whose attack a stun card replaced did not activate (RRG "Stun", p. 41). With no attack made, the encounter

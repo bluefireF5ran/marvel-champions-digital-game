@@ -26,10 +26,13 @@ are thorough (every card has a play-through); what they could not see is below.
 
 | Id  | Card                   | Severity                                    | Test (in `qa-hercules.qa.test.ts`)                          |
 | --- | ---------------------- | ------------------------------------------- | ----------------------------------------------------------- |
-| F1  | 59004 Protect Humanity | wrong result, low (unreachable with prints) | `it.fails` "... with Amadeus Cho removed from the game ..." |
+| F1  | 59004 Protect Humanity | wrong result, low (unreachable with prints), fixed | `it` (was `it.fails`) "... with Amadeus Cho removed from the game ..." |
 | F2  | 59028 Evaluate Threat  | wrong result, low (a shuffle only)          | `it.fails` "... a player who declines the search ..."       |
 
 ### F1. Protect Humanity stays in play when Amadeus Cho cannot be found
+
+**Status: fixed.** The script now discards the card when no Amadeus Cho is in play after the find; the pin is a passing
+`it` and `gift-labor.test.ts` has a module test. The text below is the finding as audited.
 
 - Printed: "When Revealed: Find Amadeus Cho and put him into play." RRG 1.8 FAQ p. 65 ("Hercules Hero Pack: Labor
   Cards"): "What happens if a Labor card fails to find a target when it is revealed? That Labor card is discarded. Any
