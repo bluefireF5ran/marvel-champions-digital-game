@@ -1195,6 +1195,27 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "Max 3 cards tucked here." (Ionic Physiology, `wonder_man` 58002; docs/phase7-wave10-hero-packs.md §H3.12;
+   * `tuck-limit.ts`): each card in play matching `card` (the rule's own card: `{ self: true }`) has at most `max` cards
+   * tucked under it, faceup or facedown. `max` is read at each tuck with the rule's card as `self`. The Wonder Man
+   * insert, clarification 1: a card is tucked there only while fewer than three are; ruling March 6, 2026 (4), step
+   * 3: "trigger Ionic Physiology to tuck Leading Blow (if under 3 cards)".
+   *
+   * - **Every tuck is bound**, not one ability's: `tuckCards` by any card, a tuck sent there by `replaceTuckHost`, and
+   *   a leaving card sent there by `replaceLeaveDestination`.
+   * - **A `tuckCards` tucks what there is room for**, in the order it names its cards. Each card left over stays
+   *   where it was and is logged (`GameEvent cardNotTucked`, reason `limit`); it is not imminent, so no "would be
+   *   tucked" interrupt answers it.
+   * - **With no room it tucks nothing and did not resolve**: the text after a "Then" is skipped (`preThenUnresolved`,
+   *   cause `tuckRefused`; RRG 1.8 "'Then'", p. 44). A tuck that fit at least one card resolved.
+   * - **An ability that only tucks under a full card cannot be initiated** (`abilityTargetFault`, fault `tuckFull`):
+   *   every effect of it is such a `tuckCards` or a `then`, so nothing of it could resolve.
+   * - A leaving card that finds no room makes the move the tuck replaced, as it does when the host has left play.
+   * - Cards already over the limit when the rule comes into force stay; nothing is discarded. "Discard all but 4" is
+   *   a state check on the card that says so (Silk, docs/phase7-wave9.md §3.39), not this rule.
+   */
+  | { readonly kind: "tuckLimit"; readonly card: TargetQuery; readonly max: ValueSpec; readonly while?: Predicate }
+  /**
    * "Any player in your pod can attack The Mangog as if it were in their game area." / "… can thwart Door Between
    * Worlds as if it were in their game area." (`tt` 55041, 55046; docs/phase7-wave9.md §3.67; MC55 pp. 16–17). The
    * exception MC55 p. 12 allows to "cards and components in one game area cannot affect another game area".

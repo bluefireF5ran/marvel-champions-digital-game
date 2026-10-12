@@ -1130,10 +1130,31 @@ export const hasCandidates = (state: GameState, deps: EngineDeps, event: Trigger
   candidatesFor(state, deps, event, timing, false).length > 0;
 
 /**
+ * Whether `event`, a condition as it stands after an earlier interrupt of its window changed it, is still one this
+ * candidate's ability answers: something is left to answer (`nothingToAnswer`: damage reduced to 0 is not), and the
+ * ability's own pattern matches it ("would take more than 3 damage" against the 3 now pending). Only the condition is
+ * read; the ability's limit, cost and targets are `stillOffered`'s. A keyword's engine ability has no pattern beyond
+ * its event and is kept while anything is left.
+ */
+export function stillAnswers(
+  state: GameState,
+  deps: EngineDeps,
+  candidate: TriggerCandidate,
+  event: TriggerEvent,
+  timing: WindowTiming,
+): boolean {
+  if (nothingToAnswer(event, timing)) return false;
+  const trigger = deps.abilities[candidate.abilityId]?.trigger;
+  if (!trigger || (trigger.kind !== "interrupt" && trigger.kind !== "response")) return true;
+  return matchesPattern(state, trigger.on, event, timing, candidate.instanceId, deps);
+}
+
+/**
  * Whether an optional candidate gathered as its window opened can still be initiated now, after the window's forced
  * tier resolved (`Frame<"window">.optionalAtOpen`, docs/phase7-wave6.md §3.79). Its triggering condition is not read
  * again: it was met by the occurrence (RRG 1.8 "Triggering Condition", p. 45), whatever the forced abilities changed
- * since. What is read again is everything `candidatesFor` checks of the ability itself: it is still on a card in play
+ * since. (One condition is read again, by the window and not here: damage that would be taken, once an interrupt has
+ * changed its amount. `stillAnswers`.) What is read again is everything `candidatesFor` checks of the ability itself: it is still on a card in play
  * and active (or the event is still in hand), its form, its own condition (`trigger.while`), limit, target and cost (RRG 1.8 "Initiating Abilities",
  * p. 24). A card answering from out of play (a spent resource, a card that left) is kept as it was gathered.
  */

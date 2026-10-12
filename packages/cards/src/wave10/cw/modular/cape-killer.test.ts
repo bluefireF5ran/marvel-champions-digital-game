@@ -25,6 +25,7 @@ import {
   patchInstance,
   stackEncounterDeck,
   use,
+  type Picker,
 } from "../../../testing/harness.js";
 import { driveEventsPicking, withForm } from "../../../testing/staging.js";
 import { attacksBy, codeOf, piles, revealedCodes, types, without } from "../../../wave9/testing.js";
@@ -166,13 +167,31 @@ function seats(state: GameState): PlayerId[] {
  * Every player ends the turn and the villain phase runs. Iron Man activates once against each player, each time
  * drawing a boost card (Advance, then Assault: no icon, no ability), then each player is dealt `dealt` in turn order.
  */
-const villainPhase = (state: GameState, ...dealt: string[]) =>
+const villainPhase = (state: GameState, ...dealt: string[]) => villainPhasePicking(state, firstLegal, ...dealt);
+const villainPhasePicking = (state: GameState, pick: Picker, ...dealt: string[]) =>
   driveEventsPicking(
     WAVE10_DEPS,
     stackEncounterDeck(state, ...FILLERS.slice(0, state.players.length), ...dealt),
-    firstLegal,
+    pick,
     ...seats(state).map((p) => endTurn(p)),
   );
+
+/**
+ * As `firstLegal`, but each of `defenders` defends the attack against them with their identity, which exhausts it. The
+ * way to have an identity exhausted when the encounter cards are revealed: everything readies at the end of the player
+ * phase (RRG 1.8 "Ready", p. 36), so an identity exhausted by surgery before the turn ends is ready again by then.
+ */
+const identityDefendsFor =
+  (...defenders: PlayerId[]): Picker =>
+  (s) => {
+    const choice = s.pendingChoice!;
+    const identity = identityOf(s, choice.playerId) as string;
+    return choice.prompt.kind === "declareDefender" &&
+      defenders.includes(choice.playerId) &&
+      choice.options.some((o) => (o.optionId as string) === identity)
+      ? [identity]
+      : firstLegal(s);
+  };
 
 /** Player `player`'s hero thwarts `scheme` with a real basic thwart. */
 const thwart = (state: GameState, scheme: InstanceId, player: PlayerId = P1) =>
@@ -417,12 +436,42 @@ describe("Bring Them In (56107)", () => {
     expect(piles(run.state).deck.map((i) => codeOf(run.state, i))).toContain(SUPER_B);
   });
 
-  it("WHEN REVEALED: an Unregistered identity that is already exhausted still counts, so no Unregistered Super is dealt", () => {
-    const base = game();
-    const start = patchInstance(inPlayAreaOf(base, SUPER), hero(base), { exhausted: true });
+  it("WHEN REVEALED: the only Unregistered identity is already exhausted (it defended), so it cannot be exhausted (RRG 1.8 'Exhaust' p. 19) and 'Otherwise' deals a copy of Unregistered Super (RRG 1.8 'Otherwise' p. 31)", () => {
+    const start = inPlayAreaOf(game(), SUPER);
+    const run = villainPhasePicking(start, identityDefendsFor(P1), BRING);
+    // Exhausted once, by defending: Bring Them In found it exhausted and exhausted nothing.
+    expect(types(run.events, "cardExhausted").map((e) => e.instanceId)).toEqual([hero(start)]);
+    const dealt = types(run.events, "cardMoved").filter((e) => e.to.kind === "dealtEncounter");
+    expect(dealt.map((e) => [codeOf(run.state, e.instanceId), (e.to as { playerId: string }).playerId])).toEqual([
+      [BRING, P1],
+      [SUPER_B, P1],
+    ]);
+    expect(
+      playArea(run.state)
+        .map((i) => codeOf(run.state, i))
+        .filter((c) => c === SUPER || c === SUPER_B),
+    ).toEqual([SUPER, SUPER_B]);
+    expect(piles(run.state).deck.map((i) => codeOf(run.state, i))).not.toContain(SUPER_B);
+    expect(types(run.events, "deckShuffled")).toHaveLength(1);
+  });
+
+  it("control for the above: the same Unregistered identity, not defending and so ready, is exhausted and no copy is dealt", () => {
+    const start = inPlayAreaOf(game(), SUPER);
     const run = villainPhase(start, BRING);
+    expect(types(run.events, "cardExhausted").map((e) => e.instanceId)).toEqual([hero(start)]);
     expect(types(run.events, "cardMoved").filter((e) => e.to.kind === "dealtEncounter")).toHaveLength(1);
     expect(piles(run.state).deck.map((i) => codeOf(run.state, i))).toContain(SUPER_B);
+  });
+
+  it("WHEN REVEALED: one Unregistered identity ready and one already exhausted is a partial resolution: the ready one is exhausted and no copy is dealt", () => {
+    const start = inPlayAreaOf(inPlayAreaOf(game({ twoPlayers: true }), SUPER, P1), SUPER_B, P2);
+    expect([hasTrait(start, hero(start, P1)), hasTrait(start, hero(start, P2))]).toEqual([true, true]);
+    const run = villainPhasePicking(start, identityDefendsFor(P2), BRING, ARREST);
+    expect(revealedCodes(run.state, run.events)).toEqual([BRING, ARREST]);
+    // Player 2's identity by defending, then player 1's by Bring Them In.
+    expect(types(run.events, "cardExhausted").map((e) => e.instanceId)).toEqual([hero(start, P2), hero(start, P1)]);
+    expect(types(run.events, "cardMoved").filter((e) => e.to.kind === "dealtEncounter")).toHaveLength(2);
+    expect(types(run.events, "deckShuffled")).toEqual([]);
   });
 });
 

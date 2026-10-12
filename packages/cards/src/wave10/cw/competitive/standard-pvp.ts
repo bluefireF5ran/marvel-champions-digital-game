@@ -30,6 +30,7 @@ import {
   product,
   refCount,
   self,
+  shuffleEncounterDeck,
   sum,
   thatPlayer,
   valueAtLeast,
@@ -46,7 +47,8 @@ const PLAYERS_ON_YOUR_TEAM = refCount(identityOf(yourTeam));
 /**
  * "The enemy team searches the top 5 cards of the encounter deck for a card": the first player's choice among them, in
  * a prompt marked as the enemy team's (owner's answer to question 6 = A, 2026-10-11; MC56 p. 6, the grim rule). The
- * other four stay where they were, in order: the text does not shuffle (as Secret Avengers, 56159).
+ * ability that searches shuffles the whole encounter deck once it is done (RRG 1.8 "Search", p. 39: "If any portion of
+ * a deck is searched, upon completion of that ... card ability, shuffle that entire deck"), as Secret Avengers (56159).
  */
 const SEARCH_TOP_FIVE = chooseCards("found", encounterCards(["deck"], undefined, 5), {
   min: 1,
@@ -79,8 +81,12 @@ const WHATEVER_IT_TAKES_ALTER_EGO = whenRevealedAlterEgo(
 /** Whatever It Takes, Hero face: "The enemy leader attacks you." */
 const WHATEVER_IT_TAKES_HERO = whenRevealedHero(enemyAttack(enemyLeader, { against: you }));
 
-/** Targeted Strike: the enemy team picks one of the top 5 and deals it to the player who revealed this. */
-const TARGETED_STRIKE_WHEN_REVEALED = whenRevealed(SEARCH_TOP_FIVE, dealAsEncounterCard(chosen("found"), you));
+/** Targeted Strike: the enemy team picks one of the top 5 and deals it to the player who revealed this; then the shuffle. */
+const TARGETED_STRIKE_WHEN_REVEALED = whenRevealed(
+  SEARCH_TOP_FIVE,
+  dealAsEncounterCard(chosen("found"), you),
+  shuffleEncounterDeck(),
+);
 
 /** Targeted Strike Boost: "This card gains [boost] for each player on your team." (corrected text, scan check.) */
 const TARGETED_STRIKE_BOOST = boost(adjustBoostCount(PLAYERS_ON_YOUR_TEAM));
@@ -102,6 +108,7 @@ const CHOOSING_SIDES_CONSTANT = constant(maxDamageTaken(query("villain"), 2));
  * the search of the next player reads the top (5 minus the facedown cards already dealt to the team). That count
  * assumes no other facedown card was waiting on the team when the search began (the engine has no per-search
  * snapshot nor "the nth player of a team"; a search that begins in the hero phase, when the piles are empty, is exact).
+ * The deck is shuffled once, when every pick is dealt (RRG 1.8 "Search", p. 39: upon completion of the card ability).
  * The flip goes to the first player (Now It's Personal prints "Give to the first player", MC56 p. 16).
  */
 const CHOOSING_SIDES_FORCED_RESPONSE = forcedResponse(
@@ -115,6 +122,7 @@ const CHOOSING_SIDES_FORCED_RESPONSE = forcedResponse(
     }),
     dealAsEncounterCard(chosen("found"), thatPlayer),
   ),
+  shuffleEncounterDeck(),
   flipCard(self, { controller: firstPlayer }),
 );
 

@@ -1834,6 +1834,20 @@ function choseNothing(
   });
 }
 
+/**
+ * A search with nothing to decide, resolved without a prompt: a search that must find a card (`isRequiredSearch`),
+ * made by "the enemy team" (`chooser: enemyTeamDecider`, MC56 p. 6), that finds exactly one. RRG 1.8 "Search" (p. 39):
+ * "If the player finds a card that satisfies the criteria of the search, the player adds that card to the game area
+ * indicated"; "If a player finds multiple cards that satisfy the criteria of a search, the player chooses among those
+ * options." With one find there is no choice to give the first player on the enemy team's behalf.
+ *
+ * Kept to the enemy team's searches: a player's own search with one find still shows its prompt, as every required
+ * choice with one candidate does (the engine's standing convention, which the campaign setup searches of waves 5 and 8
+ * and Hugin and Munin's search, wave 9, are tested against). The card found is logged as any pick is (`targetChosen`).
+ */
+const forcedEnemyTeamSearch = (effect: Extract<EffectSpec, { kind: "chooseCards" }>): boolean =>
+  effect.chooser.kind === "enemyTeamDecider" && isRequiredSearch(effect);
+
 function executeChooseCards(
   ctx: Ctx,
   frame: Frame<"effects">,
@@ -1878,6 +1892,12 @@ function executeChooseCards(
   const max = Math.min(effect.max, candidates.length, fitting);
   if (!chooser || max === 0) {
     choseNothing(ctx, frame, effect, candidates.length === 0);
+    return;
+  }
+  // One card found by a search the enemy team must make: nothing to choose, so no prompt (`forcedEnemyTeamSearch`).
+  if (forcedEnemyTeamSearch(effect) && candidates.length === 1) {
+    emit(ctx, { type: "targetChosen", slot: effect.slot, instanceIds: candidates });
+    setFrame(ctx, { ...frame, cursor: frame.cursor + 1, bindings: { ...frame.bindings, [effect.slot]: candidates } });
     return;
   }
   requestChoice(ctx, {
@@ -1994,8 +2014,12 @@ const zoneKey = (state: GameState, id: InstanceId): string => JSON.stringify(loc
  * The first visit fixes the set and replaces the frame's effect by a `forEachCardPass` holding the waiting cards with
  * their zones. Every later visit (the frame is re-read after each pass, the cursor still here) drops the cards that
  * are no longer in that zone, asks the chooser which of two or more waiting cards is next, and pushes that card's pass
- * as a frame of its own that hands nothing back: a pass's bindings are its own instance's. The cursor moves on once
- * no card is waiting.
+ * as a frame of its own: a pass's bindings are its own instance's, and no pass sees another's. The cursor moves on
+ * once no card is waiting.
+ *
+ * With `bind`, the loop's frame counts the passes in `<bind>.count` and each pass hands what it holds back under
+ * `<bind>.` as it finishes (vars summed, slots joined: `returnBindingsPrefix`), so the effects after the loop can read
+ * what the passes did together. A pass starts without the `<bind>.` names the earlier passes handed back.
  */
 function executeForEachCard(
   ctx: Ctx,
@@ -2003,10 +2027,15 @@ function executeForEachCard(
   effect: Extract<EffectSpec, { kind: "forEachCard" | "forEachCardPass" }>,
   context: EffectContext,
 ): void {
-  const replaceWith = (pass: EffectSpec | null, answer: Frame<"effects">["answer"] = frame.answer) =>
+  const countVar = effect.bind === undefined ? null : `${effect.bind}.count`;
+  /** The loop frame's vars with `<bind>.count` raised by `passes` (set to 0 as the loop begins). */
+  const counted = (passes: number): Frame<"effects">["vars"] =>
+    countVar === null ? frame.vars : { ...frame.vars, [countVar]: (frame.vars[countVar] ?? 0) + passes };
+  const replaceWith = (pass: EffectSpec | null, answer: Frame<"effects">["answer"] = frame.answer, passes = 0) =>
     setFrame(ctx, {
       ...frame,
       answer,
+      vars: counted(passes),
       ...(pass
         ? { effects: [...frame.effects.slice(0, frame.cursor), pass, ...frame.effects.slice(frame.cursor + 1)] }
         : { cursor: frame.cursor + 1 }),
@@ -2043,8 +2072,12 @@ function executeForEachCard(
   }
   const answered = frame.answer?.[0];
   const next = waiting.find((card) => card.instanceId === answered) ?? waiting[0]!;
-  replaceWith({ ...effect, waiting: waiting.filter((card) => card !== next) }, null);
+  replaceWith({ ...effect, waiting: waiting.filter((card) => card !== next) }, null, 1);
   emit(ctx, { type: "targetChosen", slot: effect.slot, instanceIds: [next.instanceId] });
+  // What earlier passes handed back (`<bind>.…`) is the loop's, not this pass's.
+  const prefix = effect.bind === undefined ? null : `${effect.bind}.`;
+  const own = <T>(record: Readonly<Record<string, T>>): Readonly<Record<string, T>> =>
+    prefix === null ? record : Object.fromEntries(Object.entries(record).filter(([key]) => !key.startsWith(prefix)));
   pushEffects(ctx, {
     effects: effect.effects,
     selfInstanceId: frame.selfInstanceId,
@@ -2053,10 +2086,11 @@ function executeForEachCard(
     controllerId: frame.controllerId,
     event: frame.event,
     eventFrameId: frame.eventFrameId,
-    bindings: { ...frame.bindings, [effect.slot]: [next.instanceId] },
-    vars: frame.vars,
+    bindings: { ...own(frame.bindings), [effect.slot]: [next.instanceId] },
+    vars: own(frame.vars),
     scopedPlayerId: frame.scopedPlayerId,
     byPlayer: frame.byPlayer === true,
+    ...(effect.bind !== undefined ? { returnBindingsTo: frame.frameId, returnBindingsPrefix: effect.bind } : {}),
   });
 }
 

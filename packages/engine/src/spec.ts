@@ -2398,6 +2398,16 @@ export type EffectSpec =
    */
   | { readonly kind: "increaseDamage"; readonly amount: ValueSpec }
   /**
+   * An interrupt to a `dealDamage` event: "When [she] would take more than 3 damage from an attack, **reduce that
+   * amount to 3**" (Cosmic Flight, `cw` 56100). The damage pending on the interrupted event, read as this effect
+   * resolves (so after any interrupt that resolved before it), is lowered to `amount` if it is higher. It is the
+   * amount taken that is reduced, as for a prevention (RRG 1.8 "Prevent", p. 35): the event keeps the amount dealt.
+   * A reduction is not a prevention, so it is logged as `damageCapped` and nothing that answers prevented damage hears
+   * it. `bind`: `<bind>.amount` is how much was taken off and `<bind>.made` whether any was. Pending damage already
+   * at or under `amount`, or a cancelled or other event, changes nothing.
+   */
+  | { readonly kind: "reduceDamageTo"; readonly amount: ValueSpec; readonly bind?: string }
+  /**
    * "… If that character is defeated this way, **repeat this effect**" (Out for Blood, `hood` 24023): `effects` resolve,
    * then `while` is read (with what those effects bound); while it holds they resolve again. Each repetition starts with
    * the slots and vars the repeated effects bind cleared, so "that character" is always this repetition's. Capped at
@@ -2432,12 +2442,21 @@ export type EffectSpec =
    * leaving play), so while two or more cards are waiting `chooser` (default: the ability's controller, or the
    * resolving player of an encounter card) picks the next one (`ChoicePrompt chooseTarget` on `slot`, offering the
    * waiting cards); the last card is taken without asking. With nobody to ask, the set's own order is used.
+   *
+   * `bind`: what the passes did, handed back to the ability once the loop is done, for a sentence that reads the
+   * whole loop ("X attacks each character with … attached. **If no attack was made this way**, …"). `<bind>.count` is
+   * the number of passes that ran, and whatever a pass bound comes back as `<bind>.<name>`, vars summed and slots
+   * joined across the passes (as `resolveSpecials.bind`): an `enemyAttack` bound as `hit` in the pass is read after
+   * the loop as `<bind>.hit.made`, the number of those attacks that were made (RRG 1.8 "Stun, Stunned", p. 41: a
+   * stunned enemy's attack is replaced and it "is not considered to have attacked"). The passes themselves still see
+   * nothing of each other. With no card to pass over, `<bind>.count` is 0 and nothing else is bound.
    */
   | {
       readonly kind: "forEachCard";
       readonly cards: TargetRef;
       readonly slot: string;
       readonly chooser?: PlayerRef;
+      readonly bind?: string;
       readonly effects: readonly EffectSpec[];
     }
   /**
@@ -2449,6 +2468,7 @@ export type EffectSpec =
       readonly kind: "forEachCardPass";
       readonly slot: string;
       readonly chooser?: PlayerRef;
+      readonly bind?: string;
       readonly effects: readonly EffectSpec[];
       readonly waiting: readonly { readonly instanceId: InstanceId; readonly zone: string }[];
     }

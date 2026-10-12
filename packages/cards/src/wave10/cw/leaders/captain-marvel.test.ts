@@ -6,6 +6,7 @@ import {
   maxHitPoints,
   remainingHitPoints,
   villainStage,
+  type GameEvent,
   type GameState,
   type InstanceId,
   type PlayerId,
@@ -110,6 +111,7 @@ const TWO_GUN_KID = "56010";
 const CAPTAIN_MARVEL_DECK = "core-captain-marvel-leadership";
 const HAYMAKER = "01087";
 const UPPERCUT = "01054";
+const WEB_KICK = "01005"; // Swinging Web Kick: an attack event for 8
 const MOON_KNIGHT = "56002";
 
 const dataOf = (code: string) => CW_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
@@ -594,8 +596,10 @@ describe("Cosmic Flight (56100)", () => {
   };
   const haymaker = (state: GameState) => playEvent(state, HAYMAKER, 2);
   const uppercut = (state: GameState) => playEvent(state, UPPERCUT, 3);
-  const flightGame = (copies: number) => {
-    let state = ready(heroGame({ swap: { "56012": HAYMAKER, "56013": UPPERCUT } }));
+  const flightGame = (copies: number, third?: string) => {
+    let state = ready(
+      heroGame({ swap: { "56012": HAYMAKER, "56013": UPPERCUT, ...(third ? { "56014": third } : {}) } }),
+    );
     for (let i = 0; i < copies; i++) state = attachToHost(state, FLIGHT, villainOf(state)).state;
     return state;
   };
@@ -631,11 +635,69 @@ describe("Cosmic Flight (56100)", () => {
     expect(damageOn(after, villainOf(after))).toBe(5);
   });
 
-  it("two copies: both trigger on the same 5 damage (it is more than 3 for each), it is capped at 3 once, and both are discarded", () => {
-    const after = uppercut(flightGame(2));
-    expect(damageOn(after, villainOf(after))).toBe(3);
-    expect(attachedCodes(after)).toEqual([CHANNEL]);
-    expect(discardCodes(after).filter((c) => c === FLIGHT)).toEqual([FLIGHT, FLIGHT]);
+  /** The same play, with its events. */
+  const playEventRun = (state: GameState, code: string, cost: number) => {
+    const given = moveToHand(state, P1, code);
+    return driveEventsPicking(
+      WAVE10_DEPS,
+      given.state,
+      firstLegal,
+      play(P1, given.ids[0]!, payWith(given.state, P1, cost, given.ids)),
+    );
+  };
+  const flightsOn = (state: GameState) => attachedCodes(state).filter((c) => c === FLIGHT);
+  const flightsDiscarded = (state: GameState) => discardCodes(state).filter((c) => c === FLIGHT);
+  const lapsed = (events: readonly GameEvent[]) =>
+    events.flatMap((e) => (e.type === "interruptConditionLapsed" ? [[e.abilityId as string, e.event.kind]] : []));
+  const capped = (events: readonly GameEvent[]) => events.flatMap((e) => (e.type === "damageCapped" ? [e.amount] : []));
+
+  // Owner's answer to question 29 = B (2026-10-12), an interpretation of RRG 1.8 "Interrupt" (p. 25: "If an interrupt
+  // changes (via a replacement effect) or cancels an imminent triggering condition, further interrupts to the original
+  // triggering condition cannot be triggered") and "Replacement Effect" (p. 37), not an FFG ruling on this card.
+  it("two copies, one hit of 8 (Swinging Web Kick): the first copy makes it 3, which the second no longer answers: 3 taken, one copy discarded, one still attached", () => {
+    const run = playEventRun(flightGame(2, WEB_KICK), WEB_KICK, 3);
+    expect(damageOn(run.state, villainOf(run.state))).toBe(3);
+    expect(flightsOn(run.state)).toEqual([FLIGHT]);
+    expect(flightsDiscarded(run.state)).toEqual([FLIGHT]);
+    expect(capped(run.events)).toEqual([5]);
+    expect(lapsed(run.events)).toEqual([["56100.cosmic-flight-forced-interrupt", "dealDamage"]]);
+    expect(
+      run.events.filter((e) => e.type === "abilityResolved" && e.abilityId === "56100.cosmic-flight-forced-interrupt"),
+    ).toHaveLength(1);
+  });
+
+  it("two copies, then a second hit of 5 (Uppercut): the copy that stayed makes it 3 and is discarded: 6 taken in all, none attached", () => {
+    const first = playEventRun(flightGame(2, WEB_KICK), WEB_KICK, 3);
+    // Three more cards from the deck to pay for the second event.
+    let refilled = ready(first.state);
+    for (const id of first.state.players[0]!.deck.slice(0, 3))
+      refilled = moveToHand(refilled, P1, codeOf(refilled, id)).state;
+    const second = playEventRun(refilled, UPPERCUT, 3);
+    expect(damageOn(second.state, villainOf(second.state))).toBe(6);
+    expect(flightsOn(second.state)).toEqual([]);
+    expect(flightsDiscarded(second.state)).toEqual([FLIGHT, FLIGHT]);
+    expect(capped(second.events)).toEqual([2]);
+    expect(lapsed(second.events)).toEqual([]);
+  });
+
+  it("two copies, a hit of exactly 3 (Haymaker): neither triggers and both stay", () => {
+    const run = playEventRun(flightGame(2), HAYMAKER, 2);
+    expect(damageOn(run.state, villainOf(run.state))).toBe(3);
+    expect(flightsOn(run.state)).toEqual([FLIGHT, FLIGHT]);
+    expect(capped(run.events)).toEqual([]);
+    expect(lapsed(run.events)).toEqual([]);
+  });
+
+  it("one copy and a tough status card, a hit of 5: the tough card resolves first and prevents it all (RRG 1.8 'Ability', Simultaneous Timing Priority, p. 5: status card Forced Interrupts before Forced Interrupts), so the copy does not trigger and stays", () => {
+    const base = flightGame(1);
+    const tough = patchInstance(base, villainOf(base), {
+      statuses: { ...inst(base, villainOf(base)).statuses, tough: 1 },
+    });
+    const run = playEventRun(tough, UPPERCUT, 3);
+    expect(inst(run.state, villainOf(run.state)).statuses.tough).toBe(0);
+    expect(damageOn(run.state, villainOf(run.state))).toBe(0);
+    expect(flightsOn(run.state)).toEqual([FLIGHT]);
+    expect(capped(run.events)).toEqual([]);
   });
 
   it("[star] BOOST: revealed from the boost card it attaches", () => {

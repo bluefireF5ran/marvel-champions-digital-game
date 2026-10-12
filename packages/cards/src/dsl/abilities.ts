@@ -790,6 +790,19 @@ export const counterLimit = (
 ): ConstantPart =>
   rule({ kind: "counterLimit", card, counterType, max: amount(max), ...(opts.while ? { while: opts.while } : {}) });
 /**
+ * "Max 3 cards tucked here." (Ionic Physiology, `wonder_man` 58002; docs/phase7-wave10-hero-packs.md §H3.12) →
+ * `constant(tuckLimit(3))`. The card (default: this card) has at most `max` cards tucked under it, whoever tucks them:
+ * a `tuckCards` under it tucks the first cards there is room for and logs the rest as not tucked; with no room it
+ * tucks nothing, so an `andThen(...)` after it is skipped, and an ability whose only effects are that tuck and its
+ * `andThen` is not offered. "Choose one" beside another option needs the option's own `condition`
+ * (`lessThan(countInRef(tuckedUnder(self)), 3)`): an option is not judged the way an ability is.
+ */
+export const tuckLimit = (
+  max: Amount,
+  card: TargetQuery = { self: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "tuckLimit", card, max: amount(max), ...(opts.while ? { while: opts.while } : {}) });
+/**
  * "Any player in your pod can attack The Mangog as if it were in their game area." (`tt` 55041) →
  * `constant(reachableFromPod("attack"))`; "… can thwart Door Between Worlds as if it were in their game area." (55046)
  * → `constant(reachableFromPod("thwart"))` (docs/phase7-wave9.md §3.67). It changes nothing while the pod is one group

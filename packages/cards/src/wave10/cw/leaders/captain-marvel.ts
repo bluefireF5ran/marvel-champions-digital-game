@@ -27,6 +27,7 @@ import {
   oneCopyOf,
   placeThreat,
   query,
+  reduceDamageTo,
   removeEachCounterFrom,
   revealCard,
   selectCards,
@@ -88,16 +89,23 @@ const advancedWhenRevealed = () =>
 
 /**
  * Cosmic Flight: "When Captain Marvel would take more than 3 damage from an attack, reduce that amount to 3. Then, discard
- * this card." The trigger needs the damage to be 4 or more as the window opens; the reduction is a cap of 3 on the damage
- * of this attack (a lasting rule, so a second copy triggered by the same damage cannot reduce it again: reading the
- * amount as an effect resolves would still see the 5 the window opened with). Both copies triggered by the same damage
- * therefore resolve and are discarded; whether the second should have stayed once the first made the amount 3 is not
- * ruled on (docs/phase7-wave10.md section 3.23 says only "maxDamageTaken, then discard (verify)").
+ * this card." The trigger needs the damage pending to be 4 or more, and the effect lowers that pending amount to 3.
+ *
+ * Two copies on one hit (owner's answer to question 29 = B, 2026-10-12; an interpretation of the RRG, not an FFG ruling
+ * on this card): the first copy to resolve changes the damage that would be taken to 3, and "further interrupts to the
+ * original triggering condition cannot be triggered" (RRG 1.8 "Interrupt", p. 25; "Replacement Effect", p. 37: a
+ * replaced effect "is no longer considered imminent"). The engine reads the second copy's condition again against the
+ * 3 now pending, which is not more than 3, so it does not resolve and stays attached for the next such hit. "Then"
+ * (RRG 1.8 "'Then'", p. 44) ties the discard to the reduction, so a copy that reduces nothing is not discarded.
+ *
+ * With a tough status card on her, the tough card resolves first and prevents the damage (RRG 1.8 "Ability",
+ * "Simultaneous Timing Priority", p. 5: status card Forced Interrupts come before Forced Interrupts), so this card
+ * does not trigger and stays.
  */
 const cosmicFlight = () =>
   forcedInterrupt(
     { ...on.damage("host", { fromAttack: true }), eventAtLeast: { amount: 4 } },
-    applyRuleUntil({ kind: "maxDamageTakenPerAttack", target: CAPTAIN_MARVEL, amount: 3 }, "endOfAttack"),
+    reduceDamageTo(3),
     andThen(discard(self)),
   );
 
@@ -117,7 +125,7 @@ const cosmicFlight = () =>
  * the same type.
  *
  * **Cosmic Flight (56100)**: a Forced Interrupt on an attack's damage to her, 4 or more is lowered to 3 and the card
- * discarded; 3 or less is untouched and the card stays.
+ * discarded; 3 or less is untouched and the card stays. Of two copies only one answers a hit (question 29 = B).
  *
  * **Photonic Blast (56101)**, **Crisis Interdiction (56102)**, **Energy Absorption (56103)** and **Alpha Flight Station
  * (56104)** place counters on Energy Channel; the first three heal or hurt as printed.

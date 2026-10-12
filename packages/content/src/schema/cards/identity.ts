@@ -1,4 +1,4 @@
-import type { CardText, ResourceIconCounts, Trait } from "../common.js";
+import type { CardText, ResourceIconCounts, ResourceIconType, Trait } from "../common.js";
 import type { KeywordInstance } from "../keywords.js";
 import type { AbilityReference } from "../abilities.js";
 import type { ArtRef, CardId, EncounterSetId, ImageRef } from "../ids.js";
@@ -32,7 +32,10 @@ export interface IdentityDeckbuilding {
    * number of titles, at most `maxCards` cards in total, each of `cardType` with at least one of `anyTrait`, from any
    * aspect not chosen. Unlike `offAspectPackages` (Maria Hill's all-or-nothing), taking fewer is legal.
    * docs/phase7-wave3.md §1.5. Without `maxCards` there is no limit: Scott Summers (`cyclops` 33001b), "You may
-   * include X-Men allies from any aspect in your deck." → `{ cardType: "ally", anyTrait: [X-MEN] }`.
+   * include X-Men allies from any aspect in your deck." → `{ cardType: "ally", anyTrait: [X-MEN] }`. Simon Williams
+   * (`wonder_man` 58001b), Ionic Energy Being: "You may include events with a printed [energy] resource icon from any
+   * aspect in your deck." → `{ cardType: "event", printedResource: "energy" }` (docs/phase7-wave10-hero-packs.md
+   * §H3.15).
    */
   readonly offAspectAllowance?: OffAspectAllowance;
   /**
@@ -72,6 +75,14 @@ export interface OffAspectAllowance {
    * `{ cardType: "player_side_scheme" }`). Present, it is never empty.
    */
   readonly anyTrait?: readonly Trait[];
+  /**
+   * The card prints at least one resource icon of this type ("with a printed [energy] resource icon", Simon Williams
+   * 58001b). ANDed with `cardType` and `anyTrait`. Printed icons only, each as its own type: a wild icon is wild,
+   * not energy (RRG 1.8 "Printed", p. 35: what "is physically printed on the card"; "Wild Resource", p. 48: wild is
+   * "one of the four types of resources", named as another only by the player generating it). Absent: any icons, or
+   * none.
+   */
+  readonly printedResource?: ResourceIconType;
   /** Cards in total, not titles: a whole number of at least 1. Absent: any number (Cyclops). */
   readonly maxCards?: number;
 }

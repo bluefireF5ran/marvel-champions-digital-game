@@ -105,6 +105,8 @@ function abilityRefErrors(refs: unknown, label: string): string[] {
  * one is never printed, and the engine's typed cost slots have no wild slot, so it is refused rather than guessed at.
  */
 const REQUIREMENT_TYPES: readonly string[] = ["physical", "mental", "energy"];
+/** Every printed resource icon type (`ResourceIconType`), for a field that names one. */
+const RESOURCE_ICON_TYPES: readonly string[] = [...REQUIREMENT_TYPES, "wild"];
 
 /**
  * A Requirement keyword's resources (RRG 1.8 "Requirement (Resources)", p. 37): exactly one of `resources` (icon counts,
@@ -601,6 +603,9 @@ export function validateHeroIdentityCard(card: HeroIdentityCard): ValidationResu
     )
       errors.push("offAspectAllowance anyTrait, when present, must list at least one trait");
     if (!isNonEmptyString(allowance.cardType)) errors.push("offAspectAllowance needs a cardType");
+    // docs/phase7-wave10-hero-packs.md §H3.15 (Simon Williams's Ionic Energy Being).
+    if (allowance.printedResource !== undefined && !RESOURCE_ICON_TYPES.includes(allowance.printedResource))
+      errors.push("offAspectAllowance printedResource must be physical, mental, energy or wild");
   }
   // docs/phase7-wave4.md §1.4 (Adam Warlock's Avatar of Life).
   if (card.deckbuilding?.maxCopiesPerTitle !== undefined && !isPositiveInteger(card.deckbuilding.maxCopiesPerTitle))

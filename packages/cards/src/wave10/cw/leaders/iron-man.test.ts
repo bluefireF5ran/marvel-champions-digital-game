@@ -781,7 +781,18 @@ describe("Stark Tower (56072): When Defeated, the enemy team searches the deck a
 
   it("with a single candidate left there is no prompt: it is found and attached", () => {
     const t = tower(1, [HELMET, REACTOR, ARMOR]);
-    const run = thwart(t.state, t.id, P1);
+    // Every prompt the thwart raises is recorded: none is the enemy team's, and none is a choice of cards.
+    const asked: string[] = [];
+    const run = driveEventsPicking(
+      DEPS,
+      ready(t.state, P1),
+      (s) => {
+        asked.push(`${s.pendingChoice!.prompt.kind}:${s.pendingChoice!.authority}`);
+        return firstLegal(s);
+      },
+      thwartCommand(t.state, t.id, P1),
+    );
+    expect(asked.filter((a) => a.startsWith("chooseCards") || a.endsWith("enemyTeam"))).toEqual([]);
     expect(run.state.pendingChoice).toBeNull();
     expect(attachedCodes(run.state).sort()).toEqual([BOOTS, GAUNTLETS].sort());
   });

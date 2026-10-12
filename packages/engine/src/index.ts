@@ -285,6 +285,7 @@ export type { ConsequentialDamage, DamageSourceInfo, FormChangeCost, GrantedAbil
 export { hasKeyword, isPermanent, keywordsOf, keywordTotal, printedKeywordsOf, statusActive } from "./keywords.js";
 export { linkedKeywordNames, linkedKeywordsOf } from "./linked.js";
 export { counterRoom } from "./counter-limit.js";
+export { tuckLimitOf, tuckRoom } from "./tuck-limit.js";
 export { printedResources } from "./resources.js";
 export { pairOfOptionId, pairOptionId, pairSelectionFault, resourceIconsMatch } from "./resolve/pair-cards.js";
 export { characterTitledAs, identityCardTitledAs } from "./titles.js";

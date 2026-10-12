@@ -2816,6 +2816,23 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       }
       return;
     }
+    case "reduceDamageTo": {
+      const target = frame.eventFrameId ? findFrame(ctx.state, frame.eventFrameId) : undefined;
+      const pending =
+        target?.kind === "event" && target.event.kind === "dealDamage" && !target.cancelled ? target.event : null;
+      const cap = Math.max(0, value(effect.amount));
+      const reduced = pending ? Math.max(0, pending.amount - cap) : 0;
+      if (effect.bind)
+        addFrameVars(ctx, frame.frameId, {
+          [`${effect.bind}.amount`]: reduced,
+          [`${effect.bind}.made`]: reduced > 0 ? 1 : 0,
+        });
+      if (!pending || target?.kind !== "event" || reduced <= 0) return;
+      // Reduced like a prevention: the amount left to take goes down, the amount dealt stays (RRG 1.8 "Prevent", p. 35).
+      setFrame(ctx, { ...target, event: { ...pending, amount: cap, dealt: pending.dealt ?? pending.amount } });
+      emit(ctx, { type: "damageCapped", targetInstanceId: pending.targetInstanceId, amount: reduced });
+      return;
+    }
     case "increaseDamage": {
       // The mirror of `preventDamage` (docs/phase7-wave4.md §3.52): the interrupted damage event's own amount grows.
       const target = frame.eventFrameId ? findFrame(ctx.state, frame.eventFrameId) : undefined;
@@ -3777,6 +3794,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         sourceInstanceId: frame.selfInstanceId,
         sourceCardId: leaveSourceOf(ctx, frame),
         facedown: effect.facedown === true,
+        effectFrameId: frame.frameId,
       });
       return;
     }

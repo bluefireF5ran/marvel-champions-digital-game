@@ -12,7 +12,8 @@ import { WONDER_MAN_STARTER_DECKS } from "./wonder_man/starterDecks.js";
  * Wonder Man (`wonder_man`, cycle 10, Civil War): counts, the Ionic Physiology erratum (RRG 1.8 p. 70) and what the
  * hero kit and the off-aspect energy events are. Sources: the Wonder Man insert, RRG 1.8 Appendix V,
  * docs/phase7-wave10-hero-packs.md H1 and docs/phase7-wave10-scan-check.md. Wonder Man's deck-building rule
- * ("Ionic Energy Being") is NOT in the data yet: it needs `OffAspectAllowance.printedResource` (spec H3.15, task HT12).
+ * ("Ionic Energy Being") is `OffAspectAllowance.printedResource` on 58001a (spec H1.5, H3.15); the deck cases are in
+ * `@mc/engine` (`off-aspect-allowance.test.ts`) and `@mc/cards` (`wave10/wonder-man-deck.test.ts`).
  */
 interface RawRecord {
   readonly code: string;
@@ -102,10 +103,39 @@ describe("wonder_man: the pack", () => {
     expect(WONDER_MAN_STARTER_DECKS).toEqual([]);
   });
 
-  it("has no separate decks (the Setup puts Ionic Physiology into play) and, until HT12, no deckbuilding field", () => {
-    const identity = get<HeroIdentityCard>("58001a");
-    expect(identity.separateDecks).toBeUndefined();
-    expect(identity.deckbuilding).toBeUndefined();
+  it("has no separate decks (the Setup puts Ionic Physiology into play)", () => {
+    expect(get<HeroIdentityCard>("58001a").separateDecks).toBeUndefined();
+  });
+});
+
+describe("wonder_man: Ionic Energy Being (Simon Williams 58001b), the deck-building rule", () => {
+  const identity = get<HeroIdentityCard>("58001a");
+  const withAllowance = (offAspectAllowance: unknown): HeroIdentityCard =>
+    ({ ...identity, deckbuilding: { offAspectAllowance } }) as unknown as HeroIdentityCard;
+
+  it("the alter-ego face prints the rule", () => {
+    expect(identity.alterEgo.text.current).toContain(
+      "You may include events with a printed [energy] resource icon from any aspect in your deck.",
+    );
+  });
+
+  it("is an off-aspect allowance by card type and printed resource, with no maximum and nothing left unmodeled", () => {
+    expect(identity.deckbuilding).toEqual({ offAspectAllowance: { cardType: "event", printedResource: "energy" } });
+    expect(validateCard(identity).errors).toEqual([]);
+  });
+
+  it("validateCard accepts each of the four printed resource types and refuses anything else", () => {
+    for (const printedResource of ["physical", "mental", "energy", "wild"])
+      expect(validateCard(withAllowance({ cardType: "event", printedResource })).errors, printedResource).toEqual([]);
+    for (const printedResource of ["plasma", "", 1, null])
+      expect(
+        validateCard(withAllowance({ cardType: "event", printedResource })).errors,
+        String(printedResource),
+      ).toEqual(["offAspectAllowance printedResource must be physical, mental, energy or wild"]);
+    // The card type is still required beside it.
+    expect(validateCard(withAllowance({ printedResource: "energy" })).errors).toEqual([
+      "offAspectAllowance needs a cardType",
+    ]);
   });
 });
 

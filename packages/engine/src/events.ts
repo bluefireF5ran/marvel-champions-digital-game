@@ -67,6 +67,11 @@ export type PreThenFailure =
    */
   | "tuckNotReplaced"
   /**
+   * A `tuckCards` tucked none of its cards: the card they go under already holds its maximum (`RuleSpec tuckLimit`,
+   * docs/phase7-wave10-hero-packs.md §H3.12).
+   */
+  | "tuckRefused"
+  /**
    * A `replaceAttachHost` found no pending attach to send elsewhere, or no card that can have it attached
    * (docs/phase7-wave9.md §3.49).
    */
@@ -1428,6 +1433,18 @@ export type GameEvent =
    * §3.12). Logged only when some interrupt was waiting.
    */
   | { readonly type: "interruptsPreempted"; readonly event: TriggerEvent; readonly reason: "tough" }
+  /**
+   * An interrupt that was to resolve (a forced one, or one a player picked) for damage that would be taken did not:
+   * an interrupt that resolved before it changed the pending amount, and `event`, the damage as it now stands, no
+   * longer meets this ability's triggering condition (RRG 1.8 "Interrupt", p. 25: "further interrupts to the original
+   * triggering condition cannot be triggered"). The ability did not initiate: no cost was paid and no effect resolved.
+   */
+  | {
+      readonly type: "interruptConditionLapsed";
+      readonly instanceId: InstanceId;
+      readonly abilityId: AbilityId;
+      readonly event: TriggerEvent;
+    }
   | {
       readonly type: "windowOpened";
       readonly event: TriggerEvent;
@@ -1580,6 +1597,17 @@ export type GameEvent =
       readonly amount: number;
       readonly reason: "limit";
       readonly fromInstanceId?: InstanceId;
+    }
+  /**
+   * A card that was to be tucked under `hostInstanceId` and was not, because that card may hold no more (`RuleSpec
+   * tuckLimit`, "Max 3 cards tucked here"; docs/phase7-wave10-hero-packs.md §H3.12). It stays where it was; a card
+   * that was leaving play makes the move the tuck replaced.
+   */
+  | {
+      readonly type: "cardNotTucked";
+      readonly instanceId: InstanceId;
+      readonly hostInstanceId: InstanceId;
+      readonly reason: "limit";
     }
   | {
       readonly type: "counterRemoved";

@@ -50,7 +50,7 @@ import {
   toHero,
 } from "../testing/harness.js";
 import { whenRevealed } from "./abilities.js";
-import { chooseTarget, dealDamage } from "./effects.js";
+import { chooseCards, chooseTarget, dealDamage, encounterCards } from "./effects.js";
 import { validateDefinition } from "./validate.js";
 import { chosen, enemyTeamChooses, firstPlayer, query, you } from "./values.js";
 
@@ -324,5 +324,60 @@ describe("a real solo game against Rhino", () => {
     expect(optionIds(unmarked)).toEqual(optionIds(marked));
     expect([marked.playerId, marked.authority]).toEqual([P1, "enemyTeam"]);
     expect([unmarked.playerId, unmarked.authority]).toEqual([P1, "player"]);
+  });
+});
+
+describe("a search the enemy team must make (RRG 1.8 'Search' p. 39: the player chooses only 'if a player finds multiple cards that satisfy the criteria')", () => {
+  /** "<chooser> searches the encounter deck and discard pile for <a side scheme>." */
+  const search = (chooser: PlayerRef, name?: string): AbilityDefinition =>
+    whenRevealed(
+      chooseCards("found", encounterCards(["deck", "discard"], query("sideScheme", name ? { name } : {})), {
+        min: 1,
+        max: 1,
+        chooser,
+      }),
+    );
+  const CROWD_CONTROL = "01108"; // one copy in Rhino's encounter deck
+  const searchPrompt = (state: GameState): boolean =>
+    state.pendingChoice?.prompt.kind === "chooseCards" && state.step.phase === "villain";
+  const found = (events: readonly GameEvent[]) =>
+    events.flatMap((e) => (e.type === "targetChosen" && e.slot === "found" ? [e.instanceIds] : []));
+
+  it("one card found: it is found without a prompt, and the log records it as any pick", () => {
+    const game = rhinoGame(search(enemyTeamChooses, "Crowd Control"), 1, 1);
+    const copies = instancesOf(game.state, CROWD_CONTROL);
+    expect(copies).toHaveLength(1);
+    const run = drive(startSession(game.state), game.deps, game.turns, searchPrompt);
+    expect(searchPrompt(run.session.state)).toBe(false);
+    expect(run.events.filter((e) => e.type === "choiceRequested" && e.choice.authority === "enemyTeam")).toEqual([]);
+    expect(found(run.events)).toEqual([copies]);
+    const again = replay(run.session.log, game.deps);
+    expect(again.ok && again.state).toEqual(run.session.state);
+  });
+
+  it("several cards found: the first player is asked for the enemy team, as before", () => {
+    const game = rhinoGame(search(enemyTeamChooses), 1, 1);
+    const asked = drive(startSession(game.state), game.deps, game.turns, searchPrompt).session.state.pendingChoice!;
+    expect([asked.playerId, asked.authority, asked.minSelections, asked.maxSelections]).toEqual([
+      P1,
+      "enemyTeam",
+      1,
+      1,
+    ]);
+    expect(asked.options.length).toBeGreaterThan(1);
+  });
+
+  it("the same one-card search by the player ('search ... for') still shows its prompt: only the enemy team's is resolved for them", () => {
+    const game = rhinoGame(search(you, "Crowd Control"), 1, 1);
+    const asked = drive(startSession(game.state), game.deps, game.turns, searchPrompt).session.state.pendingChoice!;
+    expect([asked.playerId, asked.authority]).toEqual([P1, "player"]);
+    expect(optionIds(asked)).toEqual(instancesOf(game.state, CROWD_CONTROL));
+  });
+
+  it("no card found: nobody is asked and nothing is bound", () => {
+    const game = rhinoGame(search(enemyTeamChooses, "No Such Scheme"), 1, 1);
+    const run = drive(startSession(game.state), game.deps, game.turns, searchPrompt);
+    expect(searchPrompt(run.session.state)).toBe(false);
+    expect(found(run.events)).toEqual([]);
   });
 });

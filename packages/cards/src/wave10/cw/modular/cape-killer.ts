@@ -34,7 +34,8 @@ import { discardThisObligation } from "../../../core/obligations.js";
 export const UNREGISTERED = trait("UNREGISTERED");
 const SHIELD = trait("S.H.I.E.L.D.");
 
-const UNREGISTERED_IDENTITY = query("identity", { trait: UNREGISTERED });
+/** An Unregistered identity that can be exhausted: a ready one (RRG 1.8 "Exhaust", p. 19). */
+const READY_UNREGISTERED_IDENTITY = query("identity", { trait: UNREGISTERED, exhausted: false });
 /** A copy of Unregistered Super, whichever of its two printings (56106 or 56114; docs/phase7-wave10.md section 1.8). */
 const UNREGISTERED_SUPER = query("obligation", { name: "Unregistered Super" });
 
@@ -73,9 +74,13 @@ export const UNREGISTERED_SUPER_ACTION: AbilityDefinition = alterEgoAction(
  * **Cape-Killer (56105)**: Quickstrike is data. Forced Interrupt: when he attacks you and your identity has the
  * Unregistered trait, +2 ATK for that attack (an attack is always against an identity).
  *
- * **Bring Them In (56107)**: When Revealed: each Unregistered identity (every player's) is exhausted. "Otherwise" is
- * read as there being no Unregistered identity at all; then the enemy team deals you a copy of Unregistered Super. An
- * Unregistered identity that is already exhausted still counts, so the "Otherwise" sentence does not resolve.
+ * **Bring Them In (56107)**: When Revealed: each Unregistered identity (every player's) is exhausted. "Otherwise" the
+ * enemy team deals you a copy of Unregistered Super: when the first sentence "cannot at least partially resolve" (RRG
+ * 1.8 "Otherwise", p. 31). "An exhausted card cannot be exhausted again until it is ready" (RRG 1.8 "Exhaust", p. 19),
+ * and an effect that cannot affect its target does not resolve (RRG 1.8 FAQ, p. 57, Superhuman Strength against an
+ * enemy "already stunned"). So the sentence resolves only when at least one Unregistered identity is ready: with none
+ * Unregistered, or with every Unregistered identity already exhausted, the copy is dealt. One ready and one exhausted
+ * is a partial resolution, and no copy is dealt.
  *
  * **Arrest Order (56108)**: When Defeated: the defeating player is dealt the topmost S.H.I.E.L.D. minion of the
  * encounter discard pile (the newest-first array's first match) as a facedown encounter card.
@@ -96,7 +101,11 @@ export const MODULAR_CAPE_KILLER: AbilityRegistry = defineAbilities({
   "56106.unregistered-super-action": UNREGISTERED_SUPER_ACTION,
 
   "56107.when-revealed": whenRevealed(
-    ifThen(exists(UNREGISTERED_IDENTITY), exhaust(each(UNREGISTERED_IDENTITY)), dealUnregisteredSuperTo(you)),
+    ifThen(
+      exists(READY_UNREGISTERED_IDENTITY),
+      exhaust(each(READY_UNREGISTERED_IDENTITY)),
+      dealUnregisteredSuperTo(you),
+    ),
   ),
 
   "56108.when-defeated": whenDefeated(

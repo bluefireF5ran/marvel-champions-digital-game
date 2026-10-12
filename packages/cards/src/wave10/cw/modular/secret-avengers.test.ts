@@ -486,7 +486,7 @@ describe("Secret Avengers (56159)", () => {
     ).toEqual([...TOP_FIVE].sort());
   });
 
-  it("WHEN DEFEATED: the chosen card is held facedown by Spider-Woman, the other four stay on top in order", () => {
+  it("WHEN DEFEATED: the chosen card is held facedown by Spider-Woman, and the whole encounter deck (the other four and the rest) is shuffled once (RRG 1.8 'Search' p. 39)", () => {
     const { id, state } = staged(game());
     const top = piles(state).deck.slice(0, 5);
     const rest = piles(state).deck.slice(5);
@@ -496,8 +496,20 @@ describe("Secret Avengers (56159)", () => {
     const after = driveEventsPicking(WAVE10_DEPS, done.state, firstLegal);
     expect(boostsOn(after.state)).toEqual([top[3]]);
     expect(inst(after.state, top[3]!).faceup).toBe(false);
-    expect(piles(after.state).deck).toEqual([top[0], top[1], top[2], top[4], ...rest]);
     const events = [...done.events, ...after.events];
+    // The deck holds exactly the cards it held, less the one found, in the order the one shuffle left them.
+    const left = [top[0]!, top[1]!, top[2]!, top[4]!, ...rest];
+    expect([...piles(after.state).deck].sort()).toEqual([...left].sort());
+    const shuffles = types(events, "deckShuffled");
+    expect(shuffles.map((e) => e.zone)).toEqual([
+      { kind: "encounterDeck", deckId: activeEncounterDeckId(after.state) },
+    ]);
+    expect(shuffles[0]!.order).toEqual(piles(after.state).deck);
+    expect(piles(after.state).deck).not.toEqual(left);
+    // The shuffle follows the card being given: it is the ability's last step.
+    expect(events.findIndex((e) => e.type === "boostCardDealt")).toBeLessThan(
+      events.findIndex((e) => e.type === "deckShuffled"),
+    );
     expect(types(events, "boostCardDealt")).toEqual([
       { type: "boostCardDealt", enemyInstanceId: leaderOf(after.state), instanceId: top[3], outsideActivation: true },
     ]);

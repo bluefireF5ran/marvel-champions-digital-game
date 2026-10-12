@@ -1509,6 +1509,7 @@ function bindsOf(effect: EffectSpec, scope: Scope): void {
     case "divide":
     // `<bind>.amount` prevented, `<bind>.made` set shuffled in (docs/phase7-wave4.md §3.20, §3.18).
     case "preventDamage":
+    case "reduceDamageTo":
     case "shuffleInSetAsideModularSet":
       if (effect.bind) scope.prefixes.add(`${effect.bind}.`);
       return;
@@ -1562,7 +1563,8 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
       return;
     }
     // "For each character you control, … that character" (RRG 1.8 "'For Each'", p. 20): the pass's card is read under
-    // `slot` inside the repeated effects only, and nothing a pass binds is handed to the effects after the loop.
+    // `slot` inside the repeated effects only, and nothing a pass binds is handed to the effects after the loop,
+    // unless the loop has a `bind`: then the passes' binds come back under `<bind>.` (`<bind>.count` among them).
     if (effect.kind === "forEachCard") {
       if (effect.slot.length === 0) problems.push(`${where}: forEachCard needs a slot name for the pass's card`);
       if (scope.slots.has(effect.slot))
@@ -1575,6 +1577,10 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         prefixes: new Set(scope.prefixes),
       };
       walk(effect.effects, pass, `${where}/0`, problems);
+      if (effect.bind !== undefined) {
+        if (effect.bind.length === 0) problems.push(`${where}: forEachCard bind needs a name`);
+        scope.prefixes.add(`${effect.bind}.`);
+      }
       return;
     }
     // A block resolved in a group's game area (docs/phase7-wave9.md §3.67) may be sent to another group, which has

@@ -34,11 +34,13 @@ import type {
   DeckContents,
   HeroIdentityCard,
   IdentitySeparateDeck,
+  OffAspectAllowance,
   PlayerCard,
   Trait,
 } from "@mc/content";
 import type { EngineDeps } from "./abilities.js";
 import type { CampaignCardFace, GrantDeckSizeRule } from "./campaign.js";
+import { printedResources } from "./resources.js";
 import { identityCardTitledAs } from "./titles.js";
 import { cardsMatch, isUnique, uniqueLabel } from "./unique.js";
 
@@ -464,12 +466,25 @@ export function copiesUpToLimit(
 const matchesOffAspectPackage = (card: PlayerCard, p: { readonly cardType: string; readonly trait: Trait }): boolean =>
   card.type === p.cardType && card.traits.includes(p.trait);
 
-const matchesOffAspectAllowance = (
-  card: PlayerCard,
-  allowance: { readonly cardType: string; readonly anyTrait?: readonly Trait[] },
-): boolean =>
+/**
+ * Whether the identity's off-aspect allowance covers `card`: its type, one of the traits when the allowance names
+ * any, and at least one printed icon of the resource type when it names one ("events with a printed [energy] resource
+ * icon", Simon Williams 58001b; docs/phase7-wave10-hero-packs.md §H3.15). A printed wild icon is wild only (RRG 1.8
+ * "Printed", p. 35).
+ */
+const matchesOffAspectAllowance = (card: PlayerCard, allowance: OffAspectAllowance): boolean =>
   card.type === allowance.cardType &&
-  (allowance.anyTrait === undefined || allowance.anyTrait.some((wanted) => card.traits.includes(wanted)));
+  (allowance.anyTrait === undefined || allowance.anyTrait.some((wanted) => card.traits.includes(wanted))) &&
+  (allowance.printedResource === undefined || printedResources(card)[allowance.printedResource] > 0);
+
+/**
+ * The cards an allowance names, as a problem message says them: "ATTACK and/or THWART event cards", "event cards with
+ * a printed energy resource".
+ */
+const allowanceKind = (allowance: OffAspectAllowance): string =>
+  `${allowance.anyTrait ? `${allowance.anyTrait.join(" and/or ")} ` : ""}${allowance.cardType.replace(/_/g, " ")} cards${
+    allowance.printedResource ? ` with a printed ${allowance.printedResource} resource` : ""
+  }`;
 
 /**
  * Whether a deck for `identity` choosing `chosenAspects` may hold `card` at all, and whether only the identity's own
@@ -1023,9 +1038,15 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
         allowanceLines.push(line);
         continue;
       }
+      // An allowance by printed resource is refused by what the card prints, which a player cannot read off its
+      // aspect: the message says what the identity's rule lets in (docs/phase7-wave10-hero-packs.md §H3.15).
+      const hint =
+        allowance?.printedResource === undefined
+          ? ""
+          : ` ${identityName}'s deckbuilding rule lets in only ${allowanceKind(allowance)} from other aspects, and this card is not one.`;
       add(
         "aspect_restriction",
-        `${uniqueLabel(line.card)} is a ${aspectName(whole.classification.aspect)} card, but this deck's aspect is ${chosen.map(aspectName).join(" and ")}; beyond its identity set a deck may only use its chosen aspect and basic cards.`,
+        `${uniqueLabel(line.card)} is a ${aspectName(whole.classification.aspect)} card, but this deck's aspect is ${chosen.map(aspectName).join(" and ")}; beyond its identity set a deck may only use its chosen aspect and basic cards.${hint}`,
         [line.card.id],
       );
     }
@@ -1034,7 +1055,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
     if (allowance?.maxCards !== undefined && allowed > allowance.maxCards) {
       add(
         "deckbuilding_requirement",
-        `${identityName}'s deckbuilding requirement: up to ${allowance.maxCards} ${allowance.anyTrait ? `${allowance.anyTrait.join(" and/or ")} ` : ""}${allowance.cardType.replace(/_/g, " ")} cards from other aspects are allowed; this deck has ${allowed}.`,
+        `${identityName}'s deckbuilding requirement: up to ${allowance.maxCards} ${allowanceKind(allowance)} from other aspects are allowed; this deck has ${allowed}.`,
         allowanceLines.map((line) => line.card.id),
       );
     }

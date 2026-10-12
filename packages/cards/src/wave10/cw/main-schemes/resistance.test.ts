@@ -400,7 +400,9 @@ describe("Neighborhood Protectors 56173b: the enemy team deals one side scheme f
       return [choice.options.find((o) => o.label === wanted[asked.length - 1])!.optionId];
     };
     const r = villainPhase(patchInstance(s, scheme(s), { threat: target(s) - 3 }), pick);
-    expect(asked).toEqual([["Neighborhood Hero", "The Defenders"], ["Neighborhood Hero"]]);
+    // The first search finds two and the first player picks for the enemy team; the second finds the one left, which
+    // is no choice, so nobody is asked (RRG 1.8 "Search", p. 39: a player chooses among multiple finds).
+    expect(asked).toEqual([["Neighborhood Hero", "The Defenders"]]);
     expect(r.state.mainScheme.stageIndex).toBe(3);
     // The first player (p1) is dealt The Defenders (the choice order is the team's order), the second the other.
     const dealtTo = (p: PlayerId) =>

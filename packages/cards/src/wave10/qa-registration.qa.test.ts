@@ -124,12 +124,16 @@ describe("56107 Bring Them In", () => {
   const supersIn = (s: GameState, p: PlayerId = P1) =>
     playArea(s, p).filter((i) => ["56106", "56114"].includes(codeOf(s, i)));
 
-  it.fails("56107 Bring Them In: the only Unregistered identity is already exhausted, so 'Exhaust each Unregistered identity' cannot resolve and 'Otherwise' deals a copy of Unregistered Super (RRG 1.8 'Otherwise' p. 31; FAQ She-Hulk / Superhuman Strength: an effect that cannot affect its target cannot resolve)", () => {
+  it("56107 Bring Them In: the only Unregistered identity is already exhausted, so 'Exhaust each Unregistered identity' cannot resolve and 'Otherwise' deals a copy of Unregistered Super (RRG 1.8 'Otherwise' p. 31; FAQ She-Hulk / Superhuman Strength: an effect that cannot affect its target cannot resolve)", () => {
     let s = heroForm(bareIronMan());
     s = inPlayAreaOf(s, SUPER);
     expect(traitsOf(s, hero(s), DEPS)).toContain(UNREGISTERED);
-    s = patchInstance(s, hero(s), { exhausted: true });
-    const run = villainPhase(s, firstLegal, ADVANCE, BRING);
+    // The identity defends Iron Man's attack and so is exhausted when the card is revealed. (Exhausting it by surgery
+    // before the turn ends does not stage this: everything readies at the end of the player phase, RRG "Ready" p. 36.)
+    const defending: Picker = (state) =>
+      state.pendingChoice!.prompt.kind === "declareDefender" ? [hero(state) as string] : firstLegal(state);
+    const run = villainPhase(s, defending, ADVANCE, BRING);
+    expect(types(run.events, "cardExhausted").map((e) => e.instanceId)).toEqual([hero(s)]);
     expect(supersIn(run.state)).toHaveLength(2);
   });
 
@@ -205,14 +209,18 @@ describe("56098 Energy Channel (RRG 1.8 p. 70 erratum; FFG rulings Jan 26 2026 R
   });
 });
 
-describe("56100 Cosmic Flight, two copies (owner question 29, open: A = both discarded is what is built)", () => {
-  it("pin: two copies on the same 5 damage: capped at 3 once, both discarded", () => {
+describe("56100 Cosmic Flight, two copies (owner question 29 = B, 2026-10-12: an interpretation of RRG 1.8 'Interrupt' p. 25 and 'Replacement Effect' p. 37, not an FFG ruling on the card)", () => {
+  it("two copies on the same 5 damage: the first copy reduces it to 3, the second's 'more than 3' is no longer met: 3 taken, one copy discarded, one still attached", () => {
     let s = ready(cmGame());
     for (let i = 0; i < 2; i++) s = attachToHost(s, FLIGHT, leaderOf(s)).state;
-    const after = playEvent(s, UPPERCUT, 3).state;
+    const run = playEvent(s, UPPERCUT, 3);
+    const after = run.state;
     expect(inst(after, leaderOf(after)).damage).toBe(3);
-    expect(attachedCodes(after)).toEqual([CHANNEL]);
-    expect(piles(after).discard.filter((i) => codeOf(after, i) === FLIGHT)).toHaveLength(2);
+    expect(attachedCodes(after)).toEqual([CHANNEL, FLIGHT]);
+    expect(piles(after).discard.filter((i) => codeOf(after, i) === FLIGHT)).toHaveLength(1);
+    expect(types(run.events, "interruptConditionLapsed").map((e) => e.abilityId as string)).toEqual([
+      "56100.cosmic-flight-forced-interrupt",
+    ]);
   });
 });
 
@@ -302,7 +310,7 @@ const recording = (asked: Asked[]): Picker => {
 const enemyTeamPrompts = (asked: readonly Asked[]) => asked.filter((a) => a.authority === "enemyTeam");
 
 describe("one-candidate enemy-team choices", () => {
-  it.fails("56123b The Initiative: the encounter deck and discard pile hold a single side scheme, so the enemy team's search has nothing to decide and the first player is not asked", () => {
+  it("56123b The Initiative: the encounter deck and discard pile hold a single side scheme, so the enemy team's search has nothing to decide and the first player is not asked", () => {
     const base = bareIronMan({ modularSetIds: IRON_SETS, mainSchemeStageIds: [HOMELAND_SECURITY, "56123b"] as never });
     const deckId = activeEncounterDeckId(base);
     const pile = base.encounterDecks[deckId]!;
@@ -335,7 +343,7 @@ describe("one-candidate enemy-team choices", () => {
 });
 
 describe("56072 Stark Tower: a single Iron Man attachment left is found without a prompt", () => {
-  it.fails("56072 Stark Tower: only Powered Gauntlets is left in the deck and discard pile, so the enemy team's search has nothing to decide and the first player is not asked (the module test of the same name settles every prompt with firstLegal, so it cannot see one)", () => {
+  it("56072 Stark Tower: only Powered Gauntlets is left in the deck and discard pile, so the enemy team's search has nothing to decide and the first player is not asked (the module test of the same name settles every prompt with firstLegal, so it cannot see one)", () => {
     const base = heroForm(bareIronMan({ modularSetIds: IRON_SETS }));
     const deckId = activeEncounterDeckId(base);
     const pile = base.encounterDecks[deckId]!;

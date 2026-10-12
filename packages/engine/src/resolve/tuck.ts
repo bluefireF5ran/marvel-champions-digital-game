@@ -20,7 +20,9 @@ import { hasKeyword } from "../keywords.js";
 import { cardsInPlay } from "../select.js";
 import type { GameState } from "../state.js";
 import type { LeaveRequest, ReplaceableLeave, TriggerEvent } from "../trigger-events.js";
+import { tuckRoom } from "../tuck-limit.js";
 import { pushEvents, pushEventsSharingResponses } from "./frames.js";
+import { markPreThenUnresolved } from "./then.js";
 import { heard } from "./triggers.js";
 
 /** What the tucks of one `EffectSpec tuckCards` share: the card whose ability tucks, and the face the cards take. */
@@ -29,15 +31,25 @@ export interface TuckSource {
   /** The source's card, as `leavePlay` reads it (`leaveSourceOf`); it also gives the tuck's side (`leaveCauseSide`). */
   readonly sourceCardId: CardId | undefined;
   readonly facedown: boolean;
+  /**
+   * The effects frame of the `tuckCards` making these tucks: told when a full host took none of them, so a "Then"
+   * after it is skipped (`RuleSpec tuckLimit`; RRG 1.8 "'Then'", p. 44).
+   */
+  readonly effectFrameId?: FrameId;
 }
+
+/** Logs a card a full host did not take (`RuleSpec tuckLimit`); the card stays where it is. */
+const refuseTuck = (ctx: Ctx, id: InstanceId, hostId: InstanceId): void =>
+  emit(ctx, { type: "cardNotTucked", instanceId: id, hostInstanceId: hostId, reason: "limit" });
 
 /**
  * The tuck itself: `id` goes under `hostId`, faceup unless `facedown`, controlled by its owner and attached to
  * nothing. A card tucked out of play leaves play properly, so its attachments are discarded and it is a new copy
  * (RRG 1.8 "Leaves Play", p. 27; Marked for Death "tucks her faceup beneath this card", docs/phase7-wave2.md §3.10);
  * one waiting for its "when it leaves play" interrupts is given its face and controller once it has left
- * (docs/phase7-wave5.md §4.1 Q17). A host that no longer exists takes nothing. `asCost`: `sourceCardId`'s ability
- * moves it as its cost (`leavePlay`).
+ * (docs/phase7-wave5.md §4.1 Q17). A host that no longer exists takes nothing, and neither does one holding its
+ * maximum (`RuleSpec tuckLimit`, read here so that a tuck sent to another host is bound by that host's). `asCost`:
+ * `sourceCardId`'s ability moves it as its cost (`leavePlay`).
  */
 export function tuckCardUnder(
   ctx: Ctx,
@@ -48,6 +60,7 @@ export function tuckCardUnder(
   asCost = false,
 ): void {
   if (!getInstance(ctx.state, hostId) || !getInstance(ctx.state, id)) return;
+  if (tuckRoom(ctx.state, ctx.deps, hostId) <= 0) return refuseTuck(ctx, id, hostId);
   const patch = {
     faceup: !facedown,
     controllerId: playerCardOwnerOf(ctx.state, id),
@@ -84,14 +97,27 @@ function beingTucked(state: GameState, id: InstanceId, hostId: InstanceId, sourc
  * ability could react (`heard`), so a game with no such ability, or one whose ability does not match this tuck, keeps
  * its log, its state and its replay. Once one card of the effect waits for its window, the cards after it wait behind
  * it, so the cards land in the order the effect named them; the first of them resolves first.
+ *
+ * A host with a maximum (`RuleSpec tuckLimit`, "Max 3 cards tucked here") takes the first cards it has room for. The
+ * rest are refused before anything is announced: a tuck the limit stops is not imminent, so no interrupt answers it.
+ * With no card taken the effect did not resolve (RRG 1.8 "'Then'", p. 44).
  */
 export function tuckOrAnnounce(ctx: Ctx, ids: readonly InstanceId[], hostId: InstanceId, source: TuckSource): void {
   const waiting: TriggerEvent[] = [];
+  let room = tuckRoom(ctx.state, ctx.deps, hostId);
+  let refused = 0;
   for (const id of ids) {
+    if (room <= 0) {
+      refuseTuck(ctx, id, hostId);
+      refused++;
+      continue;
+    }
+    room--;
     const event = beingTucked(ctx.state, id, hostId, source);
     if (waiting.length > 0 || heard(ctx.state, ctx.deps, event)) waiting.push(event);
     else tuckCardUnder(ctx, id, hostId, source.facedown, source.sourceCardId);
   }
+  if (refused === ids.length && refused > 0) markPreThenUnresolved(ctx, source.effectFrameId, "tuckRefused");
   if (waiting.length > 0) pushEvents(ctx, waiting);
 }
 
@@ -161,10 +187,14 @@ export function tuckInsteadOfLeaving(ctx: Ctx, frameId: FrameId, hostId: Instanc
  * owner's control, as the move that was replaced would have taken it out of play (the same source card and cost, so
  * the Permanent keyword and "cannot leave play" read as they did). A defeated card's Victory X attachments go to the
  * victory display first, as `defeatFromPlay` sends them. Returns false, with nothing moved, when the host is no
- * longer in play: the caller performs the replaced move.
+ * longer in play or holds its maximum (`RuleSpec tuckLimit`): the caller performs the replaced move.
  */
 export function tuckLeavingCard(ctx: Ctx, id: InstanceId, request: Extract<LeaveRequest, { kind: "tuck" }>): boolean {
   if (!cardsInPlay(ctx.state).includes(request.hostInstanceId)) return false;
+  if (tuckRoom(ctx.state, ctx.deps, request.hostInstanceId) <= 0) {
+    refuseTuck(ctx, id, request.hostInstanceId);
+    return false;
+  }
   const made = request.replaced;
   if (permanentStopsLeaving(ctx.state, ctx.deps, id, made.sourceCardId)) {
     emit(ctx, { type: "leavePlayBlocked", instanceId: id, reason: "permanent" });

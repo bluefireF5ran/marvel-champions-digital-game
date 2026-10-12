@@ -2,9 +2,11 @@
  * Wonder Man (Simon Williams) Hero Pack (Cycle 10, Civil War) curation.
  *
  * - **Errata: Ionic Physiology (58002)**, RRG 1.8 p. 70 (cost arrow to "Then"); the printed text keeps the arrow.
- * - **Deck-building rule (Simon Williams 58001b, "Ionic Energy Being")** is NOT curated yet: spec H1.5 needs
- *   `OffAspectAllowance.printedResource` (task HT12), which the schema does not have. Add
- *   `identityDeckbuilding["58001a"]` once it lands.
+ * - **Deck-building rule (Simon Williams 58001b, "Ionic Energy Being").** The printed alter-ego text: "You may
+ *   include events with a printed [energy] resource icon from any aspect in your deck." (raw 58001b `text`; raw
+ *   `deck_options: [{ resource: ["energy"], type: ["event"] }]`.) Curated as `identityDeckbuilding["58001a"]`, an
+ *   `offAspectAllowance` by card type and printed resource with no `maxCards` (docs/phase7-wave10-hero-packs.md
+ *   H1.5, H3.15). Keyed on 58001a, the hero record's own code, as `gam` and `cyclops` key theirs.
  * - **Starter deck: none.** No source exists for the printed decklist (survey section 10.1); `starterDecks` stays empty.
  *
  * - **Ionic Physiology (58002, upgrade) and Cameo (58031, support): dash cost, confirmed.** Ionic Physiology is
@@ -68,6 +70,12 @@ export const WONDER_MAN_CURATION: PackCuration = {
 
   scriptingNotes: {},
   cardNotes: {},
+
+  // Simon Williams 58001b, "Ionic Energy Being": "You may include events with a printed [energy] resource icon from
+  // any aspect in your deck." A printed wild icon is not an energy icon (RRG 1.8 "Printed", p. 35).
+  identityDeckbuilding: {
+    "58001a": { offAspectAllowance: { cardType: "event", printedResource: "energy" } },
+  },
 
   scenarios: [],
   starterDecks: [],

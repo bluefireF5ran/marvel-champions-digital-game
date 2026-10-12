@@ -1,6 +1,7 @@
 import { CORE_CARDS, CW_CARDS, CW_ENCOUNTER_SETS, CORE_ENCOUNTER_SETS, CW_SCENARIOS } from "@mc/content";
 import { validateScenarioEncounterSets } from "@mc/content";
 import {
+  activeEncounterDeckId,
   applyCommand,
   createGame,
   resolveValue,
@@ -396,6 +397,9 @@ function pickCard(state: GameState, code: string) {
 const optionCodes = (state: GameState): string[] =>
   state.pendingChoice!.options.map((o) => (o.ref.kind === "card" ? codeOf(state, o.ref.instanceId) : "?")).sort();
 
+const encounterDeckOf = (state: GameState): readonly InstanceId[] =>
+  state.encounterDecks[activeEncounterDeckId(state)]!.deck;
+
 const TOP_FIVE = [FILLER_A, FILLER_B, CHARGE, ONE_ICON, BLANK];
 const AFTER = ["01101", "01102"];
 
@@ -412,6 +416,25 @@ describe("STAGED Targeted Strike (56127, 56205)", () => {
       // Dealt to the player facedown and revealed in this encounter step; none of the other four was.
       expect(revealed).toContain(CHARGE);
       for (const other of [FILLER_A, FILLER_B, ONE_ICON]) expect(revealed).not.toContain(other);
+    });
+
+    it(`${p.name}: the search of the top 5 shuffles the whole encounter deck once, after the card is dealt (RRG 1.8 "Search" p. 39)`, () => {
+      const asked = villainPhaseUntilEnemyTeamChoice(game([SPIDER_MAN]), [BLANK, p.ts, ...TOP_FIVE, ...AFTER]);
+      const before = encounterDeckOf(asked.state);
+      const charge = before.find((id) => codeOf(asked.state, id) === CHARGE)!;
+      const picked = pickCard(asked.state, CHARGE);
+      const shuffles = types(picked.events, "deckShuffled");
+      expect(shuffles).toHaveLength(1);
+      expect(shuffles[0]!.zone.kind).toBe("encounterDeck");
+      // Every card but the one dealt is in the shuffled deck, and it is no longer in the stacked order.
+      const left = before.filter((id) => id !== charge);
+      expect([...shuffles[0]!.order].sort()).toEqual([...left].sort());
+      expect(shuffles[0]!.order).not.toEqual(left);
+      const dealtAt = picked.events.findIndex(
+        (e) => e.type === "cardMoved" && e.instanceId === charge && e.to.kind === "dealtEncounter",
+      );
+      expect(dealtAt).toBeGreaterThanOrEqual(0);
+      expect(dealtAt).toBeLessThan(picked.events.findIndex((e) => e.type === "deckShuffled"));
     });
 
     it(`${p.name}: Boost, one player on the team: +1 boost icon on Rhino's attack`, () => {
@@ -462,9 +485,20 @@ describe("STAGED Choosing Sides (56128a, 56206a)", () => {
       // Second pick, for the second player: the four left, Charge no longer among them.
       expect(first.state.pendingChoice).toMatchObject({ playerId: P1, authority: "enemyTeam" });
       expect(optionCodes(first.state)).toEqual([FILLER_A, FILLER_B, ONE_ICON, BLANK].sort());
+      // No shuffle between the two picks: the second player's search reads what is left of the same five.
+      expect(types([...asked.events, ...first.events], "deckShuffled")).toEqual([]);
+      const before = encounterDeckOf(first.state);
       const second = pickCard(first.state, ONE_ICON);
       const dealt = second.state.players.map((pl) => pl.dealtEncounter.map((id) => codeOf(second.state, id)));
       expect(dealt).toEqual([[CHARGE], [ONE_ICON]]);
+      // One shuffle of the whole deck when the search is done (RRG 1.8 "Search" p. 39).
+      const shuffles = types(second.events, "deckShuffled");
+      expect(shuffles).toHaveLength(1);
+      expect(shuffles[0]!.zone.kind).toBe("encounterDeck");
+      const left = before.filter((id) => !second.state.players[1]!.dealtEncounter.includes(id));
+      expect(left).toHaveLength(before.length - 1);
+      expect([...shuffles[0]!.order].sort()).toEqual([...left].sort());
+      expect(shuffles[0]!.order).toEqual(encounterDeckOf(second.state));
       // Flipped to Now It's Personal.
       const flipped = types([...first.events, ...second.events], "cardFlippedToOtherFace");
       expect(flipped.map((e) => [e.from, e.to])).toEqual([[p.cs, p.nip]]);

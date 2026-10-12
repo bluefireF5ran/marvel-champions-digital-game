@@ -52,6 +52,9 @@ export const WONDER_MAN_CARDS: readonly AnyCard[] = [
     },
     obligationCardId: cardId("58025"),
     nemesisEncounterSetId: encounterSetId("wonder_man_nemesis"),
+    deckbuilding: {
+      offAspectAllowance: { cardType: "event", printedResource: "energy" },
+    },
   },
   {
     id: cardId("58002"),

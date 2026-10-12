@@ -16,6 +16,7 @@ import {
   ifThen,
   inCompetitiveMode,
   instead,
+  not,
   on,
   oneCopyOf,
   perHero,
@@ -26,6 +27,8 @@ import {
   self,
   shuffleEncounterDeck,
   theMainScheme,
+  valueAtLeast,
+  varOf,
   whenRevealed,
   you,
 } from "../../../dsl/index.js";
@@ -41,7 +44,9 @@ const TANGLED_CHARACTER = query("character", hasAttachment(TANGLED_UP));
  * data.
  *
  * **Spider-Man (56180)**: When Revealed: he attacks each character with Tangled Up attached, one attack per character.
- * If no attack was made this way (read as: no character has one attached), the
+ * "If no attack was made this way" is read off the attacks themselves (`attacks.hit.made`, the number made): none
+ * when no character has a copy attached, and none when the attack was replaced, as a stunned Spider-Man's is (RRG 1.8
+ * "Stun, Stunned", p. 41: the stun card is removed instead and he "is not considered to have attacked"). Then the
  * enemy team searches the encounter deck and discard pile for a copy of Tangled Up and deals it to you as a facedown
  * encounter card. The two copies are identical, so "the enemy team searches" has nothing to decide and no prompt is
  * shown (as for Unregistered Super in `cape-killer.ts`); the searched decks are shuffled after (RRG 1.8 "Search",
@@ -67,15 +72,17 @@ const TANGLED_CHARACTER = query("character", hasAttachment(TANGLED_UP));
  */
 export const MODULAR_SPIDER_MAN: AbilityRegistry = defineAbilities({
   "56180.when-revealed": whenRevealed(
-    ifThen(
-      exists(TANGLED_CHARACTER),
-      forEachCard("tangled", each(TANGLED_CHARACTER), enemyAttack(self, { targetCharacter: chosen("tangled") })),
-      [
-        selectCards("found", oneCopyOf(encounterCards(["deck", "discard"], TANGLED_UP))),
-        dealAsEncounterCard(chosen("found"), you),
-        shuffleEncounterDeck(),
-      ],
+    forEachCard(
+      "tangled",
+      each(TANGLED_CHARACTER),
+      enemyAttack(self, { targetCharacter: chosen("tangled"), bind: "hit" }),
+      { bind: "attacks" },
     ),
+    ifThen(not(valueAtLeast(varOf("attacks.hit.made"), 1)), [
+      selectCards("found", oneCopyOf(encounterCards(["deck", "discard"], TANGLED_UP))),
+      dealAsEncounterCard(chosen("found"), you),
+      shuffleEncounterDeck(),
+    ]),
   ),
 
   "56181.tangled-up-forced-interrupt": forcedInterrupt(on.characterWouldAct("host"), instead(discard(self))),

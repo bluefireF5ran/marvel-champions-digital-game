@@ -18,6 +18,7 @@ import {
   inCompetitiveMode,
   query,
   setDefeatDestination,
+  shuffleEncounterDeck,
   surge,
   exists,
   whenDefeated,
@@ -54,8 +55,9 @@ const AN_ALLY_YOU_CONTROL = query("ally", { controller: "you" });
  *
  * **Secret Avengers (56159)**: When Defeated: "the enemy team searches the top 5 cards of the encounter deck for a
  * card" is the first player's choice among them, in a prompt marked as the enemy team's (owner's answer to question 6
- * = A, 2026-10-11; MC56 p. 6, the grim rule). That card is given to the enemy leader as a facedown boost card. The
- * other four stay where they were, in order: the text does not shuffle.
+ * = A, 2026-10-11; MC56 p. 6, the grim rule). That card is given to the enemy leader as a facedown boost card. Then
+ * the whole encounter deck is shuffled (RRG 1.8 "Search", p. 39: "If any portion of a deck is searched, upon completion
+ * of that ... card ability, shuffle that entire deck").
  *
  * Cards (5):
  * - 56155 Black Panther (minion)
@@ -91,6 +93,7 @@ export const MODULAR_SECRET_AVENGERS: AbilityRegistry = defineAbilities({
   "56159.when-defeated": whenDefeated(
     chooseCards("found", encounterCards(["deck"], undefined, 5), { min: 1, max: 1, chooser: enemyTeamChooses }),
     giveBoostCard(enemyLeader, { card: chosen("found") }),
+    shuffleEncounterDeck(),
   ),
 });
 

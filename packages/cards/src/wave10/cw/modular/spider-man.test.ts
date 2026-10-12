@@ -334,6 +334,42 @@ describe("Spider-Man (56180)", () => {
     expect(after.slice(0, 3)).not.toEqual(before.slice(2, 5));
   });
 
+  /** Surgery: the Spider-Man still in the encounter deck holds one stunned status card when he is revealed. */
+  const stunnedInDeck = (state: GameState): GameState => {
+    const id = piles(state).deck.find((i) => codeOf(state, i) === SPIDER_MAN)!;
+    return patchInstance(state, id, { statuses: { ...inst(state, id).statuses, stunned: 1 } });
+  };
+
+  it("WHEN REVEALED stunned, Tangled Up on your hero: the stun card is removed instead of the attack, so no attack was made this way and a copy is found and dealt to you (RRG 1.8 'Stun, Stunned' p. 41)", () => {
+    const tangled = tangle(game());
+    const baseline = villainPhase(tangled.state, ADVANCE, GLIDE);
+    const { state, events } = villainPhase(stunnedInDeck(tangled.state), ADVANCE, SPIDER_MAN, GLIDE);
+    expect(attacksBy(state, events, SPIDER_MAN)).toEqual([]);
+    expect(inst(state, inPlayCard(state, SPIDER_MAN)!).statuses.stunned).toBe(0);
+    expect(inst(state, hero(state)).damage).toBe(inst(baseline.state, hero(baseline.state)).damage);
+    expect(
+      dealtFacedown(events).map((e) => [codeOf(state, e.instanceId), (e.to as { playerId: string }).playerId]),
+    ).toEqual([[TANGLED_UP, P1]]);
+    // The second copy is revealed in the same phase and attaches to the hero beside the first.
+    expect(inst(state, hero(state)).attachments.filter((id) => codeOf(state, id) === TANGLED_UP)).toHaveLength(2);
+  });
+
+  it("WHEN REVEALED stunned, a copy on each of two heroes: the stun card replaces the first attack only, the second is made, so no copy is searched for", () => {
+    const one = tangle(game({ twoPlayers: true }), P1);
+    const two = tangle(one.state, P2);
+    const { state, events } = driveEventsPicking(
+      WAVE10_DEPS,
+      stackEncounterDeck(stunnedInDeck(two.state), ADVANCE, ADVANCE, SPIDER_MAN, DEFEND),
+      firstLegal,
+      endTurn(P1),
+      endTurn(P2),
+    );
+    expect(attacksBy(state, events, SPIDER_MAN)).toMatchObject([{ baseAtk: 2, boostIcons: 0, damageDealt: 2 }]);
+    expect(inst(state, inPlayCard(state, SPIDER_MAN)!).statuses.stunned).toBe(0);
+    expect(dealtFacedown(events)).toEqual([]);
+    expect(types(events, "deckShuffled")).toEqual([]);
+  });
+
   it("WHEN REVEALED with no copy left to find and none attached: nothing is dealt and he attacks nobody", () => {
     const start = copiesGone(game(), TANGLED_UP);
     const { state, events } = villainPhase(start, ADVANCE, SPIDER_MAN, GLIDE);

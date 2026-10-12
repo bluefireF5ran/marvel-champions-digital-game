@@ -71,7 +71,7 @@ describe("R1 Secret Avengers 56159", () => {
       leaderSideScheme: "discarded",
     });
 
-  it.fails("56159 Secret Avengers: 'searches the top 5 cards of the encounter deck' shuffles the deck afterwards (RRG 1.8 'Search' p. 39; FAQ 'Hawkeye's Quiver', Hero packs)", () => {
+  it("56159 Secret Avengers: 'searches the top 5 cards of the encounter deck' shuffles the deck afterwards (RRG 1.8 'Search' p. 39; FAQ 'Hawkeye's Quiver', Hero packs)", () => {
     const scheme = encounterCardInVillainArea(game(), "56159", 1);
     const state = stackEncounterDeck(scheme.state, ADVANCE, GLIDE, DEFEND, "56184", "56155", "56156");
     const ready = patchInstance(state, hero(state), { exhausted: false });
@@ -113,7 +113,7 @@ describe("R2 Spider-Man 56180", () => {
     });
   }
 
-  it.fails("56180 Spider-Man: a Tangled Up hero, but his attack is replaced by a stun status card: 'if no attack was made this way' a copy is searched for and dealt (printed text; RRG 'Stun, Stunned')", () => {
+  it("56180 Spider-Man: a Tangled Up hero, but his attack is replaced by a stun status card: 'if no attack was made this way' a copy is searched for and dealt (printed text; RRG 'Stun, Stunned')", () => {
     const withTangled = tangled(swGame());
     const spiderMan = piles(withTangled).deck.find((i) => codeOf(withTangled, i) === "56180")!;
     const stunned = setStatus(withTangled, spiderMan, "stunned", 1);

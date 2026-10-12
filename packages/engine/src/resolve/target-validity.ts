@@ -42,6 +42,7 @@ import type { InstanceId, PlayerId } from "../ids.js";
 import { ATTACK_KEYWORDS, attackKeywordsOf, hasKeyword, isPermanent, statusActive } from "../keywords.js";
 import { permanentStopsLeaving } from "../effects.js";
 import { areaOfPlayer, getInstance, getPlayer, isScheme } from "../query.js";
+import { tuckRoom } from "../tuck-limit.js";
 import {
   cannotFlip,
   cannotLeavePlay,
@@ -536,9 +537,10 @@ function choiceCandidates(
 
 /**
  * Why an ability cannot be initiated: `target`, no valid target for it; `moveSource`, no scheme its move of threat
- * could take the threat from (`moveThreatLacksSource`).
+ * could take the threat from (`moveThreatLacksSource`); `tuckFull`, the card it tucks under holds its maximum
+ * (`tuckUnderFullHost`).
  */
-export type TargetFault = "target" | "moveSource";
+export type TargetFault = "target" | "moveSource" | "tuckFull";
 
 /**
  * Why this player-initiated ability cannot be initiated for want of a valid target, or null: RRG 1.8 "Target" (p. 42),
@@ -616,6 +618,7 @@ export function abilityTargetFault(
   if (moves && moveThreatLacksSource(state, deps, effects, context)) return "moveSource";
   if (dead.length > 0 && !hasIndependentPart(effects, dead)) return "target";
   if (tuckNamesNoCard(state, deps, effects, context)) return "target";
+  if (tuckUnderFullHost(state, deps, effects, context)) return "tuckFull";
   if (gainNamesEmptyPile(state, effects)) return "target";
   if (judge && attackThreatRemovalInvalid(state, deps, effects, context)) return "target";
   if (judge && context.thwartLabeled && thwartNamesNoValidScheme(state, deps, effects, context)) return "target";
@@ -637,6 +640,7 @@ export const abilityLacksValidTarget = (
 export const TARGET_FAULT_MESSAGE: Readonly<Record<TargetFault, string>> = {
   target: "that ability has no valid target",
   moveSource: "there is no scheme this could move threat from: threat cannot be removed from it, or it has none",
+  tuckFull: "no more cards can be tucked under that card: it holds its maximum",
 };
 
 /**
@@ -957,6 +961,32 @@ function tuckNamesNoCard(
       resolveRef(state, effect.cards.ref, context).length > 0 &&
       selectCards(createCtx(state, deps), effect.cards, context).length === 0,
   );
+}
+
+/**
+ * "Max 3 cards tucked here. Response: After you play an event with a printed [energy] resource, tuck that event from
+ * your discard pile under this card. Then, heal 1 damage from your identity." (Ionic Physiology, `wonder_man` 58002;
+ * docs/phase7-wave10-hero-packs.md §H3.12) with three cards there: an ability whose every effect is a `tuckCards`
+ * under a card holding its maximum (`RuleSpec tuckLimit`) or a `then` cannot be initiated. No tuck would be made, so
+ * the text before each "Then" would not resolve and the text after it would not be attempted (RRG 1.8 "'Then'",
+ * p. 44): nothing of the ability could resolve. The Wonder Man insert, clarification 1, and ruling March 6, 2026 (4),
+ * step 3 ("trigger Ionic Physiology to tuck Leading Blow (if under 3 cards)") say the same of this card. A host bound
+ * to a slot is known only as the ability resolves, so it is not judged here.
+ */
+function tuckUnderFullHost(
+  state: GameState,
+  deps: EngineDeps,
+  effects: readonly EffectSpec[],
+  context: EffectContext,
+): boolean {
+  const tucks = effects.filter((effect) => effect.kind === "tuckCards");
+  if (tucks.length === 0 || !effects.every((effect) => effect.kind === "tuckCards" || effect.kind === "then"))
+    return false;
+  return tucks.every((effect) => {
+    if (effect.under.kind === "slot") return false;
+    const [host] = resolveRef(state, effect.under, context);
+    return host !== undefined && tuckRoom(state, deps, host) <= 0;
+  });
 }
 
 /**

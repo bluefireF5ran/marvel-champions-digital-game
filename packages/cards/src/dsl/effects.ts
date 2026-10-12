@@ -965,6 +965,17 @@ export const eachTimeUntil = (
   on: EventPattern,
   ...effects: readonly EffectArg[]
 ): EffectSpec => ({ kind: "eachTimeUntil", until, on, effects: flatten(effects) });
+/**
+ * "Reduce that amount to N" (Cosmic Flight, `cw` 56100: "When Captain Marvel would take more than 3 damage from an
+ * attack, reduce that amount to 3"): in an interrupt to damage, the damage still pending, read as this resolves, is
+ * lowered to `n` if it is higher. Not a prevention (nothing that answers prevented damage hears it); the amount dealt
+ * is unchanged. `bind`: `<bind>.amount` taken off, `<bind>.made`.
+ */
+export const reduceDamageTo = (n: Amount, opts: { readonly bind?: string } = {}): EffectSpec => ({
+  kind: "reduceDamageTo",
+  amount: amount(n),
+  ...(opts.bind !== undefined ? { bind: opts.bind } : {}),
+});
 /** "Prevent N of that damage" (absent = all of it). */
 /**
  * "Prevent [N of] that damage". `{ bind }`: `<bind>.amount` is how much was prevented ("the amount prevented this way",
@@ -1014,19 +1025,31 @@ export const repeatTimes = (times: Amount, ...effects: readonly EffectArg[]): Ef
 export const forEachCard = (
   slot: string,
   cards: TargetRef,
-  ...rest: readonly (EffectArg | { readonly chooser: PlayerRef })[]
+  ...rest: readonly (EffectArg | ForEachCardOptions)[]
 ): EffectSpec => {
-  const isOpts = (r: unknown): r is { readonly chooser: PlayerRef } =>
-    !Array.isArray(r) && typeof r === "object" && r !== null && "chooser" in r && !("kind" in r);
+  const isOpts = (r: unknown): r is ForEachCardOptions =>
+    !Array.isArray(r) && typeof r === "object" && r !== null && ("chooser" in r || "bind" in r) && !("kind" in r);
   const opts = rest.find(isOpts);
   return {
     kind: "forEachCard",
     cards,
     slot,
-    ...(opts ? { chooser: opts.chooser } : {}),
+    ...(opts?.chooser ? { chooser: opts.chooser } : {}),
+    ...(opts?.bind !== undefined ? { bind: opts.bind } : {}),
     effects: flatten(rest.filter((r): r is EffectArg => !isOpts(r))),
   };
 };
+/**
+ * `forEachCard`'s options. `chooser`: who picks the next card while two or more wait. `bind`: what the passes did comes
+ * back to the ability after the loop, `<bind>.count` passes and each pass's own binds as `<bind>.<name>` (vars summed,
+ * slots joined): "Spider-Man attacks each character with Tangled Up attached. If no attack was made this way, …" is
+ * `forEachCard("c", each(…), enemyAttack(self, { targetCharacter: chosen("c"), bind: "hit" }), { bind: "attacks" })`
+ * then `varOf("attacks.hit.made")`, the number of those attacks that were made.
+ */
+export interface ForEachCardOptions {
+  readonly chooser?: PlayerRef;
+  readonly bind?: string;
+}
 export const preventThreat = (n?: Amount): EffectSpec =>
   n === undefined ? { kind: "preventThreat" } : { kind: "preventThreat", amount: amount(n) };
 /** "… instead": the interrupted event doesn't happen; these resolve in its place (RRG "Replacement Effect"). */
