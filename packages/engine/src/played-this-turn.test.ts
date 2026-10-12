@@ -62,6 +62,9 @@ function start(): { state: GameState; blows: readonly InstanceId[]; pace: Instan
     deps,
     deck: EVENTS.flatMap((e) => copiesOf(e.card.id, 3)),
   });
+  // Threat for Set the Pace to remove: with none on the main scheme it could not be played (RRG 1.8 "Target", p. 42).
+  const main = state.mainScheme!.instanceId;
+  state = { ...state, instances: { ...state.instances, [main]: { ...mustInstance(state, main), threat: 3 } } };
   const blows: InstanceId[] = [];
   for (let i = 0; i < 2; i++) {
     const given = giveCard(state, P1, DECISIVE_BLOW.card.id, blows);

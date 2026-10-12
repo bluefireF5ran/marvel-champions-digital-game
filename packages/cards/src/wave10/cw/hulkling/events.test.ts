@@ -399,10 +399,11 @@ describe(`${IMPERSONATION_A}: Hero Action (thwart): remove 4 threat from a schem
     expect(form(after)).toBe("alterEgo");
   });
 
-  it("a scheme with no threat has none removed, so no change of form is offered", () => {
+  it("with no threat on any scheme it cannot be played (no valid target, RRG 1.8 p. 42), so no change of form", () => {
     const { state, command } = staged(withMainThreat(hulklingHeroGame(), 0), IMPERSONATION, 2);
-    const { state: after } = drive(state, command, changing(true));
-    expect(form(after)).toBe("hero");
+    const refused = sessionApply(startSession(state), command, WAVE10_DEPS);
+    expect(refused).toMatchObject({ ok: false, error: { code: "no_valid_target" } });
+    expect(form(state)).toBe("hero");
   });
 
   it("a confused hero removes no threat (the confusion is spent), so no change of form is offered", () => {

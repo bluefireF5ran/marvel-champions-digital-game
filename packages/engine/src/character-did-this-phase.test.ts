@@ -374,10 +374,11 @@ describe("§3.36 'if your hero attacked and thwarted this phase'", () => {
     expect(holds(after)).toBe(false);
   });
 
-  it("a thwart that resolves against a scheme with no threat left on it is a thwart, as 'after you thwart' hears it", () => {
+  // With no threat on the scheme the event could not be played at all (RRG 1.8 "Target", p. 42), so it has 1.
+  it("a thwart that takes the last threat off a scheme, less than it could remove, is a thwart, as 'after you thwart' hears it", () => {
     const { state, inertia } = start();
-    const empty = patch(state, mainOf(state), { threat: 0 });
-    const after = play(basicAttack(empty), FOIL);
+    const last = patch(state, mainOf(state), { threat: 1 });
+    const after = play(basicAttack(last), FOIL);
     expect(mustInstance(after, mainOf(state)).threat).toBe(0);
     expect(acts(after)).toContainEqual({ characterInstanceId: heroOf(state), did: "thwart" });
     expect(offered(after, inertia)).toBe(true);

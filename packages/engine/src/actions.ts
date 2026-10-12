@@ -20,7 +20,9 @@ import {
   areaCostReductionFor,
   consumeAreaCostReductions,
   consumeCostReductions,
+  costIncreaseFor,
   costReductionFor,
+  costSetToZeroFor,
   dealEncounterCardTo,
   discardFromDeckAsCost,
   discardFromHand,
@@ -793,7 +795,37 @@ function ownPlayCost(
   // A cost printed "X" costs the X the player chose (docs/phase7-wave2.md §3.8), before modifiers.
   const printed =
     "specialCost" in card && card.specialCost === "X" ? Math.max(0, x) : printedCostOf(state, card, cardInstanceId);
-  const modified = Math.max(0, printed + playCostModifier(state, deps, playerId, cardInstanceId, attachTo));
+  const deltas = playCostContributions(state, deps, playerId, cardInstanceId, attachTo).map((entry) => entry.delta);
+  return priceAfterReductions(state, deps, playerId, cardInstanceId, printed, deltas, extraReduction);
+}
+
+/**
+ * A card's resource cost for this play: `printed`, then every `CostModifierSpec` delta, then the lasting "next card"
+ * changes waiting on it (`costReductionFor`) and `extraReduction` (what the play itself takes off: its destination, the
+ * top-of-deck permission, the playing effect), never below 0 (RRG 1.8 "Modifiers", p. 29: "if a value is below zero, it
+ * is treated as zero").
+ *
+ * With a "to 0" waiting on it (`costSetToZeroFor`; docs/phase7-wave10-hero-packs.md H3.10) the cost is 0 after every
+ * reduction, and only what other cards add is paid: the positive deltas and the lasting increases. `EffectSpec
+ * reduceNextCardCost.toZero` records the open reading of RRG 1.8 "Modifiers" under which those would be 0 too.
+ */
+export function priceAfterReductions(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+  printed: number,
+  deltas: readonly number[],
+  extraReduction = 0,
+): number {
+  if (costSetToZeroFor(state, deps, playerId, cardInstanceId)) {
+    const raised = deltas.reduce((sum, delta) => sum + Math.max(0, delta), 0);
+    return raised + costIncreaseFor(state, deps, playerId, cardInstanceId);
+  }
+  const modified = Math.max(
+    0,
+    deltas.reduce((sum, delta) => sum + delta, printed),
+  );
   return Math.max(0, modified - costReductionFor(state, deps, playerId, cardInstanceId) - Math.max(0, extraReduction));
 }
 
@@ -4265,9 +4297,7 @@ export function playCostOf(
   const modifiers = playCostContributions(state, deps, playerId, cardInstanceId, attachTo);
   const printed = printedCostOf(state, card, cardInstanceId);
   const modified = Math.max(0, printed + modifiers.reduce((total, entry) => total + entry.delta, 0));
-  const reduction =
-    costReductionFor(state, deps, playerId, cardInstanceId) +
-    Math.max(0, areaCostReductionFor(state, deps, playerId, cardInstanceId, into));
+  const byArea = Math.max(0, areaCostReductionFor(state, deps, playerId, cardInstanceId, into));
   // The top card of the deck under `playableTopOfDeck` (docs/phase7-wave8.md §3.49): what playing it from there costs,
   // with the permission's card listed last as the source of its reduction. Applied where the play's own reductions
   // are (`ownPlayCost`'s `extraReduction`), after the modifiers.
@@ -4277,7 +4307,20 @@ export function playCostOf(
     deckTop && offTheTop > 0
       ? [...modifiers, { sourceInstanceId: deckTop.sourceInstanceId, delta: -offTheTop }]
       : modifiers;
-  return { printed, current: Math.max(0, modified - reduction - offTheTop), contributions, reduction };
+  const current = priceAfterReductions(
+    state,
+    deps,
+    playerId,
+    cardInstanceId,
+    printed,
+    modifiers.map((entry) => entry.delta),
+    byArea + offTheTop,
+  );
+  // With a "to 0" waiting on the card, what it takes off is whatever was left of the modified cost.
+  const reduction = costSetToZeroFor(state, deps, playerId, cardInstanceId)
+    ? Math.max(0, modified - offTheTop - current)
+    : costReductionFor(state, deps, playerId, cardInstanceId) + byArea;
+  return { printed, current, contributions, reduction };
 }
 
 export interface PricedPlay {

@@ -211,6 +211,8 @@ class Observer {
     paid: boolean;
     exhaustedBefore: boolean;
     resourcesInHand: number;
+    /** Some scheme held threat when the card was played: with none, Command Authority's thwart has no valid target. */
+    threatToRemove: boolean;
     events: GameEvent[];
   } | null = null;
   /** Energy Absorption resolutions, offers, and attack damage actually taken (at least 1) seen by this observer. */
@@ -306,6 +308,7 @@ class Observer {
               paid,
               exhaustedBefore: before.instances[identity]!.exhausted,
               resourcesInHand: 0,
+              threatToRemove: Object.values(before.instances).some((i) => i.threat > 0),
               events: [],
             };
           }
@@ -333,6 +336,7 @@ class Observer {
               paid: false,
               exhaustedBefore: before.instances[identity]!.exhausted,
               resourcesInHand: before.players[0]!.hand.filter((id) => typeOf(before, id) === "resource").length,
+              threatToRemove: true,
               events: [],
             };
           }
@@ -403,8 +407,10 @@ class Observer {
           expect(drawn, `${s.here}: confused Command Authority draws`).toBe(0);
           seen.confusedCanceled.push(s.here);
         } else {
-          // Command Authority: thwart 3, then draw 1 only if paid with a resource card.
-          expect(thwart?.amount, `${s.here}: Command Authority`).toBe(3);
+          // Command Authority: thwart 3, then draw 1 only if paid with a resource card. A scheme with no threat is no
+          // valid target for the thwart (RRG 1.8 "Target", p. 42), so with none holding threat the draw is all it does.
+          if (s.threatToRemove) expect(thwart?.amount, `${s.here}: Command Authority`).toBe(3);
+          else expect(thwart, `${s.here}: Command Authority with no threat to remove`).toBeUndefined();
           expect(drawn, `${s.here}: Command Authority paid=${s.paid}`).toBe(s.paid ? 1 : 0);
           seen.authorityPlayed.push(s.here);
           (s.paid ? seen.authorityDrew : seen.authorityNoDraw).push(s.here);

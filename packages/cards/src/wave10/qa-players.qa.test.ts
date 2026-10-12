@@ -443,23 +443,23 @@ describe("targets that need threat: 'Remove N threat from a scheme' cannot be in
     const threatened = patchInstance(given.state, given.state.mainScheme.instanceId, { threat: 1 });
     return { empty: flat(given.state), withThreat: flat(threatened) };
   }
-  it.fails("Core 'For Justice!' 01060 (the same printed shape, Hero Action (thwart): Remove 3 threat from a scheme) shows the engine-wide cause: not playable with no threat anywhere", () => {
+  it("Core 'For Justice!' 01060 (the same printed shape, Hero Action (thwart): Remove 3 threat from a scheme) shows the engine-wide cause: not playable with no threat anywhere", () => {
     const core = () => withForm(coreScenarioGame(), { heroForm: 0 });
     const r = offeredWith(core, "01060");
     expect(r.withThreat).toBe(true);
     expect(r.empty).toBe(false);
   });
-  it.fails("56009 Feline Senses (Hero Action, thwart): not playable with no threat anywhere, playable with 1", () => {
+  it("56009 Feline Senses (Hero Action, thwart): not playable with no threat anywhere, playable with 1", () => {
     const r = offeredWith(() => tigraHeroGame(), "56009");
     expect(r.withThreat).toBe(true);
     expect(r.empty).toBe(false);
   });
-  it.fails("56039 Impersonation (Hero Action, thwart): not playable with no threat anywhere, playable with 1", () => {
+  it("56039 Impersonation (Hero Action, thwart): not playable with no threat anywhere, playable with 1", () => {
     const r = offeredWith(() => hulklingHeroGame(), "56039");
     expect(r.withThreat).toBe(true);
     expect(r.empty).toBe(false);
   });
-  it.fails("56003 Precinct HQ (Alter-Ego Action, remove threat from a scheme): not usable with no threat anywhere, usable with 1", () => {
+  it("56003 Precinct HQ (Alter-Ego Action, remove threat from a scheme): not usable with no threat anywhere, usable with 1", () => {
     const hq = stagedInPlay(tigraGame(), "56003");
     const usable = (s: GameState) => {
       const actions = legalActions(s, P1, DEPS);

@@ -668,7 +668,7 @@ const PINS: readonly Pin[] = [
     defense: "hero-ready",
     explore: 1,
     verdict: "loss:mainSchemeCompleted",
-    rounds: 4,
+    rounds: 5,
   },
   {
     fixture: "spider-woman-pool-justice",

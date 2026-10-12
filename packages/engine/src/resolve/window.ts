@@ -19,7 +19,8 @@ import {
   deckTopCostReduction,
   deckTopPlayOf,
   playableFromAttachment,
-  playCostModifier,
+  playCostContributions,
+  priceAfterReductions,
   priceOrNull,
   pricePlay,
   resourceVars,
@@ -32,7 +33,7 @@ import type { ChoiceOption } from "../choices.js";
 import type { CostChoices, CostSelection } from "../commands.js";
 import { type Ctx, emit, findFrame, popFrame, pushFrames, requestChoice, setFrame, updateFrame } from "../ctx.js";
 import { candidateDefenseBar, windowDefenseBar } from "../defense-claim.js";
-import { costReductionFor } from "../effects.js";
+
 import { EngineInvariantError } from "../errors.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardOf, deckDiscardStillThere, getInstance, mustPlayer, playerOrder, printedCostOf } from "../query.js";
@@ -585,16 +586,15 @@ function windowEventCost(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCan
   // constant (`playCostModifier` — this path previously read only `costReductionFor`'s older "reduce the next card"
   // lasting-effect mechanism, so a constant cost reduction like Knife Leap's "reduce the cost to play this card by
   // 1 for each vengeance counter on Drax" silently never applied here), then the older reduction, never below 0.
-  const modified = Math.max(
-    0,
-    printed + playCostModifier(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId, null),
-  );
   // Played from the top of the deck, less its permission's reduction (`playableTopOfDeck`, docs/phase7-wave8.md §3.49).
-  const reduced = Math.max(
-    0,
-    modified -
-      costReductionFor(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId) -
-      deckTopCostReduction(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId),
+  const reduced = priceAfterReductions(
+    ctx.state,
+    ctx.deps,
+    candidate.controllerId,
+    candidate.instanceId,
+    printed,
+    playCostContributions(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId, null).map((e) => e.delta),
+    deckTopCostReduction(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId),
   );
   // The ability's own resources, a computed X included (`resourcesEqualTo`), as `planCost` will ask for them.
   const abilityCost = costResourceRequirement(

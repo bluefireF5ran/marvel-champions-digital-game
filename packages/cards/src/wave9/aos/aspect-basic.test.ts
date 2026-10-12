@@ -870,7 +870,9 @@ describe("50019.the-douglass-action: remove 2 threat from each scheme, ignoring 
   });
   it("the last operation counter removed discards The Douglass", () => {
     const douglass = placed(aspectGame(), DOUGLASS, { operation: 1 });
-    const after = drive(run(douglass.state, use(P1, douglass.id, ACTION)));
+    // A scheme must hold threat or the ability has no valid target and cannot be used (RRG 1.8 "Target", p. 42).
+    const staged = patchInstance(douglass.state, schemeOf(douglass.state), { threat: 2 });
+    const after = drive(run(staged, use(P1, douglass.id, ACTION)));
     expect(inDiscard(after, douglass.id)).toBe(true);
   });
 });

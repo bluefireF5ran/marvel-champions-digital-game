@@ -30,6 +30,23 @@
  * (`attackNamesNoAttackableEnemy`; owner decision, 2026-10-08), as a "(thwart)" ability with no scheme to thwart cannot
  * (`thwartNamesNoValidScheme`).
  *
+ * **A scheme with no threat is no target for a removal of threat** (`holdsThreat`; rules QA finding F1,
+ * docs/phase7-wave10-qa-players.md): "A target is valid for an ability or game function if any part of that ability can
+ * affect that target" (p. 42), "removing threat" being one of the listed effects on a target, and the same page's
+ * exception names the valid target of a basic thwart as "a scheme with threat on it" ("Thwart", p. 44: "A character can
+ * only initiate a basic thwart if there is a scheme with at least one threat for the character to remove or if that
+ * character is confused"). So `removeThreat` and `thwart` cannot affect a scheme holding none, a division of threat
+ * offers only schemes holding some, and an ability whose every part is such a removal ("Hero Action (thwart): Remove 3
+ * threat from a scheme", "Exhaust → remove 1 threat from a scheme", the same with "If this removes the last threat …"
+ * after it) cannot be initiated while no scheme holds threat. An ability with another part of its own ("Remove 2
+ * threat from a scheme and deal 1 damage to an enemy") still can: it has a valid target, and its removal finds nothing
+ * to choose as it resolves (`hasIndependentPart`). A confused character's thwart is the exception the rules give
+ * ("Confuse, Confused", p. 13) and is not judged. Threat removed as a cost is the cost's own rule ("Cost", p. 13).
+ *
+ * A branch that names the chosen slot (`if`, `then`, an option) is judged by the effects inside it: "if that scheme
+ * has threat on it, remove 3 threat from it" affects the scheme only through its removal, and reading the scheme in a
+ * condition does nothing to it (`partCanAffect`).
+ *
  * An effect that names the chosen slot and is not one of the judged kinds (`thwart`, `removeThreat`, `dealDamage`,
  * `attack`, `discardFromPlay`, `flipCard`, `defeat` aimed straight at the slot, `moveThreat` from it) is assumed able to affect
  * the target: the "multiple effects" bullet makes the target valid if any one effect can, so an effect this module
@@ -126,6 +143,12 @@ export const canMoveThreatFrom = (
   (getInstance(state, schemeId)?.threat ?? 0) > 0 &&
   threatRemovalBlocked(state, deps, schemeId, source, false, false, null, null, false, false, removingPlayerId) ===
     null;
+
+/**
+ * Whether this card holds threat a removal could take: RRG 1.8 "Target" (p. 42), "A target is valid … if any part of
+ * that ability can affect that target", and a removal of threat does nothing to a scheme with none on it.
+ */
+export const holdsThreat = (state: GameState, id: InstanceId): boolean => (getInstance(state, id)?.threat ?? 0) > 0;
 
 /** Whether `value` names `slot` anywhere (a `{ kind: "slot" }` ref or an `inSlot` query). */
 function refersToSlot(value: unknown, slot: string): boolean {
@@ -312,13 +335,29 @@ function judgedCanAffect(
     return !alreadyDefeated(state, id);
   }
   if (effect.kind === "removeThreat") {
+    // No threat, nothing for the removal to take (`holdsThreat`).
+    if (!holdsThreat(state, id)) return false;
     // A "(thwart)"-labeled ability's removal is a thwart by its controller's identity (`EffectContext.thwartLabeled`).
     if (context.thwartLabeled && isScheme(state, id))
       return canThwartScheme(state, deps, id, context, { ignoreCrisis: effect.ignoreCrisis });
     return canRemoveThreatFrom(state, deps, id, context.selfInstanceId, effect.ignoreCrisis === true);
   }
+  // A thwart of a scheme with no threat removes nothing. A confused thwarter's attempt needs no valid target (RRG 1.8
+  // "Confuse, Confused", p. 13), so its schemes are judged as before.
+  if (!holdsThreat(state, id) && !thwarterConfused(state, deps, effect, context)) return false;
   return canThwartScheme(state, deps, id, context, effect);
 }
+
+/** Whether the character a `thwart` effect names as thwarting (else the controller's identity) is confused. */
+const thwarterConfused = (
+  state: GameState,
+  deps: EngineDeps,
+  effect: Extract<EffectSpec, { kind: "thwart" }>,
+  context: EffectContext,
+): boolean =>
+  resolveRef(state, effect.thwarter ?? { kind: "identityOf", player: { kind: "controller" } }, context).some((id) =>
+    statusActive(state, id, "confused", deps),
+  );
 
 /**
  * Whether a thwart by `thwarter` (else the controller's identity) can remove threat from this scheme: the same
@@ -395,11 +434,44 @@ export function slotTargetValid(
   let judged = false;
   for (const effect of rest) {
     if (!refersToSlot(effect, slot)) continue;
-    const can = effectCanAffect(state, deps, effect, slot, id, context);
-    if (can !== false) return true;
-    judged = true;
+    const can = partCanAffect(state, deps, effect, slot, id, context);
+    if (can === true) return true;
+    if (can === false) judged = true;
   }
   return !judged;
+}
+
+/** The keys of a branch that hold its effects, and the condition it reads. */
+const BRANCH_KEYS: readonly string[] = ["then", "otherwise", "effects", "options", "condition"];
+
+/**
+ * Whether this effect, which names `slot`, can affect `id` bound to it: true, false, or null when it only reads the
+ * card. A branch (`if`, `then`, `chooseOne`) acts on the card through the effects inside it, so it is judged by those:
+ * able if one of them is, unable if those that name the slot are all judged unable, and null if only its condition
+ * names the slot ("if that scheme has no threat on it, draw a card" does nothing to the scheme). Any other effect is
+ * `effectCanAffect`'s, an effect this module cannot judge counting as able.
+ */
+function partCanAffect(
+  state: GameState,
+  deps: EngineDeps,
+  effect: EffectSpec,
+  slot: string,
+  id: InstanceId,
+  context: EffectContext,
+): boolean | null {
+  if (effect.kind !== "if" && effect.kind !== "then" && effect.kind !== "chooseOne")
+    return effectCanAffect(state, deps, effect, slot, id, context) ?? true;
+  // A branch that names the slot some other way than in its condition or its effects is not judged.
+  const outside = Object.entries(effect).filter(([key]) => !BRANCH_KEYS.includes(key));
+  if (outside.some(([, value]) => refersToSlot(value, slot))) return true;
+  let verdict: boolean | null = null;
+  for (const inner of nestedEffects(effect).flat()) {
+    if (!refersToSlot(inner, slot)) continue;
+    const can = partCanAffect(state, deps, inner, slot, id, context);
+    if (can === true) return true;
+    if (can === false) verdict = false;
+  }
+  return verdict;
 }
 
 /**
@@ -513,10 +585,97 @@ const isChoice = (effect: EffectSpec): effect is Choice =>
  * Engine reading: an effect that reads a value the choice's own effects bind (Into the Fray's excess damage) counts as
  * its own part, so such an ability still initiates and resolves to nothing, as it did before.
  */
-function hasIndependentPart(effects: readonly EffectSpec[], dead: readonly string[]): boolean {
+function hasIndependentPart(
+  effects: readonly EffectSpec[],
+  dead: readonly string[],
+  spent: readonly EffectSpec[] = [],
+): boolean {
+  // What a removal of threat with nothing to remove would have bound ("If this removes the last threat …" read from
+  // the removal's own `bind`): an effect reading it is part of that removal, not a part of its own.
+  const unbound = effects.flatMap((effect) => {
+    if (effect.kind !== "removeThreat" && effect.kind !== "thwart" && effect.kind !== "divide") return [];
+    if (effect.kind === "divide" && effect.what !== "threat") return [];
+    const lost = spent.includes(effect) || dead.some((slot) => refersToSlot(effect, slot));
+    return lost && effect.bind !== undefined ? [effect.bind] : [];
+  });
   return effects.some(
-    (effect) => effect.kind !== "then" && !isChoice(effect) && !dead.some((slot) => refersToSlot(effect, slot)),
+    (effect) =>
+      effect.kind !== "then" &&
+      !isChoice(effect) &&
+      !spent.includes(effect) &&
+      !dead.some((slot) => refersToSlot(effect, slot)) &&
+      !readsVarOf(effect, unbound),
   );
+}
+
+/** Whether `value` reads a var one of these `bind` names holds (`<bind>` or `<bind>.…`). */
+function readsVarOf(value: unknown, binds: readonly string[]): boolean {
+  if (binds.length === 0) return false;
+  if (Array.isArray(value)) return value.some((item) => readsVarOf(item, binds));
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Readonly<Record<string, unknown>>;
+  const name = record.kind === "var" || record.kind === "varAtLeast" ? record.name : undefined;
+  if (typeof name === "string" && binds.some((bind) => name === bind || name.startsWith(`${bind}.`))) return true;
+  return Object.values(record).some((item) => readsVarOf(item, binds));
+}
+
+const THREAT_REMOVAL = new WeakMap<readonly EffectSpec[], boolean>();
+
+/** Whether the ability removes threat anywhere in its text (`holdsThreatRemoval`), remembered per effect list. */
+function removesThreat(effects: readonly EffectSpec[]): boolean {
+  let known = THREAT_REMOVAL.get(effects);
+  if (known === undefined) {
+    known = holdsThreatRemoval(effects);
+    THREAT_REMOVAL.set(effects, known);
+  }
+  return known;
+}
+
+/**
+ * The ability's own removals of threat that name their schemes and have none to take threat from right now: "remove 1
+ * threat from the main scheme" with none on it, "remove 3 threat divided among schemes" with none on any (RRG 1.8
+ * "Target", p. 42; `holdsThreat`). Each is a part of the ability that can affect no target, as a required choice with
+ * nothing to choose is (`abilityTargetFault`'s `dead`). Only the ability's own effect list is read (a branch or
+ * post-"then" text may not resolve), and only what can be told now: a removal aimed at a slot is its choice's to
+ * judge, one that reads a binding is judged as it resolves, and a ref that names nothing is left alone. A confused
+ * thwarter's thwart is never spent ("Confuse, Confused", p. 13).
+ */
+function spentRemovals(
+  state: GameState,
+  deps: EngineDeps,
+  effects: readonly EffectSpec[],
+  context: EffectContext,
+): readonly EffectSpec[] {
+  return effects.filter((effect) => {
+    if (effect.kind === "divide") {
+      if (effect.what !== "threat" || readsBindings(effect.among)) return false;
+      return !selectTargets(state, effect.among, context).some((id) =>
+        divisionCanRemoveThreat(state, deps, id, context),
+      );
+    }
+    if (effect.kind !== "removeThreat" && effect.kind !== "thwart") return false;
+    if (effect.target.kind === "slot" || readsBindings(effect.target)) return false;
+    if (effect.kind === "thwart" && effect.thwarter && readsBindings(effect.thwarter)) return false;
+    const named = resolveRef(state, effect.target, context);
+    return named.length > 0 && !named.some((id) => judgedCanAffect(state, deps, effect, id, context));
+  });
+}
+
+/**
+ * Whether a point of a division of threat could do anything to this scheme (RRG 1.8 "Target", pp. 42–43): it holds
+ * threat, and this removal is allowed to take it (the same check `removeThreat` makes as it applies; a "(thwart)"
+ * ability's division is a thwart, so patrol and `cannotThwart` count too).
+ */
+export function divisionCanRemoveThreat(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  context: EffectContext,
+): boolean {
+  if (!holdsThreat(state, id)) return false;
+  return context.thwartLabeled
+    ? canThwartScheme(state, deps, id, context)
+    : canRemoveThreatFrom(state, deps, id, context.selfInstanceId);
 }
 
 /** The targets a choice could choose right now: its candidates, less any the rest of the ability cannot affect. */
@@ -601,7 +760,9 @@ export function abilityTargetFault(
   // A move's source is judged whatever is in play: a scheme with no threat is no source.
   const moves = effects.some((effect) => effect.kind === "moveThreat");
   // An "(attack)" ability's named enemy can be one its player may not attack (guard): judged whatever else is in play.
-  const judge = moves || context.attackLabeled === true || targetsCanBeInvalid(state, deps, playerId);
+  // A removal of threat is judged whatever is in play: a scheme with no threat is no target for it.
+  const judge =
+    moves || context.attackLabeled === true || removesThreat(effects) || targetsCanBeInvalid(state, deps, playerId);
   // The opening choices that are required and have nothing to choose. Only the choices before the ability's first
   // other effect are read: a later one chooses among what the effects before it leave (a card one of them drew or
   // discarded), which cannot be known until they resolve, so it is judged as it resolves.
@@ -616,7 +777,8 @@ export function abilityTargetFault(
   }
   // Read before the dead choices so a move with no source says so (`TARGET_FAULT_MESSAGE`).
   if (moves && moveThreatLacksSource(state, deps, effects, context)) return "moveSource";
-  if (dead.length > 0 && !hasIndependentPart(effects, dead)) return "target";
+  const spent = judge ? spentRemovals(state, deps, effects, context) : [];
+  if (dead.length + spent.length > 0 && !hasIndependentPart(effects, dead, spent)) return "target";
   if (tuckNamesNoCard(state, deps, effects, context)) return "target";
   if (tuckUnderFullHost(state, deps, effects, context)) return "tuckFull";
   if (gainNamesEmptyPile(state, effects)) return "target";
@@ -945,6 +1107,11 @@ function attackNamesNoAttackableEnemy(
  * ref names cards and `selectCards` can reach none of them, the ability cannot be initiated and no cost is paid (RRG
  * 1.8 "Cost", p. 13: "An ability's cost cannot be paid if that ability's effect requires one or more targets and there
  * is not at least one valid target"). A slot is bound only as the ability resolves, so it is not judged here.
+ *
+ * The same for a tuck that takes its card from a zone (`CardSelector ref.ownerZone`: "tuck that event from your discard
+ * pile under this card. Then, heal 1 damage from your identity", Ionic Physiology, `wonder_man` 58002): with the event
+ * no longer in the discard pile no tuck would be made, and text after a "Then" would not be attempted (RRG 1.8 "'Then'",
+ * p. 44), so an ability made of such tucks and their "Then" text cannot be initiated.
  */
 function tuckNamesNoCard(
   state: GameState,
@@ -952,10 +1119,11 @@ function tuckNamesNoCard(
   effects: readonly EffectSpec[],
   context: EffectContext,
 ): boolean {
-  if (effects.length === 0) return false;
-  return effects.every(
+  const tucks = effects.filter((effect) => effect.kind === "tuckCards");
+  if (tucks.length === 0 || !effects.every((effect) => effect.kind === "tuckCards" || effect.kind === "then"))
+    return false;
+  return tucks.every(
     (effect) =>
-      effect.kind === "tuckCards" &&
       effect.cards.kind === "ref" &&
       effect.cards.ref.kind !== "slot" &&
       resolveRef(state, effect.cards.ref, context).length > 0 &&

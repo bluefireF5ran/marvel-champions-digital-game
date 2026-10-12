@@ -125,6 +125,13 @@ export type LastingEffectBody =
    * and uses it up, and a play to a player's own area neither uses nor ends it. `anyPlayer`: the card says "the next
    * ally played", not "you play", so the next matching play by any player uses it; `playerId` is then only the player
    * whose effect made it. A reduction by destination is a reduction: a negative `amount` there is read as 0.
+   *
+   * `toZero` (docs/phase7-wave10-hero-packs.md H3.10): "reduce the resource cost of the next ally that player plays
+   * this phase to 0". The matching card's resource cost is 0; `amount` is 0 and not read.
+   *
+   * `cardInstanceId` (H3.11): the reduction is bound to this one card ("reduce the cost to play each of those cards by
+   * 2 until the end of the phase"), wherever it is and whoever plays it; only that card's play is priced with it and
+   * uses it up. `playerId` is then only the player whose effect made it, and `cardFilter` and `anyPlayer` are absent.
    */
   | {
       readonly kind: "costReduction";
@@ -133,6 +140,8 @@ export type LastingEffectBody =
       readonly cardFilter?: TargetQuery;
       readonly into?: { readonly scenarioPlayArea: string };
       readonly anyPlayer?: true;
+      readonly toZero?: true;
+      readonly cardInstanceId?: InstanceId;
     }
   /** "Until the end of the phase, X gets +N STAT". `amount` is re-evaluated on every read. */
   | (LastingReach & {

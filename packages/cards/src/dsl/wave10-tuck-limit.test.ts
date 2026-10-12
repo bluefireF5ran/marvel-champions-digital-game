@@ -72,6 +72,8 @@ function table(held: number, damage: number) {
   };
   state = patchInstance(state, physiology, { controllerId: P1, faceup: true, tucked: fodder });
   state = patchInstance(state, identityOf(state, P1), { damage });
+  // Active Altruism removes threat, so it is only playable while some scheme holds threat (RRG 1.8 p. 42, "Target").
+  state = patchInstance(state, state.mainScheme.instanceId, { threat: 5 });
   const given = moveToHand(state, P1, ALTRUISM);
   return { state: given.state, physiology, altruism: given.ids[0]!, hero: identityOf(state, P1) };
 }

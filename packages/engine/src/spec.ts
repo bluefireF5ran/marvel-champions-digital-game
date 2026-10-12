@@ -5150,6 +5150,31 @@ export type EffectSpec =
        * reduction of their own, as before.
        */
       readonly anyPlayer?: true;
+      /**
+       * "Reduce the resource cost of the next ally that player plays this phase **to 0**" (Recruitment Drive, `hercules`
+       * 59023; docs/phase7-wave10-hero-packs.md H3.10): the matching card's resource cost is 0, whatever it prints and
+       * whatever else reduces it. `amount` is not read. Used up by that play and gone at its timing point like any
+       * other "next card" reduction (RRG 1.8 "Lasting Effects", p. 26).
+       *
+       * What another card adds to the cost ("costs 1 additional resource": a positive `CostModifierSpec`, a negative
+       * `amount`) is still paid on top: H3.10 reads it as an amount added to the cost, not part of the cost being
+       * reduced. Open rules reading: RRG 1.8 "Modifiers" (p. 29) says "If a value is 'set' to a specific number, the set
+       * modifier overrides all non-set modifiers"; if FFG reads "reduce … to 0" as a set modifier, the additions are
+       * overridden too and `priceAfterReductions` (`actions.ts`) returns 0 for such a card. Not with `into`.
+       */
+      readonly toZero?: true;
+      /**
+       * "Reduce the cost to play each of those cards by 2 until the end of the phase" (Evaluate Threat, `hercules`
+       * 59028; docs/phase7-wave10-hero-packs.md H3.11): one reduction for each card this ref names, bound to that card
+       * (`LastingEffectBody costReduction.cardInstanceId`) rather than to a player and a filter. It follows the card
+       * through every zone, prices it for whichever player plays it, is used up by that card's next play and no other
+       * card's, and ends at `duration` whether used or not. Rulings June 2, 2026 – Ruling 2 (4): the cost is reduced
+       * "for the next time it is played that phase, even if bounced"; July 9, 2026 – Ruling 3 (3): "for the **next
+       * time** it is played, not repeatedly". `player` names only whose effect it is; `cardFilter`, `into` and
+       * `anyPlayer` are not read, and `duration` is a phase, turn or round (not `"untilPlayed"`, which is a player's
+       * next card).
+       */
+      readonly cards?: TargetRef;
     }
   /**
    * "Discard this obligation after you play an event" (Physical Toll, `drs` pack): a delayed effect whose timing
@@ -5198,7 +5223,20 @@ export type PlayerZone = "hand" | "deck" | "discard";
 
 /** Which cards a `moveCards`/`chooseCards` works on. */
 export type CardSelector =
-  | { readonly kind: "ref"; readonly ref: TargetRef; readonly filter?: TargetQuery }
+  | {
+      readonly kind: "ref";
+      readonly ref: TargetRef;
+      readonly filter?: TargetQuery;
+      /**
+       * Only the named cards that are in this zone of their owner right now: "tuck that event **from your discard
+       * pile** under this card" (Ionic Physiology, `wonder_man` 58002; docs/phase7-wave10-hero-packs.md §H3.12). A named
+       * card anywhere else (shuffled into its deck, returned to hand, removed, still in play) is not selected. With
+       * `tuckCards` that makes the discard pile part of what the ability needs: it is not offered while no named card
+       * is there, and a tuck that finds none as it resolves did not resolve (`preThenUnresolved`, cause
+       * `tuckNamedNoCard`; RRG 1.8 "'Then'", p. 44).
+       */
+      readonly ownerZone?: PlayerZone;
+    }
   /**
    * The encounter deck and/or discard pile ("search the encounter deck and discard pile for …"): the active
    * villain's (ruling, Jan 17, 2026 (5)). `deckOf` names another villain's deck where card text does ("Reveal the

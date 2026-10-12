@@ -126,7 +126,10 @@ describe("Gamora's nemesis set (Sibling Rivalry, Nebula, In a Bind, Waylay)", ()
 
     // P1 ends their turn; P2 (Groot) tries "I am Groot" (16003, a (thwart) ability targeting any scheme) on the
     // same side scheme next: blocked.
-    const p2Turn = runWith(WAVE3_DEPS, p1Attempt, endTurn(P1), toHero(P2));
+    // The main scheme holds threat so the thwart has a legal target at all: a scheme with none is not a valid target
+    // (RRG 1.8 "Target" p. 42), and Sibling Rivalry is the one Groot is barred from.
+    const p2Base = runWith(WAVE3_DEPS, p1Attempt, endTurn(P1), toHero(P2));
+    const p2Turn = patchInstance(p2Base, p2Base.mainScheme.instanceId, { threat: 3 });
     const givenGroot = moveToHand(p2Turn, P2, "16003");
     const [grootCard] = givenGroot.ids;
     const p2Attempt = settle(

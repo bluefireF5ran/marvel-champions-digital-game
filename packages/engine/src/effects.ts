@@ -2306,13 +2306,36 @@ export function costReductionFor(
   playerId: PlayerId,
   cardInstanceId: InstanceId,
 ): number {
-  const context: EffectContext = { selfInstanceId: null, controllerId: playerId, event: null, bindings: {}, deps };
-  return state.lastingEffects.reduce((sum, effect) => {
-    // A reduction by destination is priced by the play that names the destination (`areaCostReductionFor`).
-    if (effect.kind !== "costReduction" || effect.into || !reductionIsFor(effect, playerId)) return sum;
-    if (effect.cardFilter && !matchesQuery(state, cardInstanceId, effect.cardFilter, context)) return sum;
-    return sum + effect.amount;
-  }, 0);
+  return waitingReductions(state, deps, playerId, cardInstanceId).reduce((sum, effect) => sum + effect.amount, 0);
+}
+
+/**
+ * Whether a "reduce the resource cost of the next [card] … to 0" waits on this play (`costReduction.toZero`,
+ * docs/phase7-wave10-hero-packs.md H3.10): the card's resource cost is then 0 whatever `costReductionFor` totals.
+ */
+export function costSetToZeroFor(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+): boolean {
+  return waitingReductions(state, deps, playerId, cardInstanceId).some((effect) => effect.toZero === true);
+}
+
+/**
+ * The "costs N additional resources" total among the lasting changes waiting on this play (the negative amounts of
+ * `costReductionFor`, as a positive number): what a cost reduced to 0 is still raised by (H3.10).
+ */
+export function costIncreaseFor(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+): number {
+  return waitingReductions(state, deps, playerId, cardInstanceId).reduce(
+    (sum, effect) => sum + Math.max(0, -effect.amount),
+    0,
+  );
 }
 
 type CostReductionEffect = Extract<LastingEffect, { kind: "costReduction" }>;
@@ -2320,6 +2343,26 @@ type CostReductionEffect = Extract<LastingEffect, { kind: "costReduction" }>;
 /** Whose play a "next card" reduction waits for: its player's, or any player's ("the next ally played"). */
 const reductionIsFor = (effect: CostReductionEffect, playerId: PlayerId): boolean =>
   effect.anyPlayer === true || effect.playerId === playerId;
+
+/**
+ * The lasting cost changes a play of this card by `playerId` to their own area is priced with and uses up: one bound to
+ * the card itself (`cardInstanceId`, H3.11), whoever plays it, or one waiting for this player's next card that the card
+ * matches. A reduction by destination is priced by the play that names the destination (`areaCostReductionFor`).
+ */
+function waitingReductions(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+): readonly CostReductionEffect[] {
+  const context: EffectContext = { selfInstanceId: null, controllerId: playerId, event: null, bindings: {}, deps };
+  return state.lastingEffects.filter((effect): effect is CostReductionEffect => {
+    if (effect.kind !== "costReduction" || effect.into) return false;
+    if (effect.cardInstanceId !== undefined) return effect.cardInstanceId === cardInstanceId;
+    if (!reductionIsFor(effect, playerId)) return false;
+    return !effect.cardFilter || matchesQuery(state, cardInstanceId, effect.cardFilter, context);
+  });
+}
 
 /** The reductions by destination that a play of this card by `playerId` into `area` uses (docs/phase7-wave8.md §3.35). */
 function areaCostReductions(
@@ -2333,6 +2376,7 @@ function areaCostReductions(
   return state.lastingEffects.filter(
     (effect): effect is CostReductionEffect =>
       effect.kind === "costReduction" &&
+      effect.cardInstanceId === undefined &&
       effect.into?.scenarioPlayArea === area &&
       reductionIsFor(effect, playerId) &&
       (!effect.cardFilter || matchesQuery(state, cardInstanceId, effect.cardFilter, context)),
@@ -2400,12 +2444,8 @@ export function consumeCostReductions(
   playerId: PlayerId,
   cardInstanceId: InstanceId,
 ): void {
-  const context: EffectContext = { selfInstanceId: null, controllerId: playerId, event: null, bindings: {}, deps };
-  for (const effect of [...ctx.state.lastingEffects]) {
-    if (effect.kind !== "costReduction" || effect.into || !reductionIsFor(effect, playerId)) continue;
-    if (effect.cardFilter && !matchesQuery(ctx.state, cardInstanceId, effect.cardFilter, context)) continue;
+  for (const effect of waitingReductions(ctx.state, deps, playerId, cardInstanceId))
     endLastingEffect(ctx, effect.id, "consumed");
-  }
 }
 
 /**

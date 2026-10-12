@@ -518,7 +518,7 @@ describe("Jubilee's Coat (47004)", () => {
 
 describe("Jubilee's Sunglasses (47005)", () => {
   const armed = (cost?: { code: string; cost: number }) => {
-    const base = heroGame();
+    const base = withMainThreat(heroGame(), 9); // Flash of Light (a thwart event) needs a scheme holding threat (RRG 1.8 "Target", p. 42).
     const priced = cost ? withCost(base, cost.code, cost.cost) : base;
     return withUpgrade(priced, SHADES);
   };
@@ -756,7 +756,8 @@ describe("Wolverine (47002)", () => {
       expect(rejectedWith(staged.state, playCommand(id, pay))).toBe("duplicate_unique_card");
     });
     it("beside the Wolverine hero it still pays as a resource (For Justice! paid with 47002 and [physical])", () => {
-      const base = setupGame(["jubilee", "wolverine"]);
+      // For Justice! only removes threat, so a scheme must hold some (RRG 1.8 "Target", p. 42).
+      const base = withMainThreat(setupGame(["jubilee", "wolverine"]), 5);
       const played = cast(withForm(base, { heroForm: 0 }, P1), FOR_JUSTICE, ["47002", PH], {
         targets: [[mainOf(base)]],
       });
@@ -972,7 +973,9 @@ describe("Shopping Spree (47003)", () => {
     });
     it("the same fixture ability in hero form: the scheme is not offered", () => {
       const base = withSpree(alterEgoGame(undefined, FIXTURE_DEPS));
-      const hero = withForm(base.state, { heroForm: 0 }, P1);
+      // The main scheme holds threat so the removal still has a valid target; with none the ability could not be used at
+      // all (RRG 1.8 "Target", p. 42).
+      const hero = withMainThreat(withForm(base.state, { heroForm: 0 }, P1), 3);
       const staged = moveToHand(hero, P1, "47013");
       const disguise = staged.ids[0]!;
       const inPlay: GameState = {

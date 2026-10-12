@@ -72,6 +72,12 @@ export type PreThenFailure =
    */
   | "tuckRefused"
   /**
+   * A `tuckCards` named cards and could reach none of them: each was removed from the game, or is not in the zone the
+   * selector names (`CardSelector ref.ownerZone`: "tuck that event from your discard pile" with the event no longer
+   * there).
+   */
+  | "tuckNamedNoCard"
+  /**
    * A `replaceAttachHost` found no pending attach to send elsewhere, or no card that can have it attached
    * (docs/phase7-wave9.md §3.49).
    */

@@ -467,7 +467,9 @@ describe("Rogue's events (38005-38009)", () => {
       const patched = patchInstance(ally.state, ally.id, { cardId: cardId(DAREDEVIL) });
       const taken = playEvent(touchOnto(patched, ally.id), ADAPTATION, 0, choosing([ids[FOR_JUSTICE]!]));
       expect(inst(taken.state, ids[FOR_JUSTICE]!).ownerId).toBe(P2);
-      const second = drive(taken.state, play(P1, ids[FOR_JUSTICE]!, payWith(taken.state, P1, 2, [ids[FOR_JUSTICE]!])));
+      // For Justice only removes threat: a scheme must hold some (RRG 1.8 "Target", p. 42).
+      const loaded = patchInstance(taken.state, taken.state.mainScheme.instanceId, { threat: 10 });
+      const second = drive(loaded, play(P1, ids[FOR_JUSTICE]!, payWith(loaded, P1, 2, [ids[FOR_JUSTICE]!])));
       expect(inst(second.state, ids[FOR_JUSTICE]!).ownerId).toBe(P2);
       expect(handOf(second.state)).not.toContain(ids[FOR_JUSTICE]);
     });
@@ -481,7 +483,9 @@ describe("Rogue's events (38005-38009)", () => {
       const touched = touchOnto(patched, ally.id);
       const taken = playEvent(touched, ADAPTATION, 0, choosing([ids[FOR_JUSTICE]!]));
       expect(handOf(taken.state)).toContain(ids[FOR_JUSTICE]);
-      const second = drive(taken.state, play(P1, ids[FOR_JUSTICE]!, payWith(taken.state, P1, 2, [ids[FOR_JUSTICE]!])));
+      // For Justice only removes threat: a scheme must hold some (RRG 1.8 "Target", p. 42).
+      const loaded = patchInstance(taken.state, taken.state.mainScheme.instanceId, { threat: 10 });
+      const second = drive(loaded, play(P1, ids[FOR_JUSTICE]!, payWith(loaded, P1, 2, [ids[FOR_JUSTICE]!])));
       expect(playerOf(second.state, P2).discard).toContain(ids[FOR_JUSTICE]);
       expect(playerOf(second.state, P1).discard).not.toContain(ids[FOR_JUSTICE]);
     });

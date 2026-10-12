@@ -190,8 +190,7 @@ import {
   attackChoiceContext,
   attackTargetAllowed,
   canDealDamageTo,
-  canRemoveThreatFrom,
-  canThwartScheme,
+  divisionCanRemoveThreat,
   isRequiredChoice,
   isRequiredSearch,
   readsDeck,
@@ -807,12 +806,7 @@ function divisionCanAffect(
   context: EffectContext,
 ): boolean {
   if (what === "damage") return canDealDamageTo(ctx.state, ctx.deps, id, frame.selfInstanceId);
-  const scheme = getInstance(ctx.state, id);
-  if (scheme === undefined || scheme.threat <= 0) return false;
-  // A "(thwart)" ability's division is a thwart (`EffectContext.thwartLabeled`): patrol and `cannotThwart` count too.
-  return context.thwartLabeled
-    ? canThwartScheme(ctx.state, ctx.deps, id, context)
-    : canRemoveThreatFrom(ctx.state, ctx.deps, id, frame.selfInstanceId);
+  return divisionCanRemoveThreat(ctx.state, ctx.deps, id, context);
 }
 
 /** `EffectSpec divide` (docs/phase7-wave2.md §3.7): see there. */
@@ -848,10 +842,11 @@ function executeDivide(
   // A "(thwart)" ability's division offers only the schemes its player can thwart, "up to" or not (RRG 1.8 "Target",
   // p. 43: "A target that cannot be thwarted is not a valid target for a thwart-labeled ability"; owner decision,
   // 2026-10-03): not the main scheme under an engaged patrol minion or a crisis icon.
-  const candidates = effect.upTo
-    ? matched.filter((id) => divisionCanAffect(ctx, what, id, frame, context))
-    : what === "threat" && context.thwartLabeled
-      ? matched.filter((id) => canThwartScheme(ctx.state, ctx.deps, id, context))
+  // A division of threat offers only schemes holding threat it can take, "up to" or not: a scheme with none is no
+  // target for a removal (RRG 1.8 "Target", p. 42; `holdsThreat`, rules QA finding F1).
+  const candidates =
+    effect.upTo || what === "threat"
+      ? matched.filter((id) => divisionCanAffect(ctx, what, id, frame, context))
       : matched;
   const [chooser] = resolvePlayers(ctx.state, effect.chooser, context);
   // "Up to" (docs/phase7-wave3.md §3.41): how many is the chooser's, so even a single candidate is asked.

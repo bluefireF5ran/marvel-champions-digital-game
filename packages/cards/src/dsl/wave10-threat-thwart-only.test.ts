@@ -192,7 +192,9 @@ describe("H3.6 Embody Pathos: threat cannot be removed from attached scheme exce
     const start = table();
     const turn = withForm(drive(start.state, endTurn(P1), firstLegal, DEPS).state, { heroForm: 0 }, P2);
     expect(turn.step).toMatchObject({ phase: "player" });
-    const given = moveToHand(turn, P2, FOR_JUSTICE);
+    // A thwart event needs a scheme holding threat to be played at all; the main scheme holds some here.
+    const withThreat = patchInstance(turn, turn.mainScheme.instanceId, { threat: 4 });
+    const given = moveToHand(withThreat, P2, FOR_JUSTICE);
     const card = given.ids[0]!;
     const command = play(P2, card, payWith(given.state, P2, 2, [card]));
     const asked = applyCommand(given.state, command, DEPS);

@@ -3792,6 +3792,10 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           updateInstance(ctx, id, (i) => ({ ...i, damage: 0, statuses: NO_STATUSES, counters: {}, exhausted: false }));
         tucking.push(id);
       }
+      // The cards it names are out of its reach (removed from the game, or gone from the zone it takes them from): the
+      // tuck did not resolve, so a "Then" after it is not attempted (RRG 1.8 "'Then'", p. 44).
+      if (tucking.length === 0 && effect.cards.kind === "ref" && targets(effect.cards.ref).length > 0)
+        markPreThenUnresolved(ctx, frame.frameId, "tuckNamedNoCard");
       // Each tuck opens its "would be tucked" window when an ability hears it (docs/phase7-wave9.md §3.40 (a)).
       tuckOrAnnounce(ctx, tucking, host, {
         sourceInstanceId: frame.selfInstanceId,
@@ -3866,10 +3870,30 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "reorderCards":
       throw new EngineInvariantError(`${effect.kind} is handled before applyEffect`);
     case "reduceNextCardCost": {
-      const amount = value(effect.amount);
+      // "To 0" (docs/phase7-wave10-hero-packs.md H3.10): the amount is not read.
+      const amount = effect.toZero ? 0 : value(effect.amount);
       // Signed: a positive amount reduces, a negative one increases ("costs N additional resources"). 0 does nothing.
-      if (amount === 0) return;
+      if (amount === 0 && !effect.toZero) return;
       if (effect.duration === "turn" && !turnInProgress(ctx.state)) return;
+      const toZero = effect.toZero ? { toZero: true as const } : {};
+      if (effect.cards) {
+        // One reduction for each card named, bound to that card (H3.11). "The next card that player plays" is a
+        // timing point of a player, not of a card, so that duration makes nothing here (the DSL validator refuses it).
+        if (effect.duration === "untilPlayed") return;
+        const until =
+          effect.duration === "phase" ? "endOfPhase" : effect.duration === "turn" ? "endOfTurn" : "endOfRound";
+        const [maker] = resolvePlayers(ctx.state, effect.player, context);
+        for (const id of targets(effect.cards)) {
+          const playerId = maker ?? getInstance(ctx.state, id)?.ownerId;
+          if (!playerId) continue;
+          addLastingEffect(
+            ctx,
+            { kind: "costReduction", playerId, amount, cardInstanceId: id, ...toZero },
+            { kind: until },
+          );
+        }
+        return;
+      }
       const filter = effect.cardFilter ? { cardFilter: effect.cardFilter } : {};
       // By destination, and for whoever plays next (docs/phase7-wave8.md §3.35): one effect, not one per player.
       const where = {
@@ -3880,7 +3904,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       for (const playerId of effect.anyPlayer ? players.slice(0, 1) : players) {
         addLastingEffect(
           ctx,
-          { kind: "costReduction", playerId, amount, ...filter, ...where },
+          { kind: "costReduction", playerId, amount, ...filter, ...where, ...toZero },
           effect.duration === "untilPlayed"
             ? { kind: "untilCardPlayed", playerId, ...filter }
             : {

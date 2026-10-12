@@ -1,8 +1,10 @@
 import { CORE_STARTER_DECKS, WONDER_MAN_CARDS, cardId, type HeroIdentityCard, type UpgradeCard } from "@mc/content";
 import {
+  applyCommand,
   characterProfile,
   createGame,
   legalActions,
+  locateCard,
   replay,
   sessionApply,
   startSession,
@@ -75,7 +77,11 @@ const hero = (s: GameState) => characterProfile(s, identityOf(s), WAVE10_DEPS)!;
 const discardCodes = (s: GameState, player: PlayerId = P1): string[] =>
   playerOf(s, player).discard.map((i) => codeOf(s, i));
 
-/** The game with `held` cards of the deck tucked under Ionic Physiology (surgery) and `damage` on Wonder Man. */
+/**
+ * The game with `held` cards of the deck tucked under Ionic Physiology (surgery) and `damage` on Wonder Man. The main
+ * scheme holds 5 threat, so Active Altruism (a thwart) has a scheme to remove threat from and can be played (RRG 1.8
+ * "Target", p. 42).
+ */
 function table(base: GameState, held: number, damage = 0) {
   const physiology = instancesOf(base, PHYSIOLOGY)[0]!;
   const fodder = playerOf(base, P1)
@@ -87,7 +93,9 @@ function table(base: GameState, held: number, damage = 0) {
       p.playerId === P1 ? { ...p, deck: p.deck.filter((i) => !fodder.includes(i)) } : p,
     ),
   };
-  const state1 = patchInstance(state0, physiology, { tucked: fodder });
+  const state1 = patchInstance(patchInstance(state0, physiology, { tucked: fodder }), base.mainScheme.instanceId, {
+    threat: 5,
+  });
   return { state: patchInstance(state1, identityOf(state1, P1), { damage }), physiology, fodder };
 }
 
@@ -335,6 +343,79 @@ describe(`${RESPONSE}: after you play an event with a printed energy resource, t
     expect(playerOf(two.state, P1).discard).toContain(second.id);
     expect(inst(two.state, identityOf(two.state)).damage).toBe(2);
     expect(healed(two.events)).toEqual([]);
+  });
+
+  /**
+   * Plays `command` with plain commands (no session: `change` is surgery in the middle), answering every choice by
+   * default except Ionic Physiology's Response, which is taken after `change` has altered the state it was offered in.
+   */
+  function driveChanging(state: GameState, command: Command, change: (s: GameState) => GameState) {
+    const events: GameEvent[] = [];
+    let offeredFrom: string | undefined;
+    let current = state;
+    const apply = (c: Command) => {
+      const result = applyCommand(current, c, WAVE10_DEPS);
+      if (!result.ok) throw new Error(`${c.type} rejected: ${result.error.code}: ${result.error.message}`);
+      current = result.state;
+      events.push(...result.events);
+    };
+    apply(command);
+    for (let guard = 0; current.pendingChoice && !current.outcome; guard++) {
+      if (guard > 60) throw new Error(`choices did not settle (${current.pendingChoice.prompt.kind})`);
+      const choice = current.pendingChoice;
+      const mine = choice.options.find((o) => JSON.stringify(o).includes(RESPONSE));
+      const selected = mine ? [mine.optionId as string] : [...firstLegal(current)];
+      if (mine) {
+        offeredFrom = locateCard(current, (command as { cardInstanceId: InstanceId }).cardInstanceId)?.kind;
+        current = change(current);
+      }
+      apply({
+        type: "resolveChoice",
+        playerId: choice.playerId,
+        choiceId: choice.choiceId,
+        selectedOptionIds: selected as never,
+      });
+    }
+    return { state: current, events, offeredFrom };
+  }
+
+  it("the event is in his discard pile when the Response is offered: that is where it is tucked from", () => {
+    const t = table(wonderManHeroGame(), 0, 3);
+    const p = staged(withThreat(t.state, 5), ALTRUISM);
+    const run = driveChanging(p.state, p.command, (s) => s);
+    expect(run.offeredFrom).toBe("discard");
+    expect(tuckedOf(run.state, t.physiology)).toEqual([p.id]);
+    expect(playerOf(run.state, P1).discard).not.toContain(p.id);
+    expect(inst(run.state, identityOf(run.state)).damage).toBe(2);
+  });
+
+  it("an event that left the discard pile before the Response resolves is not tucked, and nothing heals (RRG 1.8 \"'Then'\", p. 44)", () => {
+    const t = table(wonderManHeroGame(), 0, 3);
+    const p = staged(withThreat(t.state, 5), ALTRUISM);
+    // Between the Response being chosen and its tuck, the event is shuffled back into his deck (surgery).
+    const intoDeck = (s: GameState): GameState => ({
+      ...s,
+      players: s.players.map((seat) =>
+        seat.playerId === P1
+          ? { ...seat, discard: seat.discard.filter((id) => id !== p.id), deck: [p.id, ...seat.deck] }
+          : seat,
+      ),
+    });
+    const run = driveChanging(p.state, p.command, intoDeck);
+    expect(run.offeredFrom).toBe("discard");
+    expect(tuckedOf(run.state, t.physiology)).toEqual([]);
+    expect(playerOf(run.state, P1).deck).toContain(p.id);
+    expect(inst(run.state, identityOf(run.state)).damage).toBe(3);
+    expect(healed(run.events)).toEqual([]);
+    expect(run.events.flatMap((e) => (e.type === "preThenUnresolved" ? [e.cause] : []))).toEqual(["tuckNamedNoCard"]);
+    expect(run.events.filter((e) => e.type === "thenSkipped")).toHaveLength(1);
+  });
+
+  it("the script takes the event from its owner's discard pile, and keeps to a tuck and its Then (so the limit is judged)", () => {
+    expect(WONDER_MAN_IDENTITY[RESPONSE]!.effects).toMatchObject([
+      { kind: "tuckCards", cards: { kind: "ref", ref: { kind: "eventTarget" }, ownerZone: "discard" } },
+      { kind: "then" },
+    ]);
   });
 
   it("plain Response, no form named: the trigger carries no hero or alter-ego restriction, so it is heard in either form", () => {

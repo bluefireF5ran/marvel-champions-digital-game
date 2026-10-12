@@ -248,12 +248,12 @@ describe(`${FELINE_SENSES}: Hero Action (thwart): remove 3 threat from a scheme;
     expect(mainThreat(after)).toBe(0);
   });
 
-  it("a scheme with no threat has none removed, so no minion is stunned", () => {
+  it("with no threat on any scheme it cannot be played (no valid target, RRG 1.8 p. 42), so no minion is stunned", () => {
     const { state, command } = staged(withMinions(0), FELINE, 2);
-    const { state: after } = drive(state, command);
-    expect(mainThreat(after)).toBe(0);
-    expect(stunnedOf(after, "shocker" as InstanceId)).toBe(0);
-    expect(stunnedOf(after, "modok" as InstanceId)).toBe(0);
+    const refused = sessionApply(startSession(state), command, WAVE10_DEPS);
+    expect(refused).toMatchObject({ ok: false, error: { code: "no_valid_target" } });
+    expect(stunnedOf(state, "shocker" as InstanceId)).toBe(0);
+    expect(stunnedOf(state, "modok" as InstanceId)).toBe(0);
   });
 
   it("a confused hero removes no threat (the confusion is spent), so nothing is stunned", () => {

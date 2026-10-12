@@ -3,6 +3,7 @@ import {
   after,
   andThen,
   cards,
+  cardsFrom,
   constant,
   defineAbilities,
   eventTarget,
@@ -61,7 +62,10 @@ const IONIC_PHYSIOLOGY = named("Ionic Physiology");
  * only (RRG 1.8 "'Then'", p. 44). Plain "Response", so optional and heard in either form. A "printed energy resource" is
  * the event's own printed icon: a wild icon is not energy (RRG 1.8 "Printed", p. 35), and the resources that paid for
  * the event are never read (January 17, 2026 - Ruling 4 (1) lets a wild resource be energy for a card that reads the
- * resource spent, which is not this).
+ * resource spent, which is not this). "From your discard pile" is `cardsFrom("discard", …)`: an event that is no longer
+ * in its owner's discard pile (shuffled into the deck, returned to hand, removed from the game) is not tucked, the
+ * Response is not offered for it, and if it leaves the pile before the Response resolves nothing is tucked and nothing
+ * heals (RRG 1.8 "'Then'", p. 44).
  */
 export const WONDER_MAN_IDENTITY: AbilityRegistry = defineAbilities({
   "58001a.wonder-man-constant": constant(gets("atk", tuckedCount(IONIC_PHYSIOLOGY), { self: true })),
@@ -78,7 +82,7 @@ export const WONDER_MAN_IDENTITY: AbilityRegistry = defineAbilities({
   "58002.ionic-physiology-constant": constant(tuckLimit(3)),
   "58002.ionic-physiology-response": response(
     after.youPlayedCard(query("event", { printedResource: "energy" })),
-    tuckCards(cards(eventTarget), self),
+    tuckCards(cardsFrom("discard", eventTarget), self),
     andThen(heal(1, yourIdentity)),
   ),
 });

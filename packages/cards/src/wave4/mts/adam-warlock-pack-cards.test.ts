@@ -10,6 +10,7 @@ import {
   instancesOf,
   moveToHand,
   P1,
+  patchInstance,
   payWith,
   play,
   playerOf,
@@ -166,8 +167,10 @@ describe("Magic Attack (21043) and Zone of Silence (21050)", () => {
   });
 
   it("21050.zone-of-silence-action: removes 1 threat per card discarded from the top of the deck", () => {
-    const hero = settle(runWith(WAVE4_DEPS, adamVsRhino(30), toHero()), firstLegal, undefined, WAVE4_DEPS);
-    const mainSchemeId = hero.mainScheme.instanceId;
+    const base = settle(runWith(WAVE4_DEPS, adamVsRhino(30), toHero()), firstLegal, undefined, WAVE4_DEPS);
+    const mainSchemeId = base.mainScheme.instanceId;
+    // A scheme with no threat is not a valid target for a removal of threat (RRG 1.8 "Target" p. 42).
+    const hero = patchInstance(base, mainSchemeId, { threat: 6 });
     const before = inst(hero, mainSchemeId).threat;
     const { state } = playFromHand(hero, "21050", 1, accepting("Discard 3", mainSchemeId));
     expect(inst(state, mainSchemeId).threat).toBe(Math.max(0, before - 3));

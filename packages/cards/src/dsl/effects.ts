@@ -1225,7 +1225,13 @@ export const mayLookAtTopOfEncounterDeckUntil = (
  */
 export const reduceNextCardCost = (
   player: PlayerRef,
-  n: Amount,
+  /**
+   * `"toZero"`: "reduce the resource cost of the next ally that player plays this phase **to 0**" (Recruitment Drive,
+   * `hercules` 59023; docs/phase7-wave10-hero-packs.md H3.10) → `reduceNextCardCost(chosenPlayer, "toZero", "phase",
+   * query("ally"))`. The card's resource cost is 0 whatever it prints and whatever else reduces it; an increase from
+   * another card is still paid on top.
+   */
+  n: Amount | "toZero",
   duration: NextCardCostDuration,
   cardFilter?: TargetQuery,
   /**
@@ -1238,11 +1244,31 @@ export const reduceNextCardCost = (
 ): EffectSpec => ({
   kind: "reduceNextCardCost",
   player,
-  amount: amount(n),
+  amount: amount(n === "toZero" ? 0 : n),
+  ...(n === "toZero" ? { toZero: true as const } : {}),
   duration,
   ...(cardFilter ? { cardFilter } : {}),
   ...(opts.into ? { into: opts.into } : {}),
   ...(opts.anyPlayer ? { anyPlayer: true as const } : {}),
+});
+/**
+ * "Each player may search their deck and discard pile for an Avenger or S.H.I.E.L.D. card and add it to their hand.
+ * Reduce the cost to play each of those cards by 2 until the end of the phase." (Evaluate Threat, `hercules` 59028;
+ * docs/phase7-wave10-hero-packs.md H3.11) → `reduceCostOfCards(chosen("found"), 2, "phase")` after the search binds
+ * `found`. One reduction for each card the ref names, kept by that card wherever it goes, used by the next play of that
+ * card by any player and gone at the end of the phase (rulings June 2, 2026 – Ruling 2 (4), "for the next time it is
+ * played that phase, even if bounced", and July 9, 2026 – Ruling 3 (3), "not repeatedly").
+ */
+export const reduceCostOfCards = (
+  cardsRef: TargetRef,
+  n: Amount,
+  duration: Exclude<NextCardCostDuration, "untilPlayed">,
+): EffectSpec => ({
+  kind: "reduceNextCardCost",
+  player: you,
+  amount: amount(n),
+  duration,
+  cards: cardsRef,
 });
 /**
  * "Assign each of the discarded cards to a different ally at the mission. If a resource icon on the ally matches a
@@ -1340,6 +1366,18 @@ export const topOfDeck = (n: Amount, player: PlayerRef = you): CardSelector => z
 export const cards = (ref: TargetRef, filter?: TargetQuery): CardSelector => ({
   kind: "ref",
   ref,
+  ...(filter ? { filter } : {}),
+});
+/**
+ * The cards a ref names that are in that zone of their owner right now: "tuck that event **from your discard pile**
+ * under this card" (Ionic Physiology, `wonder_man` 58002) → `tuckCards(cardsFrom("discard", eventTarget), self)`. A
+ * named card that is anywhere else is not selected, so the ability is not offered while none is there, and a tuck that
+ * finds its card gone as it resolves does not resolve (RRG 1.8 "'Then'", p. 44).
+ */
+export const cardsFrom = (ownerZone: PlayerZone, ref: TargetRef, filter?: TargetQuery): CardSelector => ({
+  kind: "ref",
+  ref,
+  ownerZone,
   ...(filter ? { filter } : {}),
 });
 /**

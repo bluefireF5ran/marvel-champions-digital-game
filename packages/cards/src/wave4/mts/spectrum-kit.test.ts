@@ -10,6 +10,7 @@ import {
   playerOf,
   runWith,
   moveToHand,
+  patchInstance,
   settle,
   toHero,
   type Picker,
@@ -127,8 +128,10 @@ describe("Gamma Blast / Photon Speed / Speed of Light (21007, 21008, 21010)", ()
   });
 
   it("21008.photon-speed-action: removes 4 threat and changes to Photon form", () => {
-    const hero = settle(runWith(WAVE4_DEPS, spectrumVsRhino(9), toHero()), firstLegal, undefined, WAVE4_DEPS);
-    const mainSchemeId = hero.mainScheme.instanceId;
+    const base = settle(runWith(WAVE4_DEPS, spectrumVsRhino(9), toHero()), firstLegal, undefined, WAVE4_DEPS);
+    const mainSchemeId = base.mainScheme.instanceId;
+    // A scheme with no threat is not a valid target for a removal of threat (RRG 1.8 "Target" p. 42).
+    const hero = patchInstance(base, mainSchemeId, { threat: 6 });
     const before = inst(hero, mainSchemeId).threat;
     const { state: after } = playFromHand(hero, "21008", 2, accepting(mainSchemeId));
     expect(inst(after, mainSchemeId).threat).toBe(Math.max(0, before - 4));

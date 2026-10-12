@@ -11,7 +11,7 @@
 import type { CardId } from "@mc/content";
 import { describe, expect, it } from "vitest";
 import type { EngineDeps } from "./abilities.js";
-import { replay } from "./engine.js";
+import { applyCommand, replay } from "./engine.js";
 import type { InstanceId } from "./ids.js";
 import { mustInstance } from "./query.js";
 import type { EffectSpec } from "./spec.js";
@@ -141,7 +141,7 @@ describe("§3.41 divide 'up to'", () => {
       { type: "playCard", playerId: P1, cardInstanceId: given.id, payment: [], attachToInstanceId: null },
     );
     expect(new Set(offered)).toEqual(new Set([b, main]));
-    // No side scheme holds threat: the side-scheme-only division has no valid target and removes nothing.
+    // No side scheme holds threat: the side-scheme-only division has no valid target, so its event cannot be played.
     const bare: GameState = {
       ...start,
       instances: {
@@ -150,9 +150,16 @@ describe("§3.41 divide 'up to'", () => {
         [b]: { ...mustInstance(start, b), threat: 0 },
       },
     };
-    const { asked, events } = play(bare, UP_TO_3_SIDE, []);
-    expect(asked).toEqual({});
-    expect(events.some((e) => e.type === "threatRemoved")).toBe(false);
+    const sweep = giveCard(bare, P1, UP_TO_3_SIDE.card.id);
+    const refused = applyCommand(
+      sweep.state,
+      { type: "playCard", playerId: P1, cardInstanceId: sweep.id, payment: [], attachToInstanceId: null },
+      deps,
+    );
+    expect(refused.ok ? null : refused.error).toMatchObject({
+      code: "no_valid_target",
+      message: "this event has no valid target",
+    });
   });
 
   it("asks even with a single candidate, since how many is the chooser's", () => {

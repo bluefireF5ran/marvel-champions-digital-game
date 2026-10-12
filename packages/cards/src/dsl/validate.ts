@@ -78,6 +78,8 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkHiddenPiles(definition, problems);
   checkCampaignLogReads(definition, "definition", problems);
   checkPlays(definition, problems);
+  checkNextCardCost(definition, problems);
+  checkOwnerZones(definition, "definition", problems);
   checkTuckReplacement(definition, problems);
   checkAttachReplacement(definition, problems);
   checkLeaveReplacement(definition, problems);
@@ -1028,6 +1030,45 @@ function checkPlays(definition: AbilityDefinition, problems: string[]): void {
     if (effect.from === "deck" && effect.card)
       problems.push("playFromHand from deck: the card is picked from the searched deck, so `card` is not read");
   }
+}
+
+/**
+ * `reduceNextCardCost` (docs/phase7-wave10-hero-packs.md H3.10, H3.11). "To 0" is for a play to the player's own area:
+ * a reduction by destination is an amount (`into`, docs/phase7-wave8.md §3.35). A reduction bound to the cards a ref
+ * names (`cards`) is used by each card's own next play, so it has no filter, destination or "any player" of its own,
+ * and it ends at a phase, turn or round: "the next card that player plays" (`untilPlayed`) is a player's timing point.
+ */
+function checkNextCardCost(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind !== "reduceNextCardCost") continue;
+    if (effect.toZero && effect.into)
+      problems.push("reduceNextCardCost: a cost is reduced to 0 for a play to the player's own area, not with `into`");
+    if (!effect.cards) continue;
+    if (effect.duration === "untilPlayed")
+      problems.push("reduceNextCardCost cards: a reduction bound to cards ends at a phase, turn or round");
+    if (effect.cardFilter || effect.into || effect.anyPlayer)
+      problems.push(
+        "reduceNextCardCost cards: the ref names the cards, so cardFilter, into and anyPlayer are not read",
+      );
+  }
+}
+
+const OWNER_ZONES: readonly string[] = ["hand", "deck", "discard"];
+
+/**
+ * `cardsFrom(zone, ref)` (`CardSelector ref.ownerZone`, docs/phase7-wave10-hero-packs.md H3.12): the zone is one of a
+ * player's own out-of-play zones. Any other word would match no card, and the ability would silently never resolve.
+ */
+function checkOwnerZones(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => checkOwnerZones(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (record.kind === "ref" && record.ownerZone !== undefined && !OWNER_ZONES.includes(record.ownerZone as string))
+    problems.push(`${path}: ownerZone is hand, deck or discard, not ${JSON.stringify(record.ownerZone)}`);
+  for (const [key, item] of Object.entries(record)) checkOwnerZones(item, `${path}.${key}`, problems);
 }
 
 /**

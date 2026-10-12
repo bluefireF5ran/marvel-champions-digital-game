@@ -886,6 +886,26 @@ FFG ruling on these cards: 28A is the stronger rules conclusion, 29B a well-supp
   effect "is no longer considered imminent") and "Then". Being built with the QA fixes; until it lands both copies
   are discarded.
 
+**Answered 2026-10-12** (the owner's ruling on 30, then `31B 32B 33A 34B`), all provisional:
+
+- **30B.** A minion being revealed resolves its When Revealed abilities first, then Quickstrike (RRG 1.8 "Quickstrike",
+  p. 36: "the quickstrike keyword resolves after any When Revealed abilities on that minion are resolved"; "Reveal",
+  p. 38). This replaces the order of February 28, 2026 – Ruling 1 (Hellcat) and the wave 6 answer to question 2; the
+  owner cites FFG's RRG 1.8 announcement ("Quick Notes, Reveal") as the statement that the change is deliberate, which
+  is not in the repo. Teamwork moves with it (p. 43, the same sentence). A minion put into play without being
+  revealed is unchanged (answer 18A stands). The impact list is `docs/phase7-wave10-q30-impact.md`.
+- **31B.** Prince of Power 59017 heals for the excess of the damage **dealt** over the enemy's remaining hit points
+  (February 8, 2026 – Ruling 2: 6 dealt to a 3-hit-point minion that takes 1 less, heals 3). The excess overkill spills
+  and every other reader of "excess damage" stays on damage taken (RRG 1.8 "Overkill", p. 31; owner decision
+  2026-09-25).
+- **32B.** A Response or Forced Response to a minion entering play, when the minion is being revealed, waits until the
+  reveal has finished: after its When Revealed, Quickstrike and Teamwork (RRG 1.8 "Reveal", p. 38; FAQ #10 "Widow's
+  Bite", p. 60).
+- **33A.** Toughness on a revealed minion stays where it is: the tough status card is given as the minion enters play,
+  before its When Revealed (RRG 1.8 "Toughness", p. 45, is worded as a Forced Response; the owner keeps the built
+  order).
+- **34B.** A minion with both Quickstrike and Teamwork: the first player chooses which resolves first.
+
 Questions 23 to 27 are product choices, not rules (owner's note). Each B or C is recorded where its question lives:
 14 to 18 in `docs/phase7-wave10-box-heroes.md` B4, 19 to 22 in `docs/phase7-wave10-hero-packs.md` H4, 23 to 27 in
 `docs/phase7-wave10-client.md` §12.

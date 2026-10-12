@@ -12,7 +12,17 @@ import {
   type PaymentContext,
 } from "@mc/engine";
 import { CORE_DEPS, coreScenario } from "./core/index.js";
-import { P1, moveToHand, payWith, play, playerOf, run, startCoreGame, toHero } from "./testing/harness.js";
+import {
+  P1,
+  moveToHand,
+  patchInstance,
+  payWith,
+  play,
+  playerOf,
+  run,
+  startCoreGame,
+  toHero,
+} from "./testing/harness.js";
 import { playToOutcome } from "./testing/driver.js";
 
 /**
@@ -153,7 +163,9 @@ describe("paymentFor / tryPayment on real Core cards", () => {
   it("lists every payable source, never the card being paid for, and prices The Power of Justice by what it really generates", () => {
     const given = moveToHand(spiderManVsRhino(), P1, "01060", "01062", "01087"); // For Justice!, The Power of Justice, Haymaker
     const [forJustice, powerOfJustice, haymaker] = given.ids as [InstanceId, InstanceId, InstanceId];
-    const hero = run(given.state, toHero());
+    const toppedUp = run(given.state, toHero());
+    // For Justice! is a thwart event: a scheme with no threat is not a valid target (RRG 1.8 "Target" p. 42).
+    const hero = patchInstance(toppedUp, toppedUp.mainScheme.instanceId, { threat: 5 });
 
     const query = paymentFor(hero, P1, playCardAction(forJustice), {}, CORE_DEPS);
     if (!query) throw new Error("For Justice! costs 2, so it has a payment step");

@@ -5,6 +5,7 @@ import {
   identityOf,
   inst,
   moveToHand,
+  patchInstance,
   P1,
   P2,
   payWith,
@@ -228,8 +229,10 @@ describe("Spider-Woman kit", () => {
 
   it("Inconspicuous: an (thwart) event — removes a total of 3 threat from among schemes in play", () => {
     const start = spiderWomanVsRhino();
-    const hero = runWave2(start, toHero());
-    const scheme = hero.mainScheme.instanceId;
+    const base = runWave2(start, toHero());
+    const scheme = base.mainScheme.instanceId;
+    // A scheme with no threat is not a valid thwart target (RRG 1.8 "Target" p. 42), so give it some.
+    const hero = patchInstance(base, scheme, { threat: 6 });
     const before = inst(hero, scheme).threat;
     const given = moveToHand(hero, P1, "04038");
     const [inconspicuous] = given.ids as [InstanceId];

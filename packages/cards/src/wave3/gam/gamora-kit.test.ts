@@ -108,7 +108,9 @@ describe("Gamora's identity (18001a/b)", () => {
   });
 
   it("Precision — Response: after you play a thwart event, deal 1 damage to an enemy (limit once per phase)", () => {
-    const hero = runWith(WAVE3_DEPS, gamoraVsRhino(2), toHero());
+    const base = runWith(WAVE3_DEPS, gamoraVsRhino(2), toHero());
+    // Set the Pace needs a scheme holding threat (RRG 1.8 "Target" p. 42, "Thwart" p. 44).
+    const hero = patchInstance(base, base.mainScheme.instanceId, { threat: 3 });
     const villain = activeVillain(hero).instanceId;
     const before = inst(hero, villain).damage;
     const { state } = playAndAccept(hero, "18005", 0, "18001a.precision");
