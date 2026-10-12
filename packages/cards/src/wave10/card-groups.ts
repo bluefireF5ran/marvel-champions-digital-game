@@ -6,6 +6,9 @@
  * Grouping: docs/phase7-wave10.md section 8.4 (encounter side: `cw/main-schemes`, `cw/leaders`, `cw/modular`) and
  * docs/phase7-wave10-box-heroes.md B8.4 (player side: `cw/tigra`, `cw/hulkling`, `cw/aspect-basic`). `cw/competitive`
  * holds the Standard PvP sets and the sixteen leader player cards (competitive mode, not shipped).
+ *
+ * The hero packs follow docs/phase7-wave10-hero-packs.md H8.4: `wonder_man/` (58001a to 58034) and `hercules/` (59001a to
+ * 59045), each reprint filed under its own aspect module.
  */
 export const CARD_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "cw/tigra/identity": ["56001a"],
@@ -83,4 +86,19 @@ export const CARD_GROUPS: Readonly<Record<string, readonly string[]>> = {
     "56213",
     "56214",
   ],
+  "wonder_man/wonder-man/identity": ["58001a", "58002"],
+  "wonder_man/wonder-man/events": ["58003", "58004", "58005", "58006"],
+  "wonder_man/wonder-man/support-upgrades-allies": ["58007", "58008", "58009", "58010", "58011"],
+  "wonder_man/wonder-man/obligation-nemesis": ["58025", "58026", "58027", "58028", "58029"],
+  "wonder_man/justice": ["58012", "58013", "58014", "58015", "58016", "58018", "58021"],
+  "wonder_man/other-aspects": ["58017", "58019", "58020", "58030", "58031", "58032", "58033"],
+  "wonder_man/basic": ["58022", "58023", "58024", "58034"],
+  "hercules/hercules/identity": ["59001a"],
+  "hercules/hercules/gift-labor": ["59002", "59003", "59004", "59005", "59006", "59007"],
+  "hercules/hercules/events": ["59009", "59010", "59011"],
+  "hercules/hercules/support-upgrades-allies": ["59008", "59012", "59013", "59014", "59015", "59016", "59017"],
+  "hercules/hercules/obligation-nemesis": ["59035", "59036", "59037", "59038", "59039", "59040"],
+  "hercules/leadership": ["59018", "59019", "59020", "59021", "59022", "59023", "59024"],
+  "hercules/basic": ["59025", "59026", "59027", "59028", "59029", "59030", "59031", "59032", "59033", "59034"],
+  "hercules/all-versus-all": ["59041", "59042", "59043", "59044", "59045"],
 };

@@ -1,5 +1,17 @@
-import { cardId } from "@mc/content";
-import { createGame, type EngineDeps, type GameSetupConfig, type GameState, type PlayerSetup } from "@mc/engine";
+import { CORE_CARDS, HERCULES_CARDS, cardId, type AnyCard, type CoreAspect, type HeroIdentityCard } from "@mc/content";
+import {
+  DECK_MIN_CARDS,
+  cardOfferedToDeck,
+  copiesUpToLimit,
+  createGame,
+  isPermanentCard,
+  requiredIdentitySet,
+  type EngineDeps,
+  type GameSetupConfig,
+  type GameState,
+  type PlayerSetup,
+  type SetupResult,
+} from "@mc/engine";
 import { coreScenario } from "../core/setup.js";
 import { firstLegal, settle, type Picker } from "../testing/harness.js";
 import { withForm } from "../testing/staging.js";
@@ -148,3 +160,150 @@ export const civilWarHeroGame = (
   opts: CivilWarGameOptions = {},
   pick: Picker = firstLegal,
 ): GameState => withForm(civilWarGame(scenarioId, opts, pick), { heroForm: 0 });
+
+/**
+ * Hero pack seats (docs/phase7-wave10-hero-packs.md H8.4): Wonder Man (`wonder_man`) and Hercules (`hercules`) have no
+ * starter deck (no source for the printed lists), so a test seats a deck built here from the pack's own cards.
+ *
+ * `heroPackSeat` is the deck builder: the identity's required set (`requiredIdentitySet`), then the pack's own cards of
+ * the chosen aspect and of the basic aspect (by id), then Core cards of those two aspects (by id), each taking as many
+ * copies as `copiesUpToLimit` allows (the rules' own limit: unique, deck limit, three per title), until the deck holds
+ * 40 cards. Cards the chosen aspects do not offer (`cardOfferedToDeck`) are never taken, and the identity's off-aspect
+ * deckbuilding rule is not used, so Wonder Man's off-aspect energy events (engine task HT12) are not relied on.
+ *
+ * - **Wonder Man** (`WONDER_MAN_DECK`): Justice. His set (58002 to 58011), then the pack's Justice cards 58012 to
+ *   58016, 58018 and 58021, its basic cards 58022 to 58024 and 58034, then Core Justice and basic fill. Grim Reaper's
+ *   set (58025 to 58029) is his obligation and nemesis, which setup deals in.
+ * - **Hercules** (`HERCULES_DECK`): Leadership. His set without the Gift and Labor cards (59008 to 59017), the pack's
+ *   Leadership cards 59018 to 59024, its basic cards 59025 to 59034, then Core Leadership and basic fill. The Gift and
+ *   Labor decks (`separateDecks`: 59002 to 59007) are built by setup, not here.
+ */
+export const WONDER_MAN_DECK = "wonder-man-justice";
+export const HERCULES_DECK = "hercules-leadership";
+
+/** Core, the Civil War box, Wonder Man and Hercules: the pool a Wonder Man or Hercules test game is created from. */
+export const HERO_PACK_CARDS: readonly AnyCard[] = [...WAVE10_CARDS, ...HERCULES_CARDS];
+
+const HERO_PACKS: Readonly<Record<string, { identityId: string; aspect: CoreAspect }>> = {
+  [WONDER_MAN_DECK]: { identityId: "58001a", aspect: "justice" },
+  [HERCULES_DECK]: { identityId: "59001a", aspect: "leadership" },
+};
+
+/** A 40-card hand-built deck for `WONDER_MAN_DECK` or `HERCULES_DECK`, as a seat (see the block above). */
+export function heroPackSeat(deckId: string): PlayerSetup {
+  const spec = HERO_PACKS[deckId];
+  if (!spec) throw new Error(`no hero pack deck ${deckId}`);
+  const identity = HERO_PACK_CARDS.find((c) => c.id === cardId(spec.identityId)) as HeroIdentityCard | undefined;
+  if (!identity) throw new Error(`no identity ${spec.identityId}`);
+  const entries = requiredIdentitySet(identity, HERO_PACK_CARDS).map((e) => ({ ...e }));
+  // The deck size counts neither the identity nor permanent cards (the legality message says so).
+  const counted = (id: unknown): boolean => !isPermanentCard(byCode.get(id as string)!);
+  const byCode = new Map(HERO_PACK_CARDS.map((c) => [c.id as string, c]));
+  let total = entries.reduce((n, e) => n + (counted(e.cardId) ? e.quantity : 0), 0);
+  const byId = (a: AnyCard, b: AnyCard): number => (a.id as string).localeCompare(b.id as string);
+  const offered = (card: AnyCard): boolean =>
+    card.type !== "hero_identity" &&
+    !("aspect" in card && String(card.aspect).startsWith("hero:")) &&
+    cardOfferedToDeck(card, identity, [spec.aspect]).offered;
+  const own = HERO_PACK_CARDS.filter((c) => c.setCode === identity.setCode && offered(c)).sort(byId);
+  const core = CORE_CARDS.filter(offered).sort(byId);
+  for (const card of [...own, ...core]) {
+    if (total >= DECK_MIN_CARDS) break;
+    const taken = copiesUpToLimit(entries, card.id as string, identity, HERO_PACK_CARDS);
+    const copies = counted(card.id) ? Math.min(taken, DECK_MIN_CARDS - total) : Math.min(taken, 1);
+    if (copies > 0) {
+      entries.push({ cardId: card.id, quantity: copies });
+      if (counted(card.id)) total += copies;
+    }
+  }
+  return {
+    identityCardId: identity.id,
+    aspects: [spec.aspect],
+    deck: entries.flatMap((e) => Array.from({ length: e.quantity }, () => e.cardId)),
+  };
+}
+
+export interface HeroPackGameOptions {
+  readonly seed?: number;
+  /** Extra dependencies (a module's own registry on top of the wave's), default `WAVE10_DEPS`. */
+  readonly deps?: EngineDeps;
+}
+
+/** The setup config of a hero pack deck against Core's Rhino, the way `cwGame` seats a Civil War precon. */
+export function heroPackConfig(deckId: string, opts: HeroPackGameOptions = {}): GameSetupConfig {
+  const base = coreScenario("rhino", {
+    players: [{ starterDeckId: CORE_SPIDER_MAN }],
+    seed: opts.seed ?? 1,
+    difficulty: "standard",
+    modularSetIds: [],
+    cardPool: HERO_PACK_CARDS,
+  } as never);
+  return { ...base, players: [heroPackSeat(deckId)] };
+}
+
+type HeroPackCivilWarOptions = Omit<CivilWarGameOptions, "swap" | "twoPlayers" | "starterDeckId">;
+
+/**
+ * The same deck in a Civil War scenario (`wave10Scenario`, so `civilWarGame`'s choices apply: difficulty, the modular
+ * sets, the main scheme stages). The scenario builder reads the playable pool, so the config's card pool is widened to
+ * include Hercules' cards.
+ */
+export function heroPackCivilWarConfig(
+  deckId: string,
+  scenarioId: string,
+  opts: HeroPackCivilWarOptions = {},
+): GameSetupConfig {
+  const { deps: _deps, seed, ...choices } = opts;
+  const config = wave10Scenario(scenarioId, { ...choices, seed: seed ?? 1, players: [heroPackSeat(deckId)] });
+  return { ...config, cards: HERO_PACK_CARDS };
+}
+
+function opened(created: SetupResult, deps: EngineDeps, pick: Picker = firstLegal): GameState {
+  if (!created.ok) throw new Error(`${created.error.code}: ${created.error.message}`);
+  return settle(created.state, pick, (s) => s.step.phase === "player", deps);
+}
+
+/** A Wonder Man game past setup (alter-ego form, full hand) against Core's Rhino. */
+export const wonderManGame = (opts: HeroPackGameOptions = {}): GameState => {
+  const deps = opts.deps ?? WAVE10_DEPS;
+  return opened(createGame(heroPackConfig(WONDER_MAN_DECK, opts), deps), deps);
+};
+
+/** The same game with the first seat in hero form. */
+export const wonderManHeroGame = (opts: HeroPackGameOptions = {}): GameState =>
+  withForm(wonderManGame(opts), { heroForm: 0 });
+
+/** A Wonder Man game past setup in a Civil War scenario (`IRON_MAN_SCENARIO`, ...), through `civilWarGame`'s choices. */
+export const wonderManCivilWarGame = (
+  scenarioId: string,
+  opts: HeroPackCivilWarOptions = {},
+  pick: Picker = firstLegal,
+): GameState => {
+  const deps = opts.deps ?? WAVE10_DEPS;
+  return opened(createGame(heroPackCivilWarConfig(WONDER_MAN_DECK, scenarioId, opts), deps), deps, pick);
+};
+
+/**
+ * A Hercules game past setup against Core's Rhino. It lacks his Gift and Labor decks until engine task HT1: setup
+ * refuses an identity whose `separateDecks` it cannot build (`unbuildableSeparateDeck`; the Labor deck is
+ * encounter-backed), so this throws that refusal today. `createGame(heroPackConfig(HERCULES_DECK), WAVE10_DEPS)`
+ * returns it as a value.
+ */
+export const herculesGame = (opts: HeroPackGameOptions = {}): GameState => {
+  const deps = opts.deps ?? WAVE10_DEPS;
+  return opened(createGame(heroPackConfig(HERCULES_DECK, opts), deps), deps);
+};
+
+/** The same game with the first seat in hero form (blocked on HT1 like `herculesGame`). */
+export const herculesHeroGame = (opts: HeroPackGameOptions = {}): GameState =>
+  withForm(herculesGame(opts), { heroForm: 0 });
+
+/** A Hercules game past setup in a Civil War scenario (blocked on HT1 like `herculesGame`). */
+export const herculesCivilWarGame = (
+  scenarioId: string,
+  opts: HeroPackCivilWarOptions = {},
+  pick: Picker = firstLegal,
+): GameState => {
+  const deps = opts.deps ?? WAVE10_DEPS;
+  return opened(createGame(heroPackCivilWarConfig(HERCULES_DECK, scenarioId, opts), deps), deps, pick);
+};

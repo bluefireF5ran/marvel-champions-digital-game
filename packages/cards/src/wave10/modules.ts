@@ -40,6 +40,33 @@ import { MODULAR_HELLS_KITCHEN, MODULAR_HELLS_KITCHEN_SKIPPED } from "./cw/modul
 import { MODULAR_CLOAK_AND_DAGGER, MODULAR_CLOAK_AND_DAGGER_SKIPPED } from "./cw/modular/cloak-and-dagger.js";
 import { COMPETITIVE_STANDARD_PVP, COMPETITIVE_STANDARD_PVP_SKIPPED } from "./cw/competitive/standard-pvp.js";
 import { COMPETITIVE_LEADER_CARDS, COMPETITIVE_LEADER_CARDS_SKIPPED } from "./cw/competitive/leader-cards.js";
+import { WONDER_MAN_IDENTITY, WONDER_MAN_IDENTITY_SKIPPED } from "./wonder_man/wonder-man/identity.js";
+import { WONDER_MAN_EVENTS, WONDER_MAN_EVENTS_SKIPPED } from "./wonder_man/wonder-man/events.js";
+import {
+  WONDER_MAN_SUPPORT_UPGRADES_ALLIES,
+  WONDER_MAN_SUPPORT_UPGRADES_ALLIES_SKIPPED,
+} from "./wonder_man/wonder-man/support-upgrades-allies.js";
+import {
+  WONDER_MAN_OBLIGATION_NEMESIS,
+  WONDER_MAN_OBLIGATION_NEMESIS_SKIPPED,
+} from "./wonder_man/wonder-man/obligation-nemesis.js";
+import { WONDER_MAN_JUSTICE, WONDER_MAN_JUSTICE_SKIPPED } from "./wonder_man/justice.js";
+import { WONDER_MAN_OTHER_ASPECTS, WONDER_MAN_OTHER_ASPECTS_SKIPPED } from "./wonder_man/other-aspects.js";
+import { WONDER_MAN_BASIC, WONDER_MAN_BASIC_SKIPPED } from "./wonder_man/basic.js";
+import { HERCULES_IDENTITY, HERCULES_IDENTITY_SKIPPED } from "./hercules/hercules/identity.js";
+import { HERCULES_GIFT_LABOR, HERCULES_GIFT_LABOR_SKIPPED } from "./hercules/hercules/gift-labor.js";
+import { HERCULES_EVENTS, HERCULES_EVENTS_SKIPPED } from "./hercules/hercules/events.js";
+import {
+  HERCULES_SUPPORT_UPGRADES_ALLIES,
+  HERCULES_SUPPORT_UPGRADES_ALLIES_SKIPPED,
+} from "./hercules/hercules/support-upgrades-allies.js";
+import {
+  HERCULES_OBLIGATION_NEMESIS,
+  HERCULES_OBLIGATION_NEMESIS_SKIPPED,
+} from "./hercules/hercules/obligation-nemesis.js";
+import { HERCULES_LEADERSHIP, HERCULES_LEADERSHIP_SKIPPED } from "./hercules/leadership.js";
+import { HERCULES_BASIC, HERCULES_BASIC_SKIPPED } from "./hercules/basic.js";
+import { HERCULES_ALL_VERSUS_ALL, HERCULES_ALL_VERSUS_ALL_SKIPPED } from "./hercules/all-versus-all.js";
 
 /** One wave 10 scripting module: its group key in `CARD_GROUPS`, its registry and its skipped refs with reasons. */
 export interface Wave10Module {
@@ -127,4 +154,35 @@ export const WAVE10_MODULES: readonly Wave10Module[] = [
     registry: COMPETITIVE_LEADER_CARDS,
     skipped: COMPETITIVE_LEADER_CARDS_SKIPPED,
   },
+  { group: "wonder_man/wonder-man/identity", registry: WONDER_MAN_IDENTITY, skipped: WONDER_MAN_IDENTITY_SKIPPED },
+  { group: "wonder_man/wonder-man/events", registry: WONDER_MAN_EVENTS, skipped: WONDER_MAN_EVENTS_SKIPPED },
+  {
+    group: "wonder_man/wonder-man/support-upgrades-allies",
+    registry: WONDER_MAN_SUPPORT_UPGRADES_ALLIES,
+    skipped: WONDER_MAN_SUPPORT_UPGRADES_ALLIES_SKIPPED,
+  },
+  {
+    group: "wonder_man/wonder-man/obligation-nemesis",
+    registry: WONDER_MAN_OBLIGATION_NEMESIS,
+    skipped: WONDER_MAN_OBLIGATION_NEMESIS_SKIPPED,
+  },
+  { group: "wonder_man/justice", registry: WONDER_MAN_JUSTICE, skipped: WONDER_MAN_JUSTICE_SKIPPED },
+  { group: "wonder_man/other-aspects", registry: WONDER_MAN_OTHER_ASPECTS, skipped: WONDER_MAN_OTHER_ASPECTS_SKIPPED },
+  { group: "wonder_man/basic", registry: WONDER_MAN_BASIC, skipped: WONDER_MAN_BASIC_SKIPPED },
+  { group: "hercules/hercules/identity", registry: HERCULES_IDENTITY, skipped: HERCULES_IDENTITY_SKIPPED },
+  { group: "hercules/hercules/gift-labor", registry: HERCULES_GIFT_LABOR, skipped: HERCULES_GIFT_LABOR_SKIPPED },
+  { group: "hercules/hercules/events", registry: HERCULES_EVENTS, skipped: HERCULES_EVENTS_SKIPPED },
+  {
+    group: "hercules/hercules/support-upgrades-allies",
+    registry: HERCULES_SUPPORT_UPGRADES_ALLIES,
+    skipped: HERCULES_SUPPORT_UPGRADES_ALLIES_SKIPPED,
+  },
+  {
+    group: "hercules/hercules/obligation-nemesis",
+    registry: HERCULES_OBLIGATION_NEMESIS,
+    skipped: HERCULES_OBLIGATION_NEMESIS_SKIPPED,
+  },
+  { group: "hercules/leadership", registry: HERCULES_LEADERSHIP, skipped: HERCULES_LEADERSHIP_SKIPPED },
+  { group: "hercules/basic", registry: HERCULES_BASIC, skipped: HERCULES_BASIC_SKIPPED },
+  { group: "hercules/all-versus-all", registry: HERCULES_ALL_VERSUS_ALL, skipped: HERCULES_ALL_VERSUS_ALL_SKIPPED },
 ];
