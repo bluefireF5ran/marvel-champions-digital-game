@@ -160,6 +160,9 @@ const drive = (s: GameState, plan?: Plan, ...commands: Command[]): GameState =>
   settle(runWith(DEPS, s, ...commands), planned(plan), undefined, DEPS);
 const villainPhase = (s: GameState, plan?: Plan): GameState =>
   s.players.reduce((state, p) => drive(state, plan, endTurn(p.playerId)), s);
+/** The villain phase with a picker of the test's own. */
+const s2 = (s: GameState, pick: Picker): GameState =>
+  s.players.reduce((state, p) => settle(runWith(DEPS, state, endTurn(p.playerId)), pick, undefined, DEPS), s);
 
 const inPlay = (s: GameState, code: string, counters: Readonly<Record<string, number>> = {}) =>
   stagedInPlay(s, code, { counters });
@@ -395,6 +398,44 @@ describe(`${REF[AIR_COVER]}: Response: after a minion enters play, exhaust and r
     const after = villainPhase(dealt(moved, SHOCKER), { take: [REF[AIR_COVER], c.fire] });
     expect(playerOf(after, P1).hand).toContain(c.fire);
     expect(playerOf(after, P1).discard).not.toContain(c.fire);
+  });
+
+  it("the search is compulsory (the text has no 'may'; RRG 'Search', p. 39): the pick must take one card, and with two Tactic upgrades to choose from the player chooses", () => {
+    const c = cover();
+    const second = convertDeckCard(c.state, SUPPRESSING, [c.support, c.fire]);
+    const mins: number[] = [];
+    const maxes: number[] = [];
+    const targets: string[][] = [];
+    const picker: Picker = (s) => {
+      const choice = s.pendingChoice!;
+      if (choice.prompt.kind === "chooseCards") {
+        mins.push(choice.minSelections);
+        maxes.push(choice.maxSelections);
+      }
+      return planned({ take: [REF[AIR_COVER], second.id], targets })(s);
+    };
+    const after = s2(dealt(second.state, SHOCKER), picker);
+    expect(mins).toEqual([1]);
+    expect(maxes).toEqual([1]);
+    expect(targets.flat()).toEqual(expect.arrayContaining([c.fire as string, second.id as string]));
+    expect(playerOf(after, P1).hand).toContain(second.id);
+    expect(playerOf(after, P1).hand).not.toContain(c.fire);
+    expect(playerOf(after, P1).deck).toContain(c.fire);
+  });
+
+  it("with no Tactic upgrade that fits, nothing is asked and nothing is added, but the cost is paid", () => {
+    const { state } = coreGame(AIR_COVER);
+    const support = inPlay(state, AIR_COVER, { fuel: 2 });
+    const mins: number[] = [];
+    const picker: Picker = (s) => {
+      if (s.pendingChoice!.prompt.kind === "chooseCards") mins.push(s.pendingChoice!.minSelections);
+      return planned({ take: [REF[AIR_COVER]] })(s);
+    };
+    const after = s2(dealt(support.state, SHOCKER), picker);
+    expect(inst(after, support.id).counters.fuel).toBe(1);
+    expect(inst(after, support.id).exhausted).toBe(true);
+    expect(playerOf(after, P1).hand.map((i) => codeOf(after, i))).not.toContain(SUPPRESSING);
+    expect(mins).toEqual([]);
   });
 
   it("is not offered when no minion enters play or with no fuel left", () => {

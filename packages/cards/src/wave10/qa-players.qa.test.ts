@@ -309,7 +309,7 @@ describe("56057 Fantastic Powers: when is the encounter deck shuffled? (RRG 'Sea
     expect(reveal("discard").shuffles).toBe(0);
   });
 
-  it.fails("Super Skrull removed from the game: the find has to look through every area, the encounter deck included, so the deck is shuffled (RRG 'Search' p. 39: any portion searched, shuffle the entire deck)", () => {
+  it("Super Skrull removed from the game: the find has to look through every area, the encounter deck included, so the deck is shuffled (RRG 'Search' p. 39: any portion searched, shuffle the entire deck)", () => {
     const r = reveal("removed");
     expect(inst(r.run.state, r.skrull).attachments).toHaveLength(0);
     expect(r.shuffles).toBe(1);
@@ -404,7 +404,7 @@ describe("56039 Impersonation and the form change it offers (RRG 'Form, Change F
 });
 
 describe("56012 Air Cover: 'search your deck and discard pile for a Tactic upgrade that can be attached to that minion and add it to your hand'", () => {
-  it.fails("a search that finds a card adds it (RRG 'Search' p. 39), as every other search in the box does (min 1): the card choice must not let the player take nothing while Suppressing Fire is there", () => {
+  it("a search that finds a card adds it (RRG 'Search' p. 39), as every other search in the box does (min 1): the card choice must not let the player take nothing while Suppressing Fire is there", () => {
     const covered = stagedInPlay(tigraHeroGame(), "56012", { counters: { fuel: 2 } });
     const mins: number[] = [];
     const run = drive(

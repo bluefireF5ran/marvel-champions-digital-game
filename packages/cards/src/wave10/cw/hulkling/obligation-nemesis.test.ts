@@ -589,7 +589,7 @@ describe("56057 Fantastic Powers: attached minion gets +3 hit points and gains r
     expect(inst(r.state, r.skrull).engagedWith).toBe(P1);
     expect(piles(r.state).deck).not.toContain(r.skrull);
     expect(damageFrom(r.events, r.skrull, identityOf(r.state))).toBe(2);
-    expect(shuffles(r.events).length).toBeGreaterThanOrEqual(1);
+    expect(shuffles(r.events)).toHaveLength(1);
   });
 
   it("Super Skrull in the encounter discard pile: found there, with the damage he had", () => {
@@ -598,6 +598,7 @@ describe("56057 Fantastic Powers: attached minion gets +3 hit points and gains r
     expect(piles(r.state).discard).not.toContain(r.skrull);
     expect(inst(r.state, r.skrull).engagedWith).toBe(P1);
     expect(damageFrom(r.events, r.skrull, identityOf(r.state))).toBe(2);
+    expect(shuffles(r.events)).toEqual([]);
   });
 
   it("Super Skrull already engaged with you: he stays, wears it and attacks you; nothing re-engages", () => {
@@ -637,6 +638,14 @@ describe("56057 Fantastic Powers: attached minion gets +3 hit points and gains r
     expect(piles(r.state).discard).toContain(r.powers);
     expect(damageFrom(r.events, r.skrull)).toBe(0);
     expect(r.state.removedFromGame).toContain(r.skrull);
+    // Not known to be anywhere else: the find looked through the encounter deck, which is shuffled (RRG "Search", p. 39).
+    expect(shuffles(r.events)).toHaveLength(1);
+  });
+
+  it('Super Skrull set aside, or in play: his place is known, so the encounter deck is not looked through or shuffled (RRG "Find", p. 19)', () => {
+    expect(shuffles(reveal({ where: "setAside" }).events)).toEqual([]);
+    expect(shuffles(reveal({ where: "engagedP1" }).events)).toEqual([]);
+    expect(shuffles(reveal({ where: "engagedP2" }).events)).toEqual([]);
   });
 });
 

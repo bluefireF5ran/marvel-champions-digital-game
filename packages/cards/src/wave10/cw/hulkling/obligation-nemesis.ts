@@ -12,12 +12,11 @@ import {
   discard,
   discardFromHand,
   each,
-  encounterCards,
   enemyAttack,
   engage,
   eventTargetsTogether,
   exists,
-  find,
+  findCard,
   forcedInterrupt,
   forcedResponse,
   gainsKeywordX,
@@ -31,20 +30,15 @@ import {
   named,
   on,
   placeThreat,
-  putIntoPlay,
   query,
   resourceTypesOf,
-  selectCards,
   self,
-  shuffleEncounterDeck,
   stillCountedByDiscarder,
   takeDamage,
   theMainScheme,
   topOfDeck,
   tuckCards,
-  valueAtLeast,
   varAtLeast,
-  varOf,
   whenRevealed,
   whenRevealedAlterEgo,
   whenRevealedHero,
@@ -91,6 +85,11 @@ const milled = (type: "energy" | "mental" | "physical" | "wild") => varAtLeast(`
  * already in play that is found and revealed is engaged by that player; "Engage", p. 18). Otherwise he enters play
  * engaged with the player, and the encounter deck is shuffled when he came out of it (RRG "Search", p. 39). With
  * Super Skrull nowhere to be found nothing is attached, and the attachment is discarded (RRG "Attach To", p. 8).
+ * Which decks are looked through is the engine's `findCard` (RRG "Find", p. 19: "should not unnecessarily search game
+ * areas if they know where the card ... can be found"): in play, set aside or in the discard pile he is known to be
+ * there and no deck is searched or shuffled; otherwise the encounter deck is looked through and shuffled (RRG "Search",
+ * p. 39: "if any portion of a deck is searched ... shuffle that entire deck"), whether or not he was in it, e.g. when he
+ * has been removed from the game. That is the RRG's "Search" rule applied to "Find", not a ruling on this card.
  *
  * **56058**: "Discard the top 3 cards of your deck", then 1 threat on the main scheme (alter ego) or 1 damage (hero) for
  * each different resource icon on the discarded cards. Wild counts as its own icon. With Skrull Business in play the
@@ -123,9 +122,7 @@ export const HULKLING_OBLIGATION_NEMESIS: AbilityRegistry = defineAbilities({
     gainsKeywordX("retaliate", 1, { hostOfSelf: true }),
   ),
   "56057.when-revealed": whenRevealed(
-    selectCards("fromDeck", encounterCards(["deck"], SUPER_SKRULL_CARD)),
-    ifThen(inPlay(SUPER_SKRULL), engage(named(SUPER_SKRULL), you), putIntoPlay(find(SUPER_SKRULL_CARD), you)),
-    ifThen(valueAtLeast(varOf("fromDeck.count"), 1), shuffleEncounterDeck()),
+    ifThen(inPlay(SUPER_SKRULL), engage(named(SUPER_SKRULL), you), findCard(SUPER_SKRULL_CARD, "play")),
     attachCard(self, named(SUPER_SKRULL)),
     ifThen(isHero(), enemyAttack(named(SUPER_SKRULL), { against: you })),
   ),

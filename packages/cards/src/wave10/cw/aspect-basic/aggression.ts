@@ -63,7 +63,7 @@ const ELITE = trait("Elite");
  * enemy's retaliate answers, and the consequential damage is taken once, for the one attack.
  *
  * **56012.air-cover-response**: after any minion enters play; the search takes the upgrade's own "attach to" text and
- * "Max 1 per minion" against that minion (`canAttachTo(eventTarget)`), and finding nothing is allowed (a search).
+ * "Max 1 per minion" against that minion (`canAttachTo(eventTarget)`), and the card is not optional: the text has no "may", so a search that finds a matching card adds one of them (RRG "Search", p. 39; with several the player chooses, with none nothing is added), and the deck is shuffled either way.
  *
  * **56013.aggressive-conditioning-constant**: "You get +3 hit points" (the identity) and "your hero gets +1 ATK", for
  * whichever player controls it (data: play under any player's control, max 1 per player).
@@ -95,7 +95,7 @@ export const ASPECT_BASIC_AGGRESSION: AbilityRegistry = defineAbilities({
       zone(["deck", "discard"], you, {
         filter: query("upgrade", { trait: trait("TACTIC"), ...canAttachTo(eventTarget) }),
       }),
-      { min: 0, max: 1 },
+      { min: 1, max: 1 },
     ),
     moveCards(cards(chosen("found")), "hand"),
     shuffleDeck(),
