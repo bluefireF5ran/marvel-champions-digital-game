@@ -72,10 +72,15 @@ encounter set and four basic player cards per leader, both used only in competit
 standard set, and one stage 1 and one stage 2 main scheme of that side; p. 5 gives a random method. This is new for the
 game: every scenario so far is a fixed record with swappable modular sets.
 
-**Competitive mode (MC56 pp. 14–17):** two teams, each playing against the other's leader. Planned default, pending the
-owner (PR question 1): not shipped in this wave; a written plan for the multiplayer phase plus the engine groundwork
-that is cheap now, as wave 9 did for Epic Multiplayer (`docs/epic-multiplayer-plan.md`). Every "In competitive mode"
-clause still has to read correctly in cooperative play.
+**Competitive mode (MC56 pp. 14–17):** two teams, each playing against the other's leader. **Owner, 2026-10-11
+(question 1, answer A, with an addition):** not shipped in this wave, but the game must say "Competitive mode coming
+soon" where a player would look for it (the Civil War scenario builder and the box's "New in this box" page), and the
+scaffolding is built now so the mode is easy to drop in later: a written plan for the multiplayer phase
+(`docs/competitive-mode-plan.md`, as `docs/epic-multiplayer-plan.md` was for Epic Multiplayer), the Standard PvP set
+and the sixteen leader player cards emitted and scripted where the engine can already run them, a game-mode field on
+the scenario setup that the builder passes (`cooperative` today, `competitive` refused with a clear message), team
+and "enemy team" / "your leader" resolution written against a team count rather than hard-wired to one team, and
+tests for each piece. Every "In competitive mode" clause still has to read correctly in cooperative play.
 
 **Hero packs:** Wonder Man and Hercules, each one hero with a nemesis set and a modular set (the data survey lists them).
 
