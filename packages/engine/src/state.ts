@@ -11,6 +11,7 @@ import type { EffectSpec, StatusName } from "./spec.js";
 import type { EncounterDealSource, LeaveCauseSide, TriggerEvent } from "./trigger-events.js";
 import type { PodState } from "./pod.js";
 import type { GameMode } from "./game-mode.js";
+import type { TeamState } from "./team.js";
 
 export type Form = "hero" | "alterEgo";
 
@@ -1260,6 +1261,12 @@ export interface GameState {
    * as before; setup refuses `"competitive"`, so today it is absent in every game setup makes.
    */
   readonly gameMode?: GameMode;
+  /**
+   * The teams of a game with two of them (docs/competitive-mode-plan.md §3.3; MC56 p. 14), in team order. Read through
+   * `team.ts` alone (`teamsOf`, `teamOf`, `playersOnTeam`, `teamSize`), which gives the one team of every seat when it
+   * is absent. **Absent** in every game setup makes, so every game before the field serializes as before.
+   */
+  readonly teams?: readonly TeamState[];
   /**
    * The campaign this game is a scenario of, exactly as the runner composed it (design §7.1) — **frozen**: nothing
    * in a game ever writes here. Because it lands in the replay baseline, a saved campaign game replays without

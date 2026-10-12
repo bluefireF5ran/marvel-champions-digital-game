@@ -29,6 +29,13 @@ export type GameAreaId = Brand<string, "GameAreaId">;
  */
 export type GroupId = Brand<string, "GroupId">;
 
+/**
+ * Identifies one team of players (MC56 pp. 6, 14): "t1", "t2". A cooperative game is one team, "t1"
+ * (docs/competitive-mode-plan.md §3.3).
+ */
+export type TeamId = Brand<string, "TeamId">;
+
+export const teamId = (value: string): TeamId => value as TeamId;
 export const groupId = (value: string): GroupId => value as GroupId;
 export const playerId = (value: string): PlayerId => value as PlayerId;
 export const gameAreaId = (value: string): GameAreaId => value as GameAreaId;

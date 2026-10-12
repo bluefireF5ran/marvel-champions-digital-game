@@ -1,7 +1,7 @@
 export const ENGINE_VERSION = "0.19.0";
 
-export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId } from "./ids.js";
-export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId } from "./ids.js";
+export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId, TeamId } from "./ids.js";
+export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId, teamId } from "./ids.js";
 
 export type {
   GroupRef,
@@ -29,6 +29,9 @@ export {
 
 export type { GameMode } from "./game-mode.js";
 export { COMPETITIVE_MODE_UNAVAILABLE_MESSAGE, gameModeOf } from "./game-mode.js";
+
+export type { TeamSide, TeamState } from "./team.js";
+export { playersOnTeam, SINGLE_TEAM, teamOf, teamSize, teamsOf } from "./team.js";
 
 export type { RngState } from "./rng.js";
 export { createRng, nextInt, nextUint32, shuffle } from "./rng.js";
