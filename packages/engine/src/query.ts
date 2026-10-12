@@ -480,6 +480,33 @@ export function cardBackOf(card: AnyCard): "encounter" | "player" {
 /** A player card type (RRG 1.8 "Player Card", p. 33), whatever its back or owner. */
 export const isPlayerCardType = (card: AnyCard): boolean => PLAYER_CARD_TYPES.has(card.type);
 
+/**
+ * An encounter card a player owns: a card of an identity's separate deck of encounter cards (Hercules's Labor deck,
+ * `IdentitySeparateDeck.cardFamily: "encounter"`; docs/phase7-wave10-hero-packs.md H3.1). RRG 1.8 "Ownership and
+ * Control" (p. 31): "A card's owner is the player whose deck contained the card at the start of setup", so the
+ * Hercules player owns it; it is an encounter card all the same (an attachment or an obligation, with an encounter
+ * back), so no player controls it and every rule about "an encounter card" reads it as one. Read from the card's type
+ * and its home, never from a card's name.
+ *
+ * Everywhere else in the engine "has an owner" and "is a player's card" are the same fact. A reader that means the
+ * second asks `playerCardOwnerOf`.
+ */
+export function isOwnedEncounterCard(state: GameState, id: InstanceId): boolean {
+  const instance = getInstance(state, id);
+  if (!instance || instance.ownerId === null || instance.home.kind !== "separateDeck") return false;
+  const card = state.cardPool[instance.cardId];
+  return card !== undefined && !PLAYER_CARD_TYPES.has(card.type);
+}
+
+/**
+ * The player whose card this is, as a player's card: its owner, or null for every encounter card, one a player owns
+ * included (`isOwnedEncounterCard`). `CardInstance.ownerId` stays the answer to "whose deck does it go back to".
+ */
+export function playerCardOwnerOf(state: GameState, id: InstanceId): PlayerId | null {
+  const owner = getInstance(state, id)?.ownerId ?? null;
+  return owner !== null && isOwnedEncounterCard(state, id) ? null : owner;
+}
+
 export function homeEncounterDeckId(state: GameState, id: InstanceId): EncounterDeckId {
   const home = getInstance(state, id)?.home;
   if (home?.kind === "encounterDeck" && state.encounterDecks[home.deckId]) return home.deckId;

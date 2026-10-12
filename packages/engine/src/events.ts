@@ -1338,9 +1338,26 @@ export type GameEvent =
   /** An empty separate deck took its discard pile back and was shuffled, with no penalty (`resetSeparateDeckIfEmpty`). */
   | { readonly type: "separateDeckReset"; readonly playerId: PlayerId; readonly name: string }
   /**
+   * A revealed attachment with no "attach to" text that its own When Revealed did not attach is discarded: it never
+   * entered play (RRG 1.8 "Attach To", p. 8: "If such a card cannot remain in its prior state or game area, discard
+   * it"). For a Labor card, RRG 1.8 FAQ "Hercules Hero Pack – Labor Cards" (p. 65): "Q: What happens if a labor card
+   * fails to find a target when it is revealed? A: That Labor card is discarded." Logged before the move, which for a
+   * Labor card ends on the bottom of the Labor deck (`returnedToSeparateDeck` follows; same FAQ, and ruling March 6,
+   * 2026 – Ruling 3 (2)); `playerId` is the player who revealed it. The discard is this log entry: no ability
+   * trigger answers the discard of a revealed card that is not in play (a treachery's included).
+   */
+  | {
+      readonly type: "revealedCardDiscarded";
+      readonly instanceId: InstanceId;
+      readonly cardId: CardId;
+      readonly playerId: PlayerId;
+      readonly reason: "notAttached";
+    }
+  /**
    * A card of a separate deck with no discard pile (Storm's Weather deck) would have gone to `instead` (a discard pile,
    * a hand or another deck) and went back into its own deck, facedown (`noDiscardPileDeckFor`, docs/phase7-wave6.md
-   * §3.46, §4.1 Q26). Logged before the move.
+   * §3.46, §4.1 Q26). Logged before the move. A deck's returned card goes to its bottom, so a Labor card that leaves
+   * play other than to the victory display is placed "on the bottom of the Labor deck" (RRG 1.8 FAQ, p. 65).
    */
   | {
       readonly type: "returnedToSeparateDeck";

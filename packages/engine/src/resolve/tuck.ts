@@ -15,7 +15,7 @@ import {
   tuckHostPlayer,
 } from "../effects.js";
 import type { FrameId, InstanceId } from "../ids.js";
-import { getInstance, mustInstance } from "../query.js";
+import { getInstance, mustInstance, playerCardOwnerOf } from "../query.js";
 import { hasKeyword } from "../keywords.js";
 import { cardsInPlay } from "../select.js";
 import type { GameState } from "../state.js";
@@ -50,7 +50,7 @@ export function tuckCardUnder(
   if (!getInstance(ctx.state, hostId) || !getInstance(ctx.state, id)) return;
   const patch = {
     faceup: !facedown,
-    controllerId: getInstance(ctx.state, id)?.ownerId ?? null,
+    controllerId: playerCardOwnerOf(ctx.state, id),
     attachedTo: null,
   };
   if (cardsInPlay(ctx.state).includes(id)) {

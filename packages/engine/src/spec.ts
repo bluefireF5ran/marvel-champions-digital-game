@@ -1152,8 +1152,12 @@ export type ValueSpec =
    * `scaled.divide.round` stays required here as everywhere: RRG 1.8 "Modifiers" (p. 29), "Fractional values are
    * rounded up after all modifiers have been applied", so a text that prints no rounding halves *up*, and one that
    * prints "rounded down" says `round: "down"`. This value itself never rounds — it is a plain count.
+   *
+   * `separateDeck`: the cards in that player's separate deck of that name instead (`PlayerState.separateDecks`; the
+   * deck only, never its discard pile), as `shuffleDeck.separateDeck` names one. 0 for a deck the player does not
+   * have. "Reveal the top card of the labor deck" has nothing to reveal at 0 (docs/phase7-wave10-hero-packs.md H3.2).
    */
-  | { readonly kind: "deckCount"; readonly player: PlayerRef }
+  | { readonly kind: "deckCount"; readonly player: PlayerRef; readonly separateDeck?: string }
   /** Distinct printed resource types among cards ("for each different resource type discarded this way"). Wild counts as its own type. */
   | { readonly kind: "resourceTypes"; readonly cards: TargetRef }
   /**

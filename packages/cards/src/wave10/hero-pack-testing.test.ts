@@ -8,7 +8,9 @@ import {
   WONDER_MAN_DECK,
   heroPackConfig,
   heroPackSeat,
+  herculesCivilWarGame,
   herculesGame,
+  herculesHeroGame,
   wonderManCivilWarGame,
   wonderManGame,
   wonderManHeroGame,
@@ -37,11 +39,9 @@ describe("heroPackSeat", () => {
       },
       HERO_PACK_CARDS,
     );
-    // Hercules' only problems are his Labor deck, which the engine cannot build yet (HT1) and whose cards the data
-    // does not mark as a player deck's; nothing is wrong with the 40 cards themselves.
-    const problems = verdict.ok ? [] : verdict.problems.map((p) => p.message).filter((m) => !/Labor/.test(m));
-    expect(problems).toEqual([]);
-    if (deckId === WONDER_MAN_DECK) expect(verdict).toEqual({ ok: true });
+    // Hercules' Labor deck (encounter cards marked `separateDeck: "Labor"`) is one the engine builds since HT1.
+    expect(verdict.ok ? [] : verdict.problems.map((p) => p.message)).toEqual([]);
+    expect(verdict).toEqual({ ok: true });
     // The pack's own cards come first: the deck holds the pack's set and aspect cards.
     const own = seat.deck.filter((id) => packIds.includes(id as string));
     expect(own.length).toBeGreaterThan(15);
@@ -64,10 +64,26 @@ describe("Wonder Man games", () => {
   });
 });
 
-describe("Hercules game", () => {
-  it("is blocked on engine task HT1 (the Labor deck is encounter-backed), or opens once HT1 lands", () => {
+describe("Hercules games", () => {
+  it("opens against Core's Rhino with a full alter-ego hand and his Labor and Gift decks of 3, and in hero form", () => {
     const created = createGame(heroPackConfig(HERCULES_DECK), WAVE10_DEPS);
-    if (created.ok) expect(herculesGame().step.phase).toBe("player");
-    else expect(created.error.message).toMatch(/separate|Labor|deck/i);
+    expect(created.ok ? null : created.error.message).toBeNull();
+    const state = herculesGame();
+    expect(state.step.phase).toBe("player");
+    const player = playerOf(state, P1);
+    expect(player.identity.form).toBe("alterEgo");
+    expect(player.hand).toHaveLength(6);
+    expect(player.separateDecks.Labor).toMatchObject({ discard: [] });
+    expect(player.separateDecks.Labor?.deck).toHaveLength(3);
+    expect(player.separateDecks.Gift?.deck).toHaveLength(3);
+    expect(playerOf(herculesHeroGame(), P1).identity.form).toBe("hero");
+  });
+
+  it("opens in a Civil War scenario", () => {
+    for (const scenarioId of [IRON_MAN_SCENARIO, CAPTAIN_AMERICA_SCENARIO]) {
+      const state = herculesCivilWarGame(scenarioId);
+      expect(state.step.phase).toBe("player");
+      expect(playerOf(state, P1).separateDecks.Labor?.deck).toHaveLength(3);
+    }
   });
 });

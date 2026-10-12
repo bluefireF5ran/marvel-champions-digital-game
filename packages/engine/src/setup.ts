@@ -13,7 +13,13 @@ import type {
 } from "@mc/content";
 import { DEFAULT_DEPS, type EngineDeps, type RuleSpec } from "./abilities.js";
 import { NO_CAMPAIGN_WRITES, type CampaignGameInput } from "./campaign.js";
-import { isPermanentCard, unbuildableSeparateDeck, validateDeck, type DeckContext } from "./deck.js";
+import {
+  isPermanentCard,
+  isSeparateDeckCard,
+  unbuildableSeparateDeck,
+  validateDeck,
+  type DeckContext,
+} from "./deck.js";
 import { createCtx, emit, setStep, type Ctx } from "./ctx.js";
 import { engineError, type EngineError, type IllegalDeck } from "./errors.js";
 import { runFlow } from "./flow.js";
@@ -854,8 +860,9 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     const missingVersion = laterVersions.find((version) => pool[version]?.type !== "hero_identity");
     if (missingVersion) return invalid(`progressing identity version ${missingVersion} is not in the card pool`);
     // Only the separate decks `unbuildableSeparateDeck` knows are built: player cards with their own discard pile
-    // (Invocation) or with none, never refilled (Weather, docs/phase7-wave6.md §3.46). Hercules's Labor deck (encounter
-    // cards) is data only (docs/phase7-wave2.md §15); building it as one of those would silently play a different game.
+    // (Invocation) or with none, never refilled (Weather, docs/phase7-wave6.md §3.46), and encounter cards with none,
+    // never refilled (Labor, docs/phase7-wave10-hero-packs.md H3.1). Building any other kind as one of those would
+    // silently play a different game.
     const unbuilt = unbuildableSeparateDeck(identityCard);
     if (unbuilt) {
       return invalid(
@@ -910,18 +917,30 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     if (permanent.length > 0) permanentSetAside.push({ playerId: id, instanceIds: permanent });
     // Decks the identity brings besides its player deck (docs/phase7-wave1.md §3.5; RRG 1.8 "Deck", p. 15: "Certain
     // identities or scenarios may add other decks to the game"). Owned by this player; shuffled with the player deck.
+    //
+    // A deck of encounter cards (Hercules's Labor deck; the Hercules insert, "The Gift and Labor Decks": "place both of
+    // these decks facedown in your play area") is this player's too: RRG 1.8 "Ownership and Control" (p. 31), "A
+    // card's owner is the player whose deck contained the card at the start of setup." Its cards are encounter cards
+    // all the same, so no player controls one, in the deck or in play (`isOwnedEncounterCard`;
+    // docs/phase7-wave10-hero-packs.md H3.1).
     const separateDecks: Record<string, SeparateDeckState> = {};
     for (const definition of identityCard.separateDecks ?? []) {
       const ids: InstanceId[] = [];
+      const encounterFamily = (definition.cardFamily ?? "player") === "encounter";
       for (const entry of definition.cards) {
         const card = pool[entry.cardId];
         if (!card) return invalid(`unknown card ${entry.cardId} in ${identityCard.id}'s ${definition.name} deck`);
+        if (!isSeparateDeckCard(card, definition)) {
+          return invalid(
+            `${entry.cardId} is not ${encounterFamily ? "an encounter" : "a player"} card marked for ${identityCard.id}'s ${definition.name} deck`,
+          );
+        }
         for (let copy = 0; copy < entry.quantity; copy++) {
           const separateInstanceId = nextId();
-          instances[separateInstanceId] = blankInstance(separateInstanceId, card.id, id, {
-            kind: "separateDeck",
-            name: definition.name,
-          });
+          instances[separateInstanceId] = {
+            ...blankInstance(separateInstanceId, card.id, id, { kind: "separateDeck", name: definition.name }),
+            ...(encounterFamily ? { controllerId: null } : {}),
+          };
           ids.push(separateInstanceId);
         }
       }

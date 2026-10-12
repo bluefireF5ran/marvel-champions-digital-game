@@ -209,7 +209,11 @@ export interface Accusation {
 export interface CardInstance {
   readonly instanceId: InstanceId;
   readonly cardId: CardId;
-  /** Player whose deck it came from; null for encounter/scenario cards. */
+  /**
+   * Player whose deck it came from; null for encounter/scenario cards, except a card of an identity's separate deck of
+   * encounter cards (a Labor card), which its player owns and no player controls (`isOwnedEncounterCard`,
+   * `playerCardOwnerOf`; docs/phase7-wave10-hero-packs.md H3.1).
+   */
   readonly ownerId: PlayerId | null;
   readonly controllerId: PlayerId | null;
   /** Where "discard" sends this card (see `CardHome`). */

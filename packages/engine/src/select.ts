@@ -80,6 +80,8 @@ import {
   villainStageOf,
   isPlayerCardType,
   scenarioPlayAreaOf,
+  isOwnedEncounterCard,
+  playerCardOwnerOf,
 } from "./query.js";
 import type { LogValue } from "./campaign.js";
 import {
@@ -910,7 +912,8 @@ export function isPlayerCard(state: GameState, id: InstanceId | null): boolean {
   if (id === null) return false;
   const instance = getInstance(state, id);
   if (!instance) return false;
-  if (instance.ownerId !== null) return true;
+  // An encounter card a player owns (a Labor card, `isOwnedEncounterCard`) is not a player's card.
+  if (instance.ownerId !== null) return !isOwnedEncounterCard(state, id);
   const card = cardOf(state, id);
   return instance.controllerId !== null && card !== undefined && isPlayerCardType(card);
 }
@@ -2846,7 +2849,9 @@ export function resolveValue(
     case "deckCount": {
       // The player deck only: a separate deck (`PlayerState.separateDecks`) is its own deck, not part of this one.
       const [playerId] = resolvePlayers(state, value.player, context);
-      return playerId ? (getPlayer(state, playerId)?.deck.length ?? 0) : 0;
+      const player = playerId ? getPlayer(state, playerId) : undefined;
+      if (value.separateDeck !== undefined) return player?.separateDecks[value.separateDeck]?.deck.length ?? 0;
+      return player?.deck.length ?? 0;
     }
     case "distinctCardTypes": {
       const types = new Set<string>();
@@ -3918,7 +3923,7 @@ function victoryDisplayAbilityIds(deps: EngineDeps): ReadonlySet<string> {
  */
 export function constantControllerOf(state: GameState, sourceId: InstanceId): PlayerId | null {
   if (!state.victoryDisplay.includes(sourceId)) return controllerOf(state, sourceId);
-  return getInstance(state, sourceId)?.ownerId ?? null;
+  return playerCardOwnerOf(state, sourceId);
 }
 
 /**

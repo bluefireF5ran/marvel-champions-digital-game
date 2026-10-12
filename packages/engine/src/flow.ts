@@ -31,11 +31,11 @@ import type { InstanceId, PlayerId } from "./ids.js";
 import {
   getPlayer,
   handSize,
-  mustInstance,
   mustPlayer,
   playerOrder,
   scenarioPlayAreaOf,
   undefeatedVillains,
+  playerCardOwnerOf,
 } from "./query.js";
 import {
   announce,
@@ -626,7 +626,8 @@ function readyEveryCard(ctx: Ctx): boolean {
   // attached to a card in the villain area. Last, so every card the lists name readies in the order it always has.
   // An encounter card is a card no player owns: a player's card that nobody controls (a captive ally,
   // docs/phase7-wave8.md §3.19) is neither "their card" nor an encounter card, and stays as it is.
-  for (const id of cardsInPlay(ctx.state)) if (mustInstance(ctx.state, id).ownerId === null) ready(id);
+  // An encounter card a player owns (a Labor card) is an encounter card too (`playerCardOwnerOf`).
+  for (const id of cardsInPlay(ctx.state)) if (playerCardOwnerOf(ctx.state, id) === null) ready(id);
   const pushed = ctx.state.stack.length - depth;
   if (pushed === 0) return false;
   // Each push went on top of the last, so the last card readied would be asked first; put them back in ready order

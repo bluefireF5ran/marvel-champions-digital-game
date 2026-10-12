@@ -436,6 +436,18 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
         (card.type === "attachment" && card.attachesTo === undefined);
       // A new face revealed in play stays in play (`newFace`), and so does a card found in play (`foundInPlay`).
       if (discards && unmoved && !frame.newFace && !frame.foundInPlay && getInstance(ctx.state, frame.instanceId)) {
+        // An attachment that found no host is discarded, and said to be: for a Labor card that is the answer of RRG 1.8
+        // FAQ "Labor Cards" (p. 65), "That Labor card is discarded", and the move below then ends on the bottom of the
+        // Labor deck (`noDiscardPileDeckFor`; docs/phase7-wave10-hero-packs.md H3.3, owner's question 3 = B).
+        if (card.type === "attachment") {
+          emit(ctx, {
+            type: "revealedCardDiscarded",
+            instanceId: frame.instanceId,
+            cardId: card.id,
+            playerId: frame.playerId,
+            reason: "notAttached",
+          });
+        }
         // Its home deck's discard (docs/phase7-wave1.md §4.3, proposed; see `discardZoneFor`).
         moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
       }

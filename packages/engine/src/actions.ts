@@ -180,6 +180,7 @@ import {
   villainOf,
   inClosedScenarioPlayArea,
   scenarioPlayAreaOf,
+  playerCardOwnerOf,
 } from "./query.js";
 import {
   announceStatusDiscarded,
@@ -1164,7 +1165,7 @@ function spentFromHandOf(
  */
 function spendTuckedCard(ctx: Ctx, playerId: PlayerId, id: InstanceId, hostInstanceId: InstanceId): void {
   const recorded = tuckedHostToRecord(ctx, id);
-  const ownerId = getInstance(ctx.state, id)?.ownerId ?? null;
+  const ownerId = playerCardOwnerOf(ctx.state, id);
   moveCard(ctx, id, discardZoneFor(ctx.state, id), "top");
   updateInstance(ctx, id, (i) => ({ ...i, faceup: true, controllerId: ownerId }));
   emit(ctx, { type: "tuckedCardSpent", playerId, instanceId: id, hostInstanceId });

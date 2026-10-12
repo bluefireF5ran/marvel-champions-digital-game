@@ -504,7 +504,11 @@ const SPDR: HeroIdentityCard = {
     },
   },
 };
-/** Hercules (59001): a Labor deck of encounter-backed cards and a Gift deck with no discard pile (§15). */
+/**
+ * A deck of encounter cards with a discard pile of its own that refills: no printed deck is of this kind, so no rule
+ * says how it plays (§15). Hercules's Labor deck (no discard pile, never refilled) is built since
+ * docs/phase7-wave10-hero-packs.md H3.1 (`separate-deck-encounter.test.ts`).
+ */
 const HERC: HeroIdentityCard = {
   ...stubIdentity({ id: "herc", hp: 14, atk: 3, thw: 1, def: 2, rec: 4, heroHandSize: 5, alterEgoHandSize: 6 }),
   separateDecks: [
@@ -513,8 +517,8 @@ const HERC: HeroIdentityCard = {
       cardFamily: "encounter",
       cards: [{ cardId: cardId("labor"), quantity: 1 }],
       topCardFaceup: false,
-      discardPile: "none",
-      whenEmpty: "stayEmpty",
+      discardPile: "own",
+      whenEmpty: "reshuffleDiscardWithoutPenalty",
     },
   ],
 };
@@ -550,7 +554,7 @@ describe("cards that cannot be used in a standard game are refused (docs/phase7-
     expect(verdict.ok ? [] : verdict.problems.map((p) => p.code)).not.toContain("unsupported_identity");
   });
 
-  it("an identity whose separate deck the engine cannot build (Hercules's Labor deck) is refused, not built as an Invocation deck (§15)", () => {
+  it("an identity whose separate deck the engine cannot build (encounter cards with their own discard pile) is refused, not built as an Invocation deck (§15)", () => {
     const result = createGame({ ...base, players: [{ identityCardId: HERC.id, deck: DEFAULT_DECK }] });
     expect(result.ok ? null : result.error.message).toMatch(
       /Labor deck is a kind of separate deck this engine cannot build/,

@@ -20,7 +20,7 @@
 import { type Ctx, emit, moveCard, updateInstance } from "../ctx.js";
 import type { EngineDeps } from "../abilities.js";
 import type { InstanceId, PlayerId } from "../ids.js";
-import { cardOf, getInstance, mustInstance } from "../query.js";
+import { cardOf, getInstance, mustInstance, isOwnedEncounterCard } from "../query.js";
 import { canHaveAttached, cannotBeUnattached } from "../rules.js";
 import { cardsInPlay, controllerOf, isFacedownAttachment } from "../select.js";
 import { attachmentHostCandidates } from "../attachment-hosts.js";
@@ -82,8 +82,9 @@ export function attachCard(ctx: Ctx, id: InstanceId, host: InstanceId, facedown 
   if (before.engagedWith !== null) updateInstance(ctx, id, (i) => ({ ...i, engagedWith: null }));
   // A player card entering play from out of play enters under its owner's control (RRG 1.8 p. 31); one moving between
   // hosts keeps its controller. A no-op for every card whose controller is already its owner.
+  // An encounter card a player owns (a Labor card) enters play under no player's control, as every encounter card does.
   const { ownerId, controllerId } = mustInstance(ctx.state, id);
-  if (!wasInPlay && ownerId !== null && controllerId !== ownerId)
+  if (!wasInPlay && ownerId !== null && controllerId !== ownerId && !isOwnedEncounterCard(ctx.state, id))
     updateInstance(ctx, id, (i) => ({ ...i, controllerId: ownerId }));
   if (facedown) updateInstance(ctx, id, (i) => ({ ...i, faceup: false, facedownAs: { kind: "blank", traits: [] } }));
   else if (isFacedownAttachment(ctx.state, id))

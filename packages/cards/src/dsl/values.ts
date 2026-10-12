@@ -818,6 +818,16 @@ export const mostCommonHandTypeCount = (player: PlayerRef = you): ValueSpec => (
  */
 export const deckCountOf = (player: PlayerRef = you): ValueSpec => ({ kind: "deckCount", player });
 /**
+ * The cards in `player`'s separate deck `name` (the deck only, never its discard pile): 0 for a deck the player does
+ * not have. `valueAtLeast(separateDeckCountOf("Labor"), 1)` is "the labor deck has a card to reveal"
+ * (docs/phase7-wave10-hero-packs.md H3.2).
+ */
+export const separateDeckCountOf = (name: string, player: PlayerRef = you): ValueSpec => ({
+  kind: "deckCount",
+  player,
+  separateDeck: name,
+});
+/**
  * "For each facedown encounter card in front of you" (Star-Lord's own kit, `stld`: Gutsy Move, Sliding Shot, Jet
  * Boots, Star-Lord's Helmet; docs/phase7-wave3.md §3.10): the count of encounter cards the interrupt-time cost
  * `AbilityCost.dealEncounterCards` (§3.20) has dealt a player, read live wherever it's needed.

@@ -28,6 +28,7 @@ import {
   sharedMainSchemes,
   showingResources,
   villainOf,
+  playerCardOwnerOf,
 } from "./query.js";
 import {
   activeAbilityRefs,
@@ -779,11 +780,12 @@ export function canHaveAttached(
 ): boolean {
   const attaching = attachmentId !== null ? getInstance(state, attachmentId) : undefined;
   const card = attachmentId !== null ? cardOf(state, attachmentId) : undefined;
-  const encounter = attaching !== undefined && attaching.ownerId === null;
+  const playerOwned = attachmentId !== null && playerCardOwnerOf(state, attachmentId) !== null;
+  const encounter = attaching !== undefined && !playerOwned;
   const from = {
     encounter,
     upgrade: card?.type === "upgrade",
-    playerCard: attaching !== undefined && attaching.ownerId !== null,
+    playerCard: attaching !== undefined && playerOwned,
   };
   return !activeRules(state, deps, "cannotHaveAttachments").some(
     ({ rule, context }) =>

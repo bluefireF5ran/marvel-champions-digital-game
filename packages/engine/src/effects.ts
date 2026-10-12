@@ -34,6 +34,8 @@ import {
   modeOnlyFlipped,
   mustPlayer,
   mustVillain,
+  isOwnedEncounterCard,
+  playerCardOwnerOf,
 } from "./query.js";
 import type { StatusDiscardCause } from "./events.js";
 import {
@@ -1501,7 +1503,7 @@ function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: Insta
   return mustInstance(state, hostId).attachments.filter((id) => {
     const attachment = getInstance(state, id);
     if (!attachment || isFacedownAttachment(state, id) || !staysWithoutHost(state, deps, id)) return false;
-    const unowned = attachment.ownerId === null && attachment.controllerId === null;
+    const unowned = playerCardOwnerOf(state, id) === null && attachment.controllerId === null;
     return !unowned || cannotLeavePlay(state, deps, id, undefined, true);
   });
 }
@@ -1515,7 +1517,7 @@ function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: Insta
 function discardedWithoutHost(ctx: Ctx, id: InstanceId): boolean {
   const instance = mustInstance(ctx.state, id);
   return (
-    instance.ownerId === null &&
+    playerCardOwnerOf(ctx.state, id) === null &&
     instance.controllerId === null &&
     !cannotLeavePlay(ctx.state, ctx.deps, id, undefined, true)
   );
@@ -1931,7 +1933,12 @@ export function leavePlay(
  */
 export function applyLeavePatch(ctx: Ctx, id: InstanceId, patch: LeavePatch): void {
   const { ownerId, ...rest } = patch;
-  if (ownerId !== undefined && mustInstance(ctx.state, id).ownerId !== ownerId) {
+  // An encounter card a player owns (a Labor card) is never another player's: it goes back to its own deck.
+  if (
+    ownerId !== undefined &&
+    mustInstance(ctx.state, id).ownerId !== ownerId &&
+    !isOwnedEncounterCard(ctx.state, id)
+  ) {
     updateInstance(ctx, id, (i) => ({ ...i, ownerId, home: { kind: "player" } }));
     emit(ctx, { type: "ownershipChanged", instanceId: id, playerId: ownerId });
   }
@@ -2043,6 +2050,7 @@ function leaveNow(
   moveCard(ctx, id, to, redirect !== null ? "bottom" : position);
   // A card in play dealt to a player as a facedown encounter card (`dealAsEncounterCards`): heard as any other deal.
   if (to.kind === "dealtEncounter") recordEncounterCardDealt(ctx, to.playerId, id, "ability");
+  const ownedEncounter = isOwnedEncounterCard(ctx.state, id);
   // A card that re-enters play is a new instance of it: "this phase" starts over (docs/phase7-wave6.md §3.4).
   updateInstance(ctx, id, ({ damageTakenThisPhase: _tally, ...i }) => ({
     ...i,
@@ -2063,7 +2071,10 @@ function leaveNow(
     ...(i.ownerId === null && !("playerId" in to) ? { controllerId: null } : {}),
     // RRG 1.8 "Ownership and Control" (p. 31): "A player controls the cards in their own out-of-play areas", so a card
     // another player controlled in play (an upgrade on their card) is its owner's again in its owner's discard pile.
-    ...(i.ownerId !== null && "playerId" in to && i.controllerId !== to.playerId ? { controllerId: to.playerId } : {}),
+    // An encounter card a player owns (a Labor card back in its deck) stays under no player's control.
+    ...(i.ownerId !== null && !ownedEncounter && "playerId" in to && i.controllerId !== to.playerId
+      ? { controllerId: to.playerId }
+      : {}),
   }));
   // "While Karma is in play": a minion it took goes back when it leaves (docs/phase7-wave4.md §3.29).
   releaseTreatedBy(ctx, id);

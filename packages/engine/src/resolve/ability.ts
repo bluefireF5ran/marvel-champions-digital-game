@@ -6,7 +6,7 @@ import { COST_NOT_PAID_VAR } from "../cost-damage.js";
 import { type Ctx, emit, popFrame, setFrame } from "../ctx.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { statusActive } from "../keywords.js";
-import { cardOf, getInstance, mustPlayer } from "../query.js";
+import { cardOf, mustPlayer, playerCardOwnerOf } from "../query.js";
 import { abilityIgnored } from "../select.js";
 import type { GameState } from "../state.js";
 import { eventSubjects, slotsCarriedByResolved, type TriggerEvent } from "../trigger-events.js";
@@ -194,7 +194,7 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
   // A keyword is a game rule, not a player's choice: "players cannot discard …" does not stop temporary.
   const byPlayer =
     !keyword &&
-    ((getInstance(ctx.state, frame.instanceId)?.ownerId ?? null) !== null ||
+    (playerCardOwnerOf(ctx.state, frame.instanceId) !== null ||
       trigger.kind === "action" ||
       trigger.kind === "resource" ||
       ((trigger.kind === "interrupt" || trigger.kind === "response") && !trigger.forced));

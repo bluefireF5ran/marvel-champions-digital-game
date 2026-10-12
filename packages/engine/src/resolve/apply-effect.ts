@@ -91,6 +91,7 @@ import {
   turnInProgress,
   villainOf,
   isScheme,
+  playerCardOwnerOf,
 } from "../query.js";
 import {
   AFFECTED_SLOT,
@@ -309,7 +310,7 @@ function admitUniqueEntry(
     // A player card nobody owns yet is still a player card (a set-aside linked card, RRG 1.8 "Linked (Card Title)",
     // p. 27; docs/phase7-wave7.md §3.75): the attempt has no effect and it stays where it was.
     const isPlayerCard =
-      getInstance(ctx.state, id)?.ownerId !== null || (isPlayerCardType(card) && cardBackOf(card) === "player");
+      playerCardOwnerOf(ctx.state, id) !== null || (isPlayerCardType(card) && cardBackOf(card) === "player");
     emit(ctx, {
       type: "uniqueEntryBlocked",
       instanceId: id,
@@ -1922,7 +1923,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         if (
           card &&
           card.type !== "minion" &&
-          getInstance(ctx.state, id)?.ownerId === null &&
+          playerCardOwnerOf(ctx.state, id) === null &&
           !unownedPlayerCard(ctx.state, id) &&
           !cardsInPlay(ctx.state).includes(id)
         ) {

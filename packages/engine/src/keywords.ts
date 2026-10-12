@@ -12,6 +12,7 @@ import {
   mainSchemeStateOf,
   perPlayerCountAt,
   villainStageOf,
+  playerCardOwnerOf,
 } from "./query.js";
 import { cannotHaveStatus, grantedAttackKeywords, lostAttackKeywords, statusLimit } from "./rules.js";
 import {
@@ -152,7 +153,7 @@ function scanGrantedKeywords(state: GameState, deps: EngineDeps, id: InstanceId)
   // "In expert mode, this card gains surge" on a treachery (Surprise!, `sm` 27112; docs/phase7-wave5.md §3.11): an
   // encounter card's grants to itself are read wherever it is, since a revealed treachery is never in play — the
   // `revealCannotBeCanceled` reading of the card's own text (docs/phase7-wave4.md §3.14).
-  const ownText = !inPlay.includes(id) && getInstance(state, id)?.ownerId === null ? [id] : [];
+  const ownText = !inPlay.includes(id) && playerCardOwnerOf(state, id) === null ? [id] : [];
   // `constantSources`: the cards in play, and a card in the victory display whose text works there (§3.50 of wave 7).
   for (const sourceId of [...constantSources(state, deps), ...ownText]) {
     for (const ref of constantAbilityRefs(state, sourceId, deps)) {

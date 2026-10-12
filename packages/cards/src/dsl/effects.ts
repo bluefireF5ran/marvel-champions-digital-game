@@ -1921,6 +1921,30 @@ export const selectCards = (slot: string, from: CardSelector): EffectSpec => ({
   slot,
   cards: from,
 });
+/** The cards of `player`'s separate deck `name`, top first: all of them, or its top `top`. */
+export const separateDeckCards = (name: string, player: PlayerRef = you, top?: Amount): CardSelector => ({
+  kind: "separateDeck",
+  player,
+  name,
+  ...(top !== undefined ? { top: amount(top) } : {}),
+});
+/**
+ * "Reveal the top card of the labor deck" (Hercules 59001b; docs/phase7-wave10-hero-packs.md H3.2): two effects, to be
+ * spread into an ability's list. The top card of `player`'s separate deck `name` is bound to `slot`, then revealed by
+ * `player` through the whole reveal procedure (RRG 1.8 "Reveal", p. 38: "If a player is instructed by card text to
+ * reveal an encounter card from the encounter deck or any other game area, this same resolution procedure applies").
+ * An obligation enters play in that player's play area; an attachment with no "attach to" text waits faceup in front
+ * of them, out of play, until its own When Revealed attaches it. An empty deck reveals nothing: gate the ability with
+ * `valueAtLeast(separateDeckCountOf(name), 1)`.
+ */
+export const revealTopOfSeparateDeck = (
+  name: string,
+  player: PlayerRef = you,
+  slot = `top-of-${name}`,
+): readonly EffectSpec[] => [
+  selectCards(slot, separateDeckCards(name, player, 1)),
+  { kind: "revealCard", cards: { kind: "slot", slot }, player },
+];
 /**
  * "Look at the top card of …" with no decision attached: `viewer` sees the cards (a `lookAt` prompt they acknowledge)
  * and nothing moves (RRG 1.8 "Look, Looked-At", p. 27). `bind` also records them in that slot and `<bind>.count`, like

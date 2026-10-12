@@ -46,14 +46,30 @@ import { cardsMatch, isUnique, uniqueLabel } from "./unique.js";
  * The first separate deck this identity brings that the engine cannot build yet, or undefined (docs/phase7-wave2.md
  * §15). Two kinds of deck of player cards are built: Doctor Strange's, with its own discard pile, and Storm's Weather
  * deck, with no discard pile that stays empty once emptied (docs/phase7-wave6.md §3.46: `noDiscardPileDeckFor` sends
- * its cards back to it). Hercules's Labor deck (encounter-backed cards) is data only, so Hercules is still refused.
+ * its cards back to it). One kind of deck of encounter cards is built: Hercules's Labor deck, with no discard pile,
+ * never refilled (docs/phase7-wave10-hero-packs.md H3.1; RRG 1.8 FAQ "Labor Cards", p. 65: a Labor card that leaves
+ * play goes to the victory display or the bottom of the Labor deck). An encounter deck with a discard pile of its own
+ * has no printed rules to follow, so it is still refused.
  */
 export function unbuildableSeparateDeck(identity: HeroIdentityCard): IdentitySeparateDeck | undefined {
   return (identity.separateDecks ?? []).find((deck) => {
-    if ((deck.cardFamily ?? "player") !== "player") return true;
+    if ((deck.cardFamily ?? "player") === "encounter")
+      return deck.discardPile !== "none" || deck.whenEmpty !== "stayEmpty";
     if (deck.discardPile === "own") return false;
     return deck.whenEmpty !== "stayEmpty";
   });
+}
+
+/**
+ * Whether `card` is one this separate deck can hold: marked as that deck's (`separateDeck`), and of the deck's family.
+ * A deck of player cards holds player deck cards; a deck of encounter cards (Hercules's Labor deck) holds encounter
+ * card types, which no player deck or encounter set ever lists (docs/phase7-wave10-hero-packs.md H1.1).
+ */
+export function isSeparateDeckCard(card: AnyCard, deck: IdentitySeparateDeck): boolean {
+  if (!("separateDeck" in card) || card.separateDeck !== deck.name) return false;
+  return (deck.cardFamily ?? "player") === "encounter"
+    ? !isPlayerDeckCard(card) && "encounterSetIds" in card
+    : isPlayerDeckCard(card);
 }
 
 export type DeckProblemCode =
@@ -111,8 +127,8 @@ export type DeckProblemCode =
    */
   | "competitive_card"
   /**
-   * The identity cannot be seated as chosen: a separate deck of a kind the engine cannot build (Hercules's Labor
-   * deck; `unbuildableSeparateDeck`, docs/phase7-wave2.md §15), or a later version of a progressing identity
+   * The identity cannot be seated as chosen: a separate deck of a kind the engine cannot build (a deck of encounter
+   * cards with a discard pile of its own; `unbuildableSeparateDeck`, docs/phase7-wave2.md §15), or a later version of a progressing identity
    * (docs/phase7-wave5.md §3.23).
    */
   | "unsupported_identity"
@@ -928,7 +944,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
             `${identityName}'s ${separate.name} deck lists card code ${entry.cardId}, which is not in the card pool, so that deck cannot be built.`,
             [entry.cardId],
           );
-        } else if (!isPlayerDeckCard(card) || card.separateDeck !== separate.name) {
+        } else if (!isSeparateDeckCard(card, separate)) {
           add(
             "missing_card_data",
             `${identityName}'s ${separate.name} deck lists ${uniqueLabel(card)}, but that card's data does not mark it as part of the ${separate.name} deck, so that deck cannot be built.`,
