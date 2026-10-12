@@ -56,6 +56,7 @@ import {
 } from "../../view/in-play-cost-choice.js";
 import { inPlayCostPanelOf, seatOptionsOf, seatPanelOf } from "../../view/pick-panels.js";
 import { focusOrder, type FocusTarget } from "../../view/focus.js";
+import { undoOf, type UndoOffer } from "../../view/undo.js";
 import {
   abilityActionsFor,
   legalEntriesOf,
@@ -347,6 +348,7 @@ export class BoardController {
         kind: "idle",
         hand: model.hand.map((card) => card.instanceId),
         teamUps: this.#host.teamUpKeys?.() ?? [],
+        undo: this.undoOffer() !== null,
         ...(this.#host.hasTile ? { tiled: (id: InstanceId) => this.#host.hasTile!(id) } : {}),
       },
       marks,
@@ -397,6 +399,10 @@ export class BoardController {
     }
     if (focus.kind === "confirm") {
       void this.confirmInPlayCost();
+      return;
+    }
+    if (focus.kind === "undo") {
+      void this.undo();
       return;
     }
     if (focus.kind === "basic") {
@@ -1312,6 +1318,30 @@ export class BoardController {
     if (this.#readOnly || this.#selection.kind !== "confirmingAllianceHelp") return;
     this.#selection = { kind: "paying", payment: this.#selection.payment };
     this.#host.redraw();
+  }
+
+  /**
+   * Undo (`view/undo.ts`): what the action bar's Undo button offers right now, or null when it isn't offered at all
+   * (someone else's turn, an off-turn seat on show, a choice open).
+   */
+  undoOffer(): UndoOffer | null {
+    const { game, perspectiveId, commandTrail, offTurnSeat } = appSession().store.state;
+    if (!game || !perspectiveId || offTurnSeat !== null) return null;
+    return undoOf(commandTrail, game, perspectiveId);
+  }
+
+  /** Takes back the active hero's last move this turn, when `undoOffer` allows it. Closes whatever mode was open. */
+  async undo(): Promise<void> {
+    if (this.#readOnly) return;
+    // A guided step teaching one control keeps Undo inert, the same as any other control it doesn't name.
+    if (this.#guideGate.current !== null) {
+      this.#guideGate.noteInertClick();
+      return;
+    }
+    const offer = this.undoOffer();
+    if (offer?.kind !== "available") return;
+    this.#selection = { kind: "idle" };
+    await appSession().store.rewindTo(offer.target);
   }
 
   async dispatchExample(kind: BasicAction): Promise<void> {

@@ -32,6 +32,15 @@ describe("focusOrder", () => {
     ]);
   });
 
+  test("puts Undo just before End turn while the bar draws it", () => {
+    const order = focusOrder({ kind: "idle", hand: [], undo: true }, marksWith(["attack", "endTurn"]));
+    expect(order).toEqual<FocusTarget[]>([
+      { kind: "basic", action: "attack" },
+      { kind: "undo" },
+      { kind: "basic", action: "endTurn" },
+    ]);
+  });
+
   test("keeps an unusable control on the route, because its reason lives there", () => {
     const marks = marksWith(["attack"]);
     const disabled: Highlights = {
