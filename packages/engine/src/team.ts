@@ -7,11 +7,14 @@
  * built and `createGame` refuses it, so `GameState.teams` is on a state only when a test puts it there
  * (`testing/team.ts`); what reads a team here is already the code a competitive game will run.
  *
+ * The team-relative words of a card are answered here too (§4 task 4): "the enemy team", "the enemy leader" and "your
+ * leader", each asked for a team.
+ *
  * Everything here is pure, and these are the only readers of `GameState.teams`.
  */
 
 import { EngineInvariantError } from "./errors.js";
-import { teamId, type GameAreaId, type PlayerId, type TeamId } from "./ids.js";
+import { teamId, type GameAreaId, type InstanceId, type PlayerId, type TeamId } from "./ids.js";
 import type { GameAreaState, GameState } from "./state.js";
 
 /** The side of the Civil War a team took (MC56 p. 14). */
@@ -84,4 +87,45 @@ export function perPlayerCount(state: GameState, area: Pick<GameAreaState, "area
   if (!state.teams || !area) return state.startingPlayerCount;
   const team = state.teams.find((candidate) => candidate.areaId === area.areaId);
   return team ? teamSize(state, team.teamId) : state.startingPlayerCount;
+}
+
+/** The team that plays in a game area, or null: the game stores no teams, or no team plays there. */
+export const teamInArea = (state: GameState, area: Pick<GameAreaState, "areaId">): TeamState | null =>
+  state.teams?.find((candidate) => candidate.areaId === area.areaId) ?? null;
+
+/**
+ * "The enemy team" of a team: the other team, and the same team when the game has one. MC56 p. 6 (cooperative play):
+ * "'the enemy team' refers to the players".
+ */
+export function enemyTeamOf(state: GameState, id: TeamId): TeamState {
+  const team = mustTeam(state, id);
+  return teamsOf(state).find((candidate) => candidate.teamId !== id) ?? team;
+}
+
+/**
+ * "The enemy leader" of a team: the leader it is fighting, which is the active villain of the game area it plays in,
+ * and the game's active villain for a team with no area of its own (every cooperative game). MC56 p. 6: "The leader in
+ * play is called 'the enemy leader.'"; ruling of July 9, 2026 (3) answer 2: outside Civil War scenarios "enemy leader"
+ * refers to the villain. Null once that villain is defeated, and for an area with no villain.
+ *
+ * In a cooperative game whose players are split over separate game areas (docs/phase7-wave2.md §3.1) the team has no
+ * one area, and "the villain" depends on which area asks: `leaderFor` (`select.ts`) reads it for an effect.
+ */
+export function enemyLeaderOf(state: GameState, id: TeamId): InstanceId | null {
+  const team = mustTeam(state, id);
+  const area = team.areaId === null ? null : state.gameAreas.find((candidate) => candidate.areaId === team.areaId);
+  if (area === undefined) return null;
+  const leaderId = area ? area.activeVillainId : state.activeVillainId;
+  const leader = state.villains.find((villain) => villain.instanceId === leaderId);
+  return leader && !leader.defeated ? leader.instanceId : null;
+}
+
+/**
+ * "Your leader" for a team: the leader the enemy team is fighting. Null when the game has one team, where no leader is
+ * the players' own. MC56 p. 6 (cooperative play): "A card ability that refers to 'your leader' cannot be resolved.
+ * These cards typically have alternate effects that will resolve instead. Do as much as you can."
+ */
+export function yourLeaderOf(state: GameState, id: TeamId): InstanceId | null {
+  const enemy = enemyTeamOf(state, id);
+  return enemy.teamId === id ? null : enemyLeaderOf(state, enemy.teamId);
 }

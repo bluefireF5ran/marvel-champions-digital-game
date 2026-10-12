@@ -732,6 +732,20 @@ export type TargetRef =
    */
   | { readonly kind: "villain" }
   /**
+   * "**The enemy leader**" and "**your leader**" (docs/competitive-mode-plan.md §3.3, §4 task 5), read for the team of
+   * the player resolving the effect (`contextTeam`, `select.ts`).
+   *
+   * `enemy`: the leader that team is fighting. In a cooperative game that is "the villain", exactly as `villain` reads
+   * it (MC56 p. 6: "The leader in play is called 'the enemy leader.'"; ruling of July 9, 2026 (3) answer 2: outside
+   * Civil War scenarios "enemy leader" refers to the villain); with two teams, the active villain of the team's own
+   * game area.
+   *
+   * `yours`: the leader the enemy team is fighting. No card in a cooperative game (MC56 p. 6: "A card ability that
+   * refers to 'your leader' cannot be resolved. … Do as much as you can."), so an effect aimed at it does nothing and
+   * the rest of the ability resolves; a printed "Otherwise" is an `if` on whether the ref names a card.
+   */
+  | { readonly kind: "leader"; readonly of: "yours" | "enemy" }
+  /**
    * "The main scheme": in a separate game area, that area's own stage; `of: "central"` is the central stage outside
    * every area ("place 1 set-aside Kang's Dominion facedown under stage 4A"; docs/phase7-wave2.md §3.1).
    */
@@ -821,6 +835,14 @@ export type PlayerRef =
    * player, so an effect aimed at "the next player" in a one-player game does nothing.
    */
   | { readonly kind: "nextAfter"; readonly of: PlayerRef }
+  /**
+   * "**Each player on your team**" and "**the enemy team**" (docs/competitive-mode-plan.md §3.3, §4 task 5): the
+   * players still in the game on the team of the player resolving the effect (`contextTeam`, `select.ts`), or on the
+   * other team, in player order. "A player on the enemy team" is `choosePlayer { among }` over it. In a cooperative
+   * game both are each player (MC56 p. 6: "'the enemy team' refers to the players"), read as `each` reads them. Who
+   * makes a choice the enemy team is given is not this ref (plan §4 task 7).
+   */
+  | { readonly kind: "team"; readonly of: "yours" | "enemy" }
   /** The player a card is engaged with: "the engaged player" on a minion's own ability. */
   | { readonly kind: "engagedWith"; readonly of: TargetRef }
   /**

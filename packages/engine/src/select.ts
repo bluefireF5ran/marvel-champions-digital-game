@@ -1,6 +1,15 @@
 import type { AbilityId, AbilityReference, AnyCard, CardId, HeroIdentityCard, Trait } from "@mc/content";
 import { podOf, resolveGroup } from "./pod.js";
-import { perPlayerCount } from "./team.js";
+import {
+  enemyLeaderOf,
+  enemyTeamOf,
+  perPlayerCount,
+  teamInArea,
+  teamOf,
+  teamsOf,
+  type TeamState,
+  yourLeaderOf,
+} from "./team.js";
 import { gameModeOf } from "./game-mode.js";
 import {
   type AbilityDefinition,
@@ -1665,6 +1674,42 @@ export function contextArea(state: GameState, context: EffectContext): GameAreaS
   return player ? areaOfPlayer(state, player) : null;
 }
 
+/**
+ * The team "your" and "the enemy" are read for in an effect (docs/competitive-mode-plan.md §3.3): the one team of a
+ * game that stores none; otherwise the team of the player resolving the effect ("you", then "that player"), and with
+ * no player the team that plays in the game area of the effect's card. Null when neither names a team: an area-neutral
+ * card resolving for no player, for which the words name nobody.
+ */
+export function contextTeam(state: GameState, context: EffectContext): TeamState | null {
+  if (!state.teams) return teamsOf(state)[0] ?? null;
+  const player = context.controllerId ?? context.scopedPlayerId;
+  if (player) return teamOf(state, player);
+  const area = contextArea(state, context);
+  return area ? teamInArea(state, area) : null;
+}
+
+/**
+ * "The enemy leader" (`of: "enemy"`) or "your leader" (`of: "yours"`) for an effect: the one definition behind
+ * `TargetRef leader` and `AttachmentHost leader`.
+ *
+ * A team with no game area of its own (every cooperative game) is fighting "the villain", which the caller reads its
+ * own way through `theVillain`: the active villain, narrowed to the effect's game area when the players are split
+ * (MC56 p. 6; ruling of July 9, 2026 (3) answer 2). With two teams it is the active villain of the team's area. "Your
+ * leader" is the enemy team's enemy leader, and no card with one team (`yourLeaderOf`).
+ */
+export function leaderFor(
+  state: GameState,
+  of: "yours" | "enemy",
+  context: EffectContext,
+  theVillain: () => readonly InstanceId[],
+): readonly InstanceId[] {
+  const team = contextTeam(state, context);
+  if (!team) return [];
+  if (of === "enemy" && team.areaId === null) return theVillain();
+  const leader = of === "yours" ? yourLeaderOf(state, team.teamId) : enemyLeaderOf(state, team.teamId);
+  return leader ? [leader] : [];
+}
+
 /** Whether a card can be affected from the effect's area: same area, or either side is in every area. */
 export function inContextArea(state: GameState, id: InstanceId, context: EffectContext): boolean {
   if (state.gameAreas.length === 0) return true;
@@ -2241,6 +2286,16 @@ export function resolvePlayers(state: GameState, ref: PlayerRef, context: Effect
         .map((p) => p.playerId)
         .filter((id) => !excluded.includes(id));
     }
+    case "team": {
+      // docs/competitive-mode-plan.md §3.3. A team with no area of its own is every player `each` names (MC56 p. 6).
+      const mine = contextTeam(state, context);
+      if (!mine) return [];
+      const team = ref.of === "yours" ? mine : enemyTeamOf(state, mine.teamId);
+      const area = team.areaId === null ? contextArea(state, context) : null;
+      return playerOrder(state)
+        .map((p) => p.playerId)
+        .filter((id) => team.playerIds.includes(id) && (!area || area.playerIds.includes(id)));
+    }
     case "nextAfter": {
       // RRG 1.8 "In Player Order" (p. 24): the next clockwise player still in the game; a player is not their own.
       const [of] = resolvePlayers(state, ref.of, context);
@@ -2400,6 +2455,8 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       const active = activeId ? villainOf(state, activeId) : undefined;
       return !active || active.defeated ? [] : [active.instanceId];
     }
+    case "leader":
+      return leaderFor(state, ref.of, context, () => resolveRefAnywhere(state, { kind: "villain" }, context));
     case "mainScheme": {
       // "The main scheme": this area's own stage, or the central one (`of: "central"`, "under stage 4A").
       if (ref.of === "central") return [state.mainScheme.instanceId];

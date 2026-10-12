@@ -45,6 +45,18 @@ export const firstPlayer: PlayerRef = { kind: "firstPlayer" };
 export const eachPlayer: PlayerRef = { kind: "each" };
 /** "That player" inside `forEachPlayer`. */
 export const thatPlayer: PlayerRef = { kind: "scoped" };
+/**
+ * "Each player on your team" (docs/competitive-mode-plan.md §3.3): the players in the game on the resolving player's
+ * team, in player order; each player in a cooperative game. "More than 1 player on your team" counts it:
+ * `refCount(identityOf(yourTeam))`.
+ */
+export const yourTeam: PlayerRef = { kind: "team", of: "yours" };
+/**
+ * "The enemy team" as its players, in player order; "a player on the enemy team" is `choosePlayer` among them. Each
+ * player in a cooperative game (MC56 p. 6: "'the enemy team' refers to the players"). Who makes a choice the enemy team
+ * is given is a separate matter (plan §4 task 7).
+ */
+export const enemyTeam: PlayerRef = { kind: "team", of: "enemy" };
 /** The player picked by `choosePlayer(slot)`. */
 export const chosenPlayer = (slot = "player"): PlayerRef => ({ kind: "slot", slot });
 /** "Each other hero": every player except these. */
@@ -149,6 +161,18 @@ export const self: TargetRef = { kind: "self" };
 /** "Attached minion/enemy/ally". */
 export const host: TargetRef = { kind: "host" };
 export const theVillain: TargetRef = { kind: "villain" };
+/**
+ * "The enemy leader" (docs/competitive-mode-plan.md §3.3): the leader the resolving player's team is fighting. In a
+ * cooperative game, the villain (MC56 p. 6; ruling of July 9, 2026 (3) answer 2), so a script writes the printed word
+ * and it reads as `theVillain` does.
+ */
+export const enemyLeader: TargetRef = { kind: "leader", of: "enemy" };
+/**
+ * "Your leader": the leader the enemy team is fighting. No card in a cooperative game, where an effect aimed at it
+ * does nothing and the rest of the ability resolves (MC56 p. 6: "Do as much as you can."). A printed "Otherwise" is
+ * an `ifThen` on `refCount(yourLeader)`.
+ */
+export const yourLeader: TargetRef = { kind: "leader", of: "yours" };
 /**
  * "The defending character" of the enemy attack in progress (Energy Projectiles' boost, 07027), while it is in play.
  * Empty for an undefended attack or outside an enemy attack. Works in a Boost ability, which has no triggering event.

@@ -1139,12 +1139,51 @@ function checkRefs(value: unknown, scope: Scope, where: string, problems: string
     const reported = { ...scope, prefixes: new Set([...scope.prefixes, "attack.", "thwart."]) };
     checkRefs((consequential as { if: unknown }).if, reported, where, problems);
   }
+  // The team words (docs/competitive-mode-plan.md §4 task 5): a leader is a card and a team is players.
+  if ((record.kind === "leader" || record.kind === "team") && record.of !== "yours" && record.of !== "enemy")
+    problems.push(`${where}: ${record.kind} is of "yours" or "enemy"`);
+  const playerOfKind = record.kind === "others" || record.kind === "nextAfter";
   for (const [key, item] of Object.entries(record)) {
+    const kind = typeof item === "object" && item !== null ? (item as { kind?: unknown }).kind : undefined;
+    if (kind === "leader" && (PLAYER_FIELDS.has(key) || (key === "of" && playerOfKind)))
+      problems.push(`${where}: ${key} needs a player, and a leader is a card (yourTeam / enemyTeam name players)`);
+    if (kind === "team" && TARGET_FIELDS.has(key))
+      problems.push(`${where}: ${key} needs a card, and a team is players (identityOf(team) names their identities)`);
     if (key === "effects" || key === "then" || key === "otherwise" || key === "with" || key === "options") continue;
     if (key === "consequential") continue;
     checkRefs(item, scope, where, problems);
   }
 }
+
+/** Spec fields that only ever hold a `PlayerRef`, and ones that only ever hold a `TargetRef` (engine `spec.ts`). */
+const PLAYER_FIELDS: ReadonlySet<string> = new Set([
+  "player",
+  "players",
+  "chooser",
+  "controller",
+  "seat",
+  "against",
+  "owner",
+  "deckOwner",
+  "viewer",
+  "controlledBy",
+  "engagedWithPlayer",
+  "inPlayAreaOf",
+]);
+const TARGET_FIELDS: ReadonlySet<string> = new Set([
+  "target",
+  "targets",
+  "card",
+  "cards",
+  "character",
+  "enemy",
+  "enemies",
+  "villain",
+  "scheme",
+  "attacker",
+  "minion",
+  "attachTo",
+]);
 
 function bindsOf(effect: EffectSpec, scope: Scope): void {
   switch (effect.kind) {
