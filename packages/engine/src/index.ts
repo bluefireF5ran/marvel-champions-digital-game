@@ -474,6 +474,7 @@ export {
   carriedByEvent,
   damageTakenKey,
   eventSubjects,
+  EXCESS_AS_DEALT_RESULT,
   hearsEncounterDeckDiscard,
   isAnnouncement,
   MOMENT_PREFIX,

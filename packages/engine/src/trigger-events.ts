@@ -1731,7 +1731,8 @@ export interface SchemeWouldPlaceThreat {
  * `defeated`, `undefended`, `threatPlaced`, `threatRemoved`, and one
  * `damageTaken.<instanceId>` per character that took damage, `damageTakenKey`). A `removeThreat` that took its scheme
  * from some threat to none records `lastThreatRemoved` (docs/phase7-wave7.md §3.34). An enemy attack that reached its
- * damage step records `totalAtk` (`TOTAL_ATK_RESULT`).
+ * damage step records `totalAtk` (`TOTAL_ATK_RESULT`). Damage, and the attack it belongs to, records `excessDealt` (the
+ * excess of the damage taken) and `excessAsDealt` (of the damage dealt, `EXCESS_AS_DEALT_RESULT`).
  */
 export type TriggerEvent = TriggerEventBody & { readonly results?: Vars };
 
@@ -1743,6 +1744,17 @@ export type TriggerEvent = TriggerEventBody & { readonly results?: Vars };
  * cancelled attack. The result `damage` is what the attack then dealt.
  */
 export const TOTAL_ATK_RESULT = "totalAtk";
+
+/**
+ * The result key a damage event, and the attack it belongs to, record the excess of the damage **dealt** under: the
+ * amount dealt beyond the target's remaining hit points, before anything that changes the damage taken (a constant
+ * reduction, a tough status card, a prevention; `excessAsDealtOf`, `resolve/event.ts`, which says what "dealt" is in
+ * each case). Beside `excessDealt`, which despite its name is the excess of the damage **taken**, the value overkill
+ * spills (RRG 1.8 "Overkill", p. 31) and the one every "excess damage" ability reads unless the owner has ruled its
+ * card counts the damage dealt (February 8, 2026 - Ruling 2; owner answer 31B, docs/phase7-wave10.md §4.0). Absent
+ * (read as 0) when the amount dealt did not exceed the remaining hit points.
+ */
+export const EXCESS_AS_DEALT_RESULT = "excessAsDealt";
 
 /**
  * The result key an attack/activation records one character's damage taken under (docs/phase7-wave5.md §4.1 Q65):

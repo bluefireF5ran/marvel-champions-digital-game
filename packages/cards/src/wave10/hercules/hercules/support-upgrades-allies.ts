@@ -6,7 +6,7 @@ import {
   after,
   defineAbilities,
   draw,
-  eventResult,
+  attackExcessAsDealt,
   exhaustThis,
   forcedInterrupt,
   gainKeywordUntil,
@@ -74,10 +74,12 @@ import { giftCardsYouControl } from "./identity.js";
  *
  * **59017.prince-of-power-response**: "Hero Response: After Hercules attacks and defeats an enemy, exhaust Prince of
  * Power -> heal 1 damage from Hercules for each point of excess damage dealt to that enemy by that attack." The excess
- * is the value overkill would spill: the damage the enemy took past its remaining hit points (RRG 1.8 "Overkill",
- * p. 31; owner decision 2026-09-25, engine `excessDamageOf`). February 8, 2026 - Ruling 2 names this card and counts
- * the excess on the damage dealt instead (6 dealt to a 3-hit-point minion that takes 1 less: heals 3, where this heals
- * 2); the conflict is owner question 31.
+ * is counted on the damage **dealt**: what the attack dealt past the enemy's remaining hit points, before a reduction
+ * of the damage the enemy takes (`attackExcessAsDealt`, engine `excessAsDealtOf`). February 8, 2026 - Ruling 2 names
+ * this card: 6 dealt to a 3-hit-point minion that takes 1 less is 5 taken, 2 overkill to the villain and 3 healed.
+ * Owner answer 31B (2026-10-12, docs/phase7-wave10.md §4.0) follows the ruling for this card only; the excess overkill
+ * spills, and every other card that counts excess damage, stays on the damage taken (RRG 1.8 "Overkill", p. 31; owner
+ * decision 2026-09-25, engine `excessDamageOf`).
  */
 export const HERCULES_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   "59008.amadeus-cho-forced-interrupt": forcedInterrupt(
@@ -116,7 +118,7 @@ export const HERCULES_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities
   "59017.prince-of-power-response": heroResponse(
     after.attacks(YOUR_IDENTITY, { defeats: true }),
     { cost: exhaustThis },
-    heal(eventResult("excessDealt"), yourIdentity),
+    heal(attackExcessAsDealt, yourIdentity),
   ),
 });
 

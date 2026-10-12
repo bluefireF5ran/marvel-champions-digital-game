@@ -5,6 +5,7 @@ import {
   PAID_CARDS_SLOT,
   PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
+  EXCESS_AS_DEALT_RESULT,
   TOTAL_ATK_RESULT,
   UNRESOLVED_VAR,
 } from "@mc/engine";
@@ -786,6 +787,15 @@ export const eventResult = (key: string): ValueSpec => ({ kind: "eventResult", k
  * `enemyAttacks` response; `eventResult("damage")` is what the attack dealt after DEF.
  */
 export const attackTotalAtk: ValueSpec = eventResult(TOTAL_ATK_RESULT);
+/**
+ * "For each point of excess damage dealt to that enemy by that attack", for a card ruled to count the damage **dealt**
+ * (Prince of Power, `hercules` 59017; February 8, 2026 - Ruling 2, owner answer 31B in docs/phase7-wave10.md §4.0):
+ * the amount the attack dealt beyond the enemy's remaining hit points, before a reduction of the damage it takes, a
+ * tough status card or a prevention (engine `excessAsDealtOf`). Read on an `after.attacks` response. Every other
+ * "excess damage" reads `eventResult("excessDealt")` / `varOf("<bind>.excessDealt")`, the excess of the damage taken
+ * that overkill spills (RRG 1.8 "Overkill", p. 31): do not use this one without a ruling for the card.
+ */
+export const attackExcessAsDealt: ValueSpec = eventResult(EXCESS_AS_DEALT_RESULT);
 export const handSizeOf = (player: PlayerRef = you, printed = false): ValueSpec =>
   printed ? { kind: "handSize", player, printed } : { kind: "handSize", player };
 /**

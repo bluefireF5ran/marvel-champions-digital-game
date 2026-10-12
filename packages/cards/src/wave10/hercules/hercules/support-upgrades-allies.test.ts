@@ -678,15 +678,15 @@ describe("59017 Prince of Power", () => {
   const attack = (s: GameState, offered: string[] = [], take: readonly string[] = [PRINCE_REF, MACE_REF]) =>
     run(s, basicAttack(herc(s), MINION), policy({ take }, offered));
 
-  // The ruling (Feb 8, 2026 (2)) says Prince of Power heals 3 (excess measured on the 6 dealt); RRG 1.8 "Overkill" (p. 31)
-  // counts excess on the damage taken (5 - 3 = 2), the same value overkill spills, and supersedes it (user decision
-  // 2026-09-25, engine `excessDamageOf`). So the Prince heals 2 here.
-  it("February 8, 2026 - Ruling 2 as superseded by RRG 1.8: 6 dealt (3 ATK + 3 Gift) to Thumbelina (3 hit points, reduces damage by 1), 5 taken, 2 overkill to the villain, Prince of Power heals 2", () => {
+  // The ruling's own numbers. Overkill spills the excess of the damage taken (5 - 3 = 2; RRG 1.8 "Overkill", p. 31),
+  // and Prince of Power heals the excess of the damage dealt (6 - 3 = 3): owner answer 31B, 2026-10-12
+  // (docs/phase7-wave10.md §4.0; engine `excessAsDealtOf`).
+  it("February 8, 2026 - Ruling 2: 6 dealt (3 ATK + 3 Gift) to Thumbelina (3 hit points, reduces damage by 1), 5 taken, 2 overkill to the villain, Prince of Power heals 3", () => {
     const { state, prince } = setup(THUMBELINA, 0, 5, true);
     const { state: after } = attack(state);
     expect(locateCard(after, MINION)?.kind).not.toBe("playArea");
     expect(inst(after, after.activeVillainId!).damage).toBe(2);
-    expect(inst(after, herc(after)).damage).toBe(3);
+    expect(inst(after, herc(after)).damage).toBe(2);
     expect(inst(after, prince).exhausted).toBe(true);
   });
 

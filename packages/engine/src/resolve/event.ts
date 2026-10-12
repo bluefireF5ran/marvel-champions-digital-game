@@ -104,7 +104,7 @@ import {
   recordKeywordsIgnored,
   thwartBlockersIgnored,
 } from "./keyword-ignored.js";
-import { damageTakenKey } from "../trigger-events.js";
+import { damageTakenKey, EXCESS_AS_DEALT_RESULT } from "../trigger-events.js";
 import type { AttackKeyword, DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
 import {
   alreadyDefeated,
@@ -1295,7 +1295,9 @@ export function announceDamagePrevented(ctx: Ctx, event: Extract<TriggerEvent, {
  * on that [character] beyond its hit points". So excess is measured on the damage *taken*, after constant reductions,
  * and a tough status, "cannot take damage" or a prevention leaves none. This supersedes rulings Jan 26, 2026 (3) and
  * Feb 8, 2026 (2), which measured it on the damage dealt (user decision 2026-09-25; PLAN.md's Overkill note): Hercules's
- * 6 against Thumbelina (3 HP, takes 1 less) spills 2 and Prince of Power heals 2, not 3.
+ * 6 against Thumbelina (3 HP, takes 1 less) spills 2, and an ability counting excess damage counts 2. The one exception
+ * is a card the owner has ruled counts the damage dealt (Prince of Power heals 3 there, owner answer 31B, 2026-10-12),
+ * which reads the separate value `excessAsDealtOf` and leaves this one as it is.
  *
  * The same number with or without overkill: an attack without it (Into the Fray, "Murdered You!", Radioactive Buildup's
  * "excess damage dealt by Thunderball") counts what overkill would have spilled. It is measured when the damage lands,
@@ -1313,6 +1315,57 @@ export function excessDamageOf(
   if (measured <= 0) return 0;
   const source = event.sourceInstanceId;
   return measured + (event.fromAttack && source !== null ? excessDamageBonus(ctx.state, ctx.deps, source) : 0);
+}
+
+/**
+ * The excess of the damage one `dealDamage` event **dealt**, where `excessDamageOf` measures the damage **taken**: the
+ * amount dealt (`dealDamage.dealt`) beyond the target's remaining hit points. A second value beside `excessDealt`,
+ * never a replacement for it: overkill, excess placed as threat, a defeat's `excessDamage` and every ability that
+ * counts "excess damage" read the damage taken (RRG 1.8 "Overkill", p. 31; owner decision 2026-09-25). This one is read
+ * only by an ability the owner has ruled counts the damage dealt (owner answer 31B, 2026-10-12, docs/phase7-wave10.md
+ * §4.0: "heal 1 damage … for each point of excess damage dealt to that enemy by that attack").
+ *
+ * February 8, 2026 - Ruling 2: 6 dealt to a minion with 3 hit points that takes 1 less from each attack is "excess
+ * dealt: 6 - 3 = 3" and "excess taken: 5 - 3 = 2". RRG 1.8 "Excess Damage" (p. 19): "any amount of damage that is
+ * dealt to a character beyond that character's remaining hit points". "Damage" (p. 14): "When the amount of damage an
+ * effect deals is modified, the amount of damage the character takes is similarly modified. When the amount of damage a
+ * character takes is modified (such as by damage being prevented), the amount of damage dealt is not modified."
+ *
+ * What "dealt" is here is what `dealDamage.dealt` already is for "after X deals damage" (owner ruling 2026-10-07,
+ * docs/dealt-vs-taken-audit.md): the amount as it reached the damage-dealing process, after anything that changed what
+ * the effect deals (DEF, an ATK modifier, "increase that damage"), before anything that changes what the target takes.
+ * The ruling covers only the first line below; the rest follow p. 14's sentence and "Prevent" (p. 35: "the amount of
+ * damage that character 'takes' is reduced, but the amount of damage 'dealt' is not reduced"), and ruling January 26,
+ * 2026 (3): "Excess damage can be dealt even if the target does not take that damage."
+ *
+ * - **A constant reduction or a cap on damage taken** ("takes 1 less", "cannot take more than N"): not subtracted.
+ * - **A tough status card**: it prevents the damage (RRG 1.8 "Tough", p. 44), so the damage was dealt in full and
+ *   its excess is counted, though nothing was taken and nothing spills.
+ * - **"Cannot take damage"** and **"prevent all damage"** rules: the same; dealt, not taken.
+ * - **A "prevent N of that damage" interrupt, or a "reduce that damage to N" one**: the same (`dealt` keeps the
+ *   amount from before the interrupt), down to a full prevention.
+ * - **A constant that raises or doubles the damage taken** ("takes +1 damage", "double the damage this minion
+ *   takes"): not added either, by the same sentence, so here this value is *lower* than the excess taken.
+ * - **Damage of 0 as it would be dealt** (a defense that covers the attack): nothing was dealt, no excess.
+ * - **No modifier of damage taken at all**: equal to `excessDamageOf`.
+ *
+ * `excessDamageBonus` ("When your hero's attack deals any amount of excess damage, increase that amount by 1") stays
+ * a reader of the damage taken: it is added here exactly when it was added there (`excessTaken` positive), never on
+ * the strength of this value alone.
+ */
+export function excessAsDealtOf(
+  ctx: Ctx,
+  event: Extract<TriggerEvent, { kind: "dealDamage" }>,
+  damageBefore: number,
+  maxHp: number | undefined,
+  excessTaken = 0,
+): number {
+  if (maxHp === undefined) return 0;
+  const measured = (event.dealt ?? event.amount) - Math.max(0, maxHp - damageBefore);
+  if (measured <= 0) return 0;
+  const source = event.sourceInstanceId;
+  const bonus = excessTaken > 0 && event.fromAttack && source !== null;
+  return measured + (bonus ? excessDamageBonus(ctx.state, ctx.deps, source) : 0);
 }
 
 /**
@@ -1384,11 +1437,21 @@ export function applyDamage(
     ctx,
     event.toughPierced !== undefined ? piercedBeforeInterrupts(event) : pierceForDamage(ctx, event),
   );
-  if (event.amount <= 0) return;
   // RRG 1.8 "In Play and Out of Play" (p. 23): abilities "only interact with … cards that are in play". Damage waiting
   // on the stack for a card that has since left play (an ally's consequential damage after Speed Demon's attack
   // defeated it, docs/phase7-wave4.md §4 Q20) is not dealt, rather than left on the discarded card.
-  if (!cardsInPlay(ctx.state).includes(event.targetInstanceId)) return;
+  const inPlay = cardsInPlay(ctx.state).includes(event.targetInstanceId);
+  // The excess of the damage as dealt (`excessAsDealtOf`), measured before anything below keeps the target from
+  // taking it, an interrupt that prevented all of it included (`amount` 0, `dealt` positive).
+  const hitPoints = inPlay ? characterProfile(ctx.state, event.targetInstanceId, ctx.deps)?.maxHp : undefined;
+  const damageBefore = getInstance(ctx.state, event.targetInstanceId)?.damage ?? 0;
+  const excessAsDealt = excessAsDealtOf(ctx, event, damageBefore, hitPoints);
+  if (excessAsDealt > 0) {
+    addFrameVars(ctx, frameId, { [EXCESS_AS_DEALT_RESULT]: excessAsDealt });
+    addFrameVars(ctx, event.parentFrameId, { [EXCESS_AS_DEALT_RESULT]: excessAsDealt });
+  }
+  if (event.amount <= 0) return;
+  if (!inPlay) return;
   const source = event.sourceInstanceId;
   // The attacker's own keyword, or one granted to this attack alone and stamped on the event (`attackKeywordsOf`).
   // It does not apply to attack damage dealt to a character the attack is not against (`notAttacked`, §3.36, §4.1 Q18).
@@ -1534,6 +1597,12 @@ export function applyDamage(
   if (excessDealt > 0) {
     addFrameVars(ctx, frameId, { excessDealt });
     addFrameVars(ctx, event.parentFrameId, { excessDealt });
+    // An `excessDamageBonus` that raised the excess taken raises the excess as dealt with it (`excessAsDealtOf`).
+    const raised = excessAsDealtOf(ctx, event, damageBefore, hitPoints, excessDealt) - excessAsDealt;
+    if (raised > 0) {
+      addFrameVars(ctx, frameId, { [EXCESS_AS_DEALT_RESULT]: raised });
+      addFrameVars(ctx, event.parentFrameId, { [EXCESS_AS_DEALT_RESULT]: raised });
+    }
     placeExcessDamageAsThreat(ctx, event, excessDealt);
   }
   if (!sweep) return;

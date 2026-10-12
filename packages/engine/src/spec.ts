@@ -1768,7 +1768,8 @@ export type ScenarioDeckSource = "encounterDeck" | "setAside";
  * vars when it finishes: `<bind>.amount` (damage taken / damage healed / threat
  * placed or removed), `<bind>.made` (1 if it happened), and for attacks
  * `<bind>.damage`, `<bind>.defeated`, `<bind>.undefended`, `<bind>.excessDealt`
- * (the excess overkill would spill: damage taken beyond remaining hit points; RRG 1.8 "Overkill", p. 31). A damage
+ * (the excess overkill would spill: damage taken beyond remaining hit points; RRG 1.8 "Overkill", p. 31) and
+ * `<bind>.excessAsDealt` (the excess of the damage dealt, before reductions to damage taken; `excessAsDealtOf`). A damage
  * effect (`dealDamage`, `dealIndirectDamage`) also binds the slot `<bind>.damaged` to each character that took at
  * least 1 of its damage, after prevention ("each character damaged this way").
  */
