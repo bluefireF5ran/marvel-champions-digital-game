@@ -795,6 +795,12 @@ The identifier and its doc comment were read; the scripting agent's tests prove 
 
 ## H4. Open questions for the owner
 
+**Answered 2026-10-11 (owner): 3B, 19A, 20A, 21B, 22A**, all provisional. 3B is built: a Labor card with no target is
+discarded (the discard is announced; RRG 1.8 p. 65, later than the March 6, 2026 ruling) and ends on the bottom of
+the Labor deck. 21B is built as an interpretation: other players may pay any part of the cost their own cards can
+pay, except a part naming the user's own card (the wording matches Alliance, RRG p. 5). Details:
+`docs/phase7-wave10.md` §4.0. Where H3 or H7 below describes 3A or 21A, the B answer replaces it.
+
 Numbered across the wave's pages; this page's are 19 to 22. Until answered, **A is what gets built**. The main session records answers in the main spec's §4.1 table and the PR.
 
 | Q   | Question                                                          | A (default)                                  | B                                        | Decision |

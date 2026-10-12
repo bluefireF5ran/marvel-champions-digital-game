@@ -563,6 +563,11 @@ The identifier and its doc comment were read; the scripting agent's tests prove 
 
 ## B4. Open questions for the owner
 
+**Answered 2026-10-11 (owner): 14A, 15B, 16A, 17A, 18A**, all provisional. 15B is built: Super Skrull moves to engage the
+revealing player, by analogy with RRG "Find" (p. 19: a minion already in play that is found and revealed is engaged
+by that player); the card says "Find … Put him into play engaged with you", so this is the nearest rule, not a ruling
+on the card. Details: `docs/phase7-wave10.md` §4.0. Where B3 or B7 below describes 15A, 15B replaces it.
+
 Numbered across the wave's pages (1 to 13 are in `docs/phase7-wave10.md` §4.1); these are 14 to 18. Until a question is
 answered, A is what gets built. Each test that rests on an answer names the question.
 

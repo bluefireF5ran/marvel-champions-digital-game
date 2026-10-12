@@ -721,6 +721,10 @@ table, Deal it out, through the opening hands and any setup decision to round 1'
 
 ## 12. Open questions for the owner
 
+**Answered 2026-10-11 (owner): 23A, 24A, 25A, 26A, 27C.** 27C: the competitive option reads "Competitive" with a
+"Coming soon" tag and "Two teams, each against the other's leader. Not available yet.", and the cooperative option
+carries "Co-op only for now". The owner notes these five are product choices, not rules.
+
 Plain words; A is the recommended default and is what gets built. Numbered across the wave's pages (1 to 22 are in the
 spec files); these are 23 to 27. "7b" is not a separate question: it follows the main spec's question 7, and the
 other side's sets are shown disabled with the reason, as the client's "disabled, not omitted" convention has it.
