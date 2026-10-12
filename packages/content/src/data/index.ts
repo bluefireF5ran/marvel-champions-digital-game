@@ -755,7 +755,7 @@ export const WAVE9_STARTER_DECKS: readonly StarterDeck[] = [
 // ---------------------------------------------------------------------------------------------------------------
 // Wave 10 (PLAN.md Phase 7, docs/phase7-wave10.md): cycle 10, Civil War `cw` (MC56, the custom scenario expansion:
 // Tigra and Hulkling, four leaders, sixteen main schemes, sixteen modular sets, Standard PvP). `hercules` and
-// `wonder_man` (the cycle's hero packs) join later. Declared here (before `PLAYABLE_CARDS`, which reads
+// `wonder_man` (the cycle's hero packs, February 20, 2026; no starter decks yet, no source). Declared here (before `PLAYABLE_CARDS`, which reads
 // `WAVE10_CARDS`) for the same source-order reason as the earlier waves. Pool membership is not a claim that a pack is
 // scripted: `unscriptedCards` keeps unscripted precons from being seated. MC56 has no campaign (MC56 p. 3).
 // ---------------------------------------------------------------------------------------------------------------
@@ -765,18 +765,36 @@ import { CW_CARDS } from "./cw/cards.js";
 import { CW_ENCOUNTER_SETS } from "./cw/encounterSets.js";
 import { CW_SCENARIOS } from "./cw/scenarios.js";
 import { CW_STARTER_DECKS } from "./cw/starterDecks.js";
+export * from "./hercules/index.js";
 
-/** Every card in the wave 10 (cycle 10) pool: Core plus the packs shipped so far, in release order. A sibling pool that starts from Core, like `WAVE9_CARDS`. */
-export const WAVE10_CARDS: readonly AnyCard[] = [...CORE_CARDS, ...CW_CARDS];
+import { HERCULES_CARDS } from "./hercules/cards.js";
+import { HERCULES_ENCOUNTER_SETS } from "./hercules/encounterSets.js";
+import { HERCULES_STARTER_DECKS } from "./hercules/starterDecks.js";
+export * from "./wonder_man/index.js";
+
+import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
+import { WONDER_MAN_ENCOUNTER_SETS } from "./wonder_man/encounterSets.js";
+import { WONDER_MAN_STARTER_DECKS } from "./wonder_man/starterDecks.js";
+
+/** Every card in the wave 10 (cycle 10) pool: Core plus the packs shipped so far (`cw`, `wonder_man`, `hercules`). A sibling pool that starts from Core, like `WAVE9_CARDS`. */
+export const WAVE10_CARDS: readonly AnyCard[] = [...CORE_CARDS, ...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS];
 
 /** Every wave 10 encounter set (Core's own villain sets are not included). */
-export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [...CW_ENCOUNTER_SETS];
+export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [
+  ...CW_ENCOUNTER_SETS,
+  ...WONDER_MAN_ENCOUNTER_SETS,
+  ...HERCULES_ENCOUNTER_SETS,
+];
 
 /** Every wave 10 scenario: Civil War's four (one per leader). */
 export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS];
 
-/** Every wave 10 starter deck: Tigra and Hulkling (`cw`). */
-export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [...CW_STARTER_DECKS];
+/** Every wave 10 starter deck: Tigra and Hulkling (`cw`); `wonder_man` and `hercules` have none yet (no source for the printed decklists). */
+export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [
+  ...CW_STARTER_DECKS,
+  ...WONDER_MAN_STARTER_DECKS,
+  ...HERCULES_STARTER_DECKS,
+];
 
 /**
  * Every playable card: Core, the eight wave 1 packs, the six cycle 1 packs, the six cycle 2 packs, the six cycle
@@ -842,13 +860,9 @@ export const CAMPAIGNS: readonly Campaign[] = [
 // `angel` (Part 6) needed genuinely zero curation, unlike most of the rest of this pool. `storm` (Part 6) was
 // fully curated already and unblocked by the `HostMeasure "thw"` parser mapping landing.
 // ---------------------------------------------------------------------------------------------------------------
-export * from "./wonder_man/index.js";
-
-import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
-import { WONDER_MAN_ENCOUNTER_SETS } from "./wonder_man/encounterSets.js";
-
 /**
- * Every card in the data-only pool: one pack (`wonder_man`, cycle 10), formerly five across cycles 9 and 10, in pack-code alphabetical
+ * Every card in the data-only pool: now empty (`wonder_man`, the last pack, moved into `WAVE10_*` with `hercules`; the
+ * mechanism stays for the next unscripted pack), formerly five across cycles 9 and 10, in pack-code alphabetical
  * order (no release-order relationship spans this many cycles at once, unlike `WAVE1_CARDS`/`WAVE2_CARDS`/
  * `WAVE3_CARDS`/`WAVE4_CARDS`/`WAVE5_CARDS`). Not included in `WAVE1_CARDS`/`WAVE2_CARDS`/`WAVE3_CARDS`/
  * `WAVE4_CARDS`/`WAVE5_CARDS`/`CORE_CARDS` — a client that wants "every known card, playable or not" concatenates
@@ -861,9 +875,9 @@ import { WONDER_MAN_ENCOUNTER_SETS } from "./wonder_man/encounterSets.js";
  * them (docs/phase7-wave6.md); `psylocke`, `angel`, `x23` and `deadpool` (cycle 7) moved into `WAVE7_*` with
  * `next_evol` (docs/phase7-wave7.md); `iceman`, `jubilee`, `ncrawler` and `magneto` (cycle 8) moved into `WAVE8_*` with
  * `aoa` (docs/phase7-wave8.md); `bp`, `silk`, `falcon` and `winter` (cycle 9) moved into `WAVE9_*` with `aos` and `tt`
- * (docs/phase7-wave9.md).
+ * (docs/phase7-wave9.md); `wonder_man` (cycle 10) moved into `WAVE10_*` with `cw` and `hercules` (docs/phase7-wave10.md).
  */
-export const DATA_ONLY_CARDS: readonly AnyCard[] = [...WONDER_MAN_CARDS];
+export const DATA_ONLY_CARDS: readonly AnyCard[] = [];
 
 /** Every data-only pool encounter set. */
-export const DATA_ONLY_ENCOUNTER_SETS: readonly EncounterSet[] = [...WONDER_MAN_ENCOUNTER_SETS];
+export const DATA_ONLY_ENCOUNTER_SETS: readonly EncounterSet[] = [];

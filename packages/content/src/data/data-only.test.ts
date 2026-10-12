@@ -1,16 +1,13 @@
 /**
- * The data-only pool (PLAN.md Phase 7): packs beyond Core/wave 1/cycle 1 that normalize cleanly and are wired
+ * The data-only pool (PLAN.md Phase 7), now empty: `wonder_man`, its last pack, moved into the wave 10 pool
+ * (wave10.test.ts); the mechanism stays for the next unscripted pack.
+ *
+ * Earlier: the data-only pool (PLAN.md Phase 7): packs beyond Core/wave 1/cycle 1 that normalize cleanly and are wired
  * for the deck builder to show, but are not playable yet (no ability scripts exist for them in `@mc/cards`).
  * See docs/phase7-wave2-data.md for the full 56-pack survey and what's left for the other ~41 packs.
  */
 import { validateCard, type AnyCard, type HeroIdentityCard } from "../schema/index.js";
-import {
-  DATA_ONLY_CARDS,
-  DATA_ONLY_ENCOUNTER_SETS,
-  WONDER_MAN_CARDS,
-  WONDER_MAN_PACK,
-  PHOENIX_CARDS,
-} from "./index.js";
+import { DATA_ONLY_CARDS, DATA_ONLY_ENCOUNTER_SETS, PHOENIX_CARDS } from "./index.js";
 import { CORE_CARDS } from "./core/index.js";
 import { WAVE1_CARDS } from "./index.js";
 import { WAVE2_CARDS } from "./index.js";
@@ -26,7 +23,7 @@ const PACKS: readonly {
   readonly code: string;
   readonly cards: readonly AnyCard[];
   readonly pack: { readonly cycleId: string; readonly releaseDate?: string };
-}[] = [{ code: "wonder_man", cards: WONDER_MAN_CARDS, pack: WONDER_MAN_PACK }];
+}[] = [];
 
 describe("data-only pool — integrity", () => {
   it("every emitted card passes validateCard()", () => {
@@ -36,8 +33,8 @@ describe("data-only pool — integrity", () => {
     expect(failures).toEqual([]);
   });
 
-  it("one pack, no duplicate ids, and DATA_ONLY_CARDS is exactly their concatenation", () => {
-    expect(PACKS).toHaveLength(1);
+  it("no packs, no duplicate ids, and DATA_ONLY_CARDS is exactly their concatenation", () => {
+    expect(PACKS).toHaveLength(0);
     const ids = DATA_ONLY_CARDS.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(DATA_ONLY_CARDS.length).toBe(PACKS.reduce((n, p) => n + p.cards.length, 0));
@@ -61,13 +58,12 @@ describe("data-only pool — integrity", () => {
     for (const c of DATA_ONLY_CARDS) expect(known.has(c.id as string), c.id as string).toBe(false);
   });
 
-  it.each(PACKS.map((p) => [p.code, p] as const))(
-    "%s: every card belongs to its own pack, and the pack has a real release date",
-    (code, pack) => {
-      for (const c of pack.cards) expect(c.setCode, c.id as string).toBe(code);
-      expect(pack.pack.releaseDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    },
-  );
+  it("every pack's cards belong to it, and it has a real release date", () => {
+    for (const pack of PACKS) {
+      for (const c of pack.cards) expect(c.setCode, c.id as string).toBe(pack.code);
+      expect(pack.pack.releaseDate).toMatch(/^d{4}-d{2}-d{2}$/);
+    }
+  });
 
   it("cycle grouping matches the Hall of Heroes card database navigation (https://hallofheroeslcg.com/browse/)", () => {
     const cycleOf = (code: string) => PACKS.find((p) => p.code === code)?.pack.cycleId;
@@ -87,8 +83,9 @@ describe("data-only pool — integrity", () => {
     // now `WAVE8_CARDS` (wave8.test.ts, docs/phase7-wave8.md).
     // Cycle 9 (Agents of S.H.I.E.L.D., Black Panther/Shuri, Silk, Winter Soldier, Falcon, Trickster Takeover) has moved
     // entirely out of this pool: they are now `WAVE9_CARDS` (wave9.test.ts, docs/phase7-wave9.md).
-    // Cycle 10: Wonder Man (Hercules/Fear No Evil are not in this pool yet).
-    expect(cycleOf("wonder_man")).toBe("cycle10");
+    // Cycle 10 (Civil War, Wonder Man, Hercules) has moved entirely out of this pool: they are now `WAVE10_*`
+    // (wave10.test.ts, docs/phase7-wave10.md).
+    expect(cycleOf("wonder_man")).toBeUndefined();
   });
 
   it("every hero-pack identity carries a real name (no dangling/placeholder faces)", () => {

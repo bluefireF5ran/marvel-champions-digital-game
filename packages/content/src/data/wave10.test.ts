@@ -10,10 +10,19 @@ import {
   CAMPAIGNS,
   CORE_CARDS,
   CW_CARDS,
+  CW_ENCOUNTER_SETS,
   CW_SCENARIOS,
   CW_STARTER_DECKS,
+  DATA_ONLY_CARDS,
+  DATA_ONLY_ENCOUNTER_SETS,
+  HERCULES_CARDS,
+  HERCULES_ENCOUNTER_SETS,
+  HERCULES_STARTER_DECKS,
   PLAYABLE_CARDS,
   WAVE9_CARDS,
+  WONDER_MAN_CARDS,
+  WONDER_MAN_ENCOUNTER_SETS,
+  WONDER_MAN_STARTER_DECKS,
   WAVE10_CARDS,
   WAVE10_ENCOUNTER_SETS,
   WAVE10_SCENARIOS,
@@ -21,28 +30,39 @@ import {
 } from "./index.js";
 
 /**
- * Wave 10 (cycle 10, docs/phase7-wave10.md): pool wiring. `cw` (Civil War, MC56) is the only pack in so far;
- * `hercules` and `wonder_man` (the cycle's hero packs) join later, and `wonder_man` is still in the data-only pool.
- * What the pack contains is `cw.test.ts`.
+ * Wave 10 (cycle 10, docs/phase7-wave10.md): pool wiring. `cw` (Civil War, MC56), `wonder_man` and `hercules` (the
+ * cycle's hero packs) are in; none has a scripted kit yet. What each pack contains is `cw.test.ts`, `wonder_man.test.ts`
+ * and `hercules.test.ts`.
  */
 describe("wave 10 data: pool wiring", () => {
-  it("WAVE10_CARDS is Core plus cw, with no duplicate ids", () => {
-    expect(WAVE10_CARDS).toHaveLength(CORE_CARDS.length + CW_CARDS.length);
+  it("WAVE10_CARDS is Core plus cw, wonder_man and hercules, with no duplicate ids", () => {
+    expect(WAVE10_CARDS).toHaveLength(
+      CORE_CARDS.length + CW_CARDS.length + WONDER_MAN_CARDS.length + HERCULES_CARDS.length,
+    );
     expect(WAVE10_CARDS.slice(0, CORE_CARDS.length)).toEqual(CORE_CARDS);
+    expect(WAVE10_CARDS.slice(CORE_CARDS.length)).toEqual([...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS]);
     expect(new Set(WAVE10_CARDS.map((c) => c.id)).size).toBe(WAVE10_CARDS.length);
   });
 
-  it("PLAYABLE_CARDS carries every cw card exactly once, after the wave 9 cards", () => {
+  it("the wave adds 34 Wonder Man cards and 45 Hercules cards, and Wonder Man left the data-only pool", () => {
+    expect(WONDER_MAN_CARDS).toHaveLength(34);
+    expect(HERCULES_CARDS).toHaveLength(45);
+    expect(DATA_ONLY_CARDS).toEqual([]);
+    expect(DATA_ONLY_ENCOUNTER_SETS).toEqual([]);
+  });
+
+  it("PLAYABLE_CARDS carries every wave 10 card exactly once, after the wave 9 cards, in pack order", () => {
     const ids = PLAYABLE_CARDS.map((c) => c.id as string);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const c of CW_CARDS)
+    const wave10 = [...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS];
+    for (const c of wave10)
       expect(
         ids.filter((id) => id === (c.id as string)),
         c.id as string,
       ).toHaveLength(1);
     const wave9Last = ids.lastIndexOf(WAVE9_CARDS[WAVE9_CARDS.length - 1]!.id as string);
     expect(ids.indexOf(CW_CARDS[0]!.id as string)).toBeGreaterThan(wave9Last);
-    expect(ids.slice(ids.length - CW_CARDS.length)).toEqual(CW_CARDS.map((c) => c.id as string));
+    expect(ids.slice(ids.length - wave10.length)).toEqual(wave10.map((c) => c.id as string));
   });
 
   it("every wave 10 card passes validateCard()", () => {
@@ -52,18 +72,23 @@ describe("wave 10 data: pool wiring", () => {
     expect(failures).toEqual([]);
   });
 
-  it("every cw card id is its MarvelCDB code (no clash with another pack's id)", () => {
+  it("every wave 10 card id is its MarvelCDB code (no clash with another pack's id), and all three packs are cycle10", () => {
     const others = new Set(WAVE9_CARDS.map((c) => c.id as string));
-    for (const c of CW_CARDS) expect(others.has(c.id as string), c.id as string).toBe(false);
+    for (const c of [...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS]) {
+      expect(others.has(c.id as string), c.id as string).toBe(false);
+      expect(c.cycleId as string, c.id as string).toBe("cycle10");
+    }
   });
 });
 
 describe("wave 10 data: encounter sets, scenarios and starter decks", () => {
-  it("26 encounter sets, unique, and every card's sets exist", () => {
-    expect(WAVE10_ENCOUNTER_SETS).toHaveLength(26);
+  it("29 encounter sets (26 cw, 1 wonder_man, 2 hercules), unique, and every card's sets exist", () => {
+    expect(WAVE10_ENCOUNTER_SETS).toHaveLength(29);
+    expect(WAVE10_ENCOUNTER_SETS.slice(0, 26)).toEqual(CW_ENCOUNTER_SETS);
+    expect(WAVE10_ENCOUNTER_SETS.slice(26)).toEqual([...WONDER_MAN_ENCOUNTER_SETS, ...HERCULES_ENCOUNTER_SETS]);
     const known = new Set(WAVE10_ENCOUNTER_SETS.map((s) => s.id as string));
-    expect(known.size).toBe(26);
-    for (const c of CW_CARDS)
+    expect(known.size).toBe(29);
+    for (const c of [...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS])
       for (const id of (c as { encounterSetIds?: readonly unknown[] }).encounterSetIds ?? [])
         expect(known.has(id as string), `${c.id}: ${String(id)}`).toBe(true);
   });
@@ -84,9 +109,11 @@ describe("wave 10 data: encounter sets, scenarios and starter decks", () => {
     }
   });
 
-  it("two starter decks (Tigra and Hulkling)", () => {
+  it("two starter decks (Tigra and Hulkling); Wonder Man and Hercules have none (no source for the printed lists)", () => {
     expect(WAVE10_STARTER_DECKS).toEqual(CW_STARTER_DECKS);
     expect(WAVE10_STARTER_DECKS.map((d) => d.id as string)).toEqual(["tigra-aggression", "hulkling-protection"]);
+    expect(WONDER_MAN_STARTER_DECKS).toEqual([]);
+    expect(HERCULES_STARTER_DECKS).toEqual([]);
   });
 
   it("Civil War has no campaign (MC56 p. 3)", () => {

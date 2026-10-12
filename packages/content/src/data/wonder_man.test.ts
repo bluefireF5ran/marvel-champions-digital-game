@@ -1,0 +1,168 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { validateCard } from "../schema/index.js";
+import type { AnyCard, HeroIdentityCard, UpgradeCard } from "../schema/index.js";
+import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
+import { WONDER_MAN_ENCOUNTER_SETS } from "./wonder_man/encounterSets.js";
+import { WONDER_MAN_CYCLE, WONDER_MAN_PACK } from "./wonder_man/packs.js";
+import { WONDER_MAN_PROVENANCE } from "./wonder_man/provenance.js";
+import { WONDER_MAN_STARTER_DECKS } from "./wonder_man/starterDecks.js";
+
+/**
+ * Wonder Man (`wonder_man`, cycle 10, Civil War): counts, the Ionic Physiology erratum (RRG 1.8 p. 70) and what the
+ * hero kit and the off-aspect energy events are. Sources: the Wonder Man insert, RRG 1.8 Appendix V,
+ * docs/phase7-wave10-hero-packs.md H1 and docs/phase7-wave10-scan-check.md. Wonder Man's deck-building rule
+ * ("Ionic Energy Being") is NOT in the data yet: it needs `OffAspectAllowance.printedResource` (spec H3.15, task HT12).
+ */
+interface RawRecord {
+  readonly code: string;
+  readonly quantity: number;
+}
+const raw = JSON.parse(readFileSync(new URL("../../raw/marvelcdb/wonder_man.json", import.meta.url), "utf8")) as {
+  cards: readonly RawRecord[];
+};
+
+const byId = new Map(WONDER_MAN_CARDS.map((c) => [c.id as string, c]));
+const get = <T extends AnyCard>(id: string): T => {
+  const card = byId.get(id);
+  if (!card) throw new Error(`no card ${id}`);
+  return card as T;
+};
+const setOf = (card: AnyCard): readonly string[] =>
+  "encounterSetIds" in card ? (card.encounterSetIds as readonly string[]) : [];
+const typeCounts = (cards: readonly AnyCard[]) => {
+  const counts: Record<string, number> = {};
+  for (const c of cards) counts[c.type] = (counts[c.type] ?? 0) + 1;
+  return counts;
+};
+const copies = (cards: readonly AnyCard[]) => cards.reduce((n, c) => n + c.quantityInSet, 0);
+const text = (card: AnyCard) => (card as { text: { printed: string; current: string } }).text;
+const aspectOf = (card: AnyCard) => (card as { aspect?: string }).aspect;
+
+describe("wonder_man: the pack", () => {
+  it("is in cycle 10, Civil War, released February 20, 2026", () => {
+    expect(WONDER_MAN_CYCLE).toEqual({ id: "cycle10", name: "Civil War", order: 10 });
+    expect(WONDER_MAN_PACK.releaseDate).toBe("2026-02-20");
+    expect(WONDER_MAN_PACK.cycleId as string).toBe("cycle10");
+  });
+
+  it("is 34 cards (59 copies), counted by type", () => {
+    expect(WONDER_MAN_CARDS).toHaveLength(34);
+    expect(copies(WONDER_MAN_CARDS)).toBe(59);
+    expect(typeCounts(WONDER_MAN_CARDS)).toEqual({
+      hero_identity: 1,
+      upgrade: 8,
+      event: 9,
+      resource: 2,
+      support: 4,
+      ally: 5,
+      obligation: 1,
+      minion: 1,
+      side_scheme: 1,
+      treachery: 2,
+    });
+  });
+
+  it("every card is Wonder Man's own, passes validateCard(), and the copies equal the raw quantities", () => {
+    for (const c of WONDER_MAN_CARDS) {
+      expect(c.setCode as string, c.id as string).toBe("wonder_man");
+      expect(c.cycleId as string, c.id as string).toBe("cycle10");
+      expect(validateCard(c).errors, c.id as string).toEqual([]);
+    }
+    const covered = new Set(WONDER_MAN_PROVENANCE.flatMap((p) => p.marvelcdbCodes));
+    for (const r of raw.cards) expect(covered.has(r.code), r.code).toBe(true);
+    expect(copies(WONDER_MAN_CARDS)).toBe(raw.cards.reduce((n, r) => n + r.quantity, 0));
+  });
+
+  it("splits by owner: 16 hero-kit copies, 13 Justice, 19 other-aspect, 4 Basic, 5 nemesis (+ obligation)", () => {
+    expect(copies(WONDER_MAN_CARDS.filter((c) => aspectOf(c) === "hero:58001a"))).toBe(16);
+    expect(copies(WONDER_MAN_CARDS.filter((c) => aspectOf(c) === "justice"))).toBe(13);
+    expect(copies(WONDER_MAN_CARDS.filter((c) => aspectOf(c) === "aggression"))).toBe(6);
+    expect(copies(WONDER_MAN_CARDS.filter((c) => aspectOf(c) === "protection"))).toBe(6);
+    expect(copies(WONDER_MAN_CARDS.filter((c) => aspectOf(c) === "leadership"))).toBe(7);
+    expect(copies(WONDER_MAN_CARDS.filter((c) => aspectOf(c) === "basic"))).toBe(4);
+    expect(copies(WONDER_MAN_CARDS.filter((c) => setOf(c).includes("wonder_man_nemesis")))).toBe(5);
+  });
+
+  it("has one encounter set, the nemesis set on Wonder Man (58026 to 58029), and the obligation is 58025", () => {
+    expect(WONDER_MAN_ENCOUNTER_SETS.map((s) => s.id as string)).toEqual(["wonder_man_nemesis"]);
+    expect(WONDER_MAN_ENCOUNTER_SETS[0]?.nemesisOfIdentityId).toBe("58001a");
+    expect(WONDER_MAN_CARDS.filter((c) => setOf(c).includes("wonder_man_nemesis")).map((c) => c.id as string)).toEqual([
+      "58026",
+      "58027",
+      "58028",
+      "58029",
+    ]);
+    const identity = get<HeroIdentityCard>("58001a");
+    expect(identity.obligationCardId as string).toBe("58025");
+    expect(identity.nemesisEncounterSetId as string).toBe("wonder_man_nemesis");
+  });
+
+  it("has no starter deck: no source exists for the printed decklist (survey section 10.1)", () => {
+    expect(WONDER_MAN_STARTER_DECKS).toEqual([]);
+  });
+
+  it("has no separate decks (the Setup puts Ionic Physiology into play) and, until HT12, no deckbuilding field", () => {
+    const identity = get<HeroIdentityCard>("58001a");
+    expect(identity.separateDecks).toBeUndefined();
+    expect(identity.deckbuilding).toBeUndefined();
+  });
+});
+
+describe("wonder_man: the off-aspect energy events (the cards Ionic Energy Being lets the deck take)", () => {
+  it("58017 Bombs Away (Aggression), 58019 Stronger Together (Protection) and 58020 Unified Strike (Leadership), 3 copies each", () => {
+    expect(
+      ["58017", "58019", "58020"].map((id) => [id, aspectOf(get(id)), get(id).type, get(id).quantityInSet]),
+    ).toEqual([
+      ["58017", "aggression", "event", 3],
+      ["58019", "protection", "event", 3],
+      ["58020", "leadership", "event", 3],
+    ]);
+  });
+
+  it("each of the three prints an energy resource icon", () => {
+    for (const id of ["58017", "58019", "58020"]) {
+      const icons = (get(id) as { resourceIcons: { energy?: number } }).resourceIcons;
+      expect(icons.energy, id).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+describe("wonder_man: Ionic Physiology 58002 errata (RRG 1.8 Appendix V, p. 70; ruling March 6, 2026 (3))", () => {
+  const ionic = get<UpgradeCard>("58002");
+
+  it("the printed text keeps the cost arrow, the current text reads Then", () => {
+    expect(text(ionic).printed).toBe(
+      "Permanent. Max 3 cards tucked here.\nResponse: After you play an event with a printed [energy] resource, tuck that event from your discard pile under this card → heal 1 damage from your identity.",
+    );
+    expect(text(ionic).current).toBe(
+      "Permanent. Max 3 cards tucked here.\nResponse: After you play an event with a printed [energy] resource, tuck that event from your discard pile under this card. Then, heal 1 damage from your identity.",
+    );
+    expect(text(ionic).current).not.toContain("→");
+  });
+
+  it("is recorded as RRG 1.8 errata on the text field, with its citation", () => {
+    expect(ionic.errata?.currentVersion).toBe("RRG 1.8");
+    expect(ionic.errata?.history).toHaveLength(1);
+    expect(ionic.errata?.history?.[0]?.version).toBe("RRG 1.8");
+    expect(ionic.errata?.history?.[0]?.changedFields).toEqual(["text"]);
+    const notes = WONDER_MAN_PROVENANCE.find((p) => p.cardId === "58002")!.corrections.join(" | ");
+    expect(notes).toContain("RRG 1.8 p. 70");
+    expect(notes).toContain("ruling March 6, 2026 (3)");
+  });
+
+  it("is the only card in the pack with errata", () => {
+    expect(WONDER_MAN_CARDS.filter((c) => c.errata !== undefined).map((c) => c.id as string)).toEqual(["58002"]);
+  });
+
+  it("keeps the dash cost, Permanent and the dash on Cameo", () => {
+    expect(ionic.specialCost).toBe("dash");
+    expect(ionic.keywords).toContainEqual({ name: "permanent" });
+    expect((get("58031") as { specialCost?: string }).specialCost).toBe("dash");
+    expect((get("58031") as unknown as { keywords: unknown[] }).keywords).toContainEqual({ name: "setup" });
+  });
+
+  it("58018 Everywhere All at Once has an X cost", () => {
+    expect((get("58018") as { specialCost?: string }).specialCost).toBe("X");
+  });
+});

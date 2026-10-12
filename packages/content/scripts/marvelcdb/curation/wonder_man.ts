@@ -1,5 +1,11 @@
 /**
- * Wonder Man (Simon Williams) Hero Pack (Cycle 10) curation.
+ * Wonder Man (Simon Williams) Hero Pack (Cycle 10, Civil War) curation.
+ *
+ * - **Errata: Ionic Physiology (58002)**, RRG 1.8 p. 70 (cost arrow to "Then"); the printed text keeps the arrow.
+ * - **Deck-building rule (Simon Williams 58001b, "Ionic Energy Being")** is NOT curated yet: spec H1.5 needs
+ *   `OffAspectAllowance.printedResource` (task HT12), which the schema does not have. Add
+ *   `identityDeckbuilding["58001a"]` once it lands.
+ * - **Starter deck: none.** No source exists for the printed decklist (survey section 10.1); `starterDecks` stays empty.
  *
  * - **Ionic Physiology (58002, upgrade) and Cameo (58031, support): dash cost, confirmed.** Ionic Physiology is
  *   Permanent, entering play by its own text; Cameo is a `Setup:` search-and-attach support, never played for a
@@ -14,7 +20,7 @@ import type { PackCuration } from "./types.ts";
 
 export const WONDER_MAN_CURATION: PackCuration = {
   packCode: "wonder_man",
-  cycle: { id: "cycle10", name: "Cycle 10", order: 10 },
+  cycle: { id: "cycle10", name: "Civil War", order: 10 },
   pack: {
     name: "Wonder Man",
     releaseDate: "2026-02-20",
@@ -40,7 +46,17 @@ export const WONDER_MAN_CURATION: PackCuration = {
       specialCost: "dash",
     },
   ],
-  errata: [],
+  errata: [
+    {
+      code: "58002",
+      version: "RRG 1.8",
+      changedFields: ["text"],
+      note: 'Ionic Physiology: the cost arrow before "heal 1 damage from your identity" became "Then" (tucking the event is no longer a cost). MarvelCDB and the card print the arrow; the printed text keeps it.',
+      evidence:
+        'RRG 1.8 p. 70 (Wonder Man errata, IONIC PHYSIOLOGY (#2), mc_rulesreference_v18_compressed.md line 5150): "Should read: Response: After you play an event with a printed [energy] resource, tuck that event from your discard pile under this card. Then, heal 1 damage from your identity. (Changed cost arrow to “Then”.)"; ruling March 6, 2026 (3); scan 58002.png prints the arrow (scan check, "Known errata"). Raw text is the print.',
+      currentReplace: { find: " → heal 1 damage", replace: ". Then, heal 1 damage" },
+    },
+  ],
 
   scriptingNotes: {},
   cardNotes: {},

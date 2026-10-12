@@ -6,7 +6,7 @@
 import { cycleId, setCode } from "../../schema/index.js";
 import type { Cycle, Pack } from "../../schema/index.js";
 
-export const WONDER_MAN_CYCLE: Cycle = { id: cycleId("cycle10"), name: "Cycle 10", order: 10 };
+export const WONDER_MAN_CYCLE: Cycle = { id: cycleId("cycle10"), name: "Civil War", order: 10 };
 
 /** Release date source: Hall of Heroes Simon Williams/Wonder Man page (https://hallofheroeslcg.com/simon-williams-wonder-man/): "Release date: February 20, 2026" */
 export const WONDER_MAN_PACK: Pack = {

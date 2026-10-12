@@ -71,7 +71,7 @@ const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set();
  * Wave 10 packs in the pool whose kits are not scripted yet (docs/phase7-wave10.md): `cw` (Civil War, Tigra and
  * Hulkling) is data only so far, so its two precons are legal but cannot be seated.
  */
-const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set(["cw"]);
+const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set(["cw", "wonder_man", "hercules"]);
 
 /** Every pack whose precons are legal but cannot be seated yet. */
 const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([

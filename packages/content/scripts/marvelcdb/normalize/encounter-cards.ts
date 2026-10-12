@@ -41,7 +41,13 @@ export function normalizeEncounterCard(
   // Service/Snitches get Stitches sets) is faction "campaign", not "encounter": every such card belongs to its
   // own `campaignSpecific` `EncounterSet` instead of the pack's ordinary encounter sets.
   const isCampaignCard = r.faction_code === "campaign";
-  if (r.faction_code !== "encounter" && !isCampaignCard)
+  // An encounter-shaped card of an identity's own separate deck (docs/phase7-wave10-hero-packs.md H1.1, survey gap G6:
+  // Hercules's Labor cards) prints `faction_code: "hero"` yet behaves as an encounter card. It is named by a curated
+  // `separateDecks` entry with `cardFamily: "encounter"`, belongs to no encounter set and carries `separateDeck`.
+  const separateDeck = curation.separateDecks?.find(
+    (d) => d.cardFamily === "encounter" && d.cardCodes.includes(r.code),
+  );
+  if (r.faction_code !== "encounter" && !isCampaignCard && !(separateDeck && r.faction_code === "hero"))
     errors.push(`${r.code}: ${r.type_code} with faction ${r.faction_code}`);
   expectNoPlayerData(ctx, p, parsed);
   const encounterCommon = {
@@ -52,7 +58,10 @@ export function normalizeEncounterCard(
     // modular set's own obligation (Project Wideawake's Warn the Others 32099, Mojo Mania's sitcom set) is an
     // ordinary member of its encounter set, so the encounter deck builder can shuffle it in.
     encounterSetIds:
-      r.type_code === "obligation" && !isCampaignCard && ctx.heroBySet.has(set) ? [] : [brand("encounterSet", set)],
+      separateDeck || (r.type_code === "obligation" && !isCampaignCard && ctx.heroBySet.has(set))
+        ? []
+        : [brand("encounterSet", set)],
+    ...(separateDeck ? { separateDeck: separateDeck.deckName } : {}),
     boostIcons: p.boost,
     // RRG 1.8 "Boost, Boost Icon" (p. 11): the star in the boost area marks "the card has a 'Boost' ability", so the
     // flag follows the parsed text (docs/phase7-wave2-data.md "starIcon?: boolean"). `parse()` has already

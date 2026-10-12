@@ -228,11 +228,19 @@ describe("exportDecklistText: the exact inverse of importFromPasteText", () => {
     });
 
     test("a truly ambiguous bare title is refused with the candidates named", () => {
-      const result = importFromPasteText("Hero: Spider-Man (01001a)\nAspect: Justice\n1x Hawkeye\n", poolEnv);
+      // Protection: 01066, 03012 and 04011 are Leadership and 58013 is Justice, so no Hawkeye is legal and none can win.
+      const result = importFromPasteText("Hero: Spider-Man (01001a)\nAspect: Protection\n1x Hawkeye\n", poolEnv);
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.problems[0]!.code).toBe("ambiguous_card_name");
       expect(result.problems[0]!.message).toContain("Hawkeye (03012)");
+    });
+
+    test("a bare Hawkeye in a Justice deck resolves to Wonder Man's Justice ally 58013", () => {
+      const result = importFromPasteText("Hero: Spider-Man (01001a)\nAspect: Justice\n1x Hawkeye\n", poolEnv);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.deck.cards.map((c) => [c.cardId as string, c.quantity])).toEqual([["58013", 1]]);
     });
   });
 
