@@ -397,6 +397,16 @@ export type GameEvent =
       readonly playerId: PlayerId;
     }
   /**
+   * The game was set up with chosen stages of its main scheme card (`GameSetupConfig.mainSchemeStageIndexes`,
+   * docs/phase7-wave10.md §3.2): `order` is the main scheme deck as stage indexes, first to last. The choice is made
+   * in the open (MC56 p. 5), so it is public. Emitted once, right after `gameCreated`; absent when every stage is played.
+   */
+  | {
+      readonly type: "mainSchemeStagesChosen";
+      readonly schemeInstanceId: InstanceId;
+      readonly order: readonly number[];
+    }
+  /**
    * A main scheme's stages were shuffled (docs/phase7-wave6.md §3.18). `order` is the full walk order of stage indexes
    * from now on; like a `deckShuffled` order it is for the replay log, not for the players to see.
    */

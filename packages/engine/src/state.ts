@@ -573,9 +573,11 @@ export interface MainSchemeState {
   /** RRG "Acceleration Token": carries over when the main scheme advances. */
   readonly accelerationTokens: number;
   /**
-   * The order its stages are walked in, as stage indexes, once a card has shuffled them ("Shuffle all copies of main
-   * scheme 2A and stack them under this scheme", The Brotherhood Strikes! 1A; `EffectSpec shuffleMainSchemeStages`,
-   * docs/phase7-wave6.md §3.18). When present it is the authority for the default advance: the next stage is the entry
+   * The order its stages are walked in, as stage indexes: set at setup when the main scheme deck is chosen stages of
+   * the card (`GameSetupConfig.mainSchemeStageIndexes`, docs/phase7-wave10.md §3.2; the card's other stages are then
+   * not in the deck), or once a card has shuffled them ("Shuffle all copies of main scheme 2A and stack them under
+   * this scheme", The Brotherhood Strikes! 1A; `EffectSpec shuffleMainSchemeStages`, docs/phase7-wave6.md §3.18).
+   * When present it is the authority for the default advance: the next stage is the entry
    * after the current one, and the last entry is the final stage. Absent, stages are walked in printed order (and a
    * group of same-numbered alternatives needs card text to pick one, Kang's stage 3).
    */
@@ -970,7 +972,8 @@ export interface GameState {
   readonly nextGameAreaSeq: number;
   /**
    * Stage indexes of the main scheme card that can no longer be revealed: an alternative stage already revealed, or one
-   * removed from the game ("Remove any unused stage 3 schemes from the game", The Master of Time 2A).
+   * removed from the game ("Remove any unused stage 3 schemes from the game", The Master of Time 2A), or one left out
+   * of a main scheme deck made of chosen stages (`GameSetupConfig.mainSchemeStageIndexes`, docs/phase7-wave10.md §3.2).
    */
   readonly spentMainSchemeStages: readonly number[];
   /**

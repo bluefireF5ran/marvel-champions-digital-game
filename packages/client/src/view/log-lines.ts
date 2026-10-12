@@ -705,8 +705,13 @@ function describe(
     // on a value that has only ever had one shape.
     case "controllerChanged":
       return { text: `${card(event.instanceId)} now follows the first player, ${who(event.to)}.`, voice: "scenario" };
-    case "mainSchemeAdvanced":
-      return { text: `The main scheme advances to stage ${event.stageIndex + 1}.`, voice: "villain" };
+    case "mainSchemeAdvanced": {
+      // The stage's printed number: its index is not that on a card holding several stages of one number, or when the
+      // main scheme deck is chosen stages of the card (docs/phase7-wave10.md §3.2).
+      const scheme = cardOf(state, event.schemeInstanceId ?? state.mainScheme.instanceId);
+      const printed = scheme?.type === "main_scheme" ? scheme.stages[event.stageIndex]?.stageNumber : undefined;
+      return { text: `The main scheme advances to stage ${printed ?? event.stageIndex + 1}.`, voice: "villain" };
+    }
     case "mainSchemeCompleted":
       return { text: `The main scheme is complete.`, voice: "loss" };
     case "encounterCardRevealed":

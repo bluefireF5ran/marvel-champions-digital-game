@@ -329,7 +329,9 @@ export function shuffleMainSchemeStages(
   const card = scheme ? ctx.state.cardPool[scheme.cardId] : undefined;
   if (!scheme || card?.type !== "main_scheme") return;
   const from = Math.max(0, Math.trunc(fromStageIndex));
-  const indexes = card.stages.map((_, index) => index);
+  // The stages in its deck, in printed order: every stage, or those of an order it already has (chosen at setup,
+  // docs/phase7-wave10.md §3.2, or an earlier shuffle's). A stage outside that order is not shuffled back in.
+  const indexes = card.stages.flatMap((_, index) => (scheme.stageOrder?.includes(index) === false ? [] : [index]));
   const current = scheme.stageIndex;
   const unspent = (index: number): boolean => !ctx.state.spentMainSchemeStages.includes(index);
   let stageOrder: readonly number[];

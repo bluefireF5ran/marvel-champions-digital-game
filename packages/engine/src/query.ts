@@ -733,9 +733,24 @@ export function startingThreatOf(state: GameState, id: InstanceId, deps: EngineD
   );
 }
 
+/**
+ * How many stages the main scheme deck holds: the stages of its walk order when it has one (chosen at setup,
+ * docs/phase7-wave10.md §3.2, or shuffled), else every stage of the card.
+ */
 export function mainSchemeStageCount(state: GameState, scheme: MainSchemeState = state.mainScheme): number {
   const card = mustCard(state, scheme.cardId);
-  return card.type === "main_scheme" ? card.stages.length : 0;
+  if (card.type !== "main_scheme") return 0;
+  return scheme.stageOrder?.length ?? card.stages.length;
+}
+
+/**
+ * Where a main scheme's current stage sits in its deck, from 1 (`mainSchemeStageCount` is the last): its place in the
+ * walk order when it has one, else its index in the card. What "stage N of M" shows; the printed number is the
+ * stage's own `stageNumber`.
+ */
+export function mainSchemeStagePosition(state: GameState, scheme: MainSchemeState = state.mainScheme): number {
+  const at = scheme.stageOrder?.indexOf(scheme.stageIndex) ?? -1;
+  return (at >= 0 ? at : scheme.stageIndex) + 1;
 }
 
 /** A minion in play: a minion card, or a card facedown as a minion (a facedown Drone). */
