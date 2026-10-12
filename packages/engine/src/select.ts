@@ -2815,6 +2815,23 @@ export function resolveValue(
       const filter = value.filter;
       return filter ? hand.filter((id) => matchesQuery(state, id, filter, { ...context, deps })).length : hand.length;
     }
+    case "zoneCount": {
+      // The cards a `CardSelector zone` of the same zones, players and filter names (`resolve/cards.ts`).
+      const zones = typeof value.zone === "string" ? [value.zone] : value.zone;
+      const filter = value.filter;
+      let total = 0;
+      for (const playerId of resolvePlayers(state, value.player, context)) {
+        const player = getPlayer(state, playerId);
+        if (!player) continue;
+        for (const name of zones) {
+          const zone = name === "hand" ? player.hand : name === "deck" ? player.deck : player.discard;
+          total += filter
+            ? zone.filter((id) => matchesQuery(state, id, filter, { ...context, deps })).length
+            : zone.length;
+        }
+      }
+      return total;
+    }
     case "largestHandTypeGroup": {
       // docs/phase7-wave7.md §3.32. A tie between types gives the same number, so no choice is asked.
       const [playerId] = resolvePlayers(state, value.player, context);

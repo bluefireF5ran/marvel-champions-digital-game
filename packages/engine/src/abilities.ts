@@ -3430,6 +3430,28 @@ export interface AbilityDefinition {
   /** Resource abilities only: "generate a [wild] resource for an event" — usable only while paying for a matching card. */
   readonly generatesFor?: TargetQuery;
   /**
+   * Resource abilities only: "Resource: Generate a [energy] resource **to overpay for a card**. (Limit once per card.)"
+   * (Mr. Hollywood, `wonder_man` 58009; docs/phase7-wave10-hero-packs.md H3.14). What the ability generates may join a
+   * payment only as overpayment. RRG 1.8 "Cost" (p. 13): "Resources generated beyond the specified cost are considered
+   * to have been overpaid for that cost and were not paid for that cost."
+   *
+   * - **Never toward the cost.** The rest of the payment must cover the whole cost by itself (`pricePlay` judges the
+   *   payment without these resources); a payment that needs them to reach the cost is refused with
+   *   `insufficient_resources`. At a cost of 0 the ability alone is a legal payment.
+   * - **Always overpaid.** They are in `overpaid.total` and in `overpaid.<type>` (a wild in every type, which the
+   *   player may name it as: January 17, 2026 - Ruling 4 (1)), and in `paid.total` / `paid.<type>`, which count
+   *   everything the payment generated. They are in none of the views of what was paid for the cost: `paid.count`,
+   *   `paid.as.<type>`, `paid.cards.*`, the X of a "spend X resources" cost, a chosen-size cost's size.
+   * - **Only while a card is being played** (owner decision, 2026-10-12, hero-packs Q20 = A): the ability is not
+   *   offered for, and is refused in, any other payment (an ability's cost, an obligation's "spend … resources", a
+   *   basic power's or a form change's additional cost), which is where "overpaid for this card" is never read.
+   * - The ability is otherwise a resource ability like any other: its own cost, form, `while`, limit and
+   *   `generatesFor` apply, and it is announced as generated (`resourcesGenerated`) with the payment.
+   *
+   * Not read on a `whenSpent` trigger (a card spent from hand generates toward the cost by the rules of spending it).
+   */
+  readonly overpayOnly?: true;
+  /**
    * Star-Lord, "What could go wrong?" (`stld` 17001a): "Interrupt: When you play a card from your hand, deal yourself 1
    * facedown encounter card → reduce the cost to play that card by 3. (Limit once per round.)" On an `interrupt` trigger
    * (its printed timing, `on: cardBeingPlayed`), this makes it a cost modifier the player opts into while playing a card

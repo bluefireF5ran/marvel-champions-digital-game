@@ -1517,6 +1517,14 @@ export interface PaymentSource {
    * §3.46 (c)). Its option id is a hand card's; choosing it discards it from under its host. Absent for a card in hand.
    */
   readonly tuckedUnder?: InstanceId;
+  /**
+   * This `resourceAbility` source generates "to overpay for a card" (`AbilityDefinition.overpayOnly`, Mr. Hollywood;
+   * docs/phase7-wave10-hero-packs.md H3.14): its `pool` never counts toward `requirement`, so the other sources
+   * selected must cover the cost by themselves, and everything in `pool` is overpaid. Listed only while a card is
+   * being played. `suggested` never holds it (the smallest working payment has no use for it); a selection that needs
+   * it to reach the cost is refused by `tryPayment` with `insufficient_resources`.
+   */
+  readonly overpayOnly?: true;
 }
 
 export interface PaymentQuery {
@@ -1856,6 +1864,7 @@ export function paymentFor(
           ),
           ...(costChoices ? { costChoices } : {}),
           ...(costSelection ? { costSelection } : {}),
+          ...(deps.abilities[option.ref.abilityId]?.overpayOnly ? { overpayOnly: true as const } : {}),
         },
       ];
     },

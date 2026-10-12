@@ -247,6 +247,13 @@ export const forcedAction = (...args: Args): AbilityDefinition => {
  * card from the game and the campaign pool." (War Cry, `mut_gen` 32180); "… You may flip this card." (Psi-Knife,
  * `psylocke` 41002a). The card paid for is slot `paidFor` ("That event deals 1 additional damage", Cybernetic Arm).
  * docs/phase7-wave4.md §3.30.
+ *
+ * `overpayOnly`: "Resource: Generate a [energy] resource **to overpay for a card**. (Limit once per card.)" (Mr.
+ * Hollywood, `wonder_man` 58009; docs/phase7-wave10-hero-packs.md H3.14) is `resource({ energy: 1 }, { overpayOnly:
+ * true, limit: oncePerPaidCard })`. The resource never goes toward the cost: the rest of the payment must cover it,
+ * and a payment that needs this resource to reach the cost is refused. It is always overpaid (`overpaid.total`,
+ * `overpaid.<type>`), which is what "for each [energy] resource you overpaid for this card" reads. Offered only while
+ * a card is being played (hero-packs Q20 = A), never for an ability's cost. RRG 1.8 "Cost" (p. 13).
  */
 export const resource = (
   generates: ResourceGeneration,
@@ -258,10 +265,12 @@ export const resource = (
     readonly repeatable?: boolean;
     /** Spent, not generated: "after … generates resources" does not see it (docs/phase7-wave5.md §4.1 Q5). */
     readonly spentAsIfResource?: boolean;
+    /** "… to overpay for a card": never toward the cost, always overpaid (hero-packs H3.14). */
+    readonly overpayOnly?: boolean;
   } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => {
-  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, ...rest } = options;
+  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, overpayOnly, ...rest } = options;
   const definition = build(
     {
       kind: "resource",
@@ -275,7 +284,7 @@ export const resource = (
     effects,
     generates,
   );
-  return generatesFor ? { ...definition, generatesFor } : definition;
+  return { ...definition, ...(generatesFor ? { generatesFor } : {}), ...(overpayOnly ? { overpayOnly: true } : {}) };
 };
 /**
  * "Interrupt: When you spend this card, [cost] → generate …" on a card spent from hand (Organizational Support, `aos`
@@ -316,7 +325,7 @@ export const countersAsResource = (counterType: string, generates: ResourceGener
 /** "Hero Resource:" */
 export const heroResource = (
   generates: ResourceGeneration,
-  options: AbilityOptions & { readonly generatesFor?: TargetQuery } = {},
+  options: AbilityOptions & { readonly generatesFor?: TargetQuery; readonly overpayOnly?: boolean } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => resource(generates, { ...options, form: "hero" }, ...effects);
 

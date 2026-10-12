@@ -222,6 +222,7 @@ import {
   requirementTotal,
   satisfies,
   scalePool,
+  RESOURCE_TYPES,
   TYPED_RESOURCES,
   wildDeclarationFault,
   wildDeclarations,
@@ -1762,6 +1763,64 @@ function repeatUsesFault(
 /** Most uses the payment options offer for one `repeatable` resource ability (a safety cap, not a rule). */
 const MAX_REPEAT_OPTIONS = 20;
 
+/**
+ * Whether a payment is made to play a card, which is the only payment a resource "to overpay for a card" joins
+ * (`AbilityDefinition.overpayOnly`; owner decision, 2026-10-12, hero-packs Q20 = A). `excludeInstanceId` is the card
+ * being played, which "cannot pay for itself", and `payingFor` the card its cost is for: `pricePlay` and the queries
+ * that price a play give both. An ability's cost, a basic power's and a form change's additional costs name no played
+ * card, and a "(thwart)" event's additional cost to thwart is paid for no card.
+ */
+const isPlayPayment = (excludeInstanceId: InstanceId | null, payingFor: InstanceId | null): boolean =>
+  excludeInstanceId !== null && payingFor !== null;
+
+/** A resource ability whose resources may only be overpaid (`AbilityDefinition.overpayOnly`). */
+const overpaysOnly = (deps: EngineDeps, abilityId: string): boolean => {
+  const definition = deps.abilities[abilityId];
+  return definition?.overpayOnly === true && definition.trigger.kind === "resource" && !definition.trigger.whenSpent;
+};
+
+const OVERPAY_ONLY_FAULT: PriceFault = {
+  code: "no_valid_target",
+  message: "a resource generated to overpay for a card is used only while playing a card",
+};
+
+/**
+ * The part of a payment's pool that can only be overpaid: what its `overpayOnly` resource abilities generate, counted
+ * as `priceOf` counts them. RRG 1.8 "Cost" (p. 13): overpaid resources "were not paid for that cost", so this part is
+ * left out of whatever judges the cost paid (`payingPool`) and is added to the `overpaid.*` vars (`pricePlay`).
+ */
+export function overpayOnlyPool(
+  ctx: Ctx,
+  playerId: PlayerId,
+  payment: readonly Payment[],
+  payingFor: InstanceId | null,
+): ResourcePool {
+  let pool = EMPTY_POOL;
+  for (const entry of payment) {
+    if (!("ability" in entry) || !overpaysOnly(ctx.deps, entry.ability.abilityId)) continue;
+    const spender = resourceSpender(ctx.state, ctx.deps, entry.ability.instanceId, entry.ability.abilityId, playerId);
+    const top = mustPlayer(ctx.state, spender).discard[0] ?? null;
+    const generated = resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, top, payingFor);
+    pool = addPools(pool, paidForMultiplied(ctx.state, ctx.deps, payingFor, generated, spender));
+  }
+  return pool;
+}
+
+/** A priced payment's pool less the part that can only be overpaid: the resources that may go toward the cost. */
+function payingPool(pool: ResourcePool, overpayOnly: ResourcePool): ResourcePool {
+  return {
+    physical: pool.physical - overpayOnly.physical,
+    mental: pool.mental - overpayOnly.mental,
+    energy: pool.energy - overpayOnly.energy,
+    wild: pool.wild - overpayOnly.wild,
+  };
+}
+
+/**
+ * Everything a payment generates, or why it is not a payment. The pool includes what its `overpayOnly` resource
+ * abilities generate, which may not go toward the cost: a caller that judges a cost paid subtracts `overpayOnlyPool`
+ * (`pricePlay`), or asks `priceOrNull`, which already has.
+ */
 export function priceOf(
   ctx: Ctx,
   playerId: PlayerId,
@@ -1858,6 +1917,7 @@ export function priceOf(
     const choices = entry.ability.costChoices ?? {};
     const fault = resourceAbilityFault(ctx.state, ctx.deps, instanceId, abilityId, playerId, payingFor, group, choices);
     if (fault) return fault;
+    if (overpaysOnly(ctx.deps, abilityId) && !isPlayPayment(excludeInstanceId, payingFor)) return OVERPAY_ONLY_FAULT;
     const plan = resourceCostPlan(ctx.state, ctx.deps, entry.ability, spender);
     if (isFault(plan)) return plan;
     for (const id of cardsSpentByResourceCost(ctx.deps, entry.ability, plan)) {
@@ -1886,7 +1946,11 @@ export function priceOf(
   return pool;
 }
 
-/** The resource pool a payment is worth, or null if it is not a legal payment at all. */
+/**
+ * The resource pool a payment is worth toward a cost, or null if it is not a legal payment at all. Every caller asks
+ * whether a payment can cover something, so what can only be overpaid (`overpayOnlyPool`) is left out: it covers
+ * nothing (RRG 1.8 "Cost", p. 13).
+ */
 export function priceOrNull(
   ctx: Ctx,
   playerId: PlayerId,
@@ -1895,7 +1959,7 @@ export function priceOrNull(
   payingFor: InstanceId | null = excludeInstanceId,
 ): ResourcePool | null {
   const priced = priceOf(ctx, playerId, payment, excludeInstanceId, payingFor);
-  return isFault(priced) ? null : priced;
+  return isFault(priced) ? null : payingPool(priced, overpayOnlyPool(ctx, playerId, payment, payingFor));
 }
 
 /** Every resource a player could spend right now, as fully described choice options. */
@@ -1983,6 +2047,8 @@ export function paymentOptions(
       const trigger = ctx.deps.abilities[ref.id]?.trigger;
       if (trigger?.kind !== "resource") continue;
       if (!controlled && trigger.forAnyPlayer !== true && !group) continue;
+      // A resource "to overpay for a card" is offered only while a card is being played (`isPlayPayment`).
+      if (overpaysOnly(ctx.deps, ref.id) && !isPlayPayment(excludeInstanceId, payingFor)) continue;
       const spender = resourceSpender(ctx.state, ctx.deps, id, ref.id, playerId);
       // A cost that picks cards in play: one option per legal pick, so each shows what it generates (Sync Ratio).
       const pickChoices = resourcePickChoices(ctx.state, ctx.deps, id, ref.id, spender);
@@ -4611,17 +4677,24 @@ export function pricePlay(
     xValue,
     extraReduction,
   );
-  const pool = priceOf(ctx, playerId, payment, cardInstanceId, plan.payingFor ?? cardInstanceId);
-  if (isFault(pool)) return pool;
+  const payingFor = plan.payingFor ?? cardInstanceId;
+  const everything = priceOf(ctx, playerId, payment, cardInstanceId, payingFor);
+  if (isFault(everything)) return everything;
+  // A resource generated "to overpay for a card" (`AbilityDefinition.overpayOnly`; hero-packs H3.14) is no part of
+  // what pays: the rest of the payment (`pool`) covers the cost, is read for what was paid, and sizes an X or a chosen
+  // size. RRG 1.8 "Cost" (p. 13): overpaid resources "were not paid for that cost".
+  const overpayOnly = overpayOnlyPool(ctx, playerId, payment, payingFor);
+  const pool = payingPool(everything, overpayOnly);
   if (!satisfies(pool, requirement)) {
+    const covers = `Needs ${describeRequirement(requirement)}; the payment covers ${poolTotal(pool)}`;
     return {
       code: "insufficient_resources",
-      message: `Needs ${describeRequirement(requirement)}; the payment covers ${poolTotal(pool)}.`,
+      message: poolTotal(overpayOnly) > 0 ? `${covers} without the resources that can only be overpaid.` : `${covers}.`,
     };
   }
-  const vars = resourceVars(pool, plan.cost ?? cost, requirement, selection.resources);
-  if (isFault(vars)) return vars;
-  const payingFor = plan.payingFor ?? cardInstanceId;
+  const paidVars = resourceVars(pool, plan.cost ?? cost, requirement, selection.resources);
+  if (isFault(paidVars)) return paidVars;
+  const vars = withOverpayOnly(paidVars, overpayOnly);
   const paidCards = cardsThatPaid(ctx, playerId, payment, payingFor, pool, requirement, plan.cost ?? cost, vars);
   const settled = settlePaidTypes(
     pool,
@@ -4638,7 +4711,28 @@ export function pricePlay(
     paidTypes.wildAs,
   );
   if (isFault(settled)) return settled;
-  return { pool, plan, ...settled, ...(paidCards.length > 0 ? { paidCards } : {}) };
+  return { pool: everything, plan, ...settled, ...(paidCards.length > 0 ? { paidCards } : {}) };
+}
+
+/**
+ * Adds the resources that can only be overpaid (`overpayOnlyPool`) to a payment's vars, which `resourceVars` read from
+ * the rest of the payment. They are overpaid whatever else the payment holds: `overpaid.total`, and `overpaid.<type>`
+ * for their own type, a wild counting toward every type as it does in `overpaidVars` (the player names it: ruling
+ * January 17, 2026 - Ruling 4 (1)). `paid.total` and `paid.<type>` count everything the payment generated, so they
+ * grow by the same; `paid.count`, the resources the cost took, does not.
+ */
+function withOverpayOnly(vars: Vars, overpayOnly: ResourcePool): Vars {
+  const total = poolTotal(overpayOnly);
+  if (total === 0) return vars;
+  const out: Record<string, number> = { ...vars };
+  const add = (key: string, n: number): void => {
+    out[key] = (out[key] ?? 0) + n;
+  };
+  add("paid.total", total);
+  add("overpaid.total", total);
+  for (const type of RESOURCE_TYPES) add(`paid.${type}`, overpayOnly[type]);
+  for (const type of TYPED_RESOURCES) add(`overpaid.${type}`, overpayOnly[type] + overpayOnly.wild);
+  return out;
 }
 
 /**

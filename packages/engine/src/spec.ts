@@ -1158,6 +1158,25 @@ export type ValueSpec =
    * have. "Reveal the top card of the labor deck" has nothing to reveal at 0 (docs/phase7-wave10-hero-packs.md H3.2).
    */
   | { readonly kind: "deckCount"; readonly player: PlayerRef; readonly separateDeck?: string }
+  /**
+   * The cards in a player's own out-of-play zones (`PlayerZone`: hand, deck, discard pile), optionally only those
+   * matching `filter`: "tuck 1 event with a printed [energy] resource from your discard pile" can be done while
+   * `{ zone: "discard", player: you, filter: … }` is at least 1 (Wonder Fans, `wonder_man` 58007; RRG 1.8 "Choose
+   * (Option)", p. 12: an option that cannot be done is not chosen). The number of cards a `CardSelector zone` with
+   * the same `zone`, `player` and `filter` names: several zones are one pool, and every player the ref names is
+   * counted. `handCount` and `deckCount` are the one-zone, one-player cases that came first; `exists` and `count`
+   * read cards in play and cannot see these zones.
+   *
+   * Read live every time the value is resolved. The filter is asked of the cards as they are, which for a deck means
+   * cards no player may look at: use it on a deck only where the text has the deck searched or looked at (a count of
+   * the whole deck, with no filter, is public: RRG 1.8 "Deck", p. 14).
+   */
+  | {
+      readonly kind: "zoneCount";
+      readonly zone: PlayerZone | readonly PlayerZone[];
+      readonly player: PlayerRef;
+      readonly filter?: TargetQuery;
+    }
   /** Distinct printed resource types among cards ("for each different resource type discarded this way"). Wild counts as its own type. */
   | { readonly kind: "resourceTypes"; readonly cards: TargetRef }
   /**

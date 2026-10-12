@@ -15,6 +15,7 @@ import type {
   CharacterNames,
   Form,
   PlayerRef,
+  PlayerZone,
   Predicate,
   ResourceRequirement,
   RulesCardType,
@@ -809,6 +810,20 @@ export const handCountOf = (player: PlayerRef = you, filter?: TargetQuery): Valu
   player,
   ...(filter ? { filter } : {}),
 });
+/**
+ * The cards in a player's hand, deck or discard pile (or several of them as one pool), optionally only those matching
+ * `filter`: what a `zone(zone, player, { filter })` selector would name, as a number. "Tuck 1 event with a printed
+ * [energy] resource from your discard pile" (Wonder Fans, `wonder_man` 58007) can be done while
+ * `valueAtLeast(zoneCountOf("discard", you, query("event", { printedResource: "energy" })), 1)`, which is the `when:`
+ * of that option (RRG 1.8 "Choose (Option)", p. 12). `exists` and `countOf` read cards in play and cannot see these
+ * zones; `handCountOf` and `deckCountOf` are the one-zone forms that came first. With a filter on a deck it reads
+ * cards no player may look at: use it there only where the text has the deck searched.
+ */
+export const zoneCountOf = (
+  zone: PlayerZone | readonly PlayerZone[],
+  player: PlayerRef = you,
+  filter?: TargetQuery,
+): ValueSpec => ({ kind: "zoneCount", zone, player, ...(filter ? { filter } : {}) });
 /**
  * "X is the number of cards of the most common type in your hand" (Stryfe, `next_evol`; docs/phase7-wave7.md §3.32):
  * the size of the largest group of cards in that player's hand sharing one of the six player card types MC40 p. 18

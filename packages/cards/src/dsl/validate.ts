@@ -667,6 +667,15 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
     else if (definition.limit.count > 1 && !trigger.repeatable)
       problems.push("a resource ability used more than once per card paid for must be repeatable");
   }
+  // docs/phase7-wave10-hero-packs.md H3.14: "generate a resource to overpay for a card" is read in a payment, from a
+  // resource ability on a card in play that generates (a card spent from hand, or a counter spent "as if it were a
+  // resource", goes toward the cost by its own rule).
+  if (definition.overpayOnly) {
+    if (trigger.kind !== "resource") problems.push("overpayOnly is a resource ability's");
+    else if (trigger.whenSpent) problems.push("a when-spent ability generates with its card: it cannot be overpayOnly");
+    else if (trigger.spentAsIfResource)
+      problems.push("a counter spent as if it were a resource is not generated: it cannot be overpayOnly");
+  }
   // docs/phase7-wave7.md §3.50: the engine reads a constant's stat modifiers, trait grants, keyword grants and
   // `activeRules` rules from the victory display, and nothing else from there.
   if (definition.activeIn === "victoryDisplay") {
