@@ -25,6 +25,9 @@ Started 2026-10-11.
   notes are updated with it, so any session can resume from GitHub alone.
 - **Tools on this machine (Windows):** `node` is on the PATH; if `pnpm` is not, run it as
   `C:/Users/quinc/scoop/shims/mise.exe exec -- pnpm …`. Files are checked out CRLF.
+- **Reading rulebook pages:** the Read tool cannot open PDF pages here (no poppler). Render them to PNGs and read
+  those: `uv run docs/extract_pages.py docs/campaign-modes/mc56_rulebook-web_1.pdf -p 1-20 --dpi 110 -o <scratch dir>`.
+  The Markdown transcription jumbles card callouts into the rules text, so check a rule against the page image.
 
 ## The push hook
 
@@ -82,7 +85,9 @@ the scenario setup that the builder passes (`cooperative` today, `competitive` r
 and "enemy team" / "your leader" resolution written against a team count rather than hard-wired to one team, and
 tests for each piece. Every "In competitive mode" clause still has to read correctly in cooperative play.
 
-**Hero packs:** Wonder Man and Hercules, each one hero with a nemesis set and a modular set (the data survey lists them).
+**Hero packs:** Wonder Man (a nemesis set and no modular set) and Hercules (a nemesis set, the All Versus All set, and
+Gift and Labor decks that only his insert defines). The inserts are one-sheet pictures linked from the sources page.
+Two cards need their errata applied when emitted: Energy Channel 56098 and Ionic Physiology 58002.
 
 Already in the repo: raw MarvelCDB caches `packages/content/raw/marvelcdb/{cw,wonder_man,hercules}.json`; hero art
 waiting in `art/heroes/_pending/{56001a-tigra,56029a-hulkling,59001a-hercules}/`.
@@ -104,3 +109,7 @@ Civil War". Files go to `music/scenarios/_pending/<scenario id>/` until the scen
 - **2026-10-11, first session.** Branch and draft PR opened. Music prompts written. Three agents started side by side,
   each writing one doc: sources (`content-release-tracker`), data survey (`card-data-pipeline`), spec pass 1a, Civil
   War in cooperative play (`game-rules-architect`).
+- **Same session, later.** Owner answered question 1 (competitive mode: not now, a "coming soon" notice, scaffolding).
+  A fourth agent wrote `docs/competitive-mode-plan.md` (15 build-now tasks in its §4, 17 open questions in its §1.9;
+  its Q1 and Q2 are about cooperative play and go to the owner through the spec's §4). The sources page is in; its §10
+  questions are the PR's questions 2 to 5. The owner runs up to four agents at once on this PC.
