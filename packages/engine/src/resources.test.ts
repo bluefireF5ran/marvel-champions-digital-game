@@ -250,6 +250,19 @@ describe("typed costs and payment", () => {
     });
   });
 
+  it("discards a payment's hand cards in the order the payment lists them, so the last is left on top", () => {
+    // RRG 1.8 "Discard" (p. 16): the player chooses the order of cards one effect discards from their hand; the
+    // payment's order is that choice, and what "the top card of your discard pile" (Pepper Potts) reads next.
+    const support = stubSupport({ id: "two-cost", cost: 2 });
+    const { deps, state } = setup([support]);
+    const given = giveCards(state, p1, "two-cost", "energy", "mental");
+    const [supportId, energyId, mentalId] = given.ids as [InstanceId, InstanceId, InstanceId];
+    const energyLast = runWith(deps, given.state, play(supportId, hand(mentalId, energyId)));
+    expect(mustPlayer(energyLast, p1).discard.slice(0, 2)).toEqual([energyId, mentalId]);
+    const mentalLast = runWith(deps, given.state, play(supportId, hand(energyId, mentalId)));
+    expect(mustPlayer(mentalLast, p1).discard.slice(0, 2)).toEqual([mentalId, energyId]);
+  });
+
   it("Pepper Potts copies the discard pile as it stood before the payment, never a card that payment spends", () => {
     // FAQ "Pepper Potts (#33)", RRG 1.8 p. 58: resources are generated simultaneously, so a card being spent is not
     // yet on top of the discard pile when Pepper generates — whatever order the payment lists them in.
