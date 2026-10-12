@@ -20,7 +20,7 @@ expansion, the _Wonder Man Hero Pack_, and the _Hercules Hero Pack_." Packs: `cw
 | ------ | ----------------------------------------------------------------------------------------------------- | ----------- |
 | **1a** | **Civil War in cooperative play: leaders, custom and random scenarios, the four preconstructed ones** | **written** |
 | 1b     | Tigra, Hulkling, their nemesis sets and the box's aspect and basic player cards                       | not written |
-| 1c     | Competitive mode (MC56 pp. 14–17): the plan and the scaffolding task list; not shipped in this wave   | not written |
+| 1c     | Competitive mode (MC56 pp. 14–17), not shipped: `competitive-mode-plan.md` and its scaffolding tasks  | plan exists |
 | 2      | Wonder Man (`wonder_man`), Hercules (`hercules`)                                                      | not written |
 | 3      | The owner's answers written in and reconciled; §8 extended to the whole wave                          | not written |
 
@@ -29,42 +29,44 @@ expansion, the _Wonder Man Hero Pack_, and the _Hercules Hero Pack_." Packs: `cw
   creation (p. 5), playing a custom scenario cooperatively (p. 6), the four preconstructed scenarios (pp. 7–8), the
   featured terms and keywords (p. 9), the four leaders (16 stage cards) and their 10-card sets, the 16 main scheme
   cards, the 16 modular sets, and how every "enemy team", "your team", "your leader" and "In competitive mode" clause
-  reads in a cooperative game. Sections 0, 1.1–1.10, 2.1–2.6, 3.1–3.23, questions 1 and 6–13 (2–5 are the sources page's and the hero packs'), §5, §7 and §8.
+  reads in a cooperative game. Sections 0, 1.1–1.10, 2.1–2.6, 3.1–3.23, questions 1 and 6–13 (2–5 are the sources
+  page's and the hero packs'), §5, §7 and §8.
 - **Two counts in the brief and the handoff page are low.** The box has **16 modular sets, eight per side**, and **16
   main scheme cards, eight per side** (four stage 1 and four stage 2 each): MC56 p. 3 lists "8 Main Schemes" and "8
   Modular Encounter Sets" under "Each side has the following content", and the raw cache has 16 `modular` sets of
   exactly 5 cards and 16 `main_scheme` records. `docs/phase7-wave10-handoff.md` says "eight 5-card modular sets (four
   per side)"; the main session should correct it.
 - **MC56 pp. 10–13 carry no rules.** They are a four-page comic (pages 10 and 11 were read as images; pages 12 and 13
-  give no text to `pdftotext` and the transcription marks them as full-page art). The featured terms and keywords are
-  all on p. 9.
+  were read the same way). The featured terms and keywords are all on p. 9.
 - **Owner decision, 2026-10-11 (question 1 = A, with an addition).** Competitive mode does not ship in this wave. The
   client says "Competitive mode coming soon" wherever a player would look for it (the Civil War scenario builder, the
   box's "New in this box" page), and scaffolding is built now so the mode drops in later: the setup carries a game
   mode (`cooperative` today; `competitive` refused with a clear message, §3.4), and "the enemy team", "your team" and
-  "your leader" resolve against the game's teams, not against a hard-wired single team (§3.5, §3.6). Pass 1c holds the
-  plan (`docs/competitive-mode-plan.md`) and the scaffolding task list.
+  "your leader" resolve against the game's teams, not against a hard-wired single team (§3.5, §3.6). The plan and the
+  scaffolding task list are `docs/competitive-mode-plan.md` (its §4, tasks 1 to 15); **this spec uses that page's
+  names and does not define a second design**: §3.4 to §3.6 say what the cooperative scripts need from it.
 - **Not in this pass** (placeholders in §6): Tigra (56001a/b–56009), her obligation 56023 and nemesis set
   56024–56028, Hulkling (56029a/b–56040), his obligation 56054 and nemesis set 56055–56058, the aspect and basic cards
   (56010–56022, 56041–56053); competitive mode, the Standard PvP set (56125–56128, printed twice as 56203–56206) and
   the sixteen leader-specific player cards (56129–56136, 56207–56214), all "used only when playing in competitive
   mode" (MC56 p. 3); the two hero packs.
 - **Data state (2026-10-11, HEAD 57141e32):** `cw` and `hercules` are raw cache only; `wonder_man` is emitted, data
-  only. Nothing of this wave is scripted. Two sibling pages are being written alongside this one and did not exist
-  when it was: `docs/phase7-wave10-sources.md` (where every source lives) and `docs/phase7-wave10-data-survey.md`
-  (what the normalizer does with `cw`). Where §1 says "the survey confirms", that check is still owed.
+  only. Nothing of this wave is scripted. `docs/phase7-wave10-sources.md` (where every source lives; its §7.2 lists
+  the ruling conflicts and its §10 the owner questions 1 to 5) and `docs/competitive-mode-plan.md` were written
+  alongside this pass. `docs/phase7-wave10-data-survey.md` (what the normalizer does with `cw`) did not exist yet:
+  where §1 says "the survey confirms", that check is still owed.
 
 ## 0. Sources
 
-| Source                                                               | What it is used for                                                                |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `docs/campaign-modes/mc56_rulebook-web_1.pdf` ("MC56 p. N")          | The box's rules. Pages 3–9, 14 and 20 read as text; 9, 10 and 11 read as images    |
-| `docs/campaign-modes/markdown/mc56_civil_war.md`                     | A pointer only (the card callouts are jumbled); pages 15–17 skimmed for pass 1c    |
-| `packages/content/raw/marvelcdb/cw.json`                             | 214 records under `cards` (the top level is an object: `source`, `pack`, `cards`)  |
-| `mc_rulesreference_v18_compressed.pdf` / `.md` ("RRG p. N")          | Leader (p. 26), Teamwork (p. 43), Unique Icon (pp. 45–46), errata (p. 70), p. 71   |
-| `marvel-champions-rulings-post-rrg-1-7.md` (cited by date heading)   | Dec 17, 2025 R2; Jan 11, 2026 R1 and R2; Jan 26, 2026 R5; Jun 2, 2026 R4; Jul 9 R3 |
-| `docs/phase7-wave2.md` §6.3                                          | The leader and competitive schema already landed (2026-09-18)                      |
-| `docs/phase7-wave10-sources.md`, `docs/phase7-wave10-data-survey.md` | Sibling pages, not yet written when this pass was                                  |
+| Source                                                             | What it is used for                                                                 |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `docs/campaign-modes/mc56_rulebook-web_1.pdf` ("MC56 p. N")        | The box's rules. Pages 3–9, 14 and 20 read as text; 5 and 9–13 read as images       |
+| `docs/campaign-modes/markdown/mc56_civil_war.md`                   | A pointer only (the card callouts are jumbled); pages 15–17 skimmed for pass 1c     |
+| `packages/content/raw/marvelcdb/cw.json`                           | 214 records under `cards` (the top level is an object: `source`, `pack`, `cards`)   |
+| `mc_rulesreference_v18_compressed.pdf` / `.md` ("RRG p. N")        | Leader (p. 26), Teamwork (p. 43), Unique Icon (pp. 45–46), errata (p. 70), p. 71    |
+| `marvel-champions-rulings-post-rrg-1-7.md` (cited by date heading) | Dec 17, 2025 R2; Jan 11, 2026 R1 and R2; Jan 26, 2026 R5; Jun 2, 2026 R4; Jul 9 R3  |
+| `docs/phase7-wave2.md` §6.3                                        | The leader and competitive schema already landed (2026-09-18)                       |
+| `docs/phase7-wave10-sources.md`, `docs/competitive-mode-plan.md`   | Sibling pages: sources, ruling conflicts, owner questions 2–5; the competitive plan |
 
 - **How the PDF was read.** The Read tool's PDF renderer is not installed on this machine. Text came from
   `pdftotext -f N -l N` and page images from the repo's own `docs/extract_pages.py` (pymupdf through `uv`). Page
@@ -124,7 +126,8 @@ a chosen order through such a card (`MainSchemeState.stageOrder`, §3.2). Asked 
   re-emit. Required on every stage of a card that has two stages of one number.
 - **Per-player icons lost in the raw text.** Every stage 1B reads "this stage gains hinder 2." and three B faces read
   "for 1 minions" / "for 1 side schemes" in the cache; the rulebook's own reproductions print "hinder 2[per_hero]" and
-  "1[per_hero] minions" (MC56 p. 15, Cut Off Support and Gathering Support). The icon was dropped by the source. §8.1
+  "1[per_hero] minions" (MC56 p. 5, Gathering Support, read from the page image; also p. 15). The source dropped the
+  icon. §8.1
   item 2 has the data agent read the sixteen scans and restore it.
 - **Values.** Stage 1: starting threat 0, target 7 per player, acceleration +1 per player. Stage 2: 0, 9 per player,
   +1 per player; all eight stage 2s print "If this stage is completed, the players lose the game."
@@ -197,9 +200,11 @@ scripted once, both ids registered to one ability module. "A copy of Unregistere
 
 ### 1.9 Game mode (new, engine and cards)
 
-`GameSetupConfig.gameMode?: "cooperative" | "competitive"` (absent = cooperative), carried to `GameState.gameMode`.
-`createGame` refuses `"competitive"` with the message "Competitive mode is not available yet." §3.4 has the shape and
-why it is its own field and not a `PlayModes` flag.
+`GameSetupConfig.gameMode?: "cooperative" | "competitive"` (absent = cooperative). `createGame` refuses
+`"competitive"` with the error code `mode_unavailable` and the message "Competitive mode is coming soon. Play this
+scenario cooperatively for now." (`docs/competitive-mode-plan.md` §4 task 1). It is its own field and not a
+`PlayModes` flag: `PlayModes` describes how hard one table's game is, and a competitive game is two tables with a
+mode each.
 
 ### 1.10 Corrections the data agent owes for this box
 
@@ -240,8 +245,8 @@ core set.)", so the deck is 10 + 20 + 7 = 37 cards before obligations in standar
 - I: 1 SCH, 1 ATK, 12 per player. II: Steady, 1/2, 16. III: 1/2, 16. IV: Steady, 1/3, 20.
 - Every stage: "+1 SCH for each Tech attachment on him (to a maximum of +3 SCH)".
 - I "Setup: The enemy team searches the encounter deck for an Iron Man attachment and your team reveals it." Five
-  candidates (56065–56069); who picks is question 6. III prints the same sentence under "When Revealed" in the cache
-  (question 8).
+  candidates (56065–56069); who picks is question 6. III prints the same Setup; the cache's "When Revealed" is a
+  transcription error (question 8, closed).
 - II and IV "When Revealed: Deal each player an encounter card. Iron Man cannot take damage this phase."
 - 1A Setup then reveals Stark Tower 56072 (3 threat, a hazard icon).
 
@@ -404,25 +409,21 @@ existing primitive needs one more case); **new**. Searches that found nothing ar
   decision of 2026-10-11.
 - **Exists.** `Predicate inMode("standard" | "expert")` and `PlayModes` (difficulty and its variants). Nothing knows
   a team. Searches that found nothing: `competitive` in `setup.ts` and `state.ts`, `team` in `spec.ts`.
-- **Shape.**
-  - `GameSetupConfig.gameMode?: "cooperative" | "competitive"` and `GameState.gameMode` (absent = cooperative, so old
-    saves load). It is not a `PlayModes` flag: `PlayModes` describes how hard one table's game is, and a competitive
-    game is two tables with a mode each.
-  - `createGame` throws on `"competitive"`: "Competitive mode is not available yet." The cards builder and
-    `playableScenario` pass the option through so the refusal has one home.
-  - `GameState.teams?: readonly { teamId; playerIds; leaderVillainId: InstanceId | null }[]`, absent = one team of
-    every player with no leader of its own. Three readers in one new module, `packages/engine/src/teams.ts`, and
-    nothing else reads the field: `teamOf(state, playerId)`, `enemyTeamOf(state, playerId)` and `leaderOf(state,
-playerId)`. With one team `enemyTeamOf` returns that same team (MC56 p. 6: "Any rule or ability that refers to
-    'the enemy team' refers to the players") and `leaderOf` returns null; with two it returns the other team and the
-    team's own leader (MC56 p. 20). Cooperative behavior is therefore the one-team case of a general rule, and
-    competitive mode later fills in `teams` without touching a script.
-  - `Predicate inGameMode("competitive")`, read from `GameState.gameMode`. A script writes the printed sentence in
-    full: `ifElse(inGameMode("competitive"), <competitive branch>, <cooperative branch>)`. Until pass 1c the
-    competitive branch is `competitiveOnly("printed text")`, a no-op effect the validator and the coverage test can
-    list, so nothing competitive is silently dropped.
-- **Tests.** `gameMode: "competitive"` → the exact message. Neighborhood Hero in a 3-player cooperative game: 2 + 6 =
-  8 threat. Spectacular!: 2 threat on the main scheme and nothing else. `enemyTeamOf` with no `teams`: all players.
+- **Shape.** Owned by `docs/competitive-mode-plan.md` §4, tasks 1, 2, 3 and 6, and built first (§8.2). What this
+  pass relies on:
+  - `GameSetupConfig.gameMode` (§1.9), stored on state only when it is not cooperative, so today's saves and replays
+    are unchanged. The Civil War builder takes the option and passes it, so the refusal has one home.
+  - `packages/engine/src/team.ts`: `teamsOf`, `teamOf`, `teamSize` over an optional `GameState.teams`; absent, one
+    derived team of every seat. Per-player values read `teamSize` of the card's team, which with one team is
+    `startingPlayerCount` (MC56 p. 20: "per player" applies only "to the players on your team").
+  - `inCompetitiveMode()` (`Predicate gameMode`). A script writes the printed sentence in full:
+    `ifElse(inCompetitiveMode(), <competitive branch>, <cooperative branch>)`. Cooperative behavior is the false
+    branch of a real condition, never a script that left the clause out; the plan's task 12 manifest lists every such
+    face (the thirteen of its §2.2) so none is dropped silently. Whether a competitive branch is written now or left
+    as a named stub is that task's call.
+- **Tests** (beyond the plan's own). Neighborhood Hero in a 3-player cooperative game: 2 + 6 = 8 threat. Spectacular!:
+  2 threat on the main scheme and nothing else. Drafted with a minion third from the top of the encounter deck: two
+  cards discarded, the minion revealed with +2 hit points and the Avenger trait.
 
 ### 3.5 "The enemy team" searches, chooses, attaches, exhausts
 
@@ -440,16 +441,17 @@ playerId)`. With one team `enemyTeamOf` returns that same team (MC56 p. 6: "Any 
   card's group choice is `chooser: firstPlayer` with `firstPlayerTargets` authority.
 - **Missing.** A chooser that means "the team opposing the resolving player", and a mark on the choice that it is
   made for the other side.
-- **Shape.** `PlayerRef { kind: "enemyTeamChooser" }`, DSL `theEnemyTeam`: resolved through `enemyTeamOf` (§3.4) to
-  that team's first player, which with one team is the game's first player. The choice it opens carries `onBehalfOf:
-"enemyTeam"`, logged with the choice, so the client can label it and question 6's answer (who really decides in a
-  cooperative game) changes one function (`resolveEnemyTeamChoice`), not the scripts. A search "the enemy team"
-  makes is an ordinary search with that chooser. Where there is one candidate there is no prompt (Energy Channel,
-  Cap's Shield, Finesse, a copy of Life Model Decoy).
-- **Tests.** Iron Man I's Setup with five attachments in the deck: one choice, `onBehalfOf: "enemyTeam"`, made by the
-  first player; the chosen card is revealed by "your team" (the first player reveals at setup) and attaches. Colleen
-  Wing against a player without Unregistered: that player chooses, no mark; with it: the mark. Daredevil with a
-  ready hero and a ready ally: the choice offers both.
+- **Shape.** Owned by the plan's §4 task 7: `"enemyTeam"` in `DecisionAuthority` (`choices.ts`) and
+  `enemyTeamDecider(state, context)`, which with one team is the first player and with two a seat of the other
+  team; the prompt line is "Choose as the enemy team would." The authority is on the pending choice and in the log,
+  so the client can label it, and question 6's answer (who really decides in a cooperative game) changes that one
+  function, not the scripts. A search "the enemy team" makes is an ordinary search with that authority. Where there
+  is one candidate there is no prompt (Energy Channel, Cap's Shield, Finesse, a copy of Life Model Decoy). "Your team
+  reveals it" (56059) is the resolving player's reveal.
+- **Tests.** Iron Man I's Setup with five attachments in the deck: one choice with the `enemyTeam` authority, made by
+  the first player; the chosen card is revealed (the first player reveals at setup) and attaches. Colleen Wing
+  against a player without Unregistered: that player chooses, ordinary authority; with it: the `enemyTeam`
+  authority. Daredevil with a ready hero and a ready ally: the choice offers both.
 
 ### 3.6 "Your leader", "the enemy leader", "your team" as references
 
@@ -467,19 +469,20 @@ playerId)`. With one team `enemyTeamOf` returns that same team (MC56 p. 6: "Any 
   `theVillain`. `playerOrElse`, `ifThen` and `choiceFoundNothing` give "Otherwise" for effects.
 - **Missing.** "Your leader" as a target of an effect (attack it, stun it, discard from it), and "your team" as a
   count.
-- **Shape.** `TargetRef { kind: "leader", of: "enemy" | "yours" }`, DSL `theEnemyLeader` / `yourLeader`, both
-  resolved through §3.4: `enemy` is the active villain of the resolving player's game area, `yours` is
-  `leaderOf(player)`, which names nothing with one team. `attachment-hosts.ts` moves onto the same reader. An effect
-  whose target names nothing does nothing and reports it, which is what "Otherwise" already reads
-  (`ifElse(exists(yourLeader), …, …)`). `ValueSpec teamPlayerCount` (the players of `teamOf(you)`) for "more than 1
-  player on your team"; with one team it equals the player count.
+- **Shape.** Owned by the plan's §4 tasks 4 and 5: `enemyLeaderOf` / `yourLeaderOf` in `team.ts` (the second is null
+  with one team), `TargetRef { kind: "leader", of: "yours" | "enemy" }` and `PlayerRef { kind: "team", of }`, DSL
+  `enemyLeader`, `yourLeader`, `yourTeam`, `enemyTeam`; `attachment-hosts.ts` moves onto the same readers. An effect
+  whose target names nothing does nothing, which is what "Otherwise" reads (`ifElse(exists(yourLeader), …, …)`). One
+  thing this pass adds to that list: a value for "more than 1 player on your team", the `teamSize` of the resolving
+  player's team as a `ValueSpec` (a count of `yourTeam` if that ref can be counted; the engine agent for the plan's
+  task 5 reports which).
 - **In a cooperative game, card by card** (§7 repeats this per row): Venom activates against you; Bullseye discards
   an upgrade you control; Iron Fist 56190 activates against you; Luke Cage stuns you, Jessica Jones confuses you;
   Tangled Up attaches to your identity; the boosts of Excessive Force 56090 and Iron Fist 56190 do nothing; Darkforce
   is question 11.
 - **Tests.** Venom revealed against a hero with 2 DEF and a tough card: he activates (attack: piercing discards the
-  tough card, 3 − 2 = 1 damage). Luke Cage's boost: the defending player is stunned. `yourLeader` with no `teams`
-  matches nothing; with a fixture of two teams it names that team's leader.
+  tough card, 3 − 2 = 1 damage). Luke Cage's boost: the defending player is stunned. The two-team cases are the
+  plan's own tests (`twoTeamState()`).
 
 ### 3.7 A leader as a villain
 
@@ -838,27 +841,29 @@ for this card has not been run.
 
 ### 4.1 Rules questions for the owner
 
-Question 1 is answered. Questions 2 to 5 came from the sources page (`docs/phase7-wave10-sources.md` §10) and are
-tabled below with the rest; 6 to 13 are this pass's. All of 2 to 13 are open, and until they are answered the
-recommended default A is what gets built. No FFG ruling in the repo names any of 6 to 13; none is a case of a ruling contradicting the RRG. (The one
-place a ruling and the box could look at odds, cross-side modular sets, is not a conflict: MC56 p. 4 and Jan 11, 2026
-R1 say the same thing, and p. 5's "modular sets from other products" is about sets with no side.)
+Question 1 is answered and 8 is closed by a scan. Questions 2 to 5 came from the sources page
+(`docs/phase7-wave10-sources.md` §10) and are tabled below with the rest; 6 to 13 are this pass's. Questions 6 and 13
+are also Q1 and Q2 of `docs/competitive-mode-plan.md` §1.9, which marks them "(now)": they are cooperative-play
+questions and are asked here. Until a question is answered the recommended default A is what gets built. No FFG
+ruling in the repo names any of 6 to 13, and none is a case of a ruling contradicting the RRG. (The one place a
+ruling and the box could look at odds, cross-side modular sets, is not a conflict: MC56 p. 4 and Jan 11, 2026 R1 say
+the same thing, and p. 5's "modular sets from other products" is about sets with no side.)
 
-| Q   | Question                                                                                         | A (default)                                              | B                                          | Decision                                                                                                                                                                                                                               |
-| --- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Does competitive mode ship in this wave?                                                         | No: a written plan plus cheap groundwork                 | Build it now                               | **A, with an addition** (owner, 2026-10-11): the client says "Competitive mode coming soon" in the scenario builder and on the box's "New in this box" page; the setup has a game mode and the team references are general (§3.4–§3.6) |
-| 2   | Synthezoid Smackdown (scenario pack, December 2025): in this wave?                               | No: its own PR afterwards                                | Ship it with this wave                     | open                                                                                                                                                                                                                                   |
-| 3   | A Hercules Labor card revealed with no valid target (Mar 6, 2026 R3; RRG p. 65)                  | Bottom of the Labor deck, not "discarded"                | Discarded, then bottom of the Labor deck   | open                                                                                                                                                                                                                                   |
-| 4   | Hero Shield taken by another player, then discarded (RRG p. 27; Jun 25 and Aug 13, 2026 rulings) | The original owner's discard pile                        | The taking player's discard pile           | open                                                                                                                                                                                                                                   |
-| 5   | A hero against the leader of the same name, cooperative (MC56 pp. 14, 16; RRG p. 46)             | Allowed                                                  | Refused at setup                           | open                                                                                                                                                                                                                                   |
-| 6   | Who makes "the enemy team's" choices in a cooperative game?                                      | The first player, in a prompt marked as the enemy's      | The engine picks the worst for the players | open                                                                                                                                                                                                                                   |
-| 7   | Do modular sets from other products count toward the three or four?                              | Yes: three or four in total                              | No: they are extra, on top                 | open                                                                                                                                                                                                                                   |
-| 8   | Iron Man III (56061): "When Revealed" where every other first stage says "Setup"                 | Resolve it at setup in expert mode                       | As printed: it never resolves              | **closed**: the scan prints "Setup" (read 2026-10-11); a data correction, §8.1 item 3                                                                                                                                                  |
-| 9   | Random creation: is the number of modular sets (3 or 4) random too?                              | The player sets it (default 4); the sets are random      | A coin flip                                | open                                                                                                                                                                                                                                   |
-| 10  | Freedom Fighters resolving a boost ability that speaks of "this card"                            | Does what it can; icon gains and self-reveals do nothing | The icons go to the current activation     | open                                                                                                                                                                                                                                   |
-| 11  | Darkforce 56196 in a cooperative game                                                            | "Do as much as you can": it is discarded                 | The ability cannot resolve; it stays       | open                                                                                                                                                                                                                                   |
-| 12  | Hunting Rebel Heroes 56097b: who are "those heroes"?                                             | Every hero the revealed card gives the trait to          | Only heroes who did not have it            | open                                                                                                                                                                                                                                   |
-| 13  | Life Model Decoy 56084: "a minion or their leader" with one team                                 | "Their leader" is the enemy leader                       | Only a minion                              | open                                                                                                                                                                                                                                   |
+| Q   | Question                                                                                         | A (default)                                              | B                                         | Decision                                                                                                                                                                                                                               |
+| --- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Does competitive mode ship in this wave?                                                         | No: a written plan plus cheap groundwork                 | Build it now                              | **A, with an addition** (owner, 2026-10-11): the client says "Competitive mode coming soon" in the scenario builder and on the box's "New in this box" page; the setup has a game mode and the team references are general (§3.4–§3.6) |
+| 2   | Synthezoid Smackdown (scenario pack, December 2025): in this wave?                               | No: its own PR afterwards                                | Ship it with this wave                    | open                                                                                                                                                                                                                                   |
+| 3   | A Hercules Labor card revealed with no valid target (Mar 6, 2026 R3; RRG p. 65)                  | Bottom of the Labor deck, not "discarded"                | Discarded, then bottom of the Labor deck  | open                                                                                                                                                                                                                                   |
+| 4   | Hero Shield taken by another player, then discarded (RRG p. 27; Jun 25 and Aug 13, 2026 rulings) | The original owner's discard pile                        | The taking player's discard pile          | open                                                                                                                                                                                                                                   |
+| 5   | A hero against the leader of the same name, cooperative (MC56 pp. 14, 16; RRG p. 46)             | Allowed                                                  | Refused at setup                          | open                                                                                                                                                                                                                                   |
+| 6   | Who makes "the enemy team's" choices in a cooperative game?                                      | The first player, in a prompt marked as the enemy's      | The affected player (C: the engine picks) | open                                                                                                                                                                                                                                   |
+| 7   | Do modular sets from other products count toward the three or four?                              | Yes: three or four in total                              | No: they are extra, on top                | open                                                                                                                                                                                                                                   |
+| 8   | Iron Man III (56061): "When Revealed" where every other first stage says "Setup"                 | Resolve it at setup in expert mode                       | As printed: it never resolves             | **closed**: the scan prints "Setup" (read 2026-10-11); a data correction, §8.1 item 3                                                                                                                                                  |
+| 9   | Random creation: is the number of modular sets (3 or 4) random too?                              | The player sets it (default 4); the sets are random      | A coin flip                               | open                                                                                                                                                                                                                                   |
+| 10  | Freedom Fighters resolving a boost ability that speaks of "this card"                            | Does what it can; icon gains and self-reveals do nothing | The icons go to the current activation    | open                                                                                                                                                                                                                                   |
+| 11  | Darkforce 56196 in a cooperative game                                                            | "Do as much as you can": it is discarded                 | The ability cannot resolve; it stays      | open                                                                                                                                                                                                                                   |
+| 12  | Hunting Rebel Heroes 56097b: who are "those heroes"?                                             | Every hero the revealed card gives the trait to          | Only heroes who did not have it           | open                                                                                                                                                                                                                                   |
+| 13  | Life Model Decoy 56084: "a minion or their leader" with one team                                 | "Their leader" is the enemy leader                       | Only a minion                             | open                                                                                                                                                                                                                                   |
 
 ### 4.2 The questions as asked
 
@@ -867,9 +872,12 @@ Iron Man attachment"; also 56072, 56084, 56112, 56113, 56159, 56189, 56191 and s
 enemy team "refers to the players. Resolve these abilities using the grim rule: Imagine what an opponent would do if
 it were their choice." RRG "The Grim Rule" (p. 4). The rulebook leaves the choice with the players and asks them to
 choose honestly.
-A: the first player chooses, in a prompt labeled as the enemy team's choice with the grim rule quoted; the log
-records it as made on the enemy's behalf. B: the engine chooses by a written ranking of "worst for the players" (an
-encounter-AI task: a ranking per choice, deterministic, tie broken by the seed).
+A: the first player chooses (RRG "First Player", p. 19, the authority for a choice an encounter card gives to nobody
+in particular), in a prompt that reads "Choose as the enemy team would"; the log records the authority. B: the
+player the card is resolving against chooses. C: the engine chooses by a written ranking of "worst for the players"
+(a ranking per choice from `encounter-ai-designer`, deterministic, ties broken by the seed). A is recommended
+because the rulebook hands the choice to the players as a group and asks them to play it honestly; C changes a
+printed player decision into a hidden one.
 
 **7. Modular sets from other products.** MC56 p. 4: "Select three or four modular sets from the chosen side." p. 5:
 "modular sets from other products may be included in your custom Civil War scenarios during cooperative play." Jan
@@ -928,10 +936,11 @@ minion in play the card is discarded.
 - **`card-data-pipeline`.** §8.1: emit `cw`; `EncounterSet.side`; `MainSchemeStage.printedCardId`; the four scenario
   records with `side`, `mainSchemeStages` and the `modularSetCount` range; the per-player icons; the errata; the scan
   check behind question 8 and the typos. Write the survey (`docs/phase7-wave10-data-survey.md`) against §1.
-- **`ability-scripting-engineer`.** §8.4, one module per line. Scripts use `theEnemyTeam`, `yourLeader`,
-  `theEnemyLeader` and `inGameMode` and never decide the cooperative reading themselves; a competitive-only clause is
-  written as `competitiveOnly("…")`, never left out.
-- **`encounter-ai-designer`.** Nothing unless question 6 = B (then a ranking per enemy-team choice). The leaders
+- **`ability-scripting-engineer`.** §8.4, one module per line. Scripts use the plan's words (`enemyTeam`,
+  `yourTeam`, `enemyLeader`, `yourLeader`, `inCompetitiveMode()`, the `enemyTeam` decision authority) and never
+  decide the cooperative reading themselves; an "In competitive mode" clause is a branch of a real condition, never
+  left out, and every such face is in the plan's task 12 manifest.
+- **`encounter-ai-designer`.** Nothing unless question 6 = C (then a ranking per enemy-team choice). The leaders
   activate as villains do.
 - **`rules-qa-engineer`.** The tests named in §3, each citing its page or ruling; §3.22's five ruling tests; a
   modular matrix run of the sixteen sets against the four leaders (same side only) and against two earlier villains;
@@ -939,7 +948,7 @@ minion in play the card is discarded.
 - **`game-client-engineer`.** The scenario builder (§3.1), blind play (§3.3), the enemy-team prompt label (§3.5),
   "Competitive mode coming soon" in the builder and on the box's "New in this box" page, the leader card frame
   (`printedType: "leader"`), the music folders (already named by the four scenario ids).
-- **`multiplayer-netcode-engineer`.** Nothing in this pass; pass 1c's plan is theirs to review.
+- **`multiplayer-netcode-engineer`.** Nothing in this pass; `docs/competitive-mode-plan.md` is theirs to review.
 - **`content-release-tracker`.** The RRG p. 70 errata and the Jan 11, 2026 rulings recorded against `cw`.
 
 ## 6. Later passes (placeholders)
@@ -953,12 +962,12 @@ Hood's Mantle, Madame Masque, Jigsaw); Hulkling 56029a/b–56040, obligation Com
 
 ### 6.2 Pass 1c: competitive mode
 
-Not shipped in this wave (question 1). The pass writes `docs/competitive-mode-plan.md` (MC56 pp. 14–17 and p. 20:
-two teams and two game areas, the round threaded team by team, a leader attacking a leader, Choosing Sides and Now
-It's Personal 56128a/b, the leader-specific player cards, the unique rule per side, winning and tying) and the
-scaffolding task list beyond what §3.4–§3.6 already lay down. Set aside until then, each marked in §7: the Standard
-PvP set 56125–56128 / 56203–56206; the player cards 56129–56136 and 56207–56214; and the competitive clause of
-56063a (and the other seven 1A sides), 56080, 56158, 56182, 56183, 56194.
+Not shipped in this wave (question 1). The plan is `docs/competitive-mode-plan.md`: its §1 the rules (MC56 pp.
+14–17 and p. 20), its §2 the inventory by card id, its §4 the scaffolding built in this wave (tasks 1 to 15, of which
+1 to 7 are the engine groundwork §3.4–§3.6 rely on) and its §5 what waits for the multiplayer phase. This pass adds
+nothing to it. Kept out of every cooperative game, each marked in §7.9: the Standard PvP set 56125–56128 /
+56203–56206 and the leader player cards 56129–56136 and 56207–56214. Scripted now as the false branch of
+`inCompetitiveMode()`: the competitive clause of the eight 1A sides, 56080, 56158, 56182, 56183 and 56194.
 
 ### 6.3 Pass 2: Wonder Man (`wonder_man`)
 
@@ -1156,7 +1165,8 @@ time. Nothing in §8.2 waits on an open question except where it says so; the de
 2. Read the sixteen main scheme B-face scans; restore `[per_hero]` in "hinder 2", "1 minions" and "1 side schemes"
    (56063b, 56096b, 56121b, 56122b, 56123b, 56141b, 56172b, 56173b, 56199b, 56200b); confirm each target and
    acceleration value is per player.
-3. Iron Man III 56061: the scan prints "Setup", not the cache's "When Revealed" (read 2026-10-11; question 8, closed). Correct the label when emitting.
+3. Iron Man III 56061: the scan prints "Setup", not the cache's "When Revealed" (read 2026-10-11; question 8,
+   closed). Correct the label when emitting.
 4. `EncounterSet.side` on the 22 sided sets (§1.3); confirm the acceleration icon on Unregistered Super (§1.7).
 5. The four scenario records (§1.4) and the `modularSetCount` range with its helper; `validateScenario` checks the
    side of the main scheme set and that `mainSchemeStages.recommended` names one stage of each number.
@@ -1167,33 +1177,30 @@ time. Nothing in §8.2 waits on an open question except where it says so; the de
 
 ### 8.2 Engine queue, in order
 
-19 tasks: one for each of the 5 **new** rows and the 12 **extend** rows of §3, with §3.1 and §3.4 split in two. Each
-is one primitive, one agent, one commit, with the tests §3 names. "After N" is a dependency.
+**The team scaffolding comes first and is not renumbered here**: `docs/competitive-mode-plan.md` §4 tasks 1 to 7
+(game mode; team ids; per-player counts through `teamSize`; team-relative queries; the spec words and DSL builders;
+`inCompetitiveMode`; the `enemyTeam` decision authority), written "P1" to "P7" below. They are §3.4, §3.5 and §3.6.
 
-1. §3.4a: `gameMode` on `GameSetupConfig` and `GameState`; `createGame` refuses `competitive` with the message;
-   `Predicate inGameMode`; the `competitiveOnly` marker effect and its validator rule.
-2. §3.4b: `teams.ts` (`teamOf`, `enemyTeamOf`, `leaderOf`) over an optional `GameState.teams`; `ValueSpec
-teamPlayerCount`. After 1.
-3. §3.6: `TargetRef leader { of }` (`theEnemyLeader`, `yourLeader`); `attachment-hosts.ts` moved onto `leaderOf`.
-   After 2.
-4. §3.5: `PlayerRef enemyTeamChooser` (`theEnemyTeam`), `onBehalfOf` on the choice and in the log,
-   `resolveEnemyTeamChoice`. After 2.
-5. §3.2: `GameSetupConfig.mainSchemeStageIndexes` seeding `stageIndex` and `stageOrder`; readers that count stages.
-6. §3.1a (content and cards): `modularSetCountRangeOf`, the side line in `modularPickProblem`,
+Then 15 tasks of this spec: one for each of the other 3 **new** rows (§3.1 split in two) and the other 11 **extend**
+rows of §3. Each is one primitive, one agent, one commit, with the tests §3 names. "After N" is a dependency.
+
+1. §3.2: `GameSetupConfig.mainSchemeStageIndexes` seeding `stageIndex` and `stageOrder`; readers that count stages.
+2. §3.1a (content and cards): `modularSetCountRangeOf`, the side line in `modularPickProblem`,
    `chooseMainSchemeStages`. After §8.1 items 4 and 5.
-7. §3.1b (cards): `wave10Scenario`, `playableScenario` wiring and the `playableScenarioOffer` fields. After 5 and 6.
-8. §3.3: `randomCivilWarScenario`. After 7.
-9. §3.13: hinder on a main scheme stage, from a gained keyword.
-10. §3.8: the unique check for a revealed attachment, and the route audit.
-11. §3.10: the leave destination `boostCardOf`.
-12. §3.11: `resolveBoostAbilitiesOf`.
-13. §3.12: `gainsKeywordsOf`.
-14. §3.14: `AbilityLimit.per: "eventPlayer"`.
-15. §3.16: `cardRevealed { grantsTrait }` and `grantedTo`.
-16. §3.17: `usedStat` on the attack in progress, `Predicate attackUsedAtk`.
-17. §3.18: `attacksLoseKeywords`.
-18. §3.19: a permanent encounter attachment re-resolves its attach instruction when its host leaves.
-19. §3.21: `characterWouldAct` for a player character's attack or thwart.
+3. §3.1b (cards): `wave10Scenario`, `playableScenario` wiring and the `playableScenarioOffer` fields. After 1, 2
+   and P1.
+4. §3.3: `randomCivilWarScenario`. After 3.
+5. §3.13: hinder on a main scheme stage, from a gained keyword. After P3.
+6. §3.8: the unique check for a revealed attachment, and the route audit.
+7. §3.10: the leave destination `boostCardOf`.
+8. §3.11: `resolveBoostAbilitiesOf`.
+9. §3.12: `gainsKeywordsOf`.
+10. §3.14: `AbilityLimit.per: "eventPlayer"`.
+11. §3.16: `cardRevealed { grantsTrait }` and `grantedTo`.
+12. §3.17: `usedStat` on the attack in progress, `Predicate attackUsedAtk`.
+13. §3.18: `attacksLoseKeywords`.
+14. §3.19: a permanent encounter attachment re-resolves its attach instruction when its host leaves.
+15. §3.21: `characterWouldAct` for a player character's attack or thwart.
 
 ### 8.3 The "exists (verify)" and "exists (compose)" rows
 
@@ -1204,45 +1211,45 @@ task appended to §8.2.
 ### 8.4 Scripting order
 
 `ability-scripting-engineer`, one agent per line, one module per line. Paths are relative to
-`packages/cards/src/wave10/`. "Waits on" lists §8.2 task numbers.
+`packages/cards/src/wave10/`. "Waits on" lists §8.2 task numbers, and "P" numbers for the plan's tasks.
 
 **The scaffold**
 
-1. `card-groups.ts`, the registries, the coverage guard, `setup.ts` (the wiring of task 7). Waits on 7.
+1. `card-groups.ts`, the registries, the coverage guard, `setup.ts` (the wiring of task 3). Waits on 3.
 
 **The main schemes**
 
-2. `cw/main-schemes/registration.ts`: the 1A Setup and the eight B stages. Waits on 1, 4, 9, 14, 15.
-3. `cw/main-schemes/resistance.ts`. Waits on 1, 4, 9, 14.
+2. `cw/main-schemes/registration.ts`: the 1A Setup and the eight B stages. Waits on P5, P6, P7, 5, 10, 11.
+3. `cw/main-schemes/resistance.ts`. Waits on P5, P6, P7, 5, 10.
 
 **The leaders**
 
-4. `cw/leaders/iron-man.ts` (56059–56062, 56065–56072). Waits on 4.
-5. `cw/leaders/captain-marvel.ts` (56092–56095, 56098–56104). Waits on 10.
-6. `cw/leaders/captain-america.ts` (56137–56140, 56143–56149). Waits on 16, 17, 18.
+4. `cw/leaders/iron-man.ts` (56059–56062, 56065–56072). Waits on P7.
+5. `cw/leaders/captain-marvel.ts` (56092–56095, 56098–56104). Waits on 6.
+6. `cw/leaders/captain-america.ts` (56137–56140, 56143–56149). Waits on 12, 13, 14.
 7. `cw/leaders/spider-woman.ts` (56168–56171, 56174–56179). Waits on nothing.
 
 **Registration modular sets**
 
-8. `cw/modular/mighty-avengers.ts` (56073–56077). Waits on 13.
-9. `cw/modular/the-initiative.ts` (56078–56082). Waits on 1.
-10. `cw/modular/maria-hill.ts` (56083–56086). Waits on 3, 4.
-11. `cw/modular/dangerous-recruits.ts` (56087–56091). Waits on 3, 11.
-12. `cw/modular/cape-killer.ts` (56105–56108). Waits on 4, 15.
+8. `cw/modular/mighty-avengers.ts` (56073–56077). Waits on 9.
+9. `cw/modular/the-initiative.ts` (56078–56082). Waits on P6.
+10. `cw/modular/maria-hill.ts` (56083–56086). Waits on P5, P7.
+11. `cw/modular/dangerous-recruits.ts` (56087–56091). Waits on P5, 7.
+12. `cw/modular/cape-killer.ts` (56105–56108). Waits on P7, 11.
 13. `cw/modular/martial-law.ts` (56109–56111). Waits on nothing.
-14. `cw/modular/heroes-for-hire.ts` (56112–56116). Waits on 4; after line 12 (Unregistered Super is shared).
+14. `cw/modular/heroes-for-hire.ts` (56112–56116). Waits on P7; after line 12 (Unregistered Super is shared).
 15. `cw/modular/paladin.ts` (56117–56120). After line 14 (Bounty Hunting is shared).
 
 **Resistance modular sets**
 
-16. `cw/modular/new-avengers.ts` (56150–56154). Waits on 11, 12.
-17. `cw/modular/secret-avengers.ts` (56155–56159). Waits on 1, 4, 11; after line 16 (Freedom Fighters is shared).
+16. `cw/modular/new-avengers.ts` (56150–56154). Waits on 7, 8.
+17. `cw/modular/secret-avengers.ts` (56155–56159). Waits on P6, P7, 7; after line 16 (Freedom Fighters is shared).
 18. `cw/modular/namor.ts` (56160–56164). Waits on nothing.
 19. `cw/modular/atlanteans.ts` (56165–56167). Waits on nothing.
-20. `cw/modular/spider-man.ts` (56180–56183). Waits on 1, 3, 4, 19.
-21. `cw/modular/defenders.ts` (56184–56188). Waits on 3.
-22. `cw/modular/hells-kitchen.ts` (56189–56193). Waits on 3, 4; after line 21 (Street Defenders is shared).
-23. `cw/modular/cloak-and-dagger.ts` (56194–56198). Waits on 1, 3.
+20. `cw/modular/spider-man.ts` (56180–56183). Waits on P5, P6, P7, 15.
+21. `cw/modular/defenders.ts` (56184–56188). Waits on P5.
+22. `cw/modular/hells-kitchen.ts` (56189–56193). Waits on P5, P7; after line 21 (Street Defenders is shared).
+23. `cw/modular/cloak-and-dagger.ts` (56194–56198). Waits on P5, P6.
 
 **End to end**
 
