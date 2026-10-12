@@ -2668,13 +2668,37 @@ export type EffectSpec =
    * nothing and leaves the text before a "then" unresolved (`findFoundNothing`), and the decks the card could have been
    * in were still searched, so they are shuffled (RRG 1.8 "Shuffle", p. 40; the owner's decision, 2026-10-03,
    * docs/phase7-wave6.md §4.1 Q77; `decksSearchedByFind`, `select.ts`). `bind`: the found card, in that slot.
+   *
+   * docs/phase7-wave10-hero-packs.md H3.4 adds, for a find whose text names a kind of card and not one card ("Find a
+   * non-Elite minion with at least 6 printed hit points. Reveal it …", Defeat the Hydra `hercules` 59002):
+   *
+   * - `choose`: every card the find reaches that matches is a candidate, in play or out, and the player resolving the
+   *   ability picks one (RRG 1.8 "Search", p. 39: "If a player finds multiple cards that satisfy the criteria of a
+   *   search, the player chooses among those options"). The pick is a `chooseCards` prompt whose options each carry the
+   *   area the card is in (`ChoiceOption.zone`). One candidate is found with no prompt, as a find with no `choose`
+   *   finds its card. To know every candidate the player looked through each deck one could be in, so each of those
+   *   decks is shuffled after, whichever card was picked and also when there was none (`decksSearchedByFind` with no
+   *   found card). A facedown encounter card in an in-play area is never a candidate (RRG 1.8 "Find", p. 19; ruling
+   *   March 6, 2026 – Ruling 3 (2): Lernean Hydra dealt facedown as a boost card cannot be found).
+   * - `outOfPlay`: "that is not in play" (Embody Pathos 59003): a card in play is not a candidate.
+   * - `to: "reveal"`: "find X and reveal it". The player resolving the ability reveals the card through the whole
+   *   reveal procedure, as `EffectSpec revealCard` does (RRG 1.8 "Reveal", p. 38). A card faceup in play is revealed
+   *   where it is and does not enter play: a minion engages that player unless it was already engaged with them, keeps
+   *   everything on it, and its reveal keywords and When Revealed resolve (RRG 1.8 "Find", p. 19;
+   *   `Frame<"reveal">.foundInPlay`). The effects after this one resolve once the reveal has.
+   * - `to: "play"`: "find X and put it into play" (Protect Humanity 59004), as `EffectSpec putIntoPlay` under the
+   *   control of the player resolving the ability. A card already in play stays as it is.
+   * - `perPlayerAs`, with `to: "reveal"` only: the reveal's `EffectSpec revealCard.perPlayerAs` (H3.5).
    */
   | {
       readonly kind: "findCard";
       readonly query: TargetQuery;
       readonly owner?: PlayerRef;
-      readonly to: CardDestination | { readonly attachTo: TargetRef };
+      readonly to: CardDestination | { readonly attachTo: TargetRef } | "reveal" | "play";
       readonly bind?: string;
+      readonly choose?: true;
+      readonly outOfPlay?: true;
+      readonly perPlayerAs?: number;
     }
   /** Choose cards outside play ("look at the top 3 … add 1", "search your deck for an upgrade", "choose up to 3 different cards in your discard"). */
   | {
@@ -3347,6 +3371,15 @@ export type EffectSpec =
    * teamwork (p. 43: "After a minion with teamwork enters play and engages a player"). A card that is not a minion,
    * one found faceup in play, and a minion whose host is not in play or cannot have it attached (`canAttachTo`) are
    * revealed as without `heldBy`.
+   *
+   * `perPlayerAs` (docs/phase7-wave10-hero-packs.md H3.5): "reveal it, treating each [per player] on it as 1" (Embody
+   * Pathos, `hercules` 59003). While each card among `cards` is being revealed, every per player icon printed on that
+   * card multiplies by this number instead of the number of players who started the scenario (RRG 1.8 "Per Player
+   * Icon", p. 32): its starting threat, its hinder ("Hinder X", p. 22), any other printed value, and a per player
+   * value in its own abilities, the When Revealed included (`Frame<"reveal">.perPlayerAs`, read by `perPlayerReading`).
+   * A per player value on any other card is read as usual. The reading ends with the reveal (the owner's answer to
+   * question 19 = A, 2026-10-11, provisional): threat already placed stays, and an ability of that card that resolves
+   * later reads the real number of players.
    */
   | {
       readonly kind: "revealCard";
@@ -3354,6 +3387,7 @@ export type EffectSpec =
       readonly player: PlayerRef;
       readonly instead?: true;
       readonly heldBy?: TargetRef;
+      readonly perPlayerAs?: number;
     }
   | { readonly kind: "shuffleEncounterDeck" }
   /**

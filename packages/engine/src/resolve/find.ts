@@ -21,6 +21,7 @@ import {
   decksSearchedByFind,
   type EffectContext,
   findCards,
+  type FoundCard,
   resolvePlayers,
   resolveRef,
 } from "../select.js";
@@ -44,6 +45,8 @@ function alreadyAt(ctx: Ctx, id: InstanceId, from: ZoneId | null, to: FindCard["
     const [host] = resolveRef(ctx.state, to.attachTo, context);
     return host !== undefined && instance.attachedTo === host;
   }
+  // "Find X and reveal it" / "and put it into play": already in play, faceup, as itself.
+  if (to === "reveal" || to === "play") return cardsInPlay(ctx.state).includes(id) && instance.faceup;
   if (from === null) return false;
   if (typeof to === "object")
     return "scenarioArea" in to && from.kind === "scenarioArea" && from.name === to.scenarioArea;
@@ -162,10 +165,24 @@ function findFirst(
 }
 
 /**
- * Resolves a `findCard`: the first card `findCards` names goes to `to` through the effect that already moves cards
- * there (`moveCards`, or `attach` for `{ attachTo }`, handed in as `apply` so this module does not import its caller),
- * then each deck the find searched is shuffled. A find that found nothing still searched, and shuffles, every deck the
- * card could have been in.
+ * The cards a `findCard` may find, in search order: every match the find reaches (`findCards`), less the cards in play
+ * for a find of a card "that is not in play" (`outOfPlay`). A find with no `choose` takes the first; one with `choose`
+ * offers them all (docs/phase7-wave10-hero-packs.md H3.4).
+ */
+export function findCandidates(ctx: Ctx, effect: FindCard, context: EffectContext): readonly FoundCard[] {
+  const owners = effect.owner ? new Set(resolvePlayers(ctx.state, effect.owner, context)) : null;
+  const all = findCards(ctx.state, effect.query, context, owners);
+  if (!effect.outOfPlay) return all;
+  const inPlay = new Set(cardsInPlay(ctx.state));
+  return all.filter((found) => !inPlay.has(found.id));
+}
+
+/**
+ * Resolves a `findCard`: the card found (`picked` for a find with `choose`, else the first of `findCandidates`) goes to
+ * `to` through the effect that already moves cards there (`moveCards`, `attach` for `{ attachTo }`, `revealCard` for
+ * `"reveal"`, `putIntoPlay` for `"play"`, handed in as `apply` so this module does not import its caller), then each
+ * deck the find searched is shuffled. A find that found nothing still searched, and shuffles, every deck the card
+ * could have been in.
  */
 export function applyFindCard(
   ctx: Ctx,
@@ -173,10 +190,11 @@ export function applyFindCard(
   context: EffectContext,
   frame: Frame<"effects">,
   apply: (ctx: Ctx, effect: EffectSpec, context: EffectContext, frame: Frame<"effects">) => void,
+  picked?: InstanceId,
 ): void {
   // One change to a deck kept faceup (docs/phase7-wave8.md §3.48): the searched deck's top card shows after its
   // shuffle, not between the card leaving and the shuffle.
-  holdDeckTops(ctx, () => findCardNow(ctx, effect, context, frame, apply));
+  holdDeckTops(ctx, () => findCardNow(ctx, effect, context, frame, apply, picked));
 }
 
 function findCardNow(
@@ -185,33 +203,51 @@ function findCardNow(
   context: EffectContext,
   frame: Frame<"effects">,
   apply: (ctx: Ctx, effect: EffectSpec, context: EffectContext, frame: Frame<"effects">) => void,
+  picked: InstanceId | undefined,
 ): void {
   const owners = effect.owner ? new Set(resolvePlayers(ctx.state, effect.owner, context)) : null;
-  const [found] = findCards(ctx.state, effect.query, context, owners);
-  // Read before the card moves: the decks looked through for it.
-  const searched = decksSearchedByFind(ctx.state, effect.query, context, owners, found);
+  const candidates = findCandidates(ctx, effect, context);
+  const found = picked === undefined ? candidates[0] : candidates.find((candidate) => candidate.id === picked);
+  // Read before the card moves: the decks looked through for it. A find that chooses among every match looked
+  // through each deck one could be in, whichever card it took (docs/phase7-wave10-hero-packs.md H3.4).
+  const searched = decksSearchedByFind(ctx.state, effect.query, context, owners, effect.choose ? undefined : found);
   if (!found) {
     // "Then" (RRG 1.8 p. 44): nothing found, so the text before a "then" did not fully resolve.
     markPreThenUnresolved(ctx, frame.frameId, "findFoundNothing");
+    if (effect.bind) bindFound(ctx, frame, effect.bind, []);
     shuffleSearchedDecks(ctx, searched);
     return;
   }
-  const { id, deck } = found;
+  const { id } = found;
   const there = alreadyAt(ctx, id, locateCard(ctx.state, id), effect.to, context);
-  announceFound(ctx, id, deck, there);
-  if (effect.bind) {
-    const bind = effect.bind;
-    updateFrame(ctx, frame.frameId, (f) =>
-      f.kind === "effects" ? { ...f, bindings: { ...f.bindings, [bind]: [id] } } : f,
-    );
-  }
-  if (!there && getInstance(ctx.state, id)) {
+  // The log line's `deckShuffled`: whether any deck was looked through for this find.
+  announceFound(ctx, id, effect.choose ? (searched[0] ?? null) : found.deck, there);
+  if (effect.bind) bindFound(ctx, frame, effect.bind, [id]);
+  // A card found in play is still revealed, where it is (RRG 1.8 "Find", p. 19).
+  if ((!there || effect.to === "reveal") && getInstance(ctx.state, id)) {
     const card = { kind: "slot", slot: FOUND_SLOT } as const;
+    const finder = { kind: "controller" } as const;
     const move: EffectSpec =
-      typeof effect.to === "object" && "attachTo" in effect.to
-        ? { kind: "attach", card, to: effect.to.attachTo }
-        : { kind: "moveCards", cards: { kind: "ref", ref: card }, to: effect.to };
+      effect.to === "reveal"
+        ? {
+            kind: "revealCard",
+            cards: card,
+            player: finder,
+            ...(effect.perPlayerAs !== undefined ? { perPlayerAs: effect.perPlayerAs } : {}),
+          }
+        : effect.to === "play"
+          ? { kind: "putIntoPlay", card, controller: finder }
+          : typeof effect.to === "object" && "attachTo" in effect.to
+            ? { kind: "attach", card, to: effect.to.attachTo }
+            : { kind: "moveCards", cards: { kind: "ref", ref: card }, to: effect.to };
     apply(ctx, move, { ...context, bindings: { ...context.bindings, [FOUND_SLOT]: [id] } }, frame);
   }
   shuffleSearchedDecks(ctx, searched);
+}
+
+/** Binds what the find found (one card, or none) to its slot. */
+function bindFound(ctx: Ctx, frame: Frame<"effects">, bind: string, ids: readonly InstanceId[]): void {
+  updateFrame(ctx, frame.frameId, (f) =>
+    f.kind === "effects" ? { ...f, bindings: { ...f.bindings, [bind]: ids } } : f,
+  );
 }

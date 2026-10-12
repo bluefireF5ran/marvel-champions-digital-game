@@ -162,6 +162,7 @@ import { executeBasicPowerBy } from "./basic-power-by.js";
 import { resolveTeamwork } from "./enter-play.js";
 import { effectChoiceAuthority, simultaneousOrderer } from "../villain/authority.js";
 import { applyEffect, putIntoPlayHostSlot, threatRemoverOf } from "./apply-effect.js";
+import { applyFindCard, findCandidates } from "./find.js";
 import { putIntoPlayHostCandidates } from "./reveal.js";
 import { controllerOfArea, joinGameArea } from "./game-areas.js";
 import { damageGroupFrame } from "./damage-group.js";
@@ -306,6 +307,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   if (beginLabelAttack(ctx, frame, effect, context)) return;
   if (openLabelAttack(ctx, frame, effect, context)) return;
   if (effect.kind === "chooseCards") return executeChooseCards(ctx, frame, effect, context);
+  // docs/phase7-wave10-hero-packs.md H3.4: a find that chooses among every card that matches.
+  if (effect.kind === "findCard" && effect.choose) return executeFindWithChoice(ctx, frame, effect, context);
   if (effect.kind === "lookAt") return executeLookAt(ctx, frame, effect, context);
   if (effect.kind === "chooseOne") return executeChooseOne(ctx, frame, effect, context);
   if (effect.kind === "forEachCard" || effect.kind === "forEachCardPass")
@@ -1915,6 +1918,48 @@ function executeChooseCards(
     frameId: frame.frameId,
   });
 }
+
+/**
+ * `EffectSpec findCard` with `choose` (docs/phase7-wave10-hero-packs.md H3.4; RRG 1.8 "Find", p. 19, and "Search",
+ * p. 39: "If a player finds multiple cards that satisfy the criteria of a search, the player chooses among those
+ * options"). With two or more candidates the player resolving the ability picks one, each option carrying the area its
+ * card is in (`ChoiceOption.zone`); an offered card in a deck is face-visible while the choice is open, as a searched
+ * card is (`visibility.ts` `offeredByOpenChoice`). With one candidate, or nobody to ask, the first is found with no prompt.
+ * The find then resolves as any other (`applyFindCard`), and the effects after it wait for what it started (a reveal).
+ */
+function executeFindWithChoice(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "findCard" }>,
+  context: EffectContext,
+): void {
+  const candidates = findCandidates(ctx, effect, context).map((found) => found.id);
+  const [chooser] = resolvePlayers(ctx.state, { kind: "controller" }, context);
+  if (frame.answer === null && candidates.length > 1 && chooser) {
+    requestChoice(ctx, {
+      playerId: chooser,
+      prompt: { kind: "chooseCards", slot: effect.bind ?? FIND_CHOICE_SLOT },
+      options: cardOptions(ctx, candidates).map((option, i) => {
+        const zone = locateCard(ctx.state, candidates[i]!);
+        return zone ? { ...option, zone } : option;
+      }),
+      minSelections: 1,
+      maxSelections: 1,
+      frameId: frame.frameId,
+    });
+    return;
+  }
+  const [answered] = (frame.answer ?? []).map((id) => asInstanceId(id)).filter((id) => candidates.includes(id));
+  const picked = answered ?? candidates[0];
+  if (frame.answer !== null && picked)
+    emit(ctx, { type: "targetChosen", slot: effect.bind ?? FIND_CHOICE_SLOT, instanceIds: [picked] });
+  const next = { ...frame, answer: null, cursor: frame.cursor + 1 };
+  setFrame(ctx, next);
+  applyFindCard(ctx, effect, context, next, applyEffect, picked);
+}
+
+/** The slot a find's pick is logged under when the find binds none. */
+const FIND_CHOICE_SLOT = "find";
 
 /**
  * `EffectSpec lookAt` (RRG 1.8 "Look, Looked-At", p. 27): the viewer looks at the cards and nothing moves. The first

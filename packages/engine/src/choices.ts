@@ -457,6 +457,13 @@ export interface ChoiceOption {
   readonly optionId: string;
   readonly label: string;
   readonly ref: ChoiceRef;
+  /**
+   * Where the offered card is, on the pick of a find that chooses among cards in several game areas (`EffectSpec
+   * findCard.choose`; docs/phase7-wave10-hero-packs.md H3.4): in play (a play area, the villain area, an attachment's
+   * host), a set-aside area, a hand, a discard pile or a deck. Absent on every other option, and for a card with no
+   * zone (a villain, a main scheme).
+   */
+  readonly zone?: ZoneId;
 }
 
 /**

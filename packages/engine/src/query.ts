@@ -668,7 +668,23 @@ export function areaOfCard(state: GameState, id: InstanceId): GameAreaState | nu
  * scenario when no card is named, in a game with one team, and for a card in no team's area (`areaOfCard` null).
  */
 export const perPlayerCountAt = (state: GameState, id: InstanceId | null | undefined): number =>
-  perPlayerCount(state, id ? areaOfCard(state, id) : null);
+  perPlayerReading(state, id) ?? perPlayerCount(state, id ? areaOfCard(state, id) : null);
+
+/**
+ * What each per player icon on this card is being treated as, or null when it is read as printed: the card is being
+ * revealed by "reveal it, treating each [per player] on it as 1" (`EffectSpec revealCard.perPlayerAs`, Embody Pathos
+ * `hercules` 59003; docs/phase7-wave10-hero-packs.md H3.5). The reading lives on the card's reveal frame
+ * (`Frame<"reveal">.perPlayerAs`), so it covers what the reveal does (starting threat, hinder, the card's When
+ * Revealed) and ends with it (the owner's answer to question 19 = A, 2026-10-11, provisional). Every per player value
+ * of a card is read through here: a printed one by `perPlayerCountAt`, one in the card's own abilities by `ValueSpec
+ * perPlayer` (`select.ts`).
+ */
+export function perPlayerReading(state: GameState, id: InstanceId | null | undefined): number | null {
+  if (!id) return null;
+  for (const frame of state.stack)
+    if (frame.kind === "reveal" && frame.instanceId === id && frame.perPlayerAs !== undefined) return frame.perPlayerAs;
+  return null;
+}
 
 /** Every main scheme instance in play: the central (or only) one, then each area's own, in area order. */
 export function mainSchemeStates(state: GameState): readonly MainSchemeState[] {

@@ -1555,17 +1555,45 @@ export const oneCopyOf = (from: CardSelector): CardSelector => atMost(1, from);
  * §3.48): the first card `find(q, { owner })` names goes to `to` — a `CardDestination`, or `{ attachTo: host }`. A card
  * already there stays put; each deck searched is shuffled after (RRG 1.8 "Search", p. 39), also when nothing was found
  * (§4.1 Q77), which leaves the text before a "then" unresolved. `bind`: the found card, in that slot.
+ *
+ * docs/phase7-wave10-hero-packs.md H3.4 (RRG 1.8 "Find", p. 19):
+ * - `to: "reveal"`: "find X and reveal it". You reveal it in full; a card faceup in play is revealed where it is (a
+ *   minion engages you unless it already was, keeping everything on it, and its reveal keywords and When Revealed
+ *   resolve). The effects written after the find resolve once the reveal has.
+ * - `to: "play"`: "Find Amadeus Cho and put him into play" (Protect Humanity, `hercules` 59004), under your control:
+ *   `findCard({ name: "Amadeus Cho" }, "play", { owner: you })`. Already in play: nothing moves.
+ * - `choose`: the text names a kind of card, so you pick among every match, in play or out, each offered with the
+ *   area it is in; one match is found with no prompt. Every deck a match could be in was looked through and is
+ *   shuffled. "Find a non-Elite minion with at least 6 printed hit points. Reveal it, heal all damage from it, and
+ *   attach this card to it" (Defeat the Hydra 59002): `findCard(query("minion", { withoutTrait: ELITE, not: {
+ *   maxPrintedHp: 5 } }), "reveal", { choose: true, bind: "minion" })`, then `heal(…, chosen("minion"))` and
+ *   `attachCard(self, chosen("minion"))`. A facedown encounter card (a boost card, a dealt card) is never offered.
+ * - `outOfPlay`: "that is not in play". "Find an encounter side scheme that is not in play and reveal it" (Embody
+ *   Pathos 59003): `findCard(query("sideScheme", { controller: "encounter" }), "reveal", { choose: true, outOfPlay:
+ *   true, bind: "scheme" })`; `controller: "encounter"` leaves out player side schemes, which their owners control
+ *   wherever they are.
+ * - `perPlayerAs`, with `to: "reveal"`: "… and reveal it, **treating each [per player] on it as 1**" (Embody Pathos;
+ *   H3.5) is `perPlayerAs: 1` on that same find; see `revealCard`.
  */
 export const findCard = (
   q: TargetQuery,
-  to: CardDestination | { readonly attachTo: TargetRef },
-  opts: { readonly owner?: PlayerRef; readonly bind?: string } = {},
+  to: CardDestination | { readonly attachTo: TargetRef } | "reveal" | "play",
+  opts: {
+    readonly owner?: PlayerRef;
+    readonly bind?: string;
+    readonly choose?: boolean;
+    readonly outOfPlay?: boolean;
+    readonly perPlayerAs?: number;
+  } = {},
 ): EffectSpec => ({
   kind: "findCard",
   query: q,
   ...(opts.owner ? { owner: opts.owner } : {}),
   to,
   ...withBind(opts.bind),
+  ...(opts.choose ? { choose: true as const } : {}),
+  ...(opts.outOfPlay ? { outOfPlay: true as const } : {}),
+  ...(opts.perPlayerAs !== undefined ? { perPlayerAs: opts.perPlayerAs } : {}),
 });
 export const moveCards = (from: CardSelector, to: CardDestination, bind?: string): EffectSpec => ({
   kind: "moveCards",
@@ -2020,10 +2048,24 @@ export const lookAtAndRearrange = (
   rearrange: true,
   ...(opts.bindAt !== undefined ? { bindAt: opts.bindAt } : {}),
 });
-export const revealCard = (target: TargetRef, player: PlayerRef = you): EffectSpec => ({
+/**
+ * "Reveal it": the whole reveal procedure for `player` (RRG 1.8 "Reveal", p. 38), from wherever the card is.
+ *
+ * `perPlayerAs` (docs/phase7-wave10-hero-packs.md H3.5): "reveal it, treating each [per player] on it as 1" (Embody
+ * Pathos, `hercules` 59003) is `revealCard(target, you, { perPlayerAs: 1 })`, or `perPlayerAs: 1` on the `findCard`
+ * that reveals. While that card is being revealed every per player icon on it multiplies by 1: its starting threat,
+ * its hinder, and a `perHero` / `scaled` value in its own When Revealed. Other cards read the real number of players,
+ * and so does a later ability of the same card (the owner's answer to question 19 = A, provisional).
+ */
+export const revealCard = (
+  target: TargetRef,
+  player: PlayerRef = you,
+  opts: { readonly perPlayerAs?: number } = {},
+): EffectSpec => ({
   kind: "revealCard",
   cards: target,
   player,
+  ...(opts.perPlayerAs !== undefined ? { perPlayerAs: opts.perPlayerAs } : {}),
 });
 /**
  * "Reveal and attach the remaining set-aside Thunderbolt minion faceup here." (Justice, Like Lightning, `aos` 50131a;

@@ -777,6 +777,17 @@ export type RuleSpec =
    * characters are barred). Threat moved off the scheme is removed from it (RRG 1.8 "Move", p. 30) and is bound the
    * same way; threat moved onto it, threat prevented, and an effect that defeats or discards the scheme without
    * removing threat are not removals and are untouched.
+   *
+   * `exceptThwartBy` is the narrower exception (docs/phase7-wave10-hero-packs.md H3.6): "Threat cannot be removed from
+   * attached scheme **except by Hercules's thwarts**" (Embody Pathos, `hercules` 59003) is `{ target: <the attached
+   * scheme>, exceptThwartBy: <Hercules> }`. Unlike `exceptBy` it binds every removal, a character's or not (RRG 1.8
+   * "'Cannot'", p. 11), and lets through only a thwart whose thwarting character matches (with "you" as the rule
+   * card's speaker): that character's basic thwart, and a "(thwart)"-labeled ability or event, which is a thwart made
+   * by its player's identity whichever card the label is on (RRG 1.8 "Labeled Ability", p. 26). Not let through: an
+   * unlabeled removal, on that character's own card or event included; another character's thwart (an ally's, another
+   * player's identity's); an encounter card's removal; threat moved off the scheme. The scheme is not a legal target
+   * of a basic thwart or thwart ability the rule stops. It may be combined with `player`, which then scopes whose
+   * removals are bound, as above.
    */
   | {
       readonly kind: "threatCannotBeRemoved";
@@ -785,6 +796,7 @@ export type RuleSpec =
       readonly by?: "thwart";
       readonly player?: PlayerRef;
       readonly exceptBy?: TargetQuery;
+      readonly exceptThwartBy?: TargetQuery;
     }
   /**
    * "While Baron Zemo is engaged with you, you cannot thwart." `player` is resolved with "you" as the rule card's

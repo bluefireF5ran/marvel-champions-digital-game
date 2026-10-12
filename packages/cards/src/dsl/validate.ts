@@ -68,6 +68,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkEncounterDeckDiscard(definition, problems);
   checkSchemeDivert(definition, problems);
   checkCardTotals(definition, problems);
+  checkFinds(definition, problems);
   checkPreparations(definition, problems);
   checkBorrowedBoosts(definition, problems);
   checkAttackPrevention(definition, problems);
@@ -737,6 +738,23 @@ function checkCardTotals(definition: AbilityDefinition, problems: string[]): voi
     if (effect.kind !== "chooseCards" || !effect.maxTotal) continue;
     if (!Number.isInteger(effect.maxTotal.atMost) || effect.maxTotal.atMost < 0)
       problems.push("chooseCards maxTotal: atMost must be a whole number of at least 0");
+  }
+}
+
+/**
+ * `perPlayerAs` on `revealCard` and `findCard` (docs/phase7-wave10-hero-packs.md H3.5): what each per player icon on
+ * the card is treated as while it is revealed. A whole number of at least 0, and on a find only with `to: "reveal"`.
+ */
+function checkFinds(definition: AbilityDefinition, problems: string[]): void {
+  const whole = (n: number): boolean => Number.isInteger(n) && n >= 0;
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind === "revealCard" && effect.perPlayerAs !== undefined && !whole(effect.perPlayerAs))
+      problems.push("revealCard perPlayerAs: a whole number of at least 0");
+    if (effect.kind !== "findCard") continue;
+    if (effect.perPlayerAs !== undefined) {
+      if (effect.to !== "reveal") problems.push('findCard perPlayerAs: only a find with `to: "reveal"` reveals a card');
+      if (!whole(effect.perPlayerAs)) problems.push("findCard perPlayerAs: a whole number of at least 0");
+    }
   }
 }
 

@@ -3558,12 +3558,14 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const inPlay = new Set(cardsInPlay(ctx.state));
       // "Reveal and attach … here" (`heldBy`, docs/phase7-wave9.md §4.1 Q26): the reveal places its minion on this card.
       const [holder] = effect.heldBy ? targets(effect.heldBy) : [];
+      // "Treating each [per player] on it as 1" (docs/phase7-wave10-hero-packs.md H3.5): carried by each reveal.
+      const reading = effect.perPlayerAs !== undefined ? { perPlayerAs: effect.perPlayerAs } : {};
       const frames: StackFrame[] = [];
       for (const id of revealing) {
         // A card faceup in play is revealed where it is and does not enter play (RRG 1.8 "Find", p. 19; ruling June 25,
         // 2026 (5); `Frame<"reveal">.foundInPlay`, `resolve/reveal.ts`). A facedown one is not in play as itself.
         if (inPlay.has(id) && getInstance(ctx.state, id)?.faceup === true) {
-          frames.push({ ...revealFrame(ctx, playerId, id, frame.frameId, "elsewhere"), foundInPlay: true });
+          frames.push({ ...revealFrame(ctx, playerId, id, frame.frameId, "elsewhere"), foundInPlay: true, ...reading });
           continue;
         }
         // Park it with the revealing player's dealt cards while it resolves (out of the deck/discard it came from).
@@ -3576,6 +3578,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         frames.push({
           ...revealFrame(ctx, playerId, id, frame.frameId, "elsewhere"),
           ...(holder ? { heldBy: holder } : {}),
+          ...reading,
         });
       }
       // Each deck the find looked through is shuffled once the card is out of it, as `findCard` does (RRG 1.8

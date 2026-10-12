@@ -652,6 +652,13 @@ export type StackFrame =
        * of engaged with `playerId`, so nothing that follows from an engagement happens. Absent on every other reveal.
        */
       readonly heldBy?: InstanceId;
+      /**
+       * "Reveal it, treating each [per player] on it as 1" (`EffectSpec revealCard.perPlayerAs`; docs/phase7-wave10-
+       * hero-packs.md H3.5): while this frame is on the stack, every per player icon on `instanceId` multiplies by this
+       * number (`perPlayerReading`, `query.ts`). Gone with the frame, so the reading covers the reveal and nothing
+       * after it (the owner's answer to question 19 = A). Absent on every other reveal.
+       */
+      readonly perPlayerAs?: number;
       /** With `stage: "uniqueCheck"`: the stage the reveal continues to when the card is let in. */
       readonly afterUnique?: "quickstrike" | "whenRevealed";
       /**

@@ -69,6 +69,7 @@ import {
   areaOfPlayer,
   maxHitPoints,
   nextClockwisePlayer,
+  perPlayerReading,
   playerOrder,
   printedHandSize,
   printedHpNumeral,
@@ -2657,7 +2658,13 @@ export function resolveValue(
       return value.value;
     case "perPlayer":
       // The players on the team of the card whose text this is, or of the player resolving it (MC56 p. 20).
-      return value.base + value.perPlayer * perPlayerCount(state, contextArea(state, context));
+      // A card being revealed with each of its per player icons treated as a number reads that number
+      // (`perPlayerReading`; docs/phase7-wave10-hero-packs.md H3.5).
+      return (
+        value.base +
+        value.perPlayer *
+          (perPlayerReading(state, context.selfInstanceId) ?? perPlayerCount(state, contextArea(state, context)))
+      );
     case "groupPlayerCount":
       // docs/phase7-wave9.md §3.67: this game holds one group's players, so another group's count is not known here.
       return resolveGroup(state, value.group, context.vars ?? {}) === podOf(state).groupId

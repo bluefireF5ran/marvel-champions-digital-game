@@ -38,6 +38,7 @@ import type {
   TraitGrantSpec,
   TriggerEventKind,
   TypedResource,
+  ZoneId,
 } from "@mc/engine";
 import { GRANTED_BY_SLOT, POD_MOMENT } from "@mc/engine";
 import { flatten, ifThen, type EffectArg } from "./effects.js";
@@ -1228,6 +1229,27 @@ export const onlyCharacterRemovesThreat = (
   opts: { readonly while?: Predicate } = {},
 ): ConstantPart =>
   rule({ kind: "threatCannotBeRemoved", target, exceptBy: character, ...(opts.while ? { while: opts.while } : {}) });
+/**
+ * "Threat cannot be removed from attached scheme except by Hercules's thwarts." (Embody Pathos, `hercules` 59003;
+ * docs/phase7-wave10-hero-packs.md H3.6): `constant(onlyThwartsRemoveThreat(query("sideScheme", { hostOfSelf: true }),
+ * query("identity", { name: "Hercules" })))`, a `threatCannotBeRemoved` with `exceptThwartBy`. Narrower than
+ * `onlyCharacterRemovesThreat`: every removal is stopped (RRG 1.8 "'Cannot'", p. 11), an encounter card's and a
+ * support's included, except a thwart made by a character matching `thwarter`: its basic thwart, and a
+ * "(thwart)"-labeled ability or event of its player, which is a thwart by that player's identity (RRG 1.8 "Labeled
+ * Ability", p. 26). An unlabeled removal on that character's own cards, an ally's thwart and another player's thwart
+ * remove nothing, and the scheme is not a legal target of a basic thwart or thwart ability the rule stops.
+ */
+export const onlyThwartsRemoveThreat = (
+  target: TargetQuery,
+  thwarter: TargetQuery,
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart =>
+  rule({
+    kind: "threatCannotBeRemoved",
+    target,
+    exceptThwartBy: thwarter,
+    ...(opts.while ? { while: opts.while } : {}),
+  });
 /**
  * "The villain cannot take damage unless the attacker or attack has the [AERIAL] trait, or the attack has ranged."
  * (Out of Reach, `next_evol` 40153; docs/phase7-wave7.md §3.30): `constant(takesDamageOnlyFromAttacks(query("villain"),
@@ -3214,8 +3236,15 @@ export const on = {
    * the window (docs/phase7-wave5.md §3.13). Leaving is any departure (defeat, discard, hand, deck, victory display,
    * removal). An interrupt sees the card still in play, with its attachments and counters, and a response sees it gone
    * (§4.1 Q17); a query's traits are the card's as it left.
+   *
+   * `to`: only a departure that ends there (`TriggerEvent cardLeavesPlay.to`, a zone kind or any of several). "After a
+   * labor card **is added to the victory display**" (Atonement, Hercules 59001a; docs/phase7-wave10-hero-packs.md
+   * H3.7) is `on.leavesPlay(query([], { trait: LABOR }), { to: "victoryDisplay" })`: a Victory X attachment whose
+   * host is defeated and a Victory X uses card whose last counter is removed (RRG 1.8 "Victory X", p. 46), and never
+   * the same card discarded to its deck. A card moved by a replacement ("… instead") is heard where it really went.
    */
-  leavesPlay: (who: Who): EventPattern => pattern("cardLeavesPlay", asTarget(who)),
+  leavesPlay: (who: Who, opts: { readonly to?: ZoneId["kind"] | readonly ZoneId["kind"][] } = {}): EventPattern =>
+    pattern("cardLeavesPlay", asTarget(who), opts.to === undefined ? {} : { eventIs: { to: opts.to } }),
   /**
    * "When a character flips" (MojoMania 1B, `mojo` 39025b): a hero's change of form (`formChanged`, the identity as its
    * target) and a villain's or other character's flip (`cardFlipped`), both flips (RRG 1.8 "Flip", p. 20; docs/phase7-

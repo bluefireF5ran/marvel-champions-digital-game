@@ -473,6 +473,10 @@ function lastKnownFromAttack(damage: ConsequentialDamage): EffectContext["lastKn
  * removing card; null when no character performs it), read only by a rule with `exceptBy` ("Characters other than
  * Cable cannot remove threat from Technovirus Purge", docs/phase7-wave7.md §3.51): such a rule binds characters only
  * (§4.1 Q29 = A), so it never blocks a removal with no character and blocks a character's unless it matches.
+ *
+ * A rule with `exceptThwartBy` ("except by Hercules's thwarts", docs/phase7-wave10-hero-packs.md H3.6) lets through
+ * only a thwart (`byThwart`) whose thwarting character (`characterId`) matches, and blocks every other removal,
+ * whether or not a character performs it.
  */
 export const threatCannotBeRemoved = (
   state: GameState,
@@ -489,6 +493,14 @@ export const threatCannotBeRemoved = (
     if (rule.exceptBy && (characterId === null || matchesQuery(state, characterId, rule.exceptBy, context))) {
       return false;
     }
+    if (
+      rule.exceptThwartBy &&
+      byThwart &&
+      characterId !== null &&
+      matchesQuery(state, characterId, rule.exceptThwartBy, context)
+    ) {
+      return false;
+    }
     if (!rule.player) return true;
     return removerId !== null && rulePlayers(state, { player: rule.player }, active).includes(removerId);
   });
@@ -497,7 +509,8 @@ export const threatCannotBeRemoved = (
  * Whether a `threatCannotBeRemoved` rule scoped with `exceptBy` keeps this character from removing threat from the
  * scheme (docs/phase7-wave7.md §3.51): what the basic thwart command refuses on, so the scheme is not a legal target
  * of that character's basic thwart. A rule without `exceptBy`, or one that also scopes itself with `by` or `player`,
- * is left to the removal itself, as before the field.
+ * is left to the removal itself, as before the field. A rule with `exceptThwartBy` (docs/phase7-wave10-hero-packs.md
+ * H3.6) refuses the basic thwart of every character it does not name, on the same terms.
  */
 export const characterCannotRemoveThreat = (
   state: GameState,
@@ -507,11 +520,11 @@ export const characterCannotRemoveThreat = (
 ): boolean =>
   activeRules(state, deps, "threatCannotBeRemoved").some(
     ({ rule, context }) =>
-      rule.exceptBy !== undefined &&
       rule.by !== "thwart" &&
       rule.player === undefined &&
       matchesQuery(state, schemeId, rule.target, context) &&
-      !matchesQuery(state, characterId, rule.exceptBy, context),
+      ((rule.exceptBy !== undefined && !matchesQuery(state, characterId, rule.exceptBy, context)) ||
+        (rule.exceptThwartBy !== undefined && !matchesQuery(state, characterId, rule.exceptThwartBy, context))),
   );
 
 /**
