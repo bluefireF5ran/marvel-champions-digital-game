@@ -587,7 +587,7 @@ describe("cw: curation corrections (each cites its evidence in scripts/marvelcdb
     const armor = get(`56069`);
     expect(text(armor).printed).toContain("Forced Interrupt: When Iron Man would take any amount of damage");
     expect(text(armor).printed).not.toContain("Forced Response");
-    const ids = (armor as { abilities: { id: string }[] }).abilities.map((a) => a.id);
+    const ids = (armor as unknown as { abilities: { id: string }[] }).abilities.map((a) => a.id);
     expect(ids).toContain("56069.mark-v-armor-forced-interrupt");
     expect(notes("56069")).toContain("Scan 56069.png");
   });
@@ -602,7 +602,7 @@ describe("cw: curation corrections (each cites its evidence in scripts/marvelcdb
 
   it("56209 Recruited by Cap's malformed raw markup still yields an Action label (resistance scan check item 5)", () => {
     expect(text(get("56209")).printed.startsWith("Action: Choose a minion engaged with you")).toBe(true);
-    expect((get("56209") as { abilities: { id: string }[] }).abilities.map((a) => a.id)).toEqual([
+    expect((get("56209") as unknown as { abilities: { id: string }[] }).abilities.map((a) => a.id)).toEqual([
       "56209.recruited-by-cap-action",
     ]);
   });
