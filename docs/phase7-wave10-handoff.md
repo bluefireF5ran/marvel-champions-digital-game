@@ -56,8 +56,7 @@ Hero Pack_, and the _Hercules Hero Pack_." Our id is `cycleId("cycle10")`.
 
 **The box (MC56):** heroes Tigra (56001a) and Hulkling (56029a). Four leaders, used in place of villains and working
 exactly as villains do (MC56 p. 3): Iron Man and Captain Marvel for registration, Captain America and Spider-Woman for
-resistance. Each has four stages (III and IV replace I and II in expert mode) and a 10-card encounter set. Eight main
-scheme stage 1s and eight stage 2s (four of each per side), eight 5-card modular sets (four per side), a Standard PvP
+resistance. Each has four stages (III and IV replace I and II in expert mode) and a 10-card encounter set. Per side: four main scheme stage 1s and four stage 2s (sixteen stages in the box) and eight 5-card modular sets (sixteen in the box), a Standard PvP
 encounter set and four basic player cards per leader, both used only in competitive mode. Rulebook:
 `docs/campaign-modes/mc56_rulebook-web_1.pdf` (transcribed, roughly, at
 `docs/campaign-modes/markdown/mc56_civil_war.md`).
@@ -113,3 +112,9 @@ Civil War". Files go to `music/scenarios/_pending/<scenario id>/` until the scen
   A fourth agent wrote `docs/competitive-mode-plan.md` (15 build-now tasks in its §4, 17 open questions in its §1.9;
   its Q1 and Q2 are about cooperative play and go to the owner through the spec's §4). The sources page is in; its §10
   questions are the PR's questions 2 to 5. The owner runs up to four agents at once on this PC.
+- **Spec pass 1a is in** (`docs/phase7-wave10.md`): 23 primitives (5 new, 12 to extend, 6 reusable), a 19-task engine
+  queue (§8.2) and 25 scripting lines (§8.4). Owner questions are numbered across all pages: 1 answered; 2 to 5 from
+  the sources page; 6 to 13 from pass 1a (8 closed by reading the scan: Iron Man III prints "Setup"). The unique
+  reveal branch turned out to be built already (`reveal.ts`, stage `uniqueCheck`); the gap is attachments (§3.8).
+  Passes 1b (`docs/phase7-wave10-box-heroes.md`, sections prefixed B) and 2 (`docs/phase7-wave10-hero-packs.md`,
+  prefixed H) are separate files so two agents can write side by side; their questions get the next free numbers.
