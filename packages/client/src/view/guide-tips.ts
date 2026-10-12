@@ -39,6 +39,7 @@ import {
   heroFacesOf,
   iconsInPlay,
   minionsEngagedWith,
+  traitsOf,
   type CardInstance,
   type EngineDeps,
   type InstanceId,
@@ -1144,6 +1145,150 @@ const WAVE_9_ON_TABLE_TIPS: readonly SituationTrigger[] = [
   ),
 ];
 
+// ---------------------------------------------------------------------------
+// Wave 10: Civil War, Tigra, Hulkling, Wonder Man and Hercules (guided mode section 3.14)
+// ---------------------------------------------------------------------------
+
+/** The four Civil War leaders (Iron Man, Captain Marvel, Captain America, Spider-Woman), stage faces included. */
+const LEADER_IDS = ["56059", "56092", "56137", "56168"];
+/** Hulkling's four Shapeshift upgrades. */
+const SHAPESHIFT_IDS = new Set(["56032", "56033", "56034", "56035"]);
+/** Hercules' Labor deck: Defeat the Hydra, Embody Pathos, Protect Humanity. */
+const LABOR_IDS = ["59002", "59003", "59004"];
+const IONIC_PHYSIOLOGY_ID = "58002";
+
+/** The pending choice carries the engine's `authority: "enemyTeam"`: the players are deciding for the villain's side. */
+function enemyTeamChoiceTip({ game }: LessonObservation): Tip | null {
+  if (game.pendingChoice?.authority !== "enemyTeam") return null;
+  return {
+    id: "situation:enemyTeamChoice",
+    title: "The enemy team's choice",
+    body:
+      "This prompt is marked as the [[enemyTeam|enemy team's]]. The first player decides, as an opponent would. " +
+      "If only one card fits, you are not asked.",
+  };
+}
+
+/**
+ * A card was played or revealed whose text refers to "your leader". The engine does not report that part doing
+ * nothing, so this is the nearest trigger: the card on its way to resolving.
+ */
+function yourLeaderTip({ game, lastEvents }: LessonObservation): Tip | null {
+  const mentions = lastEvents.some((event) => {
+    if (event.type !== "cardPlayed" && event.type !== "encounterCardRevealed") return false;
+    const card = game.cardPool[event.cardId];
+    return !!card && "text" in card && /your leader/i.test(card.text.current);
+  });
+  if (!mentions) return null;
+  return {
+    id: "situation:yourLeader",
+    title: "Your leader",
+    body:
+      "You have no leader in a cooperative game, so the part about [[yourLeader|your leader]] does nothing. An " +
+      "Otherwise on the card applies instead.",
+  };
+}
+
+/** A minion was given to the villain as a facedown boost card by an effect, not by an activation. */
+function givenAsBoostTip({ game, lastEvents }: LessonObservation): Tip | null {
+  const given = lastEvents.some((event) => {
+    if (event.type !== "boostCardDealt" || !event.outsideActivation) return false;
+    const instance = getInstance(game, event.instanceId);
+    return !!instance && game.cardPool[instance.cardId]?.type === "minion";
+  });
+  if (!given) return null;
+  return {
+    id: "situation:givenAsBoost",
+    title: "A minion became a boost card",
+    body:
+      "The defeated minion went [[givenAsBoost|facedown to the leader]], not to the discard pile. It is turned " +
+      "up at the leader's next activation.",
+  };
+}
+
+/** Some identity has the Unregistered trait now. The engine has no "gained a trait" event, so this reads the trait. */
+function unregisteredTip({ game }: LessonObservation, deps: EngineDeps): Tip | null {
+  const has = game.players.some((player) =>
+    traitsOf(game, player.identity.instanceId, deps).some((t) => String(t) === "UNREGISTERED"),
+  );
+  if (!has) return null;
+  return {
+    id: "situation:unregistered",
+    title: "Unregistered",
+    body:
+      "A hero is [[unregistered|Unregistered]] now. Encounter cards in this box read that trait, so look for ones " +
+      "that hit or exhaust Unregistered identities.",
+  };
+}
+
+/** Damage was stopped because the target cannot take any. The engine logs no refused attack target, so this is the nearest. */
+function cannotTakeDamageTip({ lastEvents }: LessonObservation): Tip | null {
+  if (!lastEvents.some((event) => event.type === "damagePrevented" && event.reason === "cannotTakeDamage")) return null;
+  return {
+    id: "situation:cannotTakeDamage",
+    title: "No damage here",
+    body:
+      "An enemy that [[cannotTakeDamage|cannot take damage]] is not a valid attack target, basic attack included. " +
+      "Pick another target.",
+  };
+}
+
+/** A Shapeshift upgrade left play: the usual cause is Hulkling changing shape. */
+function shapeshiftTip({ lastEvents }: LessonObservation): Tip | null {
+  const left = lastEvents.some(
+    (event) => event.type === "cardDiscardedFromPlay" && SHAPESHIFT_IDS.has(baseCardId(event.cardId)),
+  );
+  if (!left) return null;
+  return {
+    id: "situation:shapeshift",
+    title: "A new shape",
+    body: "Hulkling holds one [[shapeshift|Shapeshift]] at a time. The new one discarded the old one and readied him.",
+  };
+}
+
+/** Wonder Man's Ionic Physiology is in play with a tucked event. */
+function ionicPhysiologyTip({ game }: LessonObservation): Tip | null {
+  const tucked = inPlayInstances(game).some((i) => baseCardId(i.cardId) === IONIC_PHYSIOLOGY_ID && i.tucked.length > 0);
+  if (!tucked) return null;
+  return {
+    id: "situation:ionicPhysiology",
+    title: "Tucked under Ionic Physiology",
+    body:
+      "Each event tucked under [[ionicPhysiology|Ionic Physiology]] adds 1 ATK, up to three. Your next basic attack " +
+      "discards them.",
+  };
+}
+
+const WAVE_10_TIPS: readonly SituationTrigger[] = [
+  onTableWithVillainsTip(
+    {
+      id: "situation:leaderCard",
+      title: "A leader",
+      body:
+        "A [[leaderCard|leader]] stands where the villain would, and plays like one. The scenario only mixes cards " +
+        "of its [[civilWarSides|side]].",
+    },
+    LEADER_IDS,
+  ),
+  enemyTeamChoiceTip,
+  yourLeaderTip,
+  givenAsBoostTip,
+  unregisteredTip,
+  cannotTakeDamageTip,
+  shapeshiftTip,
+  ionicPhysiologyTip,
+  inPlayTip(
+    {
+      id: "situation:laborCard",
+      title: "A Labor card",
+      body:
+        "A Labor card came from Hercules' [[laborGiftDecks|Labor deck]]. Put it in the victory display and he gains " +
+        "a Gift, if he is in hero form.",
+    },
+    LABOR_IDS,
+  ),
+];
+
 /** Every situation trigger takes `deps` even when it doesn't read one, so `tipsFor` can map over them uniformly. */
 type SituationTrigger = (observation: LessonObservation, deps: EngineDeps) => Tip | null;
 
@@ -1196,6 +1341,7 @@ const SITUATION_TIPS: readonly SituationTrigger[] = [
   surgeDealtTip,
   evidenceGainedTip,
   accusationTip,
+  ...WAVE_10_TIPS,
 ];
 
 // ---------------------------------------------------------------------------
