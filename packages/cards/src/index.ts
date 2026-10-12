@@ -97,6 +97,8 @@ export type {
   PlayableScenarioOffer,
 } from "./playable/scenario-options.js";
 export { PLAYABLE_ABILITIES, PLAYABLE_DEPS, playableScenario, playableStarterDeckSetup } from "./playable/index.js";
+export { randomCivilWarScenario } from "./playable/random-civil-war.js";
+export type { RandomCivilWarOptions, RandomCivilWarScenario } from "./playable/random-civil-war.js";
 export type { PlayableScenarioOptions } from "./playable/index.js";
 // Community decks: the saved, tested public MarvelCDB decklists, as a catalog a client can recommend from.
 export {
