@@ -483,6 +483,13 @@ export interface DeckDiscard {
   readonly by?: LeaveCauseSide;
   readonly how?: "effect" | "cost";
   readonly boundOn?: { readonly frameId: FrameId; readonly slot: string; readonly also?: readonly string[] };
+  /**
+   * On a discard a response window is watching (`DeckDiscardWindow`), once a response has moved the card from where
+   * its discard left it: the card that response's ability is on, and whether that ability leaves the card counted by
+   * the ability that discarded it (`AbilityDefinition.discardsStayCounted`, box-heroes B3.3). Recorded as that
+   * response finishes (`noteDeckDiscardsTaken`); the first response to move the card is the one named.
+   */
+  readonly takenBy?: { readonly instanceId: InstanceId | null; readonly stillCounted: boolean };
 }
 
 /**

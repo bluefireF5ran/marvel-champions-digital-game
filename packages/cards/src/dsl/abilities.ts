@@ -738,6 +738,22 @@ export const gainsTraitsOf = (
 ): ConstantPart => ({
   traitGrants: [{ traitsOf, target, ...(opts.while ? { while: opts.while } : {}) }],
 });
+/**
+ * "Each Avenger minion gains the printed keywords of each other Avenger minion." (Earth's Mightiest Heroes, `cw`
+ * 56077; docs/phase7-wave10.md §3.12) → `constant(gainsKeywordsOf(query("minion", { trait: AVENGER }), query("minion",
+ * { trait: AVENGER })))`. Each card `target` matches gains every keyword **printed** on each other card in play
+ * `keywordsOf` matches; "each other" is built in (a card is never its own source), and printed only means grants never
+ * chain. Traits in either query are read live, so a minion given the trait counts on both ends. A numbered keyword is
+ * gained as printed and adds to the card's own (Retaliate 1 twice is retaliate 2). Toughness, Quickstrike and
+ * Teamwork act as a card enters play, so they do nothing for a minion already there.
+ */
+export const gainsKeywordsOf = (
+  keywordsOf: TargetQuery,
+  target: TargetQuery,
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => ({
+  keywordGrants: [{ keywordsOf, target, ...(opts.while ? { while: opts.while } : {}) }],
+});
 export const rule = (r: RuleSpec): ConstantPart => ({ rules: [r] });
 /**
  * "Any player can attack this card as if it were a minion." (Encased in Ice, `winter` 54035; docs/phase7-wave9.md
@@ -1440,6 +1456,19 @@ export const inVictoryDisplay = (definition: AbilityDefinition): AbilityDefiniti
  */
 export const inDiscard = (definition: AbilityDefinition): AbilityDefinition => ({ ...definition, activeIn: "discard" });
 /**
+ * On a response to cards discarded from a deck: the cards it takes away are still counted by the ability that
+ * discarded them (`AbilityDefinition.discardsStayCounted`; docs/phase7-wave10-box-heroes.md B3.3, question 14 = A,
+ * provisional). Skrull Business (`cw` 56056) places the discarded cards facedown under itself, and Super Skrull's
+ * "if that card's printed resource has …" and You're Coming With Me!'s "for each different resource icon on the
+ * discarded cards" still read them. Without it the card is dropped from that ability's set (wave 7 §4.1 Q32: a card
+ * its own response, or another card's, took away). `validateDefinition` rejects it on anything but a response to a
+ * discard from a deck.
+ */
+export const stillCountedByDiscarder = (definition: AbilityDefinition): AbilityDefinition => ({
+  ...definition,
+  discardsStayCounted: true,
+});
+/**
  * "Forced Response: After a player card effect discards this card from under an identity, that identity takes 2
  * damage." (Hunting the Spider-Bride, `silk` 52031): the response is the card's own answer to its discard from under
  * another card, read from the card where that discard left it, and nowhere else (`AbilityDefinition.activeIn`,
@@ -1585,11 +1614,22 @@ export const cannotChooseToDiscard: ConstantPart = { rules: [{ kind: "cannotChoo
  * `cannotEnterPlay(query("ally", { name: "…" }))`: a scenario rule (`GameSetupConfig.scenarioRuleSpecs`, or a campaign
  * node's `scenarioRuleSpecs`), matched by title so every printing is covered. The card cannot be played or put into
  * play; it may still be drawn, discarded and spent as a resource.
+ *
+ * `player`: "You cannot have more than 1 Shapeshift upgrade in play." (Teddy Altman, `cw` 56029b;
+ * docs/phase7-wave10-box-heroes.md B3.4) → on the alter-ego face, `constant(rule(cannotEnterPlay(query("upgrade", {
+ * trait: SHAPESHIFT }), { while: exists(query("upgrade", { trait: SHAPESHIFT, controller: "you" })), player: you
+ * })))`. With `player` the rule stops a matching card from being played or put into play under that player's control
+ * only; with one such upgrade in play a second cannot be played, and nothing is discarded (ruling January 11, 2026 -
+ * Ruling 1). On a face it works only while that face is up. The refused play's message names the card the rule is on.
  */
-export const cannotEnterPlay = (cards: TargetQuery, opts: { readonly while?: Predicate } = {}): RuleSpec => ({
+export const cannotEnterPlay = (
+  cards: TargetQuery,
+  opts: { readonly while?: Predicate; readonly player?: PlayerRef } = {},
+): RuleSpec => ({
   kind: "cannotEnterPlay",
   cards,
   ...(opts.while ? { while: opts.while } : {}),
+  ...(opts.player ? { player: opts.player } : {}),
 });
 export const focusedMainScheme = (): ConstantPart => rule({ kind: "focusedMainScheme", scheme: { kind: "host" } });
 /**
@@ -3311,6 +3351,18 @@ export const on = {
    */
   youDiscardFromYourDeck: (): EventPattern => pattern("cardDiscardedFromDeck", { playerIs: "controller" }),
   /**
+   * "After any number of cards are discarded from the top of a player's deck" (Skrull Business, `cw` 56056;
+   * docs/phase7-wave10-box-heroes.md B3.3), on a card in play: the cards one effect or one cost discarded from any
+   * player's deck, answered once for all of them (`EventPattern.together`; RRG 1.8 "Triggering Condition", p. 45).
+   * "Those cards" are `eventTargetsTogether`, and the deck's player is `eventPlayer`. Every discard off the top of a
+   * player's deck counts, by any card's effect or cost; a discard from a hand, from play or from the encounter deck
+   * does not. The card whose discard emptied the deck is read in the new deck, as for `youDiscardFromYourDeck`.
+   *
+   * → `stillCountedByDiscarder(forcedResponse(on.aPlayerDiscardsFromTheirDeck(), tuckCards(cards(
+   * eventTargetsTogether), self, true)))`.
+   */
+  aPlayerDiscardsFromTheirDeck: (): EventPattern => pattern("cardDiscardedFromDeck", { together: true }),
+  /**
    * "After a [card] is discarded from the top of the encounter deck" (Serpent Solutions, `falcon` 53031;
    * docs/phase7-wave9.md §3.43 (b)): each card an effect or a cost discards off the top of an encounter deck, by any
    * card: `discardEncounterCards`, `discardEncounterUntil`, a `discardTopOfEncounterDeckCost` or
@@ -3494,6 +3546,19 @@ export const on = {
    * (§4.1 Q20; "after you recover" is `basicPowerUsed` narrowed to `power: "recover"`).
    */
   basicRecovery: (who: Who): EventPattern => pattern("basicRecovery", asTarget(who)),
+  /**
+   * "When attached character would … thwart, or attack" (Tangled Up, `cw` 56181; docs/phase7-wave10.md §3.21) →
+   * `forcedInterrupt(on.characterWouldAct("host"), instead(discard(self)))`. One point for a player
+   * character's attack or thwart however it is made: a basic attack or thwart of that character, or an attack- or
+   * thwart-labeled ability of the player whose identity it is (an event included), announced once its costs are paid
+   * and before anything of it resolves. `instead(...)` replaces the whole use: nothing is dealt or removed, the
+   * character has not attacked or thwarted, and what was paid stays paid (the character exhausted, the event
+   * discarded). `act` narrows it to one of the two. A stunned attack or a confused thwart does not reach it (the
+   * status card is discarded first), and neither does a defense, a recovery, or an attack or thwart an unlabeled
+   * effect has a character make. The "would scheme" third of the sentence is an enemy's, on `on.enemySchemes`.
+   */
+  characterWouldAct: (who: Who, opts: { readonly act?: "attack" | "thwart" } = {}): EventPattern =>
+    pattern("characterWouldAct", asTarget(who), opts.act ? { eventIs: { act: opts.act } } : {}),
   /** "When attached character would ready" (Frozen in Time; docs/phase7-wave2.md §3.11). */
   cardReadying: (what: Who): EventPattern => pattern("cardReadying", asTarget(what)),
   /**

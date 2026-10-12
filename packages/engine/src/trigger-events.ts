@@ -1,5 +1,6 @@
 import type { AbilityId, CardId, Trait } from "@mc/content";
 import type { EventPattern } from "./abilities.js";
+import type { BasicPowerShare, Command } from "./commands.js";
 import type { EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
 import type { StatusDiscardCause } from "./events.js";
 import type {
@@ -1228,7 +1229,8 @@ export type TriggerEventBody =
    * Condition", p. 45) that resolves before the discarding ability's next effect. A response that takes the card away
    * leaves nothing for another to act on: once the card is no longer where the discard put it, nothing more is offered
    * for it (`deckDiscardStillThere`), and the discarding ability no longer counts it (ruling, April 30, 2026 - Ruling
-   * 4, answer 1; §4.1 Q32; `settleDeckDiscards`).
+   * 4, answer 1; §4.1 Q32; `settleDeckDiscards`), unless the response that took it says it stays counted
+   * (`AbilityDefinition.discardsStayCounted`, docs/phase7-wave10-box-heroes.md B3.3).
    *
    * `at`: where the discard left the card. `"discard"`: the player's discard pile. `"deck"`: the discard emptied the
    * deck, whose reset shuffled this card into the new deck at once (RRG 1.8 "Player Deck", p. 33; MC40 p. 21: "Player
@@ -1420,6 +1422,37 @@ export type TriggerEventBody =
       readonly power: "attack" | "thwart" | "defense" | "recover";
       readonly stat: StatName;
       readonly playerId: PlayerId;
+    }
+  /**
+   * A player's character is about to attack or thwart (docs/phase7-wave10.md §3.21): "Forced Interrupt: When attached
+   * character would scheme, thwart, or attack, discard this card instead." (Tangled Up, `cw` 56181.) One "would"
+   * point for every way the act is made:
+   *
+   * - **a basic attack or thwart**, of a hero or an ally: pushed by the command once its costs are paid (the character
+   *   is exhausted, the power's own additional cost paid) and after a stunned or confused status card has had its
+   *   say, in place of everything the power does. Its apply step is the power itself (`basic`): the attack or thwart
+   *   events, the consequential damage, the `basicPowerUsing` / `basicPowerUsed` announcements;
+   * - **an attack- or thwart-labeled ability** (an event, or an ability of a card in play), which is its player's
+   *   identity's attack or thwart (RRG 1.8 "Labeled Ability", p. 26): pushed above the ability's frame
+   *   (`abilityFrameId`) as it begins resolving, after its costs are paid. The ability resolves once this has.
+   *
+   * Replaced (`replaceTriggeringEvent`; RRG 1.8 "'Would'", p. 48, "Replacement Effect", p. 37), the act never
+   * happened: nothing of the basic power is pushed, the character has not attacked, thwarted or used a basic power,
+   * and the ability resolves none of its effects. What was paid stays paid (RRG 1.8 "Cost", p. 13), a played event
+   * is discarded, and the ability's use counts toward its limit, as a use a status card cancels does.
+   *
+   * Pushed only when an ability could react; otherwise the act goes ahead at once. A basic defense or recovery, and
+   * an attack or thwart an unlabeled effect has a character make, do not announce it.
+   */
+  | {
+      readonly kind: "characterWouldAct";
+      readonly act: "attack" | "thwart";
+      readonly characterInstanceId: InstanceId;
+      readonly playerId: PlayerId;
+      /** **Engine-internal.** The basic power this stands in front of, carried out by the apply step. */
+      readonly basic?: BasicPowerResume;
+      /** **Engine-internal.** The labeled ability's frame waiting beneath this event. */
+      readonly abilityFrameId?: FrameId;
     }
   /**
    * The healing of a basic recovery (docs/phase7-wave6.md §3.40): its apply step heals the identity by its REC as it
@@ -1906,6 +1939,26 @@ export interface LeavePatch {
 }
 
 /**
+ * A basic attack or thwart whose costs are paid, held by its `characterWouldAct` event until that event's interrupt
+ * window has passed (docs/phase7-wave10.md §3.21): the command as it was given, the targets it was checked against
+ * (`shares`: one target, or a divided power's), and for a thwart whether it uses ATK and whether the schemes'
+ * additional thwart cost is already paid.
+ */
+export type BasicPowerResume =
+  | {
+      readonly power: "attack";
+      readonly command: Extract<Command, { type: "basicAttack" }>;
+      readonly shares: readonly BasicPowerShare[];
+    }
+  | {
+      readonly power: "thwart";
+      readonly command: Extract<Command, { type: "basicThwart" }>;
+      readonly shares: readonly BasicPowerShare[];
+      readonly useAtk: boolean;
+      readonly thwartCostPaid: boolean;
+    };
+
+/**
  * The stat a basic power uses when nothing substitutes another (RRG 1.8 "Basic Power", p. 10): the default of the
  * `stat` on `basicPowerUsing` / `basicPowerUsed`.
  */
@@ -1952,6 +2005,8 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     case "basicPowerUsing":
     // "When you make a basic recovery … instead of healing damage" (wave 6 §3.40): the healing is still to come.
     case "basicRecovery":
+    // "When attached character would … thwart, or attack" (docs/phase7-wave10.md §3.21): the act is still to come.
+    case "characterWouldAct":
     case "turnEnding":
     // "Interrupt: When you change to hero form" (`formChanging`): the change is still to come.
     case "formChanging":
@@ -2138,6 +2193,7 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
     case "basicPowerUsed":
     case "basicPowerUsing":
     case "basicRecovery":
+    case "characterWouldAct":
       return of([event.characterInstanceId], [event.characterInstanceId], [event.playerId]);
     case "cardReadying":
     // The readied card is the event's *target*, so "after you ready Quicksilver" is

@@ -438,6 +438,12 @@ export type StackFrame =
        * they bound goes back to that frame under `<prefix>.` ("If at least 1 Sandman card was discarded this way").
        */
       readonly returnBindingsTo?: { readonly frameId: FrameId; readonly prefix: string };
+      /**
+       * An attack- or thwart-labeled ability whose `characterWouldAct` event was pushed above this frame
+       * (docs/phase7-wave10.md §3.21): `"asked"` once it has been, so it is announced once; `"replaced"` when an
+       * interrupt replaced it ("discard this card instead"), so the ability resolves none of its effects.
+       */
+      readonly wouldAct?: "asked" | "replaced";
     })
   /** Runs an `EffectSpec` program with a cursor and slot bindings. */
   | (FrameBase & {

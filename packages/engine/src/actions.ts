@@ -53,6 +53,7 @@ import {
   cannotLeavePlay,
   cannotRecover,
   cannotEnterPlay,
+  enterPlayBarMessage,
   cannotPlayCard,
   cannotTakeDamage,
   cannotThwart,
@@ -82,7 +83,13 @@ import {
   usesPerPaidCard,
 } from "./abilities.js";
 import type { BasicPowerName, EffectSpec, StatName, TargetRef, ValueSpec } from "./spec.js";
-import { BASIC_POWER_STAT, cardFlippedEvent, carriedByEvent, type TriggerEvent } from "./trigger-events.js";
+import {
+  BASIC_POWER_STAT,
+  cardFlippedEvent,
+  carriedByEvent,
+  type BasicPowerResume,
+  type TriggerEvent,
+} from "./trigger-events.js";
 import { instanceId as asInstanceId, type FrameId, type InstanceId, type PlayerId } from "./ids.js";
 import { attackKeywordsOf, canTakeStatus, hasKeyword, statusActive } from "./keywords.js";
 import {
@@ -2762,9 +2769,8 @@ export function planCost(
         return { code: "duplicate_unique_card", message: uniqueBlockedMessageIn(state, card, match) };
       }
       // The same reading for a card a rule keeps out of play (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43).
-      if (cannotEnterPlay(state, deps, pick)) {
-        return { code: "no_valid_target", message: `${card.name} cannot enter play during this game` };
-      }
+      const barred = enterPlayBarMessage(state, deps, pick, playerId);
+      if (barred) return { code: "no_valid_target", message: barred };
     }
     const printed = printedCostOf(state, card, pick);
     requirement = combineRequirements(requirement, printed);
@@ -4501,9 +4507,12 @@ export function playCard(ctx: Ctx, command: Command & { type: "playCard" }): Eng
   }
   // "[A title] cannot enter play during this game" (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43): refused
   // before pricing, so the play costs nothing, and before the destination is read, so it is refused for either.
-  if (entersPlayWhenPlayed(card) && cannotEnterPlay(ctx.state, ctx.deps, command.cardInstanceId)) {
-    return engineError("no_valid_target", `${card.name} cannot enter play during this game`, command);
-  }
+  // A rule limited to one player (`cannotEnterPlay.player`, box-heroes B3.4) is read for the player who would control
+  // the card, and the refusal names the rule's card.
+  const barred = entersPlayWhenPlayed(card)
+    ? enterPlayBarMessage(ctx.state, ctx.deps, command.cardInstanceId, controllerId)
+    : null;
+  if (barred) return engineError("no_valid_target", barred, command);
 
   /**
    * RRG 1.8 "Unique Icon" (pp. 45–46): "A non-villain card in an out-of-play state that
@@ -4823,7 +4832,7 @@ function playFromEffectRestrictionFault(
     return "a play restriction";
   if (entersPlayWhenPlayed(card) && matchingCardInPlay(ctx.state, card, new Set(), playerId, ctx.deps))
     return "a matching unique card is in play";
-  if (entersPlayWhenPlayed(card) && cannotEnterPlay(ctx.state, ctx.deps, id)) return "it cannot enter play";
+  if (entersPlayWhenPlayed(card) && cannotEnterPlay(ctx.state, ctx.deps, id, playerId)) return "it cannot enter play";
   return null;
 }
 
@@ -5668,6 +5677,19 @@ function basicAttackPaying(
   if (attackerProfile.missing.includes("atk")) {
     return engineError("no_valid_target", "a character with a printed '—' ATK cannot attack", command);
   }
+  // "When [this character] would … attack" (docs/phase7-wave10.md §3.21): with the costs paid, the attack waits for
+  // that window, and is made by the event's apply step unless an interrupt replaced it.
+  if (announcedWouldAct(ctx, command.attackerInstanceId, { power: "attack", command, shares })) return null;
+  makeBasicAttack(ctx, command, shares);
+  return null;
+}
+
+/** A basic attack whose costs are paid and which nothing has replaced: its events and announcements. */
+function makeBasicAttack(
+  ctx: Ctx,
+  command: Command & { type: "basicAttack" },
+  shares: readonly BasicPowerShare[],
+): void {
   announceBasicPower(ctx, command.attackerInstanceId, "attack", command.playerId);
   const consequential = pushConsequentialDamage(ctx, command.attackerInstanceId, "attack");
   const attackFrames = !command.divide
@@ -5701,7 +5723,30 @@ function basicAttackPaying(
   // "For its next basic thwart or attack" (§3.39): a waiting bonus starts applying with this attack.
   startNextBasicPowerEffects(ctx, command.attackerInstanceId, "attack", attackFrames);
   announceBasicPowerUsing(ctx, command.attackerInstanceId, "attack", command.playerId);
-  return null;
+}
+
+/**
+ * Announces `characterWouldAct` for a basic attack or thwart whose costs are paid (docs/phase7-wave10.md §3.21), when
+ * an ability could react to it. True when it was announced: the power is then made by that event's apply step
+ * (`resumeBasicPower`), or not at all if an interrupt replaces the event.
+ */
+function announcedWouldAct(ctx: Ctx, characterId: InstanceId, basic: BasicPowerResume): boolean {
+  const event: TriggerEvent = {
+    kind: "characterWouldAct",
+    act: basic.power,
+    characterInstanceId: characterId,
+    playerId: basic.command.playerId,
+    basic,
+  };
+  if (!heard(ctx.state, ctx.deps, event)) return false;
+  pushEvent(ctx, event);
+  return true;
+}
+
+/** The apply step of a basic power's `characterWouldAct` event: nothing replaced the power, so it is made now. */
+export function resumeBasicPower(ctx: Ctx, basic: BasicPowerResume): void {
+  if (basic.power === "attack") makeBasicAttack(ctx, basic.command, basic.shares);
+  else makeBasicThwart(ctx, basic.command, basic.shares, basic.useAtk, basic.thwartCostPaid);
 }
 
 function basicThwartPaying(
@@ -5877,6 +5922,22 @@ function basicThwartWith(
       command,
     );
   }
+  // "When [this character] would … thwart" (docs/phase7-wave10.md §3.21), as for the basic attack.
+  const resume: BasicPowerResume = { power: "thwart", command, shares, useAtk, thwartCostPaid };
+  if (announcedWouldAct(ctx, command.thwarterInstanceId, resume)) return null;
+  makeBasicThwart(ctx, command, shares, useAtk, thwartCostPaid);
+  return null;
+}
+
+/** A basic thwart whose costs are paid and which nothing has replaced: its events and announcements. */
+function makeBasicThwart(
+  ctx: Ctx,
+  command: Command & { type: "basicThwart" },
+  shares: readonly BasicPowerShare[],
+  useAtk: boolean,
+  thwartCostPaid: boolean,
+): void {
+  const thwartStat = useAtk ? "atk" : "thw";
   announceBasicPower(ctx, command.thwarterInstanceId, "thwart", command.playerId, thwartStat);
   const consequential = pushConsequentialDamage(
     ctx,
@@ -5925,7 +5986,6 @@ function basicThwartWith(
     }
   }
   announceBasicPowerUsing(ctx, command.thwarterInstanceId, "thwart", command.playerId, thwartStat);
-  return null;
 }
 
 /**

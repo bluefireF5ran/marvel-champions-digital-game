@@ -296,7 +296,7 @@ function admitUniqueEntry(
     const card = cardOf(ctx.state, id);
     // "[A title] cannot enter play during this game" (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43): the
     // effect does nothing to the card, whatever its type, and it stays where it was. A card in play is not entering.
-    if (card && !cardsInPlay(ctx.state).includes(id) && cannotEnterPlay(ctx.state, ctx.deps, id)) {
+    if (card && !cardsInPlay(ctx.state).includes(id) && cannotEnterPlay(ctx.state, ctx.deps, id, forPlayer)) {
       emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId: forPlayer, reason: "cannotEnterPlay" });
       continue;
     }

@@ -170,6 +170,16 @@ function scanGrantedKeywords(state: GameState, deps: EngineDeps, id: InstanceId)
       for (const grant of definition.trigger.keywordGrants) {
         if (grant.while && !evaluate(state, grant.while, context)) continue;
         if (!matchesQuery(state, id, grant.target, context)) continue;
+        if (grant.keywordsOf) {
+          // "Gains the printed keywords of each other [trait] minion" (docs/phase7-wave10.md §3.12): printed
+          // keywords only, so two cards granting to each other never chain.
+          for (const other of inPlay) {
+            if (other === id || !matchesQuery(state, other, grant.keywordsOf, context)) continue;
+            granted.push(...printedKeywordsOf(state, other, deps));
+          }
+          continue;
+        }
+        if (!grant.keyword) continue;
         if (grant.loses) {
           (lost ??= new Set()).add(grant.keyword.name);
           continue;
@@ -240,7 +250,7 @@ export function hasGrantedPermanent(state: GameState, id: InstanceId, deps: Engi
           deps: DEFAULT_DEPS,
         };
         for (const grant of definition.trigger.keywordGrants) {
-          if (grant.keyword.name !== "permanent" || grant.loses) continue;
+          if (grant.keyword?.name !== "permanent" || grant.loses) continue;
           if (grant.while && !evaluate(state, grant.while, context)) continue;
           if (matchesQuery(state, id, grant.target, context)) return true;
         }

@@ -154,6 +154,7 @@ import { executeSettleReadyCardsCost } from "../ready-cards-cost.js";
 import { executeDefeatedTogether } from "./defeated-together.js";
 import { executeSearchCollection } from "./collection.js";
 import { announceAbilityResolved } from "./ability.js";
+import { noteDeckDiscardsTaken } from "./deck-discard.js";
 import { settleDeclaredDefenderCost } from "./enemy-activation.js";
 import { executeAccuse } from "./accusation.js";
 import { executeReportFact } from "./report-fact.js";
@@ -257,6 +258,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
           : parent,
       );
     }
+    // A response to a deck discard: the cards it took away are recorded as its (box-heroes B3.3).
+    noteDeckDiscardsTaken(ctx, frame);
     // The ability these effects are has now resolved (RRG 1.8 "Resolve", p. 37).
     announceAbilityResolved(ctx, frame);
     return;

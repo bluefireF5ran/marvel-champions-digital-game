@@ -176,6 +176,19 @@ export type GameEvent =
       readonly slot: string;
     }
   /**
+   * A response to its discard from `playerId`'s deck took the card away, and the ability that discarded it still
+   * counts it: the response's ability says so (`AbilityDefinition.discardsStayCounted`; Skrull Business placing the
+   * cards facedown under itself, docs/phase7-wave10-box-heroes.md B3.3, question 14 = A). `slot`: the bound set it
+   * stays in; `takenByInstanceId`: the card whose response took it.
+   */
+  | {
+      readonly type: "deckDiscardStillCounted";
+      readonly playerId: PlayerId | null;
+      readonly instanceId: InstanceId;
+      readonly slot: string;
+      readonly takenByInstanceId: InstanceId | null;
+    }
+  /**
    * `playerId` spent a card tucked under `hostInstanceId` "as if it were in their hand" (`RuleSpec
    * spendableFromTucked`, docs/phase7-wave9.md §3.46 (c)): it went from under its host to its owner's discard pile
    * (the `cardMoved` before this). Logged in place of the `cardDiscardedFromHand` a hand card's spending logs.

@@ -558,6 +558,15 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
     problems.push(...unlistedAlternativeKinds(trigger.on));
   if (trigger.kind === "response" && trigger.on) problems.push(...unreadDamage(trigger.on));
   if (trigger.kind === "constant" && definition.effects.length > 0) problems.push("a constant ability has no effects");
+  // docs/phase7-wave10.md §3.12: a keyword grant names one keyword, or the cards whose printed keywords are gained.
+  if (trigger.kind === "constant") {
+    for (const grant of trigger.keywordGrants ?? []) {
+      if ((grant.keyword === undefined) === (grant.keywordsOf === undefined))
+        problems.push("a keyword grant needs exactly one of keyword and keywordsOf");
+      else if (grant.keywordsOf !== undefined && (grant.value !== undefined || grant.loses))
+        problems.push("a keywordsOf grant gains keywords as printed: no value, no loses");
+    }
+  }
   if (definition.generates !== undefined && trigger.kind !== "resource")
     problems.push("only resource abilities generate resources");
   // The one limit a constant carries is its `playableTopOfDeck` permission's "once per phase" (docs/phase7-wave8.md
@@ -628,6 +637,15 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
         "only a response to the card's own discard from its deck works from the discard pile (inDiscard needs response(on.thisDiscardedFromYourDeck(), …))",
       );
     if (definition.cost) problems.push("an ability used from the discard pile has no cost");
+  }
+  // docs/phase7-wave10-box-heroes.md B3.3: the mark is read only when a response to a deck discard finishes.
+  if (definition.discardsStayCounted) {
+    const kinds =
+      trigger.kind === "response" ? (typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on) : [];
+    if (!kinds.includes("cardDiscardedFromDeck"))
+      problems.push(
+        "stillCountedByDiscarder needs a response to cards discarded from a deck (on.aPlayerDiscardsFromTheirDeck(), …)",
+      );
   }
   // docs/phase7-wave9.md §3.40 (b): the engine offers a card that was tucked only its response to its own discard
   // from under a card, and nothing out of play pays a cost.

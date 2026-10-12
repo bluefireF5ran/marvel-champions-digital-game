@@ -622,7 +622,17 @@ export interface StatModifierSpec {
 
 /** "X gains [keyword]" while the granting card is in play. */
 export interface KeywordGrantSpec {
-  readonly keyword: KeywordInstance;
+  /** The keyword granted (or, with `loses`, lost). Absent when `keywordsOf` names where the keywords come from. */
+  readonly keyword?: KeywordInstance;
+  /**
+   * "Each Avenger minion gains the printed keywords of each other Avenger minion." (Earth's Mightiest Heroes, `cw`
+   * 56077; docs/phase7-wave10.md §3.12): each card `target` matches gains every keyword printed on each *other* card
+   * in play this query matches (from the granting card's point of view; the gaining card is never its own source).
+   * Printed keywords only (`printedKeywordsOf`: the showing face, none through a blank), so grants never feed each
+   * other. A keyword with a number or a parameter is gained as printed, and two sources of one numbered keyword are
+   * two instances, which add (RRG 1.8 "Keywords", p. 26). Not with `value` or `loses`.
+   */
+  readonly keywordsOf?: TargetQuery;
   readonly target: TargetQuery;
   readonly while?: Predicate;
   /**
@@ -1270,8 +1280,21 @@ export type RuleSpec =
    * Not covered: an encounter card that is *revealed* and would enter play by its own reveal. No printed rule of this
    * kind names an encounter card, and the RRG gives no disposition for one (the unique rule's "it is discarded" is that
    * rule's own). Decide it when a card needs it.
+   *
+   * `player`: "You cannot have more than 1 Shapeshift upgrade in play." (Teddy Altman, `cw` 56029b;
+   * docs/phase7-wave10-box-heroes.md B3.4), a constant on an identity face with `while` "you control one". The rule
+   * then stops a matching card only from being played or put into play **under the control of** a player the ref
+   * names ("you" is the rule's speaker), and nobody else's card. Ruling January 11, 2026 - Ruling 1: the ability
+   * "prevents playing another Shapeshift upgrade while already having one in play (cannot play a second and discard
+   * down)". An entry that names no controlling player is not stopped by a rule with `player`. The refusal names the
+   * rule's card (`enterPlayBarMessage`).
    */
-  | { readonly kind: "cannotEnterPlay"; readonly cards: TargetQuery; readonly while?: Predicate }
+  | {
+      readonly kind: "cannotEnterPlay";
+      readonly cards: TargetQuery;
+      readonly while?: Predicate;
+      readonly player?: PlayerRef;
+    }
   /**
    * "Players cannot trigger 'Alter-Ego Action' abilities on obligations." (Corrupted Timestream): an action ability of a
    * card matching `on`, with that form label (absent: any), cannot be triggered.
@@ -3307,6 +3330,18 @@ export interface AbilityDefinition {
    * response: the DSL's `validateDefinition` rejects any other ability marked this way.
    */
   readonly activeIn?: "hand" | "victoryDisplay" | "discard" | "tucked";
+  /**
+   * On a response to cards discarded from a deck (`cardDiscardedFromDeck`): the cards this ability takes away from
+   * where their discard left them are still counted by the ability that discarded them. "Forced Response: After any
+   * number of cards are discarded from the top of a player's deck, place those cards facedown under this scheme."
+   * (Skrull Business, `cw` 56056; docs/phase7-wave10-box-heroes.md B3.3.) Without it a card a response took away is
+   * dropped from the discarding ability's set of the cards "discarded this way" (docs/phase7-wave7.md §4.1 Q32);
+   * with it that set and its totals stay as they were, so "for each different resource icon on the discarded cards"
+   * and "if that card's printed resource has …" read the printed icons of the cards now under the scheme. Owner
+   * decision, 2026-10-11, box-heroes question 14 = A (provisional); no ruling names these cards. Logged as
+   * `deckDiscardStillCounted`.
+   */
+  readonly discardsStayCounted?: true;
   /**
    * "This effect cannot be canceled." on a "When Revealed" ability (the Cosmic Entities, `mts` 21042/21048/21054/21060:
    * "When Revealed: Deal 2 damage to the villain and remove this card from the game. This effect cannot be canceled.";

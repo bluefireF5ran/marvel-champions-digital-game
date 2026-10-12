@@ -1166,7 +1166,7 @@ export function stillOffered(
     if (playRestrictionFault(state, deps, controllerId, card, id)) return false;
     if (cannotPlayCard(state, deps, controllerId, id)) return false;
     // A card that plays itself in a window is still entering play (`RuleSpec cannotEnterPlay`; an event is not).
-    if (card.type !== "event" && cannotEnterPlay(state, deps, id)) return false;
+    if (card.type !== "event" && cannotEnterPlay(state, deps, id, controllerId)) return false;
   } else if (cardsInPlay(state).includes(id)) {
     if (!activeAbilityRefs(state, id, deps).some((ref) => ref.id === candidate.abilityId)) return false;
     const noTriggers = activeRules(state, deps, "cannotResolveTriggeredAbilities");

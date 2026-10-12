@@ -139,7 +139,7 @@ function swapCardsNow(
   if (matchingCardInPlay(ctx.state, inCard, new Set([outgoing, incoming]), controller, ctx.deps))
     return refuse("unique", [incoming]);
   // "[A title] cannot enter play during this game" (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43).
-  if (cannotEnterPlay(ctx.state, ctx.deps, incoming)) return refuse("cannotEnterPlay", [incoming]);
+  if (cannotEnterPlay(ctx.state, ctx.deps, incoming, controller)) return refuse("cannotEnterPlay", [incoming]);
 
   // "When X leaves play" interrupts resolve before the swap (docs/phase7-wave5.md §4.1 Q17): the outgoing card waits in
   // play, and the leaving's apply step calls this again (`applyLeavingPlay`, request `swap`), which then goes ahead.

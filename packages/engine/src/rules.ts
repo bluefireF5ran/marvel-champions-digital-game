@@ -1102,9 +1102,54 @@ export const cannotPlayCard = (state: GameState, deps: EngineDeps, playerId: Pla
  * Whether a rule stops this card from entering play (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43): the one
  * answer for a play, for an effect that puts a card into play and for a choice of a card to put into play. About a
  * card out of play; the callers ask it only for a card that would enter play.
+ *
+ * `forPlayer`: the player the card would enter play under the control of. A rule limited to some players
+ * (`cannotEnterPlay.player`, docs/phase7-wave10-box-heroes.md B3.4) stops the card only for them, and never an entry
+ * that names no player.
  */
-export const cannotEnterPlay = (state: GameState, deps: EngineDeps, id: InstanceId): boolean =>
-  activeRules(state, deps, "cannotEnterPlay").some(({ rule, context }) => matchesQuery(state, id, rule.cards, context));
+export const cannotEnterPlay = (
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  forPlayer: PlayerId | null = null,
+): boolean => enterPlayBar(state, deps, id, forPlayer) !== undefined;
+
+/** The first `cannotEnterPlay` rule in force that keeps this card out of play for `forPlayer` (`cannotEnterPlay`). */
+function enterPlayBar(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  forPlayer: PlayerId | null,
+): ActiveRule<"cannotEnterPlay"> | undefined {
+  return activeRules(state, deps, "cannotEnterPlay").find((active) => {
+    const { rule, context } = active;
+    if (rule.player !== undefined) {
+      if (forPlayer === null || !resolvePlayers(state, rule.player, context).includes(forPlayer)) return false;
+    }
+    return matchesQuery(state, id, rule.cards, context);
+  });
+}
+
+/**
+ * Why this card cannot enter play, for a refused play or cost: null when no `cannotEnterPlay` rule stops it. A rule
+ * printed on a card names that card, by the face an identity shows ("Teddy Altman: Winged Shape cannot enter play");
+ * a scenario's rule keeps the campaign instruction's own words.
+ */
+export function enterPlayBarMessage(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  forPlayer: PlayerId | null = null,
+): string | null {
+  const bar = enterPlayBar(state, deps, id, forPlayer);
+  if (!bar) return null;
+  const name = cardOf(state, id)?.name ?? id;
+  const sourceId = bar.context.selfInstanceId;
+  if (!sourceId || !getInstance(state, sourceId)) return `${name} cannot enter play during this game`;
+  const seat = state.players.find((player) => player.identity.instanceId === sourceId);
+  const source = seat ? identityFace(state, seat).face.faceName : cardOf(state, sourceId)?.name;
+  return source ? `${source}: ${name} cannot enter play` : `${name} cannot enter play during this game`;
+}
 
 /** Whether an action ability with this form label on this card cannot be triggered (`cannotTriggerActions`). */
 export const cannotTriggerAction = (

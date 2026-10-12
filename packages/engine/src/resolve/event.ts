@@ -7,6 +7,7 @@ import { resolveTuck } from "./tuck.js";
 import { resolveImminentAttach } from "./imminent-attach.js";
 import { applyCountersBeingPlaced } from "./counters-being-placed.js";
 import { applyWouldDiscard, wouldDiscardNotMade } from "./would-discard.js";
+import { resumeBasicPower } from "../actions.js";
 import { type Ctx, emit, findFrame, popFrame, pushFrames, setFrame, updateFrame, updateInstance } from "../ctx.js";
 import { overkillRecipient } from "../defend-preview.js";
 import {
@@ -329,6 +330,13 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         emit(ctx, { type: "triggerEvent", event: frame.event, phase: "cancelled" });
         // A replaced discard from a hand or a deck did not discard its card (docs/phase7-wave9.md §4.1 Q20).
         if (frame.event.kind === "cardBeingDiscarded") wouldDiscardNotMade(ctx, frame.event);
+        // A replaced attack or thwart of a labeled ability: the ability waiting beneath resolves no effect
+        // (docs/phase7-wave10.md §3.21). A replaced basic power pushed nothing, so there is nothing to undo.
+        if (frame.event.kind === "characterWouldAct" && frame.event.abilityFrameId) {
+          updateFrame(ctx, frame.event.abilityFrameId, (f) =>
+            f.kind === "ability" ? { ...f, wouldAct: "replaced" as const } : f,
+          );
+        }
         // A replaced deal of a named card left it where it was (docs/phase7-wave9.md §3.45).
         if (frame.event.kind === "encounterCardBeingDealt" && frame.event.named) {
           namedEncounterDealNotMade(ctx, { ...frame.event, named: frame.event.named });
@@ -804,6 +812,11 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
     case "basicRecovery":
       // REC as it is now, so an interrupt that changed it first counts (docs/phase7-wave6.md §3.40).
       healRecovery(ctx, event.characterInstanceId);
+      return;
+    case "characterWouldAct":
+      // Nothing replaced the basic power: it is made now (docs/phase7-wave10.md §3.21). A labeled ability resolves
+      // from its own frame, beneath this one.
+      if (event.basic) resumeBasicPower(ctx, event.basic);
       return;
     case "cardEntersPlay":
       // The keywords that resolve as a card enters play are this event's change, so an "Interrupt: when X enters

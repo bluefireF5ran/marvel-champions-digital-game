@@ -308,7 +308,7 @@ export function exclusionWordingFor(
 ): string {
   if (code !== "cannotEnterPlay") return exclusionWording(code);
   const unique = uniqueEntryBlocker(state, deps, id, forPlayer) !== null;
-  const barred = cannotEnterPlay(state, deps, id);
+  const barred = cannotEnterPlay(state, deps, id, forPlayer);
   if (barred && !unique) return RULE_BARS_ENTRY_WORDING;
   if (unique && !barred) return UNIQUE_ENTRY_WORDING;
   return exclusionWording(code);

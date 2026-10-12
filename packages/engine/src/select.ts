@@ -1375,7 +1375,7 @@ export function explainQuery(
     if (uniqueEntryBlocker(state, context.deps ?? DEFAULT_DEPS, id, forPlayer ?? null, context.selfInstanceId ?? null))
       return "cannotEnterPlay";
     // Nor a card a rule keeps out of play (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43).
-    if (!cardsInPlay(state).includes(id) && cannotEnterPlay(state, context.deps ?? DEFAULT_DEPS, id))
+    if (!cardsInPlay(state).includes(id) && cannotEnterPlay(state, context.deps ?? DEFAULT_DEPS, id, forPlayer ?? null))
       return "cannotEnterPlay";
     // Nor another copy of a "Max N per player" card that player already controls (RRG 1.8 "Max, Maximum", p. 28;
     // docs/phase7-wave9.md §4.1 Q37 = A), as the effect itself refuses it (`admitUnderPlayerMax`): an upgrade when the

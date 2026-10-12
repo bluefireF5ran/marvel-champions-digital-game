@@ -238,6 +238,7 @@ export type {
 export {
   allyLimitFor,
   cannotEnterPlay,
+  enterPlayBarMessage,
   cannotFlip,
   cannotLeavePlay,
   cardAbilitiesCannotRemove,

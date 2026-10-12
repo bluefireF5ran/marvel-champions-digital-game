@@ -198,7 +198,10 @@ function restrictedMayBeGranted(state: GameState, deps: EngineDeps): boolean {
     known = Object.values(deps.abilities).some(
       (definition) =>
         definition.trigger.kind === "constant" &&
-        (definition.trigger.keywordGrants ?? []).some((grant) => !grant.loses && grant.keyword.name === "restricted"),
+        (definition.trigger.keywordGrants ?? []).some(
+          // A copy of other cards' printed keywords (`keywordsOf`) may carry restricted.
+          (grant) => !grant.loses && (grant.keywordsOf !== undefined || grant.keyword?.name === "restricted"),
+        ),
     );
     registriesGrantingRestricted.set(deps.abilities, known);
   }

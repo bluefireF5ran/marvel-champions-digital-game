@@ -39,7 +39,7 @@ const odinId = (state: GameState): InstanceId => instancesOf(state, "21139a")[0]
 /** The keyword grants a `constant`-triggered ability compiles to (`gainsKeyword`'s own `keywordGrants` field, which
  * only that trigger kind carries) — narrowed with a real `if`, not a cast, so a ref accidentally compiled to a
  * different trigger kind fails loudly here instead of silently reading `undefined`. */
-const keywordGrantsOf = (abilityId: string): readonly { readonly keyword: { readonly name: string } }[] => {
+const keywordGrantsOf = (abilityId: string): readonly { readonly keyword?: { readonly name: string } }[] => {
   const trigger = WAVE4_DEPS.abilities[abilityId]!.trigger;
   if (trigger.kind !== "constant") throw new Error(`${abilityId} is not a constant ability`);
   return trigger.keywordGrants ?? [];
@@ -466,7 +466,7 @@ describe("Nidhogg (21145)", () => {
 
 describe("Hela's attachments (21146-21148)", () => {
   it("Nightsword: Hela's attacks gain piercing (21146.nightsword-constant)", () => {
-    expect(keywordGrantsOf("21146.nightsword-constant")[0]?.keyword.name).toBe("piercing");
+    expect(keywordGrantsOf("21146.nightsword-constant")[0]?.keyword?.name).toBe("piercing");
   });
 
   it("Nightsword: [star] Boost attaches it to Hela (21146.boost)", () => {
@@ -499,7 +499,7 @@ describe("Hela's attachments (21146-21148)", () => {
   });
 
   it("Hela's Cloak: Hela gains stalwart (21148.helas-cloak-constant)", () => {
-    expect(keywordGrantsOf("21148.helas-cloak-constant")[0]?.keyword.name).toBe("stalwart");
+    expect(keywordGrantsOf("21148.helas-cloak-constant")[0]?.keyword?.name).toBe("stalwart");
   });
 
   it("Hela's Cloak: [star] Boost attaches it to Hela (21148.boost)", () => {
