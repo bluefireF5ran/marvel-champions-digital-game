@@ -589,8 +589,11 @@ describe("a card tucked under a scheme", () => {
     const panel = schemePanel(tucked, schemeId, CORE_DEPS, true);
     expect(panel.tuckedCount).toBe(1);
     expect(panel.subtitle).toContain("1 tucked");
-    // Hidden information stays hidden: nothing on the panel names the card.
-    expect(JSON.stringify(panel)).not.toContain(hiddenId as unknown as string);
+    // Hidden information stays hidden: nothing on the panel names the card. Its instance id is listed (a tap target for
+    // Inspect, as on a character panel), its name and art are not.
+    const hiddenName = state.cardPool[state.instances[hiddenId]!.cardId]!.name;
+    expect(JSON.stringify(panel)).not.toContain(hiddenName);
+    expect(panel.tucked).toEqual([{ instanceId: hiddenId, faceup: false, name: "Facedown card", art: null }]);
   });
 });
 

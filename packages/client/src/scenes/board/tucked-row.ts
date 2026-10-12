@@ -28,11 +28,13 @@ export function drawTuckedRow(
   room: Rect,
   panel: Pick<CharacterPanel, "tucked" | "tuckedCount">,
   dim: number,
+  /** The header's words when not "UNDER n" (a main scheme's "Defeated allies, facedown: 2"). */
+  headerText?: string,
 ): TuckedRowDrawn {
   const layout = tuckedRowLayout(room, panel.tuckedCount, CARD_ASPECT);
   if (!layout) return { height: 0, addTapTargets: () => {} };
   const { scene } = ctx;
-  drawFootStrip(scene, layout.header, `UNDER ${panel.tuckedCount}`, "note", dim);
+  drawFootStrip(scene, layout.header, headerText ?? `UNDER ${panel.tuckedCount}`, "note", dim);
   const siblings: readonly InstanceId[] = panel.tucked.map((card) => card.instanceId);
   panel.tucked.forEach((card, index) => {
     const rect = layout.cards[index]!;

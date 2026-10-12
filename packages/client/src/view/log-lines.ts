@@ -275,6 +275,16 @@ function describe(
       if (event.from.kind === "scenarioPlayArea") {
         return { text: `${card(event.instanceId)} leaves the ${event.from.name} area.`, voice: "villain" };
       }
+      // docs/phase7-wave10.md §3.15: a defeated ally goes facedown under the main scheme. Seen when it was defeated.
+      if (
+        event.to.kind === "tucked" &&
+        burst?.events.some((other) => other.type === "characterDefeated" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: `${cardOf(state, event.instanceId)?.name ?? "A card"} was defeated and placed facedown under ${faceUpName(state, event.to.hostInstanceId)}.`,
+          voice: "villain",
+        };
+      }
       // A minion a card held (Thunderbolt Backup's end-of-round swap) comes off it and engages a player: the engine
       // records only the move, so without this line the swap read as one minion being held and nothing else.
       if (
@@ -714,6 +724,38 @@ function describe(
     }
     case "mainSchemeCompleted":
       return { text: `The main scheme is complete.`, voice: "loss" };
+    // docs/phase7-wave10.md §3.2: the stages picked for this game, by name, in the order they are played.
+    case "mainSchemeStagesChosen": {
+      const scheme = cardOf(state, event.schemeInstanceId);
+      const stages = scheme?.type === "main_scheme" ? scheme.stages : [];
+      const names = event.order.map(
+        (index) => stages[index]?.name ?? `stage ${stages[index]?.stageNumber ?? index + 1}`,
+      );
+      return { text: `Main scheme stages for this game: ${names.join(", then ")}.`, voice: "scenario" };
+    }
+    // docs/phase7-wave10.md §3.19 (MC56 p. 20): a permanent attachment (Cap's Shield) whose holder left play moves on.
+    case "permanentAttachmentRehosted":
+      return {
+        text:
+          event.fromInstanceId === null
+            ? `${card(event.instanceId)} is attached to ${faceUpName(state, event.hostInstanceId)}.`
+            : `${card(event.instanceId)} moves from ${faceUpName(state, event.fromInstanceId)} to ${faceUpName(state, event.hostInstanceId)}.`,
+        voice: "villain",
+      };
+    // docs/phase7-wave10.md §3.10: a defeated minion given to a foe as a facedown boost card. It was seen when it was
+    // defeated, so its name is said; a boost card dealt from a deck is never named.
+    case "boostCardDealt": {
+      if (!event.outsideActivation) return null;
+      const seen = burst?.events.some(
+        (other) => other.type === "characterDefeated" && other.instanceId === event.instanceId,
+      );
+      return {
+        text: seen
+          ? `${cardOf(state, event.instanceId)?.name ?? "A card"} was given to ${faceUpName(state, event.enemyInstanceId)} as a facedown boost card.`
+          : `${faceUpName(state, event.enemyInstanceId)} was dealt a facedown boost card.`,
+        voice: "scenario",
+      };
+    }
     case "encounterCardRevealed":
       return { text: `${who(event.playerId)} revealed ${card(event.instanceId)}.`, voice: "villain" };
     case "surgeTriggered":

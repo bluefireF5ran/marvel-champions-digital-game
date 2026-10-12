@@ -22,6 +22,7 @@ import { drawFootStrip } from "./character-panel.js";
 import { FOOT_STRIP_HEIGHT, footStripLayout } from "../../view/foot-strip-layout.js";
 import type { BoardDrawContext } from "./context.js";
 import { dimAlpha, focusKey, targetState } from "./selection.js";
+import { drawTuckedRow } from "./tucked-row.js";
 import type { InstanceId } from "@mc/engine";
 
 /**
@@ -239,6 +240,31 @@ export function drawScheme(ctx: BoardDrawContext, rect: Rect, scheme: SchemePane
     label(scene, textLeft, abilityTop, counterText, typeRole.label, surface.ink.hex, ink.meta * dim);
     abilityTop += 14;
   }
+  // Cards tucked under the scheme (Negative Zone Prison's defeated allies): the engine's target, then a row of card
+  // backs under their label, or the label alone as a strip where the panel has no room for the row. Each back opens
+  // Inspect (which follows the engine's visibility answer); the strip opens the first.
+  let tuckedTargets: (() => void) | null = null;
+  if (scheme.tuckedCount > 0 && scheme.tuckedLabel) {
+    if (scheme.targetNote && abilityTop + 14 <= meter.y - 2) {
+      label(scene, textLeft, abilityTop, scheme.targetNote, typeRole.label, surface.ink.hex, ink.meta * dim);
+      abilityTop += 14;
+    }
+    const room: Rect = { x: textLeft, y: abilityTop, width: textWidth, height: meter.y - 4 - abilityTop };
+    const row = drawTuckedRow(ctx, room, scheme, dim, scheme.tuckedLabel);
+    if (row.height > 0) {
+      abilityTop += row.height + 4;
+      tuckedTargets = row.addTapTargets;
+    } else if (abilityTop + FOOT_STRIP_HEIGHT <= meter.y - 2) {
+      const strip: Rect = { x: textLeft, y: abilityTop, width: textWidth, height: FOOT_STRIP_HEIGHT };
+      drawFootStrip(scene, strip, scheme.tuckedLabel, "note", dim);
+      abilityTop += FOOT_STRIP_HEIGHT + 3;
+      const siblings = scheme.tucked.map((card) => card.instanceId);
+      tuckedTargets = () =>
+        ctx.makeTapTarget(strip, scheme.tucked[0]!.instanceId, () =>
+          ctx.inspect(scheme.tucked[0]!.instanceId, siblings),
+        );
+    }
+  }
   // A name that does not fit one row wraps to two lines when the room above the meter allows, and only otherwise is
   // fitted to one row (the full text is the Inspect pop-up's).
   const wrapped = abilityLine ? footStripLayout(abilityLine, textWidth).height : FOOT_STRIP_HEIGHT;
@@ -282,5 +308,6 @@ export function drawScheme(ctx: BoardDrawContext, rect: Rect, scheme: SchemePane
   }
 
   ctx.makeTapTarget(rect, scheme.instanceId, () => ctx.controller.onCharacterTap(scheme.instanceId));
+  tuckedTargets?.();
   return rect.y + rect.height;
 }

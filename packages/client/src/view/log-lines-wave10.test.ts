@@ -101,3 +101,70 @@ describe("choiceResolved on the enemy team's behalf (MC56 p. 6)", () => {
     ).toBeUndefined();
   });
 });
+
+describe("Civil War events (docs/phase7-wave10.md sections 3.2, 3.10, 3.15, 3.19)", () => {
+  let a: string;
+  let b: string;
+  let c: string;
+  beforeAll(() => {
+    [a, b] = Object.keys(state.instances) as [string, string];
+    c = state.players[0]!.identity.instanceId;
+  });
+  const named = (id: string): string => state.cardPool[state.instances[id]!.cardId]!.name;
+  const burst = (events: GameEvent[], at: number) => ({ events, at });
+
+  test("the stages chosen for this game are named in order", () => {
+    const card = state.cardPool[state.mainScheme.cardId];
+    if (card?.type !== "main_scheme") throw new Error("not a main scheme");
+    const event = {
+      type: "mainSchemeStagesChosen",
+      schemeInstanceId: state.mainScheme.instanceId,
+      order: [1],
+    } as GameEvent;
+    expect(text(event)).toBe("Main scheme stages for this game: Secret Rendezvous.");
+  });
+
+  test("a permanent attachment moving to a new holder, and one attached from a play area", () => {
+    const from = {
+      type: "permanentAttachmentRehosted",
+      instanceId: a,
+      fromInstanceId: b,
+      hostInstanceId: c,
+    } as GameEvent;
+    expect(text(from)).toBe(`${named(a)} moves from ${named(b)} to Peter Parker.`);
+    const loose = {
+      type: "permanentAttachmentRehosted",
+      instanceId: a,
+      fromInstanceId: null,
+      hostInstanceId: c,
+    } as GameEvent;
+    expect(text(loose)).toBe(`${named(a)} is attached to Peter Parker.`);
+  });
+
+  test("a defeated minion given to the leader as a facedown boost card is named; one dealt from a deck is not", () => {
+    const defeated = { type: "characterDefeated", instanceId: a, cardId: state.instances[a]!.cardId } as GameEvent;
+    const dealt = { type: "boostCardDealt", enemyInstanceId: b, instanceId: a, outsideActivation: true } as GameEvent;
+    expect(logLine(dealt, state, me, POOL_DEPS, false, undefined, burst([defeated, dealt], 1))?.text).toBe(
+      `${named(a)} was given to ${named(b)} as a facedown boost card.`,
+    );
+    expect(logLine(dealt, state, me, POOL_DEPS, false, undefined, burst([dealt], 0))?.text).toBe(
+      `${named(b)} was dealt a facedown boost card.`,
+    );
+    expect(text({ type: "boostCardDealt", enemyInstanceId: b, instanceId: a } as GameEvent)).toBeUndefined();
+  });
+
+  test("a defeated ally placed facedown under the main scheme", () => {
+    const defeated = { type: "characterDefeated", instanceId: a, cardId: state.instances[a]!.cardId } as GameEvent;
+    const moved = {
+      type: "cardMoved",
+      instanceId: a,
+      cardId: state.instances[a]!.cardId,
+      from: { kind: "playArea", playerId: me },
+      to: { kind: "tucked", hostInstanceId: state.mainScheme.instanceId },
+    } as unknown as GameEvent;
+    expect(logLine(moved, state, me, POOL_DEPS, false, undefined, burst([defeated, moved], 1))?.text).toBe(
+      `${named(a)} was defeated and placed facedown under ${named(state.mainScheme.instanceId)}.`,
+    );
+    expect(logLine(moved, state, me, POOL_DEPS, false, undefined, burst([moved], 0))).toBeNull();
+  });
+});

@@ -66,7 +66,7 @@ import { counterLimitsOf } from "./counter-limit.js";
 import { otherFaceVisible } from "./hidden-reverse.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
-import { foeWord } from "./foe-words.js";
+import { foeWord, isLeaderCard } from "./foe-words.js";
 import { deckTopStatus, shownTopOf } from "./deck-top.js";
 import { STATUS_DISABLES } from "../tokens.js";
 import { hpFraction } from "./hp-format.js";
@@ -168,6 +168,17 @@ export interface CharacterPanel {
   readonly exhausted: boolean;
   /** Facedown boost cards waiting on this enemy, shown as "Boost ?? ×2". */
   readonly boostCount: number;
+  /**
+   * Set (true) on a Civil War leader's panel: a villain-type card printed as a leader (MC56 p. 3). The word itself is
+   * already in `subtitle`; this lets the scene give the panel the leader's frame and title. Absent on every other card.
+   */
+  readonly leader?: true;
+  /**
+   * What the facedown boost cards on a villain or leader mean, when it holds any: the cards given to it outside its
+   * own activation (Falcon, Dangerous Recruits) stay facedown until it activates, and are turned up then in addition
+   * to the one dealt (RRG 1.8 "Boost", p. 11). The cards are never named. Absent when none are waiting.
+   */
+  readonly boostNote?: string;
   /** The seat this enemy is engaged with, if any. */
   readonly engagedWith: PlayerId | null;
   /**
@@ -365,6 +376,18 @@ export interface SchemePanel {
    * already gives a facedown boost card.
    */
   readonly tuckedCount: number;
+  /**
+   * The cards tucked under this scheme, in order, as `tuckedCardsUnder` words them (a facedown one is a card back,
+   * never named): Negative Zone Prison's defeated allies (docs/phase7-wave10.md §3.15). Empty for every other scheme.
+   */
+  readonly tucked: readonly TuckedCardView[];
+  /** "Defeated allies, facedown: 2" over the row of backs; null with nothing under the scheme. */
+  readonly tuckedLabel: string | null;
+  /**
+   * A main scheme with cards under it: "Target 7, 2 facedown under it". The 7 is the engine's computed target (the
+   * printed target and what lowers it are not both exposed, so the arithmetic is never shown); null otherwise.
+   */
+  readonly targetNote: string | null;
   readonly art: ArtSource | null;
   /**
    * Cards attached to this scheme — Odin attached to the main scheme, captive side faceup (Hela, `mts` 21139a,
@@ -1071,6 +1094,10 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
     ...(defeat ? { defeat } : {}),
     exhausted: defeat ? false : instance.exhausted,
     boostCount: instance.boostCards.length,
+    ...(card && isLeaderCard(card) ? { leader: true as const } : {}),
+    ...(card?.type === "villain" && instance.boostCards.length > 0
+      ? { boostNote: boostNoteOf(instance.boostCards.length) }
+      : {}),
     engagedWith: instance.engagedWith,
     engagedName: engagedNameOf(state, instance.engagedWith),
     disabledActions: statuses
@@ -1090,6 +1117,11 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
     heldBy: heldByOf(state, id),
     inactiveKeywords: inactiveKeywordsOf(state, id, deps),
   };
+}
+
+/** "2 facedown boost cards waiting", with when they are turned up. Counts only; the cards are never named. */
+export function boostNoteOf(count: number): string {
+  return `${count} facedown boost card${count === 1 ? "" : "s"} waiting, turned up at the next activation in addition to the one dealt`;
 }
 
 /** What a held minion's keywords do while it is held: Guard needs an engagement to protect, and it has none. */
@@ -1445,6 +1477,11 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
       crisis: iconsOn(state, deps, id, "crisis") > 0,
       accelerationTokens: accel,
       tuckedCount: instance.tucked.length,
+      ...schemeTuckFields(
+        state,
+        id,
+        stage.dashedValues?.includes("targetThreat") ? null : mainSchemeValue(state, "targetThreat", deps, scheme),
+      ),
       art: artFor(card, faceOf(state, id)),
       attachments,
       counters: countersOf(state, id),
@@ -1475,10 +1512,28 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
     crisis,
     accelerationTokens: 0,
     tuckedCount: instance.tucked.length,
+    ...schemeTuckFields(state, id, null),
     art: artFor(card, { kind: "front" }),
     attachments: attachmentChipsOf(state, instance, deps),
     counters: countersOf(state, id),
   };
+}
+
+/** The tucked list and its words for a scheme panel (docs/phase7-wave10.md §3.15); the target is the engine's number. */
+function schemeTuckFields(
+  state: GameState,
+  id: InstanceId,
+  target: number | null,
+): Pick<SchemePanel, "tucked" | "tuckedLabel" | "targetNote"> {
+  const tucked = tuckedCardsUnder(state, id);
+  if (tucked.length === 0) return { tucked, tuckedLabel: null, targetNote: null };
+  const facedown = tucked.filter((card) => !card.faceup).length;
+  const allAllies = tucked.every((card) => cardOf(state, card.instanceId)?.type === "ally");
+  const tuckedLabel =
+    facedown === tucked.length && allAllies
+      ? `Defeated allies, facedown: ${facedown}`
+      : `Under this scheme: ${tucked.length}${facedown > 0 ? `, ${facedown} facedown` : ""}`;
+  return { tucked, tuckedLabel, targetNote: target === null ? null : `Target ${target}, ${tucked.length} under it` };
 }
 
 /**
@@ -1632,6 +1687,7 @@ function neutralCard(state: GameState, id: InstanceId, deps: EngineDeps): Scenar
       crisis: false,
       accelerationTokens: 0,
       tuckedCount: instance?.tucked.length ?? 0,
+      ...schemeTuckFields(state, id, null),
       art: artFor(card, faceOf(state, id)),
       attachments: instance ? attachmentChipsOf(state, instance, deps) : [],
       counters: countersOf(state, id),
