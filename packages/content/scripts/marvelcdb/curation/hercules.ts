@@ -17,6 +17,9 @@
  * - **59002 and 59003 print no "Attach to" line**: their own When Revealed finds a target and attaches them (RRG 1.8
  *   "Reveal", p. 38; ruling February 20, 2026 (4)), so they are `impliedAttachHost: "ownWhenRevealed"`.
  * - **Dash costs** on the three Gift cards, the printed-dash pattern (RRG 1.8 "Dash (Value)", p. 15).
+ * - **Hecate 59042 prints "When Revealed/Defeated:"** (scan 59042.png; scan check): one ability with two timings. The
+ *   parser (`parse-text.ts`, trigger "When Revealed/Defeated") emits it as `59042.when-revealed` and
+ *   `59042.when-defeated` over the same text, because an ability definition has one trigger kind. Text unchanged.
  * - **Starter deck: none.** No source exists for the printed decklist (survey section 10.1); the owner has been asked
  *   for the printed decklist card, so `starterDecks` stays empty rather than inventing a list.
  */

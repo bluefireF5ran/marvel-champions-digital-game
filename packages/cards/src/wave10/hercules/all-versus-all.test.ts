@@ -65,7 +65,7 @@ const REFS = [
   "59044.bewitched-officer-constant",
   "59045.when-defeated",
 ];
-const HECATE_COMBINED = "59042.hecate-constant";
+const HECATE_SPLIT = ["59042.when-revealed", "59042.when-defeated"];
 
 const dataOf = (code: string) =>
   HERCULES_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
@@ -165,16 +165,16 @@ const attackedEvents = (events: readonly GameEvent[]) =>
   );
 
 describe("registry", () => {
-  it("registers the six refs, each a valid definition, and skips only Hecate's combined When Revealed/Defeated", () => {
+  it("registers the six refs, each a valid definition, and skips only Hecate's When Revealed and When Defeated (split from one printed ability)", () => {
     expect(Object.keys(HERCULES_ALL_VERSUS_ALL).sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(HERCULES_ALL_VERSUS_ALL)) expect(validateDefinition(def), id).toEqual([]);
-    expect(Object.keys(HERCULES_ALL_VERSUS_ALL_SKIPPED)).toEqual([HECATE_COMBINED]);
-    expect(HERCULES_ALL_VERSUS_ALL[HECATE_COMBINED]).toBeUndefined();
+    expect(Object.keys(HERCULES_ALL_VERSUS_ALL_SKIPPED)).toEqual(HECATE_SPLIT);
+    for (const id of HECATE_SPLIT) expect(HERCULES_ALL_VERSUS_ALL[id]).toBeUndefined();
   });
 
   it("the data names exactly the registered refs plus the skipped one for the five cards", () => {
     const refs = SET.flatMap((code) => ((dataOf(code).abilities ?? []) as { id: string }[]).map((a) => a.id));
-    expect(refs.sort()).toEqual([...REFS, HECATE_COMBINED].sort());
+    expect(refs.sort()).toEqual([...REFS, ...HECATE_SPLIT].sort());
   });
 
   it("carries the printed timing of each ability", () => {
@@ -319,12 +319,13 @@ describe("Hecate (59042)", () => {
     expect(attacksBy(run.state, run.events, RHINO)).toMatchObject([{ baseAtk: 2, boostIcons: 2, damageDealt: 4 }]);
   });
 
-  it("is skipped: the combined When Revealed/Defeated is one ref and cannot be both timings", () => {
-    // A revealed Hecate does not find All Versus All until the ref is split; this pins today's behavior.
+  it("is skipped: When Revealed and When Defeated are two refs not yet scripted", () => {
+    // A revealed Hecate does not find All Versus All until the refs are scripted; this pins today's behavior.
     const run = villainPhase(game(), [BLANK, HECATE, FILLER_A]);
     expect(inPlayCard(run.state, HECATE)).toBeDefined();
     expect(inPlayCard(run.state, AVA)).toBeUndefined();
-    expect(HERCULES_ALL_VERSUS_ALL_SKIPPED[HECATE_COMBINED]).toContain("one trigger kind");
+    for (const id of HECATE_SPLIT)
+      expect(HERCULES_ALL_VERSUS_ALL_SKIPPED[id]).toContain("split from 59042.hecate-constant");
   });
 });
 

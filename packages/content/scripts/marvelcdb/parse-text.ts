@@ -179,7 +179,7 @@ export interface ParseOptions {
   readonly preambleWhenRevealed?: string;
 }
 
-const TRIGGER = String.raw`(?:(?:Hero |Alter-Ego )?(?:Forced )?(?:Action|Resource|Response|Interrupt)(?: \((?:Hero|Alter-Ego)\))?|Mission Response|Special|Setup|Boost|Preparation|When Revealed(?: \((?:Hero|Alter-Ego)\))?|When Defeated|When Completed|Contents)`;
+const TRIGGER = String.raw`(?:(?:Hero |Alter-Ego )?(?:Forced )?(?:Action|Resource|Response|Interrupt)(?: \((?:Hero|Alter-Ego)\))?|Mission Response|Special|Setup|Boost|Preparation|When Revealed\/Defeated|When Revealed/Defeated|When Revealed(?: \((?:Hero|Alter-Ego)\))?|When Defeated|When Completed|Contents)`;
 /** A trigger header at a sentence boundary: start of line, or after `.`/`)`/`!` + space. */
 const HEADER_RE = new RegExp(
   String.raw`(?:^|(?<=[.)!]\s+)|(?<=\s{2,}))(?:\[star\]\s*)?(${TRIGGER})(?: \((attack|thwart|defense)\))?:`,
@@ -1298,6 +1298,12 @@ export function parseCardText(text: string, options: ParseOptions): ParsedText {
     headers.forEach((h, i) => {
       const end = headers[i + 1]?.index ?? line.length;
       const body = line.slice(h.index, end).trim();
+      // One printed ability with two timings ("When Revealed/Defeated: ..." on Hecate `hercules` 59042): an ability
+      // definition has one trigger kind, so it becomes a `when-revealed` and a `when-defeated` ref over the same text.
+      if (h.trigger === "When Revealed/Defeated") {
+        abilities.push({ kind: "when-revealed", text: body }, { kind: "when-defeated", text: body });
+        return;
+      }
       const { kind, form } = kindOf(h.trigger);
       if (kind === "contents") return; // informational scenario contents, not an ability
       // An attach rule can print as a triggered ability's own opening sentence instead of the preamble —

@@ -160,7 +160,7 @@ describe("cw: encounter cards by set (counts by type, copies)", () => {
     const names = Object.fromEntries(CW_ENCOUNTER_SETS.map((s) => [s.id as string, s.name]));
     // Corrections to the raw set titles (curation `encounterSets` and `setRecodes`).
     expect(names.spider_woman_leader).toBe("Spider-Woman");
-    expect(names.maria_hill_modular).toBe("Maria Hill (Civil War)");
+    expect(names.maria_hill_modular).toBe("Maria Hill"); // the printed set title (MC56 p. 7; scan 56083)
     expect(names.standard_pvp_registration).toBe("Standard PvP (Registration)");
     expect(names.standard_pvp_resistance).toBe("Standard PvP (Resistance)");
     expect(names.cape_killer).toBe("Cape-Killer");

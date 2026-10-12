@@ -653,3 +653,14 @@ describe("parseCardText: the Preparation header", () => {
     expect(parsed.abilities.map((a) => a.kind)).toEqual(["response"]);
   });
 });
+
+describe("one ability printed with two timings (Hecate hercules 59042)", () => {
+  it("emits a when-revealed and a when-defeated ability over the same text, then the forced response", () => {
+    const text =
+      "When Revealed/Defeated: Find the All Versus All side scheme and reveal it.\n[star] Forced Response: After Hecate activates, place 2 threat on the All Versus All side scheme.";
+    const parsed = parseCardText(text, { villainNames: new Set() });
+    expect(parsed.unclassified).toEqual([]);
+    expect(parsed.abilities.map((a) => a.kind)).toEqual(["when-revealed", "when-defeated", "forced-response"]);
+    expect(parsed.abilities[0]?.text).toBe(parsed.abilities[1]?.text);
+  });
+});

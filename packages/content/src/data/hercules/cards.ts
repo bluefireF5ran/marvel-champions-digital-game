@@ -1051,7 +1051,11 @@ export const HERCULES_CARDS: readonly AnyCard[] = [
       current: "When Revealed/Defeated: Find the All Versus All side scheme and reveal it.\n[star] Forced Response: After Hecate activates, place 2 threat on the All Versus All side scheme.",
     },
     flavor: "\"Those who once adored you have turned on you.\"",
-    abilities: [{ id: abilityId("59042.hecate-constant") }, { id: abilityId("59042.hecate-forced-response") }],
+    abilities: [
+      { id: abilityId("59042.when-revealed") },
+      { id: abilityId("59042.when-defeated") },
+      { id: abilityId("59042.hecate-forced-response") },
+    ],
   },
   {
     id: cardId("59043"),

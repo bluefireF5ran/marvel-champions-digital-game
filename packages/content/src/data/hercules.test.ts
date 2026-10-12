@@ -213,6 +213,16 @@ describe("hercules: curation corrections (each cites its evidence in scripts/mar
     expect(notes("59021")).toContain("Scan 06032.png");
   });
 
+  it("59042 Hecate: 'When Revealed/Defeated' is one printed ability with two timings, so it has a ref for each and the text is unchanged", () => {
+    const hecate = get("59042");
+    const ids = ((hecate as unknown as { abilities: { id: string }[] }).abilities ?? []).map((a) => a.id);
+    expect(ids).toEqual(["59042.when-revealed", "59042.when-defeated", "59042.hecate-forced-response"]);
+    expect(text(hecate).printed).toContain(
+      "When Revealed/Defeated: Find the All Versus All side scheme and reveal it.",
+    );
+    expect(text(hecate).current).toBe(text(hecate).printed);
+  });
+
   it("no Hercules card has errata", () => {
     expect(HERCULES_CARDS.filter((c) => c.errata !== undefined)).toEqual([]);
   });

@@ -217,9 +217,10 @@ export const CW_CURATION: PackCuration = {
     registration: sided(REGISTRATION),
     mighty_avengers: sided(REGISTRATION),
     the_initiative: sided(REGISTRATION),
-    // The cards print the set title "Maria Hill" (scan 56083.png); that is also the title of the Agents of S.H.I.E.L.D.
-    // hero set, so the set is named apart for lists (survey section 10, correction 9).
-    maria_hill_modular: sided(REGISTRATION, { name: "Maria Hill (Civil War)" }),
+    // The cards print the set title "Maria Hill" (scan 56083.png; MC56 p. 7). The Agents of S.H.I.E.L.D. hero card set
+    // shares the title, but that is a card set, not an encounter set (its encounter set is "Maria Hill Nemesis"), and
+    // every lookup of an encounter set is by id, so the printed name is kept.
+    maria_hill_modular: sided(REGISTRATION),
     dangerous_recruits: sided(REGISTRATION),
     cape_killer: sided(REGISTRATION),
     martial_law: sided(REGISTRATION),

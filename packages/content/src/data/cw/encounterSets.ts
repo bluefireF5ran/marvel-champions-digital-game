@@ -75,7 +75,7 @@ export const CW_ENCOUNTER_SETS: readonly EncounterSet[] = [
   },
   {
     id: encounterSetId("maria_hill_modular"),
-    name: "Maria Hill (Civil War)",
+    name: "Maria Hill",
     packCodes: [setCode("cw")],
     side: "registration",
   },
