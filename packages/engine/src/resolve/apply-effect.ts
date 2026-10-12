@@ -543,9 +543,19 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             ...(effect.ignoreTough ? { ignoreTough: true } : {}),
             ...(namedBy(effect.by) === null ? { noPlayer: true } : {}),
             ...ofAttack?.damage,
+            // "Deal damage … equal to your ATK" as an attack's damage (docs/phase7-wave10.md §3.17).
+            ...(effect.usesAtk && (effect.fromAttack === true || ofAttack) ? { usedStat: "atk" as const } : {}),
           };
         });
       if (attack) noteAttackedByAbility(ctx, attack.frameId, attacked);
+      // The ability's attack used ATK once an instruction built from it has dealt damage as that attack (§3.17).
+      if (attack && events.some((event) => event.usedStat === "atk")) {
+        updateFrame(ctx, attack.frameId, (f) =>
+          f.kind === "event" && f.event.kind === "attack" && f.event.usedStat === undefined
+            ? { ...f, event: { ...f.event, usedStat: "atk" } }
+            : f,
+        );
+      }
       // One effect dealing damage to several characters ("each character", "two enemies") deals it simultaneously:
       // ruling, June 2, 2026 (2) answer 1 ("Damage is dealt simultaneously; resolve damage steps for both enemies at
       // the same time"), with RRG 1.8 "Damage" (p. 14) giving the steps. So every target is dealt its damage before
@@ -683,6 +693,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             basic: false,
             overkill: effect.overkill === true,
             ...(effect.keywords && effect.keywords.length > 0 ? { keywords: effect.keywords } : {}),
+            ...(effect.usesAtk ? { usedStat: "atk" as const } : {}),
             sourceInstanceId: frame.selfInstanceId,
             ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
           })),
@@ -691,7 +702,12 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       if (attackOf !== undefined) {
         for (const id of pushed) updateFrame(ctx, id, (f) => (f.kind === "event" ? { ...f, attackOf } : f));
         if (begun !== undefined) {
-          const made = { amount, overkill: effect.overkill === true, keywords: effect.keywords ?? [] };
+          const made = {
+            amount,
+            overkill: effect.overkill === true,
+            keywords: effect.keywords ?? [],
+            usesAtk: effect.usesAtk === true,
+          };
           resumeBegunAttack(ctx, attackOf, attacker, begun.target, made, reportTo(effect.bind));
         }
       }
@@ -742,6 +758,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           targetInstanceId: player.identity.instanceId,
           playerId: controllerOf(ctx.state, attacker)!,
           basic: false,
+          // "Resolve her ATK against you": the attack deals the attacker's ATK (docs/phase7-wave10.md §3.17).
+          usedStat: "atk",
           sourceInstanceId: frame.selfInstanceId,
           ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
         },

@@ -1845,6 +1845,20 @@ export const attacksGainKeywords = (
     },
   ],
 });
+/**
+ * "Attached character gains retaliate 1 and **attacks against them lose piercing**" (Cap's Shield, `cw` 56143;
+ * docs/phase7-wave10.md §3.18): `constant(gainsKeywordX("retaliate", 1, { hostOfSelf: true }),
+ * attacksLoseKeywords(["piercing"], { target: { hostOfSelf: true } }))`. While the card is in play, no attack has the
+ * keyword against a character matching `target`, whatever gave it: the attacker's own keyword, "this attack gains
+ * piercing" on the card making the attack, a grant made during the attack, or `attacksGainKeywords` (RRG 1.8 "Lose",
+ * p. 27: a loss beats a gain). The same attack keeps the keyword against any other character.
+ */
+export const attacksLoseKeywords = (
+  keywords: readonly AttackKeyword[],
+  opts: { readonly target: TargetQuery; readonly while?: Predicate },
+): ConstantPart => ({
+  rules: [{ kind: "attacksLoseKeywords", keywords, target: opts.target, ...(opts.while ? { while: opts.while } : {}) }],
+});
 /** "Double the number of resources this card generates while paying for an [aspect] card." */
 export const doublesResourcesWhilePayingFor = (whilePayingFor: TargetQuery): ConstantPart => ({
   resourceMultiplier: { factor: 2, whilePayingFor },

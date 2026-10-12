@@ -1226,6 +1226,26 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "Attached character gains retaliate 1 and **attacks against them lose piercing**" (Cap's Shield, `cw` 56143;
+   * docs/phase7-wave10.md §3.18): while it applies, an attack does not have these keywords against a character
+   * matching `target`, whatever gave them: the attacker's printed or granted keyword, the card making the attack
+   * ("this attack gains piercing"), a grant made during the attack, or an `attackKeywords` rule. RRG 1.8 "Lose" (p. 27):
+   * "A lost characteristic cannot be regained while the ability causing it to be lost is in effect, even if a new
+   * effect would cause the characteristic to be gained", so a loss beats every gain, as a card's lost keyword does.
+   *
+   * Scoped to the attacked character, since RRG 1.8 words each keyword by what the attack does to it: "Piercing"
+   * (p. 32) discards the tough status cards of the character the attack deals damage to, "Overkill" (p. 31) spills
+   * the excess of the character it defeats, "Ranged" (p. 35) ignores that character's retaliate. The same attack
+   * keeps the keyword against any other character. Read by `attackKeywordsOf` when it is given the attacked
+   * character, and again as the damage is dealt (`lostAttackKeywords`).
+   */
+  | {
+      readonly kind: "attacksLoseKeywords";
+      readonly keywords: readonly AttackKeyword[];
+      readonly target: TargetQuery;
+      readonly while?: Predicate;
+    }
+  /**
    * "You cannot play hero-specific cards." (Depowered): `player` cannot play cards matching `cards`. FAQ "Depowered
    * (#20)" (RRG 1.8 p. 60): Invocation cards "are merely resolved, not played", so a resolve is not blocked.
    */

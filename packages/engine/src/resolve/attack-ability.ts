@@ -325,6 +325,7 @@ import { type Ctx, emit, findFrame, updateFrame } from "../ctx.js";
 import type { AbilityDefinition, EngineDeps } from "../abilities.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { attackKeywordsOf } from "../keywords.js";
+import { lostAttackKeywords } from "../rules.js";
 import {
   canAttack,
   cardsInPlay,
@@ -1063,7 +1064,13 @@ export function resumeBegunAttack(
   rootId: FrameId,
   attackerId: InstanceId,
   target: InstanceId,
-  made: { readonly amount: number; readonly overkill: boolean; readonly keywords: AttackKeywords },
+  made: {
+    readonly amount: number;
+    readonly overkill: boolean;
+    readonly keywords: AttackKeywords;
+    /** `attack.usesAtk` of the instruction taking the attack over (docs/phase7-wave10.md §3.17). */
+    readonly usesAtk?: boolean;
+  },
   reportTo: ReportTarget | null,
 ): void {
   const waiting = begunAttackWaiting(ctx.state, rootId, attackerId);
@@ -1080,6 +1087,7 @@ export function resumeBegunAttack(
       amount: made.amount,
       overkill: made.overkill,
       ...(made.keywords.length > 0 ? { keywords: made.keywords } : {}),
+      ...(made.usesAtk ? { usedStat: "atk" as const } : {}),
     },
   };
   ctx.state = {
@@ -1260,7 +1268,11 @@ export function abilityAttackDamage(
     basic: false,
     ...(event.keywords ? { keywords: event.keywords } : {}),
     vars: attack.vars,
+    targetInstanceId: targetId,
   });
+  const overkill =
+    keywords.includes("overkill") ||
+    (event.overkill === true && !lostAttackKeywords(state, deps, targetId).includes("overkill"));
   return {
     // "This attack deals N additional damage" (`modifyAttack.extraDamage` on the attack's frame) increases each
     // instance of the attack's damage (RRG 1.8 "Attack (Player Ability Type)", p. 10; owner ruling Q53): the attack's
@@ -1272,7 +1284,7 @@ export function abilityAttackDamage(
       fromAttack: true,
       parentFrameId: attack.frameId,
       viaInstanceId: event.sourceInstanceId ?? null,
-      ...(event.overkill === true || keywords.includes("overkill") ? { overkill: true } : {}),
+      ...(overkill ? { overkill: true } : {}),
       ...(keywords.includes("piercing") ? { piercing: true } : {}),
       ...(keywords.includes("ranged") ? { ranged: true as const } : {}),
     },

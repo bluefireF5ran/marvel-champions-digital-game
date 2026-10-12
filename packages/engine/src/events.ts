@@ -117,6 +117,18 @@ export type GameEvent =
       readonly from: ZoneId;
       readonly to: ZoneId;
     }
+  /**
+   * A permanent encounter attachment whose host left play, or whose player was eliminated, resolved its "attach to"
+   * text again and moved to `hostInstanceId` without leaving play (docs/phase7-wave10.md §3.19; MC56 p. 20: "When an
+   * attachment with the permanent keyword becomes unattached, resolve its 'attach to' text"). Follows the `cardMoved`
+   * of that move; `fromInstanceId` is the card it was on, null for one that was in a play area unattached.
+   */
+  | {
+      readonly type: "permanentAttachmentRehosted";
+      readonly instanceId: InstanceId;
+      readonly fromInstanceId: InstanceId | null;
+      readonly hostInstanceId: InstanceId;
+    }
   | { readonly type: "cardDrawn"; readonly playerId: PlayerId; readonly instanceId: InstanceId }
   /**
    * The card just drawn (the `cardDrawn` before this) is an obligation, so it went to the drawing player's play area

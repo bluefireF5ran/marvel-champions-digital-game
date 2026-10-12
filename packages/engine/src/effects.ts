@@ -59,6 +59,7 @@ import {
   staysInHand,
 } from "./rules.js";
 import { addFrameSlots, eventFrame, pushEvent } from "./resolve/frames.js";
+import { permanentRehostFor, rehostPermanentAttachment } from "./resolve/attach.js";
 import { moveCardsTo } from "./resolve/cards.js";
 import { boostCardGivenTo } from "./resolve/enemy-activation.js";
 import { staysInGameForScenarioDeck } from "./resolve/scenario-deck-top.js";
@@ -1352,13 +1353,16 @@ export function discardAtOnce(ctx: Ctx, id: InstanceId): void {
  *   out of play);
  * - one that can leave play is discarded with its host (`discardAtOnce`);
  * - a permanent or "cannot leave play" one stays in play (`staysInPlayWithoutHost`): a player card is unattached into
- *   its controller's play area (§3.30), and an unowned permanent encounter one is discarded past the keyword (§4.2
- *   Q26), through `leaveNow` itself rather than `leavePlayAtOnce`. The host leaving is a game rule with no source card,
- *   so Permanent's own-set exception (§4.1 Q46) never applies here.
+ *   its controller's play area (§3.30); a permanent encounter attachment resolves its "attach to" text again and
+ *   moves to that host (`rehostPermanentAttachment`, docs/phase7-wave10.md §3.19; MC56 p. 20); an unowned permanent
+ *   encounter card with no such host is discarded past the keyword (§4.2 Q26), through `leaveNow` itself rather than
+ *   `leavePlayAtOnce`. The host leaving is a game rule with no source card, so Permanent's own-set exception (§4.1
+ *   Q46) never applies here.
  */
 export function discardWithLeavingHost(ctx: Ctx, id: InstanceId): void {
   if (leavingCancelled(ctx.state, id)) unattachInPlay(ctx, id);
   else if (!staysInPlayWithoutHost(ctx, id)) discardAtOnce(ctx, id);
+  else if (rehostPermanentAttachment(ctx, id, getInstance(ctx.state, id)?.attachedTo ?? null)) return;
   else if (discardedWithoutHost(ctx, id)) leaveNow(ctx, id, discardZoneFor(ctx.state, id), "top", true, true);
   else unattachInPlay(ctx, id);
 }
@@ -1503,10 +1507,10 @@ function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: Insta
 }
 
 /**
- * A permanent encounter attachment with no player owner or controller, whose host leaves play: discarded to its
- * encounter discard pile, permanent notwithstanding (user ruling, docs/phase7-wave5.md §4.2 Q26; no printed card does
- * this yet). "Cannot leave play" stays absolute (RRG 1.8 "'Cannot'", p. 11). Player cards keep §3.30's unattach, and
- * player elimination re-resolves "attach to" instead (`eliminatePlayer`, ruling Mar 19, 2026 (3)).
+ * A permanent encounter attachment with no player owner or controller, whose host leaves play, when its printed
+ * "attach to" names no other legal host (`permanentRehostFor`): discarded to its encounter discard pile, permanent
+ * notwithstanding (user ruling, docs/phase7-wave5.md §4.2 Q26). "Cannot leave play" stays absolute (RRG 1.8
+ * "'Cannot'", p. 11). Player cards keep §3.30's unattach.
  */
 function discardedWithoutHost(ctx: Ctx, id: InstanceId): boolean {
   const instance = mustInstance(ctx.state, id);
@@ -1807,6 +1811,8 @@ export function leavingWithHost(
     // A blocked Victory X one stays for the host's own move, which treats it as `leaveNow` does (`defeatFromPlay`).
     if (how === "defeat" && !blocked && hasKeyword(ctx.state, attachment, "victory", ctx.deps)) to = "victoryDisplay";
     else if (how === "flip") to = blocked ? null : discarded();
+    // A permanent encounter attachment that goes to the host its "attach to" names does not leave play (§3.19).
+    else if (blocked && permanentRehostFor(ctx.state, ctx.deps, attachment, hostId) !== null) to = null;
     else to = !blocked || discardedWithoutHost(ctx, attachment) ? discarded() : null;
     if (to === null) continue;
     const event: TriggerEvent = {

@@ -67,6 +67,9 @@ import {
   cannotActivate,
   cardAbilitiesCannotRemove,
   type ConsequentialDamage,
+  attackUsesAtk,
+  damageUsedStat,
+  lostAttackKeywords,
 } from "../rules.js";
 import {
   actingCharacterOf,
@@ -100,7 +103,7 @@ import {
   thwartBlockersIgnored,
 } from "./keyword-ignored.js";
 import { damageTakenKey } from "../trigger-events.js";
-import type { DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
+import type { AttackKeyword, DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
 import {
   alreadyDefeated,
   applyMainSchemeCompleting,
@@ -654,7 +657,7 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
   switch (event.kind) {
     case "dealDamage": {
       // The response window reads the frame's event: it carries the target as it took the damage.
-      const stamped = asDamaged(ctx.state, event);
+      const stamped = asDamaged(ctx.state, withUsedStat(ctx.state, event));
       if (stamped !== event)
         updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, event: stamped } : f));
       stampAttackTarget(ctx, stamped);
@@ -948,6 +951,7 @@ function beginOneDefeat(
       ...(event.parentFrameId ? { spilledFromFrameId: event.parentFrameId } : {}),
       ...(event.overkill.viaInstanceId ? { viaInstanceId: event.overkill.viaInstanceId } : {}),
       ...(event.overkill.ranged ? { ranged: true as const } : {}),
+      ...(event.overkill.usedStat ? { usedStat: event.overkill.usedStat } : {}),
     };
   }
   return {
@@ -1047,9 +1051,16 @@ function attackPierces(ctx: Ctx, event: DamageEvent): boolean {
   return (
     event.fromAttack &&
     event.notAttacked !== true &&
-    (event.piercing === true || (source !== null && hasKeyword(ctx.state, source, "piercing", ctx.deps)))
+    (event.piercing === true || (source !== null && hasKeyword(ctx.state, source, "piercing", ctx.deps))) &&
+    // "Attacks against them lose piercing" (docs/phase7-wave10.md §3.18): read here, where piercing is applied, so
+    // the loss holds whatever stamped the keyword on this damage and whenever its rule came into force.
+    !attackLost(ctx, event, "piercing")
   );
 }
+
+/** Whether attacks do not have `keyword` against this damage's target (`attacksLoseKeywords`, wave 10 §3.18). */
+const attackLost = (ctx: Ctx, event: DamageEvent, keyword: AttackKeyword): boolean =>
+  lostAttackKeywords(ctx.state, ctx.deps, event.targetInstanceId).includes(keyword);
 
 /**
  * RRG 1.8 "Piercing" (p. 32): "Before this attack deals damage to a character, discard each tough status card from that
@@ -1078,7 +1089,9 @@ function damageAttackInfo(ctx: Ctx, event: DamageEvent): DamageAttackInfo | unde
     event.notAttacked === true
       ? []
       : ATTACK_KEYWORDS.filter(
-          (name) => event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps)),
+          (name) =>
+            (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps))) &&
+            !attackLost(ctx, event, name),
         );
   return { attackerInstanceId: source, cardInstanceId: event.viaInstanceId ?? null, keywords };
 }
@@ -1276,6 +1289,17 @@ export function asDamaged(state: GameState, event: DamageEvent): DamageEvent {
 }
 
 /**
+ * The damage event carrying the stat its attack was made with (`dealDamage.usedStat`, docs/phase7-wave10.md §3.17),
+ * as it is applied: a player's attack stamped it already, and damage of an enemy's attack is stamped here, while the
+ * attack it belongs to is still on the stack to be read (`damageUsedStat`). Unchanged for any other damage.
+ */
+export function withUsedStat(state: GameState, event: DamageEvent): DamageEvent {
+  if (event.usedStat !== undefined) return event;
+  const usedStat = damageUsedStat(state, event);
+  return usedStat === null ? event : { ...event, usedStat };
+}
+
+/**
  * An attack's damage to the character it attacks hands its target snapshot to the attack's own event
  * (`attack.targetAsDamaged`), so "after [character] attacks and damages a confused enemy" reads the enemy as the
  * attack damaged it. Called with the damage event `asDamaged` stamped, before the damage is applied. An attack deals
@@ -1322,7 +1346,8 @@ export function applyDamage(
   const attackKeyword = (name: "overkill"): boolean =>
     event.fromAttack &&
     event.notAttacked !== true &&
-    (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps)));
+    (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps))) &&
+    !attackLost(ctx, event, name);
 
   // RRG "Cannot": "cannot take damage" beats everything, including tough (which then isn't used). RRG 1.8 "Tough"
   // (p. 44) replaces damage the character "would take", and one that cannot take it would take none, so the status
@@ -1488,6 +1513,9 @@ export function applyDamage(
           ...(event.ranged === true || (source !== null && hasKeyword(ctx.state, source, "ranged", ctx.deps))
             ? { ranged: true as const }
             : {}),
+          // …and the stat it was made with: overkill damage of an attack that used ATK triggers "uses their ATK to
+          // attack and damage" on the character it spills to (rulings January 11, 2026 (1) and (2); wave 10 §3.17).
+          ...(damageUsedStat(ctx.state, event) === "atk" ? { usedStat: "atk" as const } : {}),
         }
       : undefined,
     defeatedByPlayerId: sourcePlayerOf(ctx.state, event),
@@ -1617,7 +1645,12 @@ function playerAttackOverkillRecipient(state: GameState, event: DamageEvent): In
  */
 function applyRetaliate(ctx: Ctx, event: Extract<TriggerEvent, { kind: "characterAttacked" }>): void {
   // Ranged printed on the attacker, or granted to this attack alone ("each of your [Arrow] attacks gain ranged").
-  if (event.ranged === true || hasKeyword(ctx.state, event.attackerInstanceId, "ranged", ctx.deps)) return;
+  // …unless attacks lose ranged against the attacked character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18).
+  if (
+    (event.ranged === true || hasKeyword(ctx.state, event.attackerInstanceId, "ranged", ctx.deps)) &&
+    !lostAttackKeywords(ctx.state, ctx.deps, event.targetInstanceId).includes("ranged")
+  )
+    return;
   const inPlay = cardsInPlay(ctx.state);
   if (!inPlay.includes(event.targetInstanceId) || !inPlay.includes(event.attackerInstanceId)) return;
   const amount = keywordTotal(ctx.state, event.targetInstanceId, "retaliate", ctx.deps);
@@ -2060,12 +2093,21 @@ function applyPlayerAttack(ctx: Ctx, attack: Extract<TriggerEvent, { kind: "atta
   // amount is computed (ATK, or the effect's amount with its `cardEffectBonus`), to this attack only.
   const extra = attackFrame?.kind === "event" ? (attackFrame.vars.extraDamage ?? 0) : 0;
   const amount = Math.max(0, computed + extra);
+  // "Uses their ATK to attack and damage" (docs/phase7-wave10.md §3.17): the attack in progress records the stat its
+  // damage is dealt with, and that damage carries it (ruling December 17, 2025 (2) #3).
+  const usedStat = useThw ? "thw" : attackUsesAtk(event, undefined) ? "atk" : undefined;
+  if (usedStat !== undefined && usedStat !== event.usedStat) {
+    updateFrame(ctx, frameId, (f) =>
+      f.kind === "event" && f.event.kind === "attack" ? { ...f, event: { ...f.event, usedStat } } : f,
+    );
+  }
   const keywords = attackKeywordsOf(ctx.state, ctx.deps, {
     attackerInstanceId: event.attackerInstanceId,
     viaInstanceId: event.sourceInstanceId ?? null,
     basic: event.basic === true,
     ...(event.keywords ? { keywords: event.keywords } : {}),
     ...(attackFrame?.kind === "event" ? { vars: attackFrame.vars } : {}),
+    targetInstanceId: event.targetInstanceId,
   });
   // The guard minions this attack got past (docs/phase7-wave6.md §3.8, §4.1 Q6), announced once the attack finishes.
   recordKeywordsIgnored(
@@ -2080,11 +2122,15 @@ function applyPlayerAttack(ctx: Ctx, attack: Extract<TriggerEvent, { kind: "atta
     sourceInstanceId: event.attackerInstanceId,
     fromAttack: true,
     parentFrameId: frameId,
-    overkill: event.overkill === true || keywords.includes("overkill"),
+    overkill:
+      keywords.includes("overkill") ||
+      (event.overkill === true &&
+        !lostAttackKeywords(ctx.state, ctx.deps, event.targetInstanceId).includes("overkill")),
     viaInstanceId: event.sourceInstanceId ?? null,
     // Only set when true, so an attack with no granted keyword logs exactly as it always has.
     ...(keywords.includes("piercing") ? { piercing: true } : {}),
     ...(keywords.includes("ranged") ? { ranged: true as const } : {}),
+    ...(usedStat === "atk" ? { usedStat } : {}),
   };
   const attacked: Extract<TriggerEvent, { kind: "characterAttacked" }> = {
     kind: "characterAttacked",
@@ -2142,6 +2188,7 @@ function applyEnemyAttacksEnemy(
   const keywords = attackKeywordsOf(ctx.state, ctx.deps, {
     attackerInstanceId: attacker,
     ...(attackFrame?.kind === "event" ? { vars: attackFrame.vars } : {}),
+    targetInstanceId: target,
   });
   const amount = Math.max(0, profile.atk + (attackFrame?.kind === "event" ? (attackFrame.vars.atkBonus ?? 0) : 0));
   emit(ctx, {

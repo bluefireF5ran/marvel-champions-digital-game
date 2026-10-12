@@ -106,8 +106,10 @@ import { threatRemovalBlocked } from "./resolve/event.js";
 import { accusationWrongGuesses, accusedWrong, isAccusationBoardMember } from "./accusation.js";
 import { hiddenPileSize } from "./hidden-pile-state.js";
 import {
+  attackUsesAtk,
   canHaveAttached,
   cannotEnterPlay,
+  damageUsedStat,
   maxPerPlayerReached,
   cannotFlip,
   canTakePlayerAttack,
@@ -3239,6 +3241,19 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
       return (state.scenarioRules.difficulty ?? "standard") === predicate.mode;
     case "gameMode":
       return gameModeOf(state) === predicate.is;
+    case "attackUsedAtk": {
+      const event = context.event;
+      if (!event) return false;
+      if (event.kind === "dealDamage") return damageUsedStat(state, event) === "atk";
+      if (event.kind === "attack") {
+        // Before it deals its damage, a basic attack may have been turned to THW by an interrupt of its own window
+        // (a var on its frame); once it has, the event itself records the stat (`applyPlayerAttack`).
+        const inProgress = playerAttackInProgress(state.stack);
+        const own = inProgress?.event.attackerInstanceId === event.attackerInstanceId ? inProgress : null;
+        return attackUsesAtk(event, own?.vars);
+      }
+      return event.kind === "enemyAttack" || event.kind === "enemyAttacksEnemy";
+    }
     case "firstAttackThisTurn": {
       const { against, by } = predicate;
       const matching = (state.attacksThisTurn ?? []).filter(

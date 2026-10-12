@@ -119,6 +119,15 @@ export type TriggerEventBody =
        * exceptAttackKeyword`; docs/phase7-wave7.md §3.30).
        */
       readonly ranged?: true;
+      /**
+       * This instance of an attack's damage was dealt with the attacker's ATK ("uses their ATK to attack and damage",
+       * docs/phase7-wave10.md §3.17): a basic attack's damage, an attack or damage instruction marked `usesAtk`
+       * ("damage … equal to your ATK"), and overkill damage spilled from either (rulings December 17, 2025 (2) #3 and
+       * January 11, 2026 (1), (2)). Stamped as the attack pushes the damage; every damage of an enemy's attack is
+       * stamped as it is applied (`damageUsedStat`, `rules.ts`), so the damage's response window always reads it here.
+       * Absent for a flat amount and for damage that is not an attack's.
+       */
+      readonly usedStat?: "atk";
       /** The card whose ability produced this damage when that isn't the source ("damage from Black Panther upgrades"). */
       readonly viaInstanceId?: InstanceId | null;
       /** An ally's consequential damage (RRG 1.8 "Consequential Damage", p. 13), so "for this use" can cancel it (§3.21). */
@@ -215,6 +224,15 @@ export type TriggerEventBody =
       readonly overkill?: boolean;
       /** "This attack gains piercing/ranged": keywords this attack has that its attacker need not (`AttackKeyword`). */
       readonly keywords?: readonly ("piercing" | "ranged" | "overkill")[];
+      /**
+       * The attack in progress deals its damage with the attacker's ATK (docs/phase7-wave10.md §3.17): written as the
+       * event is made for an `attack` instruction marked `usesAtk` and for a friendly character made to attack, and
+       * as the attack deals its damage for a basic attack (`attackUsesAtk`, `rules.ts`, which reads a basic attack
+       * before then), and for the attack of an "(attack)" ability as one of its damage instructions marked
+       * `usesAtk` deals its damage. `"thw"`: a basic attack made with THW instead ("uses their THW instead of their
+       * ATK", `modifyBasicPower.useStat`), written as it deals its damage. Absent for a flat amount.
+       */
+      readonly usedStat?: "atk" | "thw";
       /** The card whose ability made this attack (the event card for "Hero Action (attack)"). */
       readonly sourceInstanceId?: InstanceId | null;
       /**
@@ -609,6 +627,8 @@ export type TriggerEventBody =
          */
         readonly viaInstanceId?: InstanceId | null;
         readonly ranged?: true;
+        /** The defeating damage's `usedStat`: overkill damage of an attack that used ATK used it too (§3.17 of wave 10). */
+        readonly usedStat?: "atk";
       };
       /**
        * The player whose card dealt the defeating damage ("after *you* defeat a

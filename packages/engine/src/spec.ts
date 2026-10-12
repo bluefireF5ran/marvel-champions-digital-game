@@ -1600,6 +1600,19 @@ export type Predicate =
    */
   | { readonly kind: "gameMode"; readonly is: GameMode }
   /**
+   * "After a hero or the Captain America leader **uses their ATK to attack and damage** attached character" (Cap's
+   * Shield, `cw` 56143; docs/phase7-wave10.md §3.17): the damage or attack this ability answers was made with the
+   * attacker's ATK. Rulings December 17, 2025 (2) #3 (a flat-damage attack ability does not; "damage … equal to your
+   * ATK" does) and January 11, 2026 (1) and (2) (overkill damage of such an attack does, although its character was
+   * not the attack's target).
+   *
+   * Read from the answered event: a `dealDamage` that is an attack's and carries `usedStat: "atk"`, or is damage of
+   * an enemy's attack (an enemy always attacks with its ATK; RRG 1.8 "Attack (Enemy Activation)", p. 9); an `attack`
+   * that deals its attacker's ATK (`attackUsesAtk`); an `enemyAttack` or `enemyAttacksEnemy`. False for every other
+   * event and with no event.
+   */
+  | { readonly kind: "attackUsedAtk" }
+  /**
    * "(2 facedown boost cards instead if this is the first attack this turn)" (Venom III, `sm` 27075;
    * docs/phase7-wave5.md §3.12): read in the response to an attack, true when exactly one attack this turn
    * (`GameState.attacksThisTurn`, the triggering one) matches `against` (its target) and `by` (its attacker), each
@@ -1779,6 +1792,12 @@ export type EffectSpec =
        * the attack's damage.
        */
       readonly fromAttack?: boolean;
+      /**
+       * As `attack.usesAtk`, for one damage instruction of an "(attack)" ability: when this damage is an attack's
+       * (`fromAttack`, or the ability's attack by its controller's identity), it is damage of an attack that used the
+       * attacker's ATK (`dealDamage.usedStat`). Read for nothing else: plain damage never "uses ATK to attack".
+       */
+      readonly usesAtk?: true;
       readonly ignoreTough?: boolean;
       readonly bind?: string;
       /**
@@ -1868,6 +1887,13 @@ export type EffectSpec =
        * the attacker. `["overkill"]` is the same as `overkill: true`; both are accepted and unioned.
        */
       readonly keywords?: readonly AttackKeyword[];
+      /**
+       * The amount is the attacker's ATK, or built from it ("deal damage to an enemy equal to your ATK"): this
+       * attack's damage "uses their ATK" (`attack.usedStat`, `Predicate attackUsedAtk`; docs/phase7-wave10.md §3.17).
+       * Ruling December 17, 2025 (2) #3: an ability that "calls out your ATK in some way" does, a flat "Deal # damage
+       * to an enemy" does not. The DSL's `attack` sets it when the amount reads the attacker's ATK.
+       */
+      readonly usesAtk?: true;
       readonly moveDamageFrom?: TargetRef;
       readonly bind?: string;
     }

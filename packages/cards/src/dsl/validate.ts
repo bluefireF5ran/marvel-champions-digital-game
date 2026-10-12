@@ -81,6 +81,8 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkLeaveReplacement(definition, problems);
   checkBoostCardDestination(definition, problems);
   checkTraitReveal(definition, problems);
+  checkAttackUsedAtk(definition, problems);
+  checkAttackKeywordLoss(definition, "definition", problems);
   checkCounterDivision(definition, problems);
   checkSpendX(definition, problems);
   checkPod(definition, problems);
@@ -881,6 +883,64 @@ function checkTraitReveal(definition: AbilityDefinition, problems: string[]): vo
         `grantedTo("${named}") reads the revealed card of on.cardRevealedGranting("${named}", …): this ability's trigger does not ask for that trait`,
       );
   }
+}
+
+/** The events `Predicate attackUsedAtk` can read (docs/phase7-wave10.md §3.17). */
+const ATTACK_USED_ATK_EVENTS: readonly string[] = ["dealDamage", "attack", "enemyAttack", "enemyAttacksEnemy"];
+
+/**
+ * "Uses their ATK to attack and damage" (`attackUsedAtk()`, docs/phase7-wave10.md §3.17) is read from the damage or
+ * attack an ability answers, so it is false anywhere else: only an interrupt or response whose pattern hears nothing
+ * but damage and attacks may ask it. `usesAtk` on a `dealDamage` that is never an attack's (`fromAttack: false`) says
+ * nothing and is a slip.
+ */
+function checkAttackUsedAtk(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind === "dealDamage" && effect.usesAtk && effect.fromAttack === false)
+      problems.push("dealDamage: usesAtk marks an attack's damage; this instruction is fromAttack: false");
+  }
+  if (!readsKind(definition, (kind) => kind === "attackUsedAtk")) return;
+  const trigger = definition.trigger;
+  const heard =
+    (trigger.kind === "interrupt" || trigger.kind === "response") && trigger.on !== undefined
+      ? [trigger.on, ...(trigger.on.anyOf ?? [])].flatMap(kindsOfPattern)
+      : [];
+  if (heard.length === 0 || heard.some((kind) => !ATTACK_USED_ATK_EVENTS.includes(kind)))
+    problems.push(
+      "attackUsedAtk reads the damage or attack an ability answers: only in an interrupt or response on dealDamage, attack, enemyAttack or enemyAttacksEnemy",
+    );
+}
+
+const ATTACK_KEYWORD_NAMES: readonly string[] = ["piercing", "ranged", "overkill"];
+
+/**
+ * "Attacks against them lose piercing" (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18), wherever the rule is
+ * written (a constant, or a rule an effect applies for a time): it names at least one attack keyword, each once, and
+ * only the three an attack can have (RRG 1.8 "Piercing", p. 32; "Ranged", p. 35; "Overkill", p. 31). A character's own
+ * keyword is lost with `losesKeyword`.
+ */
+function checkAttackKeywordLoss(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => checkAttackKeywordLoss(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (record.kind === "attacksLoseKeywords") {
+    const keywords = Array.isArray(record.keywords) ? (record.keywords as readonly unknown[]) : [];
+    if (keywords.length === 0) problems.push(`${path}: attacksLoseKeywords names at least one attack keyword`);
+    if (new Set(keywords).size !== keywords.length)
+      problems.push(`${path}: attacksLoseKeywords names each keyword once`);
+    for (const keyword of keywords) {
+      if (typeof keyword !== "string" || !ATTACK_KEYWORD_NAMES.includes(keyword))
+        problems.push(
+          `${path}: attacksLoseKeywords takes piercing, ranged or overkill, not ${JSON.stringify(keyword)} (a character's own keyword is lost with losesKeyword)`,
+        );
+    }
+    if (typeof record.target !== "object" || record.target === null || Object.keys(record.target).length === 0)
+      problems.push(`${path}: attacksLoseKeywords names the attacked character (target)`);
+  }
+  for (const [key, item] of Object.entries(record)) checkAttackKeywordLoss(item, `${path}.${key}`, problems);
 }
 
 function checkLeaveReplacement(definition: AbilityDefinition, problems: string[]): void {

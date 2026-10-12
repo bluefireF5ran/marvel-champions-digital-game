@@ -104,6 +104,7 @@ describe("what a probe compares (`PROBE_FIELDS`)", () => {
         "nextFrameSeq",
         "nextLastingSeq",
         "pendingChoice",
+        "schemeTargetsSeen",
         "stack",
         "stateChecks",
       ].toSorted(),

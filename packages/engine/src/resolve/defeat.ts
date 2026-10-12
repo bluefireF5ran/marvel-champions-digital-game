@@ -16,6 +16,7 @@ import {
 } from "../effects.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { hasKeyword, isPermanent } from "../keywords.js";
+import { rehostPermanentAttachment } from "./attach.js";
 import {
   cardOf,
   characterProfile,
@@ -145,7 +146,8 @@ export function checkMainSchemeCompletion(ctx: Ctx): void {
   }
 }
 
-function checkOneMainScheme(ctx: Ctx, schemeId: InstanceId): void {
+/** The same check for one main scheme: its target threat fell to the threat on it (`checkSchemeTargetsFell`). */
+export function checkOneMainScheme(ctx: Ctx, schemeId: InstanceId): void {
   const scheme = mainSchemeStateOf(ctx.state, schemeId);
   if (!scheme || scheme.completed || advancePending(ctx.state, schemeId) || completingPending(ctx.state, schemeId))
     return;
@@ -1072,6 +1074,11 @@ export function eliminatePlayer(ctx: Ctx, playerId: PlayerId): void {
   const notOwnedPermanent = (id: InstanceId): boolean =>
     getInstance(ctx.state, id)?.ownerId !== playerId && isPermanent(ctx.state, id, ctx.deps);
   const reattachOrRemove = (id: InstanceId): void => {
+    // An encounter attachment resolves its "attach to" text again, and the attaching is announced (docs/phase7-
+    // wave10.md §3.19; MC56 p. 20), so "After Cap's Shield is attached to Captain America, give him a tough status
+    // card" answers a Shield that comes back from an eliminated player's hero.
+    if (rehostPermanentAttachment(ctx, id, identityId)) return;
+    // A card a player owns or controls (another player's permanent upgrade here) is moved as it always was.
     const card = ctx.state.cardPool[mustInstance(ctx.state, id).cardId];
     const attachesTo = card && "attachesTo" in card ? card.attachesTo : undefined;
     const context = { selfInstanceId: id, controllerId: null, event: null, bindings: {}, deps: ctx.deps };

@@ -13,7 +13,7 @@ import {
   perPlayerCountAt,
   villainStageOf,
 } from "./query.js";
-import { cannotHaveStatus, grantedAttackKeywords, statusLimit } from "./rules.js";
+import { cannotHaveStatus, grantedAttackKeywords, lostAttackKeywords, statusLimit } from "./rules.js";
 import {
   cardsInPlay,
   categoriesOf,
@@ -347,6 +347,12 @@ export interface AttackKeywordContext {
   readonly keywords?: readonly AttackKeyword[];
   /** The attack/activation event frame's vars, where `modifyAttack` records a grant made mid-activation. */
   readonly vars?: Readonly<Record<string, number>>;
+  /**
+   * The character the attack is against, when the caller knows it: the keywords attacks lose against that character
+   * are left out (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18). Absent: what the attack has against a
+   * character with no such rule, which is what "when you make a ranged attack" reads.
+   */
+  readonly targetInstanceId?: InstanceId | null;
 }
 
 /**
@@ -358,6 +364,9 @@ export interface AttackKeywordContext {
  * 3. `modifyAttack.keywords` during the activation, recorded as a var named after the keyword on the attack's own
  *    event frame ("the attack gains piercing", Crossfire's boost) — the same var `overkill` has always used;
  * 4. a constant `attackKeywords` rule in play ("each of your [Arrow] attacks gain ranged", Hawkeye's Bow).
+ *
+ * Less the keywords attacks lose against `targetInstanceId` ("attacks against them lose piercing", Cap's Shield;
+ * `attacksLoseKeywords`): a loss beats every source above (RRG 1.8 "Lose", p. 27).
  */
 export function attackKeywordsOf(
   state: GameState,
@@ -366,12 +375,14 @@ export function attackKeywordsOf(
 ): readonly AttackKeyword[] {
   const via = attack.viaInstanceId ?? null;
   const fromRules = grantedAttackKeywords(state, deps, attack.attackerInstanceId, via, attack.basic === true);
+  const lost = attack.targetInstanceId ? lostAttackKeywords(state, deps, attack.targetInstanceId) : [];
   return ATTACK_KEYWORDS.filter(
     (name) =>
-      hasKeyword(state, attack.attackerInstanceId, name, deps) ||
-      attack.keywords?.includes(name) === true ||
-      (attack.vars?.[name] ?? 0) > 0 ||
-      fromRules.includes(name),
+      !lost.includes(name) &&
+      (hasKeyword(state, attack.attackerInstanceId, name, deps) ||
+        attack.keywords?.includes(name) === true ||
+        (attack.vars?.[name] ?? 0) > 0 ||
+        fromRules.includes(name)),
   );
 }
 

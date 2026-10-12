@@ -1186,9 +1186,11 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
             attackerInstanceId: frame.enemyInstanceId,
             targetInstanceId: frame.targetInstanceId,
             playerId: frame.attackedPlayerId,
-            ...(attackKeywordsOf(ctx.state, ctx.deps, { attackerInstanceId: frame.enemyInstanceId, vars }).includes(
-              "ranged",
-            )
+            ...(attackKeywordsOf(ctx.state, ctx.deps, {
+              attackerInstanceId: frame.enemyInstanceId,
+              vars,
+              targetInstanceId: frame.targetInstanceId,
+            }).includes("ranged")
               ? { ranged: true }
               : {}),
           },
@@ -1207,7 +1209,12 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       });
       // "The attack gains piercing/ranged" (Crossfire's boost, Crossfire's Rifle): a `modifyAttack` grant made during
       // this activation, folded in with the enemy's own keywords once and stamped on the events below.
-      const keywords = attackKeywordsOf(ctx.state, ctx.deps, { attackerInstanceId: frame.enemyInstanceId, vars });
+      // …less what attacks lose against the attacked character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18).
+      const keywords = attackKeywordsOf(ctx.state, ctx.deps, {
+        attackerInstanceId: frame.enemyInstanceId,
+        vars,
+        targetInstanceId: frame.targetInstanceId,
+      });
       // The redirected damage replaces step 5 whatever form it would have taken (indirect, divided). Per §4.1 Q18 it is
       // attack damage from the attacker, so a tough status card on the enemy absorbs it, but that enemy is not
       // attacked (`notAttacked`: no piercing, overkill or prevent budget; no `characterAttacked` for it, so no

@@ -33,6 +33,7 @@ import {
   eachPlayer,
   firstPlayer,
   query,
+  readsAtkOf,
   self,
   TRAIT,
   you,
@@ -103,6 +104,10 @@ export const heal = (n: Amount, target: TargetRef, opts: { readonly bind?: strin
  * takes "+1 damage from each attack", names its enemy as attacked (one retaliate each) and counts for "after you
  * attack and defeat". Damage to your own identity or an ally is never the attack's. `fromAttack: false` keeps one
  * instruction out of the attack; `fromAttack: true` is an attack's damage dealt by this card itself (no hero attack).
+ *
+ * `usesAtk` (docs/phase7-wave10.md §3.17): as an attack's damage, this instance "uses their ATK" (Cap's Shield;
+ * `attackUsedAtk()`). Set for you when the amount reads your identity's ATK (`statOf(yourIdentity, "atk")`); pass
+ * `usesAtk: true` or `false` only when the card's wording says otherwise.
  */
 export const dealDamage = (
   n: Amount,
@@ -119,6 +124,7 @@ export const dealDamage = (
      * owner ruling Q53). Prefer one `dealDamage` with the summed amount when the script can compute it.
      */
     readonly additional?: boolean;
+    readonly usesAtk?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "dealDamage",
@@ -126,6 +132,8 @@ export const dealDamage = (
   amount: amount(n),
   ...(opts.additional ? { additional: true as const } : {}),
   ...(opts.fromAttack !== undefined ? { fromAttack: opts.fromAttack } : {}),
+  // Not marked on an instruction kept out of the attack: that damage is no attack's.
+  ...((opts.usesAtk ?? (opts.fromAttack !== false && readsAtkOf(n, yourIdentity))) ? { usesAtk: true as const } : {}),
   ...withBind(opts.bind),
   ...(opts.perTarget ? { perTarget: true as const } : {}),
   ...(opts.sourceFromEvent ? { sourceFromEvent: true as const } : {}),
@@ -227,6 +235,11 @@ export const useThwInsteadOfAtk = (): EffectSpec => ({ kind: "modifyBasicPower",
  * `keywords` is this activation's own attack-keyword grant — "this attack gains piercing" (Vibranium Arrow, Piercing
  * Strike): exact for a played event's one-shot attack, unlike a persistent `constant(...attacksGainKeywords(...))`
  * grant, which needs the granting card to stay in play (docs/phase7-wave2.md §3, `RuleSpec attackKeywords`).
+ *
+ * `usesAtk` (docs/phase7-wave10.md §3.17; ruling December 17, 2025 (2) #3): the attack "uses their ATK", which
+ * `attackUsedAtk()` reads (Cap's Shield). Set for you when the amount reads the attacker's ATK: `attack(statOf(
+ * yourIdentity, "atk"), …)` and `attack(sum(statOf(yourIdentity, "atk"), 2), …)` are marked, `attack(4, …)` is not.
+ * Pass `usesAtk: true` or `false` only when the card's wording says otherwise.
  */
 export const attack = (
   n: Amount,
@@ -237,11 +250,13 @@ export const attack = (
     readonly moveDamageFrom?: TargetRef;
     readonly bind?: string;
     readonly keywords?: readonly AttackKeyword[];
+    readonly usesAtk?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "attack",
   target,
   amount: amount(n),
+  ...((opts.usesAtk ?? readsAtkOf(n, opts.attacker ?? yourIdentity)) ? { usesAtk: true as const } : {}),
   ...(opts.overkill ? { overkill: true } : {}),
   ...(opts.attacker ? { attacker: opts.attacker } : {}),
   ...(opts.moveDamageFrom ? { moveDamageFrom: opts.moveDamageFrom } : {}),

@@ -29,6 +29,8 @@ import {
   isPlayerCardType,
   mainSchemeStageOf,
   mainSchemeStateOf,
+  mainSchemeStates,
+  mainSchemeValue,
   maxHitPoints,
   undefeatedVillains,
 } from "../query.js";
@@ -51,7 +53,7 @@ import type { StackFrame } from "../stack.js";
 import type { GameState } from "../state.js";
 import { defeatHeldOff, notDefeatedWithoutThreat } from "../rules.js";
 import { limitReached } from "./ability.js";
-import { atZero, checkDefeats, defeatPending } from "./defeat.js";
+import { atZero, checkDefeats, checkOneMainScheme, defeatPending } from "./defeat.js";
 import { settleUpgradeControl } from "./attach.js";
 import {
   checkAllyLimits,
@@ -136,6 +138,8 @@ export function checkStateTriggers(ctx: Ctx): boolean {
   if (checkSchemeProtectionEnded(ctx)) return true;
   // …and a damaged character whose hit point bonus ended at or below its damage is defeated (RRG 1.8 p. 22).
   if (checkHitPointsFell(ctx)) return true;
+  // …and a main scheme whose target threat fell to the threat on it is completed (RRG 1.8 "Main Scheme", p. 27).
+  if (checkSchemeTargetsFell(ctx)) return true;
   // …and an identity or villain left standing past zero has a dial that reads zero (RRG 1.8 p. 22).
   settleDials(ctx);
   // …and the top card of a deck kept faceup is logged when the rule itself turns on or off with nothing moved (a form
@@ -513,6 +517,46 @@ function checkHitPointsFell(ctx: Ctx): boolean {
   const depth = ctx.state.stack.length;
   checkDefeats(ctx);
   return ctx.state.stack.length > depth || ctx.state.outcome !== null;
+}
+
+/**
+ * RRG 1.8 "Main Scheme" (p. 27): "If the amount of threat on a main scheme is equal to or greater than its target
+ * threat value, that main scheme is completed and the main scheme deck advances." The entry names a state and not the
+ * placing of threat, so a target that falls to the threat already there completes the stage at once ("Reduce the
+ * target threat value of this scheme by 1 for each facedown card under it", docs/phase7-wave10.md §3.15).
+ *
+ * A target is always derived (`mainSchemeValue`: the printed value for the players in the game, a base override and
+ * every modifier, whose amount and condition may read anything), so no list of its writers would be complete: the
+ * value itself is watched between frames, and `GameState.schemeTargetsSeen` remembers what it last read for each
+ * stage in play. An edge like `checkHitPointsFell`: only a fall that crosses the threat on the stage is checked, so
+ * threat placed with its check put off (`placeThreat.completionCheck`, step one's batch) still waits for that check,
+ * and a stage a card ability kept from completing is not completed again by a later fall. A new stage, or a stage's
+ * other face, is a first observation and only recorded: threat it starts with is not threat that reached a target.
+ * Returns true when the completion put something on the stack or ended the game.
+ */
+function checkSchemeTargetsFell(ctx: Ctx): boolean {
+  const before = ctx.state.schemeTargetsSeen;
+  const seen: Record<string, number> = {};
+  const fell: InstanceId[] = [];
+  for (const scheme of mainSchemeStates(ctx.state)) {
+    const instance = ctx.state.instances[scheme.instanceId];
+    // A dashed target "cannot be used" (RRG 1.8 "Dash (Value)", p. 15): nothing to watch.
+    if (!instance || mainSchemeStageOf(ctx.state, scheme).dashedValues?.includes("targetThreat")) continue;
+    const key = `${scheme.instanceId}:${scheme.stageIndex}:${scheme.faceupSide ?? "B"}`;
+    const target = mainSchemeValue(ctx.state, "targetThreat", ctx.deps, scheme);
+    seen[key] = target;
+    const was = before?.[key];
+    if (was !== undefined && target < was && instance.threat < was && instance.threat >= target) {
+      fell.push(scheme.instanceId);
+    }
+  }
+  if (!before || !sameNumbers(seen, before)) ctx.state = { ...ctx.state, schemeTargetsSeen: seen };
+  const depth = ctx.state.stack.length;
+  for (const schemeId of fell) {
+    if (ctx.state.outcome) break;
+    checkOneMainScheme(ctx, schemeId);
+  }
+  return ctx.state.stack.length > depth || (fell.length > 0 && ctx.state.outcome !== null);
 }
 
 /**

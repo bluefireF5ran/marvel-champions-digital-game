@@ -1108,6 +1108,14 @@ export interface GameState {
    */
   readonly hitPointsSeen?: Readonly<Record<string, number>>;
   /**
+   * The target threat each main scheme stage in play was last seen to have, keyed `instanceId:stageIndex:side`, so a
+   * fall is noticed the moment it happens: RRG 1.8 "Main Scheme" (p. 27), a stage with threat equal to or greater
+   * than its target threat is completed, whether the threat rose or the target fell (`resolve/state-checks.ts`
+   * `checkSchemeTargetsFell`; docs/phase7-wave10.md §3.15). Memory of an edge and nothing else: a target is always
+   * derived (`mainSchemeValue`), never read from here. Absent until the first check between frames.
+   */
+  readonly schemeTargetsSeen?: Readonly<Record<string, number>>;
+  /**
    * The card last logged as showing on top of each player's deck under a `topOfDeckFaceup` rule (docs/phase7-wave8.md
    * §3.48), so the log says `deckTopShown` / `deckTopHidden` once per change (`announceDeckTops`, `deck-top.ts`). This
    * is the log's memory and nothing else: which card is visible is never read from here, it is derived from the deck's

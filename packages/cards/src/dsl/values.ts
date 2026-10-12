@@ -1381,6 +1381,37 @@ export const inMode = (mode: "standard" | "expert"): Predicate => ({ kind: "inMo
  */
 export const inCompetitiveMode = (): Predicate => ({ kind: "gameMode", is: "competitive" });
 /**
+ * "… **uses their ATK** to attack and damage attached character" (Cap's Shield, `cw` 56143; docs/phase7-wave10.md
+ * §3.17): the attack, or the damage, this ability answers was made with the attacker's ATK. Written as the ability's
+ * own condition. After the attack, so the attacked character's retaliate has resolved (a keyword comes before a
+ * triggered ability, ruling January 17, 2026 (3) #2), with the damage read per character so that overkill counts
+ * (rulings January 11, 2026 (1), (2)): `forcedResponse(on.attacks(…), { while: and(attackUsedAtk(),
+ * eventDamageTaken(host)) }, …)`, and the same on `on.enemyAttacks(…)` for an enemy attacker. On `on.damage(…, {
+ * fromAttack: true })` it reads that one instance of damage, in its own window (before retaliate).
+ *
+ * True for a basic attack, an attack or damage instruction whose amount reads the attacker's ATK (`attack` and
+ * `dealDamage` mark those themselves), overkill damage spilled from either, and any attack of an enemy. False for a
+ * flat amount (ruling December 17, 2025 (2) #3) and for a basic attack made with THW instead.
+ */
+export const attackUsedAtk = (): Predicate => ({ kind: "attackUsedAtk" });
+/**
+ * Whether an amount is built from the ATK of the card(s) `of` names: a `statOf(of, "atk")` (or its base, printed or
+ * total reading) anywhere in it. What `attack` and `dealDamage` read to mark an attack as using its attacker's ATK
+ * (`usesAtk`, docs/phase7-wave10.md §3.17; ruling December 17, 2025 (2) #3: an ability that "calls out your ATK in
+ * some way"). The ATK of another character ("damage equal to that ally's ATK" on a hero's attack) does not count.
+ */
+export function readsAtkOf(value: Amount, of: TargetRef): boolean {
+  const wanted = JSON.stringify(of);
+  const visit = (node: unknown): boolean => {
+    if (Array.isArray(node)) return node.some(visit);
+    if (typeof node !== "object" || node === null) return false;
+    const record = node as Readonly<Record<string, unknown>>;
+    if (record.kind === "stat" && record.stat === "atk" && JSON.stringify(record.of) === wanted) return true;
+    return Object.values(record).some(visit);
+  };
+  return visit(value);
+}
+/**
  * "X is equal to Ironheart's [Version] number" (`ironheart`; docs/phase7-wave5.md §3.23): `traitNumber(yourIdentity,
  * "Version")` reads "VERSION 2" as 2 (from the printed hero face while in alter-ego form).
  */

@@ -51,8 +51,10 @@ const NAVIGATOR = stubUpgrade({
 const GADGET = stubUpgrade({ id: "gadget", cost: 0 });
 const MINION = stubMinion({ id: "thug", atk: 1, sch: 1, hp: 3 });
 const SCHEME = stubSideScheme({ id: "plot", startingThreat: 2 });
-// A permanent encounter attachment, which no printed card is: discarded with its host (§4.2 Q26).
-const CURSE = stubAttachment({ id: "curse", attachesTo: { kind: "villain" }, keywords: [{ name: "permanent" }] });
+// A permanent encounter attachment whose "attach to" names no other host once its minion is gone: discarded with its
+// host (§4.2 Q26). One whose text names a host in play goes there instead (docs/phase7-wave10.md §3.19; MC56 p. 20).
+const CURSE = stubAttachment({ id: "curse", attachesTo: { kind: "minion" }, keywords: [{ name: "permanent" }] });
+const BRAND = stubAttachment({ id: "brand", attachesTo: { kind: "villain" }, keywords: [{ name: "permanent" }] });
 
 const event = (id: string, effects: readonly EffectSpec[]) => {
   const ability = stubAbility(`${id}.action`, { trigger: { kind: "action" }, effects });
@@ -84,9 +86,9 @@ interface Table {
 
 function start(): Table {
   const state = gameAtFirstTurn({
-    cards: [NAVIGATOR, GADGET, MINION, SCHEME, CURSE, ...EVENTS.map((e) => e.card)],
+    cards: [NAVIGATOR, GADGET, MINION, SCHEME, CURSE, BRAND, ...EVENTS.map((e) => e.card)],
     deps,
-    encounter: [...copiesOf(TREACHERY.id, 27), MINION.id, SCHEME.id, CURSE.id],
+    encounter: [...copiesOf(TREACHERY.id, 26), MINION.id, SCHEME.id, CURSE.id, BRAND.id],
     deck: [NAVIGATOR.id, GADGET.id, ...EVENTS.map((e) => e.card.id)],
   });
   const navigator = playerCardIntoPlay(state, NAVIGATOR.id);
@@ -169,22 +171,35 @@ describe("§3.30 a player card attached to an encounter card, returned when its 
     expect(mustPlayer(state, P1).playArea).not.toContain(table.gadget);
   });
 
-  it("a permanent encounter attachment with no player owner or controller is discarded with its host (§4.2 Q26)", () => {
-    const table = start();
-    const curse = encounterCardInVillainArea(table.state, CURSE.id);
-    // Surgery: attached to the minion, controlled by the scenario.
+  /** Surgery: `card` attached to the minion, controlled by the scenario. */
+  const onThug = (table: Table, card: typeof CURSE) => {
+    const placed = encounterCardInVillainArea(table.state, card.id);
     const state: GameState = {
-      ...curse.state,
-      villainArea: curse.state.villainArea.filter((id) => id !== curse.id),
+      ...placed.state,
+      villainArea: placed.state.villainArea.filter((id) => id !== placed.id),
       instances: {
-        ...curse.state.instances,
-        [curse.id]: { ...mustInstance(curse.state, curse.id), attachedTo: table.thug, controllerId: null },
-        [table.thug]: { ...mustInstance(curse.state, table.thug), attachments: [curse.id] },
+        ...placed.state.instances,
+        [placed.id]: { ...mustInstance(placed.state, placed.id), attachedTo: table.thug, controllerId: null },
+        [table.thug]: { ...mustInstance(placed.state, table.thug), attachments: [placed.id] },
       },
     };
-    const after = playFree(state, deps, DEFEAT_THUG.card.id).state;
+    return { state, id: placed.id };
+  };
+
+  it("a permanent encounter attachment whose 'attach to' names no other host is discarded with its host (§4.2 Q26)", () => {
+    const curse = onThug(start(), CURSE);
+    const after = playFree(curse.state, deps, DEFEAT_THUG.card.id).state;
     expect(after.villainArea).not.toContain(curse.id);
     expect(after.encounterDecks[activeEncounterDeckId(after)]!.discard).toContain(curse.id);
     expect(mustInstance(after, curse.id).attachedTo).toBeNull();
+  });
+
+  it("one whose 'attach to' names a host in play resolves it again and stays in play there (wave 10 §3.19; MC56 p. 20)", () => {
+    const brand = onThug(start(), BRAND);
+    const after = playFree(brand.state, deps, DEFEAT_THUG.card.id).state;
+    const villain = after.villains[0]!.instanceId;
+    expect(mustInstance(after, brand.id).attachedTo).toBe(villain);
+    expect(mustInstance(after, villain).attachments).toContain(brand.id);
+    expect(after.encounterDecks[activeEncounterDeckId(after)]!.discard).not.toContain(brand.id);
   });
 });

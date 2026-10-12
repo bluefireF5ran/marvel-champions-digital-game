@@ -195,6 +195,43 @@ export function cannotTakeDamage(
   });
 }
 
+/**
+ * Whether a player's attack deals its damage with the attacker's ATK (docs/phase7-wave10.md §3.17; ruling December
+ * 17, 2025 (2) #3): a basic attack (a divided one's shares are split from ATK), an attack with no amount of its own
+ * ("resolve her ATK against you", Old Rivals) and one marked as built from ATK (`usedStat`, from `attack.usesAtk`).
+ * Not a basic attack made with THW instead ("uses their THW instead of their ATK", `modifyBasicPower.useStat`, a var
+ * on the attack's frame). The label-only attack of an "(attack)" ability deals no damage of its own: it used ATK once
+ * one of that ability's damage instructions marked `usesAtk` has dealt its damage as this attack (`usedStat`).
+ */
+export function attackUsesAtk(
+  event: Extract<TriggerEvent, { kind: "attack" }>,
+  vars: Readonly<Record<string, number>> | undefined,
+): boolean {
+  if (event.usedStat !== undefined) return event.usedStat === "atk";
+  if (event.labeled) return false;
+  const ownAmount = (event.amount ?? null) !== null;
+  if (event.basic === true && !ownAmount && (vars?.useThw ?? 0) > 0) return false;
+  return event.basic === true || !ownAmount;
+}
+
+/**
+ * The stat one instance of attack damage was dealt with (docs/phase7-wave10.md §3.17): its own stamp (`dealDamage.
+ * usedStat`, written as a player's attack pushes it and carried onto its overkill spill), else `"atk"` for any damage
+ * of an enemy's attack, read from the attack this damage belongs to or spilled from: an enemy attacks with its ATK
+ * (RRG 1.8 "Attack (Enemy Activation)", p. 9), whatever form step 5's damage takes (redirected, indirect, divided,
+ * overkill). Null for damage that is not an attack's and for a flat amount.
+ */
+export function damageUsedStat(state: GameState, event: Extract<TriggerEvent, { kind: "dealDamage" }>): "atk" | null {
+  if (!event.fromAttack) return null;
+  if (event.usedStat !== undefined) return event.usedStat;
+  const attackFrameId = event.parentFrameId ?? event.spilledFromFrameId ?? null;
+  if (attackFrameId === null) return null;
+  const frame = state.stack.find((f) => f.frameId === attackFrameId);
+  return frame?.kind === "event" && (frame.event.kind === "enemyAttack" || frame.event.kind === "enemyAttacksEnemy")
+    ? "atk"
+    : null;
+}
+
 /** A player's attack on the stack: its `attack` event frame (`playerAttackInProgress`). */
 export type PlayerAttackFrame = Extract<StackFrame, { kind: "event" }> & {
   readonly event: Extract<TriggerEvent, { kind: "attack" }>;
@@ -236,11 +273,13 @@ export function canTakePlayerAttack(
     basic: basic === true,
     ...(keywords ? { keywords } : {}),
     vars: attack.vars,
+    targetInstanceId: targetId,
   });
+  const withOverkill = overkill === true && !lostAttackKeywords(state, deps, targetId).includes("overkill");
   return !cannotTakeDamage(state, deps, targetId, [attackerInstanceId, sourceInstanceId], {
     attackerInstanceId,
     cardInstanceId: sourceInstanceId,
-    keywords: overkill === true && !has.includes("overkill") ? [...has, "overkill"] : has,
+    keywords: withOverkill && !has.includes("overkill") ? [...has, "overkill"] : has,
   });
 }
 
@@ -1024,6 +1063,19 @@ export function grantedAttackKeywords(
     for (const keyword of rule.keywords) if (!granted.includes(keyword)) granted.push(keyword);
   }
   return granted;
+}
+
+/**
+ * The `AttackKeyword`s attacks do not have against this character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18;
+ * RRG 1.8 "Lose", p. 27: a loss holds whatever would give the keyword). Empty with no such rule in force.
+ */
+export function lostAttackKeywords(state: GameState, deps: EngineDeps, targetId: InstanceId): readonly AttackKeyword[] {
+  const lost: AttackKeyword[] = [];
+  for (const { rule, context } of activeRules(state, deps, "attacksLoseKeywords")) {
+    if (!matchesQuery(state, targetId, rule.target, context)) continue;
+    for (const keyword of rule.keywords) if (!lost.includes(keyword)) lost.push(keyword);
+  }
+  return lost;
 }
 
 /** Whether a basic thwart against this scheme may use ATK instead of THW (`thwartWithAtk`). */
