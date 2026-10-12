@@ -16,7 +16,7 @@
  * **"YOUR DECKS"** (the list *owns* the column — search plus a collapsed-by-
  * default "Filters" toggle in one compact row, then deck cards filling
  * whatever's left, ink-filled selected with its record shown only there,
- * red-bordered illegal/WIP, "+ NEW DECK" as the list's own last row, a small
+ * red-bordered illegal/WIP, "+ NEW DECK" on the column header's own line (always in view), a small
  * group label folded into the top of each group's first card rather than its
  * own full-height row, then a *compact* parchment Import/Export box pinned to
  * the column's bottom with its paste/MarvelCDB/export fields collapsed behind
@@ -197,7 +197,7 @@ const COMMUNITY_GROUP_LABEL = "Community decks · MarvelCDB";
 /** One line of the author's notes in the detail rail. */
 const NOTES_LINE_HEIGHT = 17;
 
-/** One row of the deck list: a deck row (optionally the first of a group, carrying that group's small label) or the trailing "+ New deck" tile (never filtered out, always the list's own last row) — see the module doc comment for why a group no longer gets its own full-height row. */
+/** One row of the deck list: a deck row (optionally the first of a group, carrying that group's small label) or the empty-search message — see the module doc comment for why a group no longer gets its own full-height row. "+ New deck" is not a row: it sits on the pane's header line, always in view. */
 type DeckRow =
   | {
       readonly kind: "deck";
@@ -206,7 +206,6 @@ type DeckRow =
       /** Set on a community deck's row (`view/community-decks-model.ts`): a recommendation, not one of the player's decks. */
       readonly offer?: CommunityOffer;
     }
-  | { readonly kind: "newDeck" }
   | { readonly kind: "message"; readonly text: string };
 
 /** `deck`'s namespaced record key — the same one `view/results-history.ts` keys `DeckRecord` by. */
@@ -688,7 +687,7 @@ export class DecksScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------------------------------------------------
   // The deck list pane (2026-09-18 fidelity pass, point 2): search plus a collapsed-by-default "Filters" toggle
-  // in one compact row, then the list itself — the pane's dominant element — ending in "+ New deck", then a
+  // in one compact row (under a header carrying "+ New deck"), then the list itself — the pane's dominant element — then a
   // compact, bottom-pinned Import/Export box. Returns the deck ids actually offered as rows, in list order, for
   // the focus route.
   // ------------------------------------------------------------------------------------------------------------
@@ -700,7 +699,7 @@ export class DecksScene extends Phaser.Scene {
   ): readonly string[] {
     const left = rect.x;
     const column = rect.width;
-    let y = sectionHeader(this, rect.x, rect.y, column, "Your decks");
+    let y = this.#drawListHeader(left, rect.y, column);
 
     if (this.#status) {
       const banner = this.add
@@ -791,10 +790,6 @@ export class DecksScene extends Phaser.Scene {
     // desktop Inspect gesture, as everywhere else.
     const onRowActivate = (index: number, pointer: Phaser.Input.Pointer): void => {
       const row = rows[index];
-      if (row?.kind === "newDeck") {
-        this.#openBuilder();
-        return;
-      }
       if (row?.kind !== "deck") return;
       if (pointer.rightButtonReleased()) {
         this.#inspectDeck(row.option);
@@ -829,14 +824,6 @@ export class DecksScene extends Phaser.Scene {
       this.#scrollToDeckId = null;
     }
     rows.forEach((row, index) => {
-      if (row.kind === "newDeck") {
-        this.#stops.set("new-deck", {
-          rect: () => list.rectFor(index),
-          activate: () => this.#openBuilder(),
-          ensureVisible: () => list.scrollIntoView(index),
-        });
-        return;
-      }
       if (row.kind === "message") return;
       const deckId = row.option.deck.id as string;
       const ensureVisible = (): void => list.scrollIntoView(index);
@@ -865,6 +852,43 @@ export class DecksScene extends Phaser.Scene {
     const width = Math.ceil(probe.width) + 28;
     probe.destroy();
     return Math.max(minChipCellWidth(chip.text), width);
+  }
+
+  /**
+   * "YOUR DECKS" with "+ New deck" right-aligned on the same line, the rule running between them — the card pool
+   * header's own shape. The button used to be the list's last row, which on any real collection meant scrolling
+   * past every precon, saved deck and community deck to find it (user report, 2026-10-12); here it never scrolls.
+   */
+  #drawListHeader(left: number, y: number, column: number): number {
+    const heading = this.add.text(left, y, "Your decks", textStyle(typeRole.barTitle, surface.ink.hex)).setFontSize(19);
+    const buttonWidth = Math.min(
+      Math.max(minChipCellWidth("+ New deck"), 108),
+      Math.max(0, column - heading.width - 20),
+    );
+    const buttonHeight = this.#row;
+    const buttonRect: Rect = {
+      x: left + column - buttonWidth,
+      y: y + (heading.height - buttonHeight) / 2,
+      width: buttonWidth,
+      height: buttonHeight,
+    };
+    this.#buttons.push(
+      new McButton(this, {
+        kind: "secondary",
+        label: "+ New deck",
+        type: typeRole.label,
+        rect: buttonRect,
+        onClick: () => this.#openBuilder(),
+      }),
+    );
+    this.#stops.set("new-deck", { rect: buttonRect, activate: () => this.#openBuilder() });
+    const ruleStart = left + heading.width + 10;
+    const ruleEnd = buttonRect.x - 10;
+    if (ruleEnd > ruleStart) {
+      const rule = this.add.graphics();
+      rule.fillStyle(surface.ink.hex, 1).fillRect(ruleStart, y + heading.height / 2 - 1.5, ruleEnd - ruleStart, 3);
+    }
+    return Math.max(y + heading.height, buttonRect.y + buttonHeight) + 12;
   }
 
   #openBuilder(): void {
@@ -923,8 +947,7 @@ export class DecksScene extends Phaser.Scene {
 
   /**
    * `allOptions` grouped into Preconstructed / Your decks (recently changed first), filtered by search + chips,
-   * with the selected deck pinned into view even if the filter would otherwise hide it, then "+ New deck" as the
-   * list's own last row (never filtered out). A group's label rides on its own first card (`groupLabel`) rather
+   * with the selected deck pinned into view even if the filter would otherwise hide it. A group's label rides on its own first card (`groupLabel`) rather
    * than a separate full-height row — see the module doc comment for why.
    */
   #buildRows(allOptions: readonly DeckOption[], offers: readonly CommunityOffer[]): readonly DeckRow[] {
@@ -972,7 +995,6 @@ export class DecksScene extends Phaser.Scene {
       }),
     );
     if (rows.length === 0) rows.push({ kind: "message", text: "No decks match this search." });
-    rows.push({ kind: "newDeck" });
     return rows;
   }
 
@@ -995,22 +1017,6 @@ export class DecksScene extends Phaser.Scene {
         .text(rect.x + 4, rect.y + 8, row.text, textStyle(typeRole.body, surface.ink.hex, ink.meta))
         .setWordWrapWidth(rect.width - 8);
       return { objects: [text] };
-    }
-
-    if (row.kind === "newDeck") {
-      const tileRect: Rect = { x: rect.x + 4, y: rect.y + 2, width: rect.width - 8, height: rect.height - 4 };
-      const g = this.add.graphics();
-      paintPanel(g, tileRect, "quiet", "unavailable");
-      const text = label(
-        this,
-        tileRect.x + tileRect.width / 2,
-        tileRect.y + tileRect.height / 2,
-        "+ New deck",
-        typeRole.rowTitle,
-        surface.ink.hex,
-        ink.body,
-      ).setOrigin(0.5);
-      return { objects: [g, text] };
     }
 
     const option = row.option;

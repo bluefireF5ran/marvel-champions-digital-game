@@ -65,7 +65,7 @@ export interface DecksLayout {
   readonly pad: number;
   /** Back and the screen title. */
   readonly header: Rect;
-  /** Wide only: "YOUR DECKS" — search, quick-filter chips, the deck list (ending in "+ New deck"), then Import/Export. */
+  /** Wide only: "YOUR DECKS" — search, quick-filter chips, the deck list, "+ New deck" on its header line, then Import/Export. */
   readonly listPane: Rect | null;
   /** Wide only: "CARD POOL" — the filter-chip row and the card grid, for the *selected* deck. */
   readonly poolPane: Rect | null;

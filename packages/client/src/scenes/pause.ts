@@ -213,7 +213,7 @@ export class PauseOverlay extends Phaser.Scene {
         if (this.scene.isActive(overlay) || this.scene.isSleeping(overlay)) this.scene.stop(overlay);
       }
       if (this.scene.isActive(SCENES.board)) this.scene.stop(SCENES.board);
-      this.scene.start(SCENES.title);
+      this.scene.start(SCENES.title, {});
     });
   }
 
@@ -1215,7 +1215,7 @@ export class PauseOverlay extends Phaser.Scene {
         if (this.scene.isActive(overlay) || this.scene.isSleeping(overlay)) this.scene.stop(overlay);
       }
       if (this.scene.isActive(SCENES.board)) this.scene.stop(SCENES.board);
-      this.scene.start(SCENES.howToWin);
+      this.scene.start(SCENES.howToWin, {});
     });
   }
 
