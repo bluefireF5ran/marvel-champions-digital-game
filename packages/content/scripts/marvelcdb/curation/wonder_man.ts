@@ -32,6 +32,14 @@ export const WONDER_MAN_CURATION: PackCuration = {
 
   corrections: [
     {
+      code: "58026",
+      reason:
+        'Grim Reaper is Wonder Man\'s nemesis minion (the only minion of the wonder_man_nemesis set, 58026 to 58029) but prints no Nemesis reminder line, so the parser cannot set the flag. Without it, "your nemesis minion" finds nothing for Wonder Man. Never applied to text.',
+      evidence:
+        "raw/marvelcdb/wonder_man.json: 58026 is the one minion in wonder_man_nemesis and its text carries no reminder line (Ares 59036 and The Hood 56024 print one); same fix as cw 56055 (docs/phase7-wave10-box-heroes.md B8.1).",
+      nemesisMinion: true,
+    },
+    {
       code: "58002",
       reason:
         'Ionic Physiology is Permanent, entering play through its own text rather than being paid for from hand: raw sends no `cost` at all — the printed-dash pattern (RRG 1.8 "Dash (Value)", p. 15), not a data gap.',

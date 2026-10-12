@@ -206,6 +206,11 @@ export interface Correction {
    * restriction). Encounter attachments only: a player card's limit is parsed from its text. Never applied to text.
    */
   readonly attachmentMaxPerHost?: number;
+  /**
+   * Marks a minion as its hero's nemesis minion when the card prints no "Nemesis minion" reminder line for the parser
+   * to read (`MinionCard.nemesisMinion`; wave 10, `cw` 56055 Super Skrull). Minions only. Never applied to text.
+   */
+  readonly nemesisMinion?: boolean;
 }
 
 /**

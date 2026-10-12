@@ -118,6 +118,25 @@ describe("wave 10 data: encounter sets, scenarios and starter decks", () => {
     expect(HERCULES_STARTER_DECKS).toEqual([]);
   });
 
+  it("every wave 10 hero's nemesis set has exactly one nemesis minion, the set's own minion", () => {
+    type Flagged = { id: string; type: string; nemesisMinion?: boolean; encounterSetIds?: string[] };
+    const cards = WAVE10_CARDS as unknown as readonly Flagged[];
+    const expected: Record<string, string> = {
+      tigra_nemesis: "56024",
+      hulkling_nemesis: "56055",
+      wonder_man_nemesis: "58026",
+      hercules_nemesis: "59036",
+    };
+    for (const [set, minion] of Object.entries(expected)) {
+      const inSet = cards.filter((c) => c.encounterSetIds?.includes(set));
+      expect(
+        inSet.filter((c) => c.nemesisMinion === true).map((c) => c.id),
+        set,
+      ).toEqual([minion]);
+      expect(inSet.find((c) => c.id === minion)?.type, set).toBe("minion");
+    }
+  });
+
   it("Civil War has no campaign (MC56 p. 3)", () => {
     expect(CAMPAIGNS.some((c) => (c.packCode as string) === "cw")).toBe(false);
   });

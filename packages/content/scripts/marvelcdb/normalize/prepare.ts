@@ -70,6 +70,8 @@ export interface Prepared {
   readonly hostChosenBy?: AttachmentHostChooser;
   /** A curated `Correction.attachmentMaxPerHost` (encounter attachments only) — absent for every ordinary card. */
   readonly attachmentMaxPerHost?: number;
+  /** A curated `Correction.nemesisMinion` (minions only) — absent for every ordinary card. */
+  readonly nemesisMinion?: boolean;
 }
 
 /** Prepares a record once per run (cached by code), marking which corrections and errata matched. */
@@ -98,6 +100,7 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
   let impliedAttachHost: "mainScheme" | "ally" | "minion" | "ownWhenRevealed" | AttachmentHost | undefined;
   let hostChosenBy: AttachmentHostChooser | undefined;
   let attachmentMaxPerHost: number | undefined;
+  let nemesisMinion: boolean | undefined;
   let dashedThreatFields: readonly MainSchemeThreatField[] | undefined;
   let evidenceIcon: { readonly icon: string; readonly color: EvidenceColor } | undefined;
   let definedCounterTypes: readonly string[] | undefined;
@@ -112,6 +115,7 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
     if (c.impliedAttachHost !== undefined) impliedAttachHost = c.impliedAttachHost;
     if (c.hostChosenBy !== undefined) hostChosenBy = c.hostChosenBy;
     if (c.attachmentMaxPerHost !== undefined) attachmentMaxPerHost = c.attachmentMaxPerHost;
+    if (c.nemesisMinion !== undefined) nemesisMinion = c.nemesisMinion;
     if (c.unheadedWhenRevealed !== undefined) unheadedWhenRevealed = c.unheadedWhenRevealed;
     if (c.extraConstantFrom !== undefined) extraConstantFrom = c.extraConstantFrom;
     if (c.preambleWhenRevealed !== undefined) preambleWhenRevealed = c.preambleWhenRevealed;
@@ -201,6 +205,7 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
     ...(impliedAttachHost ? { impliedAttachHost } : {}),
     ...(hostChosenBy ? { hostChosenBy } : {}),
     ...(attachmentMaxPerHost !== undefined ? { attachmentMaxPerHost } : {}),
+    ...(nemesisMinion !== undefined ? { nemesisMinion } : {}),
     ...(unheadedWhenRevealed !== undefined ? { unheadedWhenRevealed } : {}),
     ...(extraConstantFrom !== undefined ? { extraConstantFrom } : {}),
     ...(preambleWhenRevealed !== undefined ? { preambleWhenRevealed } : {}),

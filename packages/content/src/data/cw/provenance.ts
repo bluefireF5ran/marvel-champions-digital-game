@@ -195,7 +195,9 @@ export const CW_PROVENANCE: readonly CardProvenance[] = [
     cardId: cardId("56055"),
     cardSetCode: "hulkling_nemesis",
     marvelcdbCodes: ["56055"],
-    corrections: [],
+    corrections: [
+      "56055: Super Skrull is Hulkling's nemesis minion (his nemesis set is 56055 to 56058) but prints no Nemesis reminder line, so the parser cannot set the flag. Without it, \"your nemesis minion\" finds nothing for Hulkling. Never applied to text. [evidence: docs/phase7-wave10-box-heroes.md B8.1 (correction owed: nemesisMinion on 56055, prints no reminder line); raw/marvelcdb/cw.json 56055 is the minion of the hulkling nemesis set; The Hood 56024 (Tigra) is the parsed counterpart.]",
+    ],
   },
   {
     cardId: cardId("56056"),

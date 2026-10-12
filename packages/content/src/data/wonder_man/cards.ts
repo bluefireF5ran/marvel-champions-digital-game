@@ -640,6 +640,7 @@ export const WONDER_MAN_CARDS: readonly AnyCard[] = [
       current: "Quickstrike.\n[star] Forced Response: After Grim Reaper attacks and defeats an ally, deal that ally's controller a facedown encounter card.",
     },
     abilities: [{ id: abilityId("58026.grim-reaper-forced-response") }],
+    nemesisMinion: true,
   },
   {
     id: cardId("58027"),

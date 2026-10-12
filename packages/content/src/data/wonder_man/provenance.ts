@@ -61,7 +61,9 @@ export const WONDER_MAN_PROVENANCE: readonly CardProvenance[] = [
     cardId: cardId("58026"),
     cardSetCode: "wonder_man_nemesis",
     marvelcdbCodes: ["58026"],
-    corrections: [],
+    corrections: [
+      "58026: Grim Reaper is Wonder Man's nemesis minion (the only minion of the wonder_man_nemesis set, 58026 to 58029) but prints no Nemesis reminder line, so the parser cannot set the flag. Without it, \"your nemesis minion\" finds nothing for Wonder Man. Never applied to text. [evidence: raw/marvelcdb/wonder_man.json: 58026 is the one minion in wonder_man_nemesis and its text carries no reminder line (Ares 59036 and The Hood 56024 print one); same fix as cw 56055 (docs/phase7-wave10-box-heroes.md B8.1).]",
+    ],
   },
   {
     cardId: cardId("58027"),

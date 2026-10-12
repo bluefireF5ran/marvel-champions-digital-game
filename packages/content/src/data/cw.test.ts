@@ -701,6 +701,18 @@ describe("cw: Tigra and Hulkling", () => {
     expect([nemesisOf("tigra_nemesis"), nemesisOf("hulkling_nemesis")]).toEqual(["56001a", "56029a"]);
   });
 
+  it("each nemesis set has one nemesis minion: The Hood 56024 and Super Skrull 56055", () => {
+    const flagged = (set: string) =>
+      CW_CARDS.filter(
+        (c) =>
+          (c.id as string) !== "" && (c as unknown as { encounterSetIds?: string[] }).encounterSetIds?.includes(set),
+      )
+        .filter((c) => (c as unknown as { nemesisMinion?: boolean }).nemesisMinion === true)
+        .map((c) => c.id as string);
+    expect(flagged("tigra_nemesis")).toEqual(["56024"]);
+    expect(flagged("hulkling_nemesis")).toEqual(["56055"]);
+  });
+
   it("neither has a deckbuilding exception", () => {
     expect((get<HeroIdentityCard>("56001a") as { deckbuilding?: unknown }).deckbuilding).toBeUndefined();
     expect((get<HeroIdentityCard>("56029a") as { deckbuilding?: unknown }).deckbuilding).toBeUndefined();

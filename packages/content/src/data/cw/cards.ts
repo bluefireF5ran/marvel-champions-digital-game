@@ -1348,6 +1348,7 @@ export const CW_CARDS: readonly AnyCard[] = [
       current: "[star] Forced Interrupt: When Super Skrull attacks you, discard the top card of your deck. If that card's printed resource has:\n[energy] – Super Skrull gets +2 ATK for this attack.\n[mental] – Discard 1 card from your hand.\n[physical] – Give Super Skrull a tough status card.\n[wild] – Discard an upgrade you control.",
     },
     abilities: [{ id: abilityId("56055.super-skrull-forced-interrupt") }],
+    nemesisMinion: true,
   },
   {
     id: cardId("56056"),

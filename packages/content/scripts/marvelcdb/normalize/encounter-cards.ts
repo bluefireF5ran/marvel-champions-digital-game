@@ -109,7 +109,7 @@ export function normalizeEncounterCard(
         // The per group icon (The Mangog, `tt` 55041; MC55 insert p. 4): `hp` times the groups, one in single-table play.
         ...(r.health_per_group ? { hpPerGroup: true as const } : {}),
         ...encounterCommon,
-        ...(parsed.nemesisMinion ? { nemesisMinion: true } : {}),
+        ...(parsed.nemesisMinion || p.nemesisMinion ? { nemesisMinion: true } : {}),
       };
       record(ctx, minion, set, [p, ...flipParts]);
       return;
