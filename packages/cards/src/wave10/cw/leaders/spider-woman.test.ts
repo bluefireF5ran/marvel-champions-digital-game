@@ -83,7 +83,9 @@ const inEncounterPiles = (s: GameState, code: string) =>
 const villainPhase = (state: GameState, ...stack: string[]) =>
   driveEventsPicking(WAVE10_DEPS, stackEncounterDeck(state, ...stack), firstLegal, endTurn(P1));
 
-const heroGame = (opts: Parameters<typeof civilWarHeroGame>[1] = {}) => civilWarHeroGame(SPIDER_WOMAN_SCENARIO, opts);
+/** Stage 1A reveals Glide at Setup; most tests deal it later as an ordinary card, so it starts back in the encounter deck. */
+const heroGame = (opts: Parameters<typeof civilWarHeroGame>[1] = {}) =>
+  civilWarHeroGame(SPIDER_WOMAN_SCENARIO, { leaderSideScheme: "discarded", ...opts });
 const dataOf = (code: string) => CW_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
 
 describe("registry", () => {
@@ -126,7 +128,9 @@ describe("Setup: the enemy team finds Finesse and attaches it to Spider-Woman (s
       expect(inst(s, finesseOf(s)).counters).toEqual({});
       // Not in the deck or the discard pile any more; the rest of her set is still there.
       expect(inEncounterPiles(s, "56174")).toBe(0);
-      expect(inEncounterPiles(s, "56179")).toBe(1);
+      // Stage 1A revealed her side scheme at Setup: Glide is in play, not in the deck or the discard pile.
+      expect(inEncounterPiles(s, "56179")).toBe(0);
+      expect(s.villainArea.map((i) => codeOf(s, i))).toEqual(["56179"]);
       expect(inEncounterPiles(s, "56176")).toBe(2);
     },
   );
@@ -156,7 +160,8 @@ describe("Finesse (56174)", () => {
 
   it("MAX 3: a fourth counter is not placed (Pheromones places two itself)", () => {
     // Alter-ego form: the villain schemes, so no attack spends the counters standing on Finesse.
-    const alterEgo = (n: number) => withSkill(civilWarGame(SPIDER_WOMAN_SCENARIO), n);
+    const alterEgo = (n: number) =>
+      withSkill(civilWarGame(SPIDER_WOMAN_SCENARIO, { leaderSideScheme: "discarded" }), n);
     const run = villainPhase(alterEgo(2), ADVANCE, PHEROMONES);
     expect(skillOn(run.state)).toBe(3);
     const full = villainPhase(alterEgo(3), ADVANCE, PHEROMONES);
@@ -406,7 +411,12 @@ describe("Venom Blast (56177)", () => {
   });
 
   it("WHEN REVEALED (alter-ego): it gains surge and the next card is revealed; Finesse gets one counter", () => {
-    const run = villainPhase(civilWarGame(SPIDER_WOMAN_SCENARIO), ADVANCE, VENOM_BLAST, GLIDE);
+    const run = villainPhase(
+      civilWarGame(SPIDER_WOMAN_SCENARIO, { leaderSideScheme: "discarded" }),
+      ADVANCE,
+      VENOM_BLAST,
+      GLIDE,
+    );
     expect(skillOn(run.state)).toBe(1);
     expect(inPlayCard(run.state, GLIDE)).toBeDefined();
     expect(attacksBy(run.state, run.events, "56168")).toEqual([]);

@@ -10,7 +10,7 @@ import {
   type GameState,
 } from "@mc/engine";
 import { describe, expect, it } from "vitest";
-import { firstLegal } from "../testing/harness.js";
+import { firstLegal, settle } from "../testing/harness.js";
 import { WAVE10_CARDS } from "./cards.js";
 import { WAVE10_DEPS } from "./index.js";
 import { wave10Scenario, wave10StarterDeckSetup, type Wave10ScenarioOptions } from "./setup.js";
@@ -205,11 +205,14 @@ describe("wave10Scenario: the four preconstructed scenarios (MC56 pp. 7-8)", () 
     });
   });
 
-  it("each player's obligation joins the 37 and each nemesis set stays out of the deck", () => {
+  it("each player's obligation joins the 37 and each nemesis set stays out of the deck; stage 1A's Setup takes Stark Tower out", () => {
     for (const n of [1, 2, 4]) {
       const state = create(build(IRON_MAN_SCENARIO, { players: SEATS.slice(0, n) }));
       const deck = state.encounterDecks[state.villains[0]!.encounterDeckId]!.deck;
-      expect(deck).toHaveLength(37 + n);
+      // 37 + n cards are built; the main scheme's Setup finds the leader's side scheme and reveals it (MC56 stage 1A),
+      // so Stark Tower (56072) is in play and no longer in the deck.
+      expect(deck).toHaveLength(37 + n - 1);
+      expect(state.villainArea.map((id) => state.instances[id]!.cardId)).toEqual(["56072"]);
     }
   });
 });
@@ -426,8 +429,13 @@ describe("civilWarGame (testing.ts)", () => {
   });
 
   it("civilWarSetup stops at the mulligan; civilWarGame plays setup through to the first player's turn", () => {
+    // Captain America's stage 1B (Gathering Support) opens with the enemy team's minion search, before the hands are drawn.
     const setup = civilWarSetup(CAPTAIN_AMERICA_SCENARIO);
-    expect(setup.step).toMatchObject({ phase: "setup", kind: "mulligan" });
+    expect(setup.step).toMatchObject({ phase: "setup", kind: "drawStartingHands" });
+    expect(setup.pendingChoice).toMatchObject({ authority: "enemyTeam" });
+    // Answering it leads to the mulligan, as before the main scheme was scripted.
+    const mulligan = settle(setup, firstLegal, (s) => s.step.kind === "mulligan", WAVE10_DEPS);
+    expect(mulligan.step).toMatchObject({ phase: "setup", kind: "mulligan" });
     const game = civilWarGame(CAPTAIN_AMERICA_SCENARIO);
     expect(game.step.phase).toBe("player");
     expect(game.villains[0]!.cardId).toBe("56137");

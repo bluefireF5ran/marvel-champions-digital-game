@@ -41,7 +41,9 @@ import {
   IRON_MAN_SCENARIO,
   WAVE10_DEPS,
   civilWarGame,
+  cardOption,
   civilWarSetup,
+  isEnemyTeamChoice,
   type CivilWarGameOptions,
 } from "../../testing.js";
 import { LEADERS_IRON_MAN, LEADERS_IRON_MAN_SKIPPED } from "./iron-man.js";
@@ -99,10 +101,6 @@ const REFS = [
 ];
 const dataOf = (code: string) => CW_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
 
-const isEnemyTeamChoice = (s: GameState): boolean => s.pendingChoice?.authority === "enemyTeam";
-const cardOption = (s: GameState, code: string) =>
-  s.pendingChoice!.options.find((o) => o.ref.kind === "card" && codeOf(s, o.ref.instanceId) === code);
-
 /** Answers the enemy team's choice with the card `code` and every other choice with its first legal option. */
 const findingCard =
   (code: string): Picker =>
@@ -140,10 +138,14 @@ function toEnemyChoice(created: GameState): GameState {
   return state;
 }
 
-/** The scenario past setup with `found` revealed by the Setup, every seat in hero form. */
+/**
+ * The scenario past setup with `found` revealed by the Setup, every seat in hero form. Stage 1A also revealed Stark Tower;
+ * most tests stack or stage it themselves as an ordinary card, so it starts back in the encounter deck (pass
+ * `leaderSideScheme: "inPlay"` for the real board).
+ */
 function game(o: CivilWarGameOptions & { readonly found?: string } = {}): GameState {
   const { found = GAUNTLETS, ...rest } = o;
-  const played = civilWarGame(IRON_MAN_SCENARIO, rest, findingCard(found));
+  const played = civilWarGame(IRON_MAN_SCENARIO, { leaderSideScheme: "discarded", ...rest }, findingCard(found));
   return heroForm(played, ...everyone(played));
 }
 
@@ -315,6 +317,13 @@ describe("Setup (stage I and stage III): the enemy team searches the encounter d
       expect(refused.error.message).toBe("p1 must make this choice");
     }
     expect(answer(P1).ok).toBe(true);
+  });
+
+  it("the main scheme's Setup also reveals Stark Tower: it is in play from the start, in neither the deck nor the discard pile", () => {
+    const state = civilWarGame(IRON_MAN_SCENARIO, opts({}), findingCard(GAUNTLETS));
+    expect(state.villainArea.map((id) => codeOf(state, id))).toEqual([TOWER]);
+    expect(piles(state).deck.map((id) => codeOf(state, id))).not.toContain(TOWER);
+    expect(discardCodes(state)).not.toContain(TOWER);
   });
 
   it("each of the five attachments can be the one found: exactly that one ends up on Iron Man (stage I and stage III)", () => {

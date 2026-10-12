@@ -89,7 +89,18 @@ function defeat(state: GameState, target: InstanceId) {
   });
 }
 
-const capGame = () => civilWarHeroGame(CAPTAIN_AMERICA_SCENARIO, { deps });
+/**
+ * The default stage 1B (Gathering Support) deals each player a minion from the deck at Setup, which would take Falcon
+ * out of the deck. Open Rebellion (56172b: a treachery revealed puts 1 threat on the scheme) asks nothing at Setup and
+ * touches neither the boost cards nor the cards stacked here. Stage 1A also reveals Fearless Determination (amplify 1:
+ * every boost card would gain a boost icon, RRG 1.8 "Amplify"), so it goes back in the deck: these tests count icons.
+ */
+const capGame = () =>
+  civilWarHeroGame(CAPTAIN_AMERICA_SCENARIO, {
+    deps,
+    leaderSideScheme: "discarded",
+    mainSchemeStageIds: ["56172b", "56173b"] as never,
+  });
 
 describe("§3.10 Teamwork minions: 'give this card to the enemy leader as a facedown boost card'", () => {
   it("the script is plain data and the validator accepts it in a When Defeated and in an interrupt on a defeat", () => {

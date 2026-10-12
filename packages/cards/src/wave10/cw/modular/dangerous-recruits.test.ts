@@ -58,9 +58,13 @@ const boostsOn = (s: GameState) => inst(s, leaderOf(s)).boostCards;
 const hero = (s: GameState) => identityOf(s, P1);
 const discardCodes = (s: GameState) => piles(s).discard.map((id) => codeOf(s, id));
 
-/** The scenario past setup, hero form, with every attachment taken off Iron Man (and his tough card). */
+/**
+ * The scenario past setup, hero form, with every attachment taken off Iron Man (and his tough card) and Stark Tower back
+ * back in the encounter deck: its hazard icon deals one player an extra encounter card in the villain phase (RRG 1.8 "Hazard Icon", p. 21),
+ * which these stacks do not count on.
+ */
 function game(): GameState {
-  const start = civilWarHeroGame(IRON_MAN_SCENARIO);
+  const start = civilWarHeroGame(IRON_MAN_SCENARIO, { leaderSideScheme: "discarded" });
   const iron = leaderOf(start);
   let current = patchInstance(start, iron, { attachments: [], statuses: { ...inst(start, iron).statuses, tough: 0 } });
   const deckId = activeEncounterDeckId(current);

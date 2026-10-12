@@ -97,10 +97,17 @@ function helicarrierOf(state: GameState, player: PlayerId): { readonly state: Ga
   return { state: drive(given.state, play(player, id, payWith(given.state, player, 3, given.ids))).state, id };
 }
 
-/** `player` reveals Advance off the top of the encounter deck, by Helicarrier's rebound action. */
+/**
+ * `player` reveals Advance off the top of the encounter deck, by Helicarrier's rebound action. Advance ("the villain
+ * schemes") puts Iron Man's SCH on the main scheme and the real stage opens with hinder 2[per_hero] and the leader's
+ * attachment, so over six reveals in a three-player game the stage would reach its target of 7 per player and advance
+ * to stage 2, ending the Cut Off Support under test. The test counts the stage's own placements, so the threat on the
+ * scheme is cleared before each reveal.
+ */
 function reveals(state: GameState, player: PlayerId): Driven {
   const ready = helicarrierOf(state, player);
-  return drive(stackEncounterDeck(ready.state, ADVANCE), use(player, ready.id, HELICARRIER_ACTION));
+  const cleared = patchInstance(ready.state, ready.state.mainScheme.instanceId, { threat: 0 });
+  return drive(stackEncounterDeck(cleared, ADVANCE), use(player, ready.id, HELICARRIER_ACTION));
 }
 
 /** How many times the forced interrupt resolved. */

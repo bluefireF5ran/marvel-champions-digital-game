@@ -60,10 +60,14 @@ const status = (s: GameState, id: InstanceId, name: "stunned" | "confused" | "to
 const withStatus = (s: GameState, id: InstanceId, name: "stunned" | "confused" | "tough", n = 1): GameState =>
   patchInstance(s, id, { statuses: { ...inst(s, id).statuses, [name]: n } });
 
-/** The Spider-Woman scenario with New Avengers as a modular set, past setup, hero form, Spider-Woman not tough. */
+/**
+ * The Spider-Woman scenario with New Avengers as a modular set, past setup, hero form, Spider-Woman not tough. Stage 1A
+ * revealed Self-propelled Glide; it is back in the encounter deck because the stacks deal it as the harmless filler card.
+ */
 function game(): GameState {
   const start = civilWarHeroGame(SPIDER_WOMAN_SCENARIO, {
     modularSetIds: ["new_avengers", "defenders", "hells_kitchen"],
+    leaderSideScheme: "discarded",
   });
   return withStatus(start, leaderOf(start), "tough", 0);
 }

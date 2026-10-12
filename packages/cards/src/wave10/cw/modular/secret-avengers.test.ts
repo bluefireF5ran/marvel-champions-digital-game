@@ -83,10 +83,14 @@ const discardCodes = (s: GameState) => piles(s).discard.map((id) => codeOf(s, id
 const exhaustedIds = (events: readonly GameEvent[]) => types(events, "cardExhausted").map((e) => e.instanceId);
 const playerOne = (s: GameState) => s.players.find((p) => p.playerId === P1)!;
 
-/** The Spider-Woman scenario with Secret Avengers as a modular set, past setup, hero form. */
+/**
+ * The Spider-Woman scenario with Secret Avengers as a modular set, past setup, hero form. Stage 1A revealed
+ * Self-propelled Glide; it is back in the encounter deck because the stacks deal it as the harmless filler card.
+ */
 function game(twoPlayers = false, firstPlayerIndex?: number): GameState {
   return civilWarHeroGame(SPIDER_WOMAN_SCENARIO, {
     modularSetIds: ["secret_avengers", "defenders", "hells_kitchen"],
+    leaderSideScheme: "discarded",
     twoPlayers,
     ...(firstPlayerIndex === undefined ? {} : { firstPlayerIndex }),
   });

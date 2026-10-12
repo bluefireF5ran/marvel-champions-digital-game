@@ -1,6 +1,7 @@
 import { CORE_CARDS, HERCULES_CARDS, cardId, type AnyCard, type CoreAspect, type HeroIdentityCard } from "@mc/content";
 import {
   DECK_MIN_CARDS,
+  activeEncounterDeckId,
   cardOfferedToDeck,
   copiesUpToLimit,
   createGame,
@@ -9,12 +10,14 @@ import {
   type EngineDeps,
   type GameSetupConfig,
   type GameState,
+  type InstanceId,
   type PlayerSetup,
   type SetupResult,
 } from "@mc/engine";
 import { coreScenario } from "../core/setup.js";
 import { firstLegal, settle, type Picker } from "../testing/harness.js";
 import { withForm } from "../testing/staging.js";
+import { codeOf } from "../wave9/testing.js";
 import { WAVE10_CARDS } from "./cards.js";
 import { WAVE10_DEPS } from "./index.js";
 import { wave10Scenario, wave10StarterDeckSetup, type Wave10ScenarioOptions } from "./setup.js";
@@ -90,6 +93,12 @@ export const tigraHeroGame = (opts: CwGameOptions = {}): GameState => cwHeroGame
 export const hulklingGame = (opts: CwGameOptions = {}): GameState => cwGame(HULKLING_DECK, opts);
 export const hulklingHeroGame = (opts: CwGameOptions = {}): GameState => cwHeroGame(HULKLING_DECK, opts);
 
+/** Whether the pending choice is the enemy team's (a search the villain side answers, RRG 1.8 "Search", p. 39). */
+export const isEnemyTeamChoice = (s: GameState): boolean => s.pendingChoice?.authority === "enemyTeam";
+/** The pending choice's option for the card with printed code `code`, if it is on offer. */
+export const cardOption = (s: GameState, code: string) =>
+  s.pendingChoice!.options.find((o) => o.ref.kind === "card" && codeOf(s, o.ref.instanceId) === code);
+
 export const IRON_MAN_SCENARIO = "registration-iron-man";
 export const CAPTAIN_MARVEL_SCENARIO = "registration-captain-marvel";
 export const CAPTAIN_AMERICA_SCENARIO = "resistance-captain-america";
@@ -114,6 +123,12 @@ export interface CivilWarGameOptions
     > {
   /** The first seat's starter deck: `TIGRA_DECK` (default) or `HULKLING_DECK`. */
   readonly starterDeckId?: string;
+  /**
+   * `civilWarGame` only. Stage 1A's Setup reveals the chosen leader's side scheme (Stark Tower, Self-propelled Glide),
+   * so by default it is in play from the start. `"discarded"` puts it back at the bottom of the encounter deck afterwards
+   * (`withoutLeaderSideScheme`), for a test that stacks that card on the encounter deck as an ordinary card.
+   */
+  readonly leaderSideScheme?: "inPlay" | "discarded";
 }
 
 /**
@@ -122,7 +137,7 @@ export interface CivilWarGameOptions
  * then unchecked.
  */
 export function civilWarConfig(scenarioId: string, opts: CivilWarGameOptions = {}): GameSetupConfig {
-  const { swap, seed, twoPlayers, deps: _deps, starterDeckId, ...choices } = opts;
+  const { swap, seed, twoPlayers, deps: _deps, starterDeckId, leaderSideScheme: _side, ...choices } = opts;
   const first = cwSeat(starterDeckId ?? TIGRA_DECK, swap);
   const config = wave10Scenario(scenarioId, {
     ...choices,
@@ -146,12 +161,36 @@ export function civilWarSetup(scenarioId: string, opts: CivilWarGameOptions = {}
 }
 
 /**
+ * The side schemes in play put back at the bottom of the encounter deck with no threat, as if stage 1A's Setup had not
+ * revealed the leader's side scheme: a later `stackEncounterDeck` finds the card there, and the discard pile is untouched.
+ */
+export function withoutLeaderSideScheme(state: GameState): GameState {
+  const isSideScheme = (id: InstanceId): boolean => state.cardPool[state.instances[id]!.cardId]?.type === "side_scheme";
+  const moved = state.villainArea.filter(isSideScheme);
+  if (moved.length === 0) return state;
+  const deckId = activeEncounterDeckId(state);
+  const pile = state.encounterDecks[deckId]!;
+  return {
+    ...state,
+    villainArea: state.villainArea.filter((id) => !moved.includes(id)),
+    encounterDecks: { ...state.encounterDecks, [deckId]: { deck: [...pile.deck, ...moved], discard: pile.discard } },
+    instances: {
+      ...state.instances,
+      ...Object.fromEntries(moved.map((id) => [id, { ...state.instances[id]!, threat: 0 }])),
+    },
+  };
+}
+
+/**
  * A Civil War game past setup (the first player's turn, alter-ego form, full hand), every setup choice answered with
- * its first legal option. Pass `pick` to answer them yourself (which Iron Man attachment the Setup reveals).
+ * its first legal option. Pass `pick` to answer them yourself (which Iron Man attachment the Setup reveals, which
+ * minion the stage 1 B side's search finds). The leader's side scheme is in play, as the Setup leaves it, unless
+ * `leaderSideScheme: "discarded"`.
  */
 export function civilWarGame(scenarioId: string, opts: CivilWarGameOptions = {}, pick: Picker = firstLegal): GameState {
   const deps = opts.deps ?? WAVE10_DEPS;
-  return settle(civilWarSetup(scenarioId, opts), pick, (s) => s.step.phase === "player", deps);
+  const played = settle(civilWarSetup(scenarioId, opts), pick, (s) => s.step.phase === "player", deps);
+  return opts.leaderSideScheme === "discarded" ? withoutLeaderSideScheme(played) : played;
 }
 
 /** The same game with the first seat in hero form. */
