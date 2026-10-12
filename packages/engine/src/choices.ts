@@ -46,6 +46,14 @@ export type ChoicePrompt =
   /** RRG "Simultaneous Resolution": the first player orders same-trigger effects. */
   | { readonly kind: "orderTriggers"; readonly event: TriggerEvent; readonly timing: WindowTiming }
   /**
+   * A revealed minion with both quickstrike and teamwork, as its reveal finishes (the owner's answer 34B, 2026-10-12):
+   * the two keywords are forced responses with the same timing (RRG 1.8 "Quickstrike", p. 36; "Teamwork (Trait)",
+   * p. 43), so the first player chooses which resolves first ("Forced", p. 20; "Simultaneous Resolution", p. 40). The options are
+   * `quickstrike` and `teamwork`, each `ref` the minion `instanceId`; both are selected, in the order they resolve.
+   * Not asked when only one of the two would do anything.
+   */
+  | { readonly kind: "orderKeywords"; readonly instanceId: InstanceId }
+  /**
    * RRG 1.8 "Each Player" (p. 17): "If the effect does not specify what order the players resolve the effect in,
    * the first player decides the order." Ordering which players receive dealt encounter cards (ruling, Jan 26, 2026
    * (4) answer 3). The selections are player ids, in the order they resolve.

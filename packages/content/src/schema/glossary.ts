@@ -25,7 +25,9 @@ import { KNOWN_KEYWORD_NAMES } from "./keywords.js";
  * `conflict` is set on the rare entry where a post-1.7 ruling's answer appears to say the
  * opposite of the RRG's own printed wording for that entry (CLAUDE.md: "Where a ruling and
  * the RRG disagree, ... flag the conflict rather than silently picking one"). Right now
- * that's "quickstrike" only — see its entry.
+ * that's "quickstrike" and "teamwork" — see their entries. Both record which reading the
+ * engine builds (the owner's decision of 2026-10-12: the RRG's), so the flag says the sources
+ * disagree, not that the behavior is undecided.
  *
  * What this module deliberately does NOT cover, and why:
  * - "exhausted", "ready", and "facedown boost card" are real RRG glossary entries (pp. 19,
@@ -808,14 +810,16 @@ const KEYWORD_RAW: Record<KeywordName, UntaggedEntry<KeywordName>> = {
     id: "quickstrike",
     kind: "keyword",
     displayName: "Quickstrike",
-    definition: "A minion with this keyword attacks the hero it just engaged, right after engaging them.",
+    definition:
+      "A minion with this keyword attacks the hero it just engaged, right after engaging them. When the minion is being revealed, the attack comes after the minion's When Revealed.",
     sources: [
       { kind: "rrg", page: 36 },
       { kind: "ruling", date: "February 28, 2026 - Ruling 4" },
     ],
     conflict:
-      "RRG 1.8 p. 36 states quickstrike 'resolves after any When Revealed abilities on that minion are resolved' when the minion is being revealed. The February 28, 2026 - Ruling 4 answer (item 2, the Hellcat example) instead says 'Quickstrike resolves first, followed by When Revealed' for that same case. This repo has not picked a side — implementers should treat the resolution order of quickstrike vs. a revealed minion's own When Revealed ability as unresolved pending a newer FFG clarification, rather than trusting either source alone.",
-    playerNote: "Rulings differ on whether Quickstrike's attack happens before or after the minion's When Revealed.",
+      "RRG 1.8 p. 36 states quickstrike 'resolves after any When Revealed abilities on that minion are resolved' when the minion is being revealed. The February 28, 2026 - Ruling 4 answer (item 2, the Hellcat example) instead says 'Quickstrike resolves first, followed by When Revealed' for that same case. This repo follows the RRG (the owner's decision of 2026-10-12, wave 10 spec section 4.0, answer 30B): a revealed minion resolves its When Revealed, then quickstrike. A minion put into play or engaged without being revealed has no When Revealed to wait for and attacks on engagement, which both sources agree on.",
+    playerNote:
+      "Here Quickstrike's attack comes after the minion's When Revealed (rules p. 36); an earlier ruling said before.",
   },
   ranged: {
     id: "ranged",
@@ -900,14 +904,15 @@ const KEYWORD_RAW: Record<KeywordName, UntaggedEntry<KeywordName>> = {
     kind: "keyword",
     displayName: "Teamwork (Trait)",
     definition:
-      "When a minion with this keyword enters play and engages a player, if another minion sharing the named trait is already in play, the newly-entered minion immediately activates against that same player. Here it happens before the minion's When Revealed, like Quickstrike.",
+      "When a minion with this keyword enters play and engages a player, if another minion sharing the named trait is already in play, the newly-entered minion activates against that same player. When the minion is being revealed, this happens after the minion's When Revealed, like Quickstrike.",
     sources: [
       { kind: "rrg", page: 43 },
       { kind: "ruling", date: "February 28, 2026 - Ruling 4" },
     ],
     conflict:
-      "RRG 1.8 p. 43 says that when a teamwork minion is being revealed, teamwork resolves after its When Revealed abilities. The February 28, 2026 - Ruling 4 answer (item 2) says a minion engages first and resolves When Revealed second, for a Quickstrike minion; the owner (wave 6 spec section 4.1, Q2, 2026-10-01) applied that order to teamwork too. Treat it as unsettled until FFG rules on teamwork itself.",
-    playerNote: "Rulings differ on whether Teamwork's activation comes before or after the minion's When Revealed.",
+      "RRG 1.8 p. 43 says that when a teamwork minion is being revealed, teamwork resolves after its When Revealed abilities. The February 28, 2026 - Ruling 4 answer (item 2) says a minion engages first and resolves When Revealed second, for a Quickstrike minion, and no ruling names teamwork. This repo follows the RRG (the owner's decision of 2026-10-12, wave 10 spec section 4.0, answer 30B, which supersedes wave 6 spec section 4.1, Q2): teamwork resolves after the When Revealed, with quickstrike. A minion with both keywords has the first player choose which resolves first (answer 34B).",
+    playerNote:
+      "Here Teamwork's activation comes after the minion's When Revealed (rules p. 43), as Quickstrike's attack does.",
   },
   temporary: {
     id: "temporary",

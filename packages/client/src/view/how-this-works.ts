@@ -114,7 +114,7 @@ note(
 );
 note(
   [...range(32159, 32163), ...range(38029, 38033)],
-  "Teamwork: when it engages you and another minion with its trait is in play, it activates against you right away, before its When Revealed.",
+  "Teamwork: when it engages you and another minion with its trait is in play, it activates against you once its When Revealed has resolved.",
 );
 note(["32164"], "Only the When Defeated abilities resolve. The Acolyte minions stay in play.");
 note(range(32176, 32195), "One use: it leaves the game and the campaign pool for good once its effect resolves.");

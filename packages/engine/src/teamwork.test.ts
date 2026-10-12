@@ -3,10 +3,11 @@
  *
  * RRG 1.8 "Teamwork (Trait)" (p. 43): "After a minion with teamwork enters play and engages a player, if there is at
  * least one other minion that shares the specified trait in play, the minion that just entered play activates against
- * the player it is engaged with." Only that minion activates (§4.1 Q1). On a reveal it resolves before the minion's
- * When Revealed, the way quickstrike does (§4.1 Q2, the user's ruling after ruling Feb 28, 2026 (4) answer 2; RRG 1.8
- * p. 43 itself says after). FAQ "Fabian Cortez (#159)" (p. 64): a minion his When Defeated puts into play does not see
- * him, since he is discarded as it enters.
+ * the player it is engaged with." Only that minion activates (§4.1 Q1). On a reveal it resolves after the minion's
+ * When Revealed, the way quickstrike does (RRG 1.8 p. 43: "If a minion with the teamwork keyword is being revealed, the
+ * teamwork keyword resolves after any 'When Revealed' abilities on that minion are resolved"; the owner's answer 30B,
+ * 2026-10-12, which supersedes §4.1 Q2). FAQ "Fabian Cortez (#159)" (p. 64): a minion his When Defeated puts into play
+ * does not see him, since he is discarded as it enters.
  */
 
 import { flat, trait, type AbilityReference, type AnyCard, type CardId } from "@mc/content";
@@ -231,7 +232,7 @@ describe("teamwork (trait)", () => {
     expectReplays(session);
   });
 
-  it("resolves before the minion's When Revealed (§4.1 Q2), the activation fully resolved first", () => {
+  it("resolves after the minion's When Revealed (RRG p. 43), which fully resolves first", () => {
     const start = game([BLANK, RECRUIT, ONE_BOOST], [PARTNER]);
     const { state, events } = runCommands(runCommands(start, deps, toHero).state, deps, endTurn);
     const recruit = idOf(state, RECRUIT);
@@ -247,9 +248,9 @@ describe("teamwork (trait)", () => {
     );
     const whenRevealed = at((e) => e.type === "counterAdded" && e.counterType === "revealed");
     expect(revealed).toBeGreaterThanOrEqual(0);
-    expect(revealed).toBeLessThan(keyword);
+    expect(revealed).toBeLessThan(whenRevealed);
+    expect(whenRevealed).toBeLessThan(keyword);
     expect(keyword).toBeLessThan(attackResolved);
-    expect(attackResolved).toBeLessThan(whenRevealed);
     expect(mustInstance(state, state.mainScheme.instanceId).counters.revealed).toBe(1);
   });
 

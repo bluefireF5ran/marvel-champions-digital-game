@@ -43,7 +43,8 @@ const ACOLYTE_MINION = query("minion", { trait: ACOLYTE });
  * The Acolytes modular set (`acolytes`, `mut_gen` 32159-32165, MC32 p. 7 / p. 15, docs/phase7-wave6.md §2.2): five
  * Acolyte minions, Zeal for the Cause and The Acolytes side scheme. Teamwork (ACOLYTE), Stalwart, Retaliate, Toughness,
  * Villainous and the side scheme's Hinder-free text are data keywords (§3.1: the engine reads the `teamwork` keyword,
- * only the minion that just entered activates, before its When Revealed, §4.1 Q1/Q2).
+ * only the minion that just entered activates, §4.1 Q1; revealed, it activates after its When Revealed, RRG 1.8
+ * p. 43, the owner's answer 30B of 2026-10-12 over §4.1 Q2).
  *
  * Every When Defeated reads "the player who defeated X": `defeatingPlayer`, which Zeal for the Cause's
  * `resolveWhenDefeatedOf` sets to the player resolving it (§4.1 Q10). "Is already confused/stunned" is read before the

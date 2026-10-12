@@ -3,6 +3,7 @@
 import { displayNameOf } from "../visibility.js";
 import { type Ctx, emit, moveCard, requestChoice, updateInstance } from "../ctx.js";
 import { addCounters, applyToughness, leavingPlayPending, permanentStopsLeaving } from "../effects.js";
+import type { Trait } from "@mc/content";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { hasKeyword, keywordsOf, keywordTotal, unblankedPrintedKeywordsOf } from "../keywords.js";
 import {
@@ -444,11 +445,12 @@ export function quickstrikeAttack(ctx: Ctx, id: InstanceId): TriggerEvent | null
  * the player it is engaged with." Only that minion activates, not every minion sharing the trait (docs/phase7-wave6.md
  * §4.1 Q1, the RRG over the MC32 rulebook's p. 3 wording).
  *
- * It is placed where quickstrike is: after the minion's `cardEntersPlay` frame, and on a reveal before its When Revealed
- * (§4.1 Q2, the user's ruling, following ruling Feb 28, 2026 (4) answer 2 for quickstrike, "triggers upon engagement";
- * RRG 1.8 p. 43 itself puts teamwork after the When Revealed). The condition is checked as the keyword resolves, not as
- * it is queued, and a minion already defeated and waiting to leave play does not count (`defeatedAwaitingLeave`, FAQ
- * "Fabian Cortez (#159)", p. 64).
+ * It is placed where quickstrike is: after the minion's `cardEntersPlay` frame when it is put into play, and on a
+ * reveal once the reveal's steps are done, after its When Revealed (RRG 1.8 p. 43: "If a minion with the teamwork
+ * keyword is being revealed, the teamwork keyword resolves after any 'When Revealed' abilities on that minion are
+ * resolved"; the owner's answer 30B, 2026-10-12, which supersedes docs/phase7-wave6.md §4.1 Q2; the reveal frame's
+ * `keywords` stage). The condition is checked as the keyword resolves, not as it is queued, and a minion already
+ * defeated and waiting to leave play does not count (`defeatedAwaitingLeave`, FAQ "Fabian Cortez (#159)", p. 64).
  */
 
 /** The teamwork step for a minion that entered play engaged with a player, or null when it has no teamwork. */
@@ -470,24 +472,40 @@ export function teamworkFrame(ctx: Ctx, id: InstanceId): StackFrame | null {
   };
 }
 
-/** The `resolveTeamwork` step: the minion activates against its engaged player if another minion shares the trait. */
-export function resolveTeamwork(ctx: Ctx, id: InstanceId): void {
+/**
+ * The activation the minion's teamwork makes as things stand: against its engaged player, for the first of its
+ * teamwork keywords whose trait another minion in play shares. Null when its condition is not met.
+ */
+function teamworkActivation(ctx: Ctx, id: InstanceId): { readonly playerId: PlayerId; readonly trait: Trait } | null {
   const inPlay = cardsInPlay(ctx.state);
-  if (!inPlay.includes(id) || !isMinion(ctx.state, id) || defeatedAwaitingLeave(ctx.state, id)) return;
+  if (!inPlay.includes(id) || !isMinion(ctx.state, id) || defeatedAwaitingLeave(ctx.state, id)) return null;
   const engagedWith = getInstance(ctx.state, id)?.engagedWith;
   const player = engagedWith ? getPlayer(ctx.state, engagedWith) : undefined;
-  if (!player || player.eliminated) return;
+  if (!player || player.eliminated) return null;
   const others = inPlay.filter(
     (other) => other !== id && isMinion(ctx.state, other) && !defeatedAwaitingLeave(ctx.state, other),
   );
   for (const keyword of keywordsOf(ctx.state, id, ctx.deps)) {
     if (keyword.name !== "teamwork") continue;
     const trait = keyword.sharedTrait;
-    if (!others.some((other) => traitsOf(ctx.state, other, ctx.deps).includes(trait))) continue;
-    emit(ctx, { type: "keywordResolved", keyword: "teamwork", instanceId: id, playerId: player.playerId, trait });
-    activateEnemy(ctx, id, player.playerId);
-    return;
+    if (others.some((other) => traitsOf(ctx.state, other, ctx.deps).includes(trait)))
+      return { playerId: player.playerId, trait };
   }
+  return null;
+}
+
+/**
+ * Whether the minion's teamwork would activate it if it resolved now: what makes its order against quickstrike a
+ * decision as a reveal finishes (the owner's answer 34B; the reveal frame's `keywords` stage).
+ */
+export const teamworkWouldActivate = (ctx: Ctx, id: InstanceId): boolean => teamworkActivation(ctx, id) !== null;
+
+/** The `resolveTeamwork` step: the minion activates against its engaged player if another minion shares the trait. */
+export function resolveTeamwork(ctx: Ctx, id: InstanceId): void {
+  const activation = teamworkActivation(ctx, id);
+  if (!activation) return;
+  emit(ctx, { type: "keywordResolved", keyword: "teamwork", instanceId: id, ...activation });
+  activateEnemy(ctx, id, activation.playerId);
 }
 
 /**
@@ -524,8 +542,10 @@ export function rotateEngagement(ctx: Ctx): readonly InstanceId[] {
  * windows (`engagementFrame`), then its quickstrike attack. RRG 1.8 "Engage" (p. 18): "If a card ability instructs a
  * player to engage a minion, that minion is also considered to have engaged that player"; "Quickstrike" (p. 36): "After
  * a minion with the quickstrike keyword engages a player whose identity is in hero form, that minion attacks that
- * player" (ruling Feb 28, 2026 (4) answer 2: "Quickstrike triggers upon engagement"). It did not enter play, so no
- * enter-play keyword resolves (toughness, teamwork: RRG 1.8 p. 43, "enters play and engages").
+ * player" (ruling Feb 28, 2026 (4) answer 2: "Quickstrike triggers upon engagement", which stands for a minion that
+ * engages without being revealed; a revealed one waits for its When Revealed, the reveal frame's `keywords` stage).
+ * It did not enter play, so no enter-play keyword resolves (toughness, teamwork: RRG 1.8 p. 43, "enters play and
+ * engages").
  *
  * Engine reading: the attack is queued behind the engagement's whole event frame, so it follows an "after you engage"
  * response where the minion's entering play puts quickstrike before them (`applyEffect`'s `putIntoPlay`). Both are
@@ -569,9 +589,11 @@ export function engageInPlayMinion(ctx: Ctx, id: InstanceId, playerId: PlayerId)
  * "resolves immediately before that triggering condition resolves"; "Response" (p. 38): a response resolves after it.
  * So "Hero Interrupt: When you engage a minion" (Anticipation) and "Interrupt: When a minion would engage a player"
  * (Target Spotter, whose FAQ entry, RRG 1.8 p. 65, says it "interrupts the engagement of that minion") get a window before
- * anything that follows from the engagement: the minion's enter-play keywords, its When Revealed, quickstrike, and the
- * "after you engage" responses (Thor's "Have at Thee", which keep their place after the keywords: ruling Jan 17, 2026 (3)
- * answer 2).
+ * anything that follows from the engagement: the minion's enter-play keywords, its When Revealed, quickstrike and
+ * teamwork, and the responses to its entering play and to the engagement (Widow's Bite, Thor's "Have at Thee"), which
+ * keep their place after the keywords (ruling Jan 17, 2026 (3) answer 2; FAQ "Widow's Bite (#10)", RRG 1.8 p. 60) and,
+ * for a minion being revealed, wait for the end of its reveal (RRG 1.8 "Reveal", p. 38; `Frame<"reveal">
+ * .heldResponses`).
  *
  * Like `cardEntersPlay`'s own interrupt window (the card is already in its zone), the minion's `engagedWith` is already
  * set while the window is open: the engine records the move first and runs the windows around it. No printed interrupt

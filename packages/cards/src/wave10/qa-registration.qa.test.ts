@@ -439,8 +439,8 @@ describe("56069 Mark V Armor with a tough status card on Iron Man (RRG 'Tough' p
   });
 });
 
-describe("56079 Hellcat: Quickstrike resolves after her When Revealed (RRG 'Quickstrike' p. 37)", () => {
-  it.fails("56079 Hellcat: 'if a minion with the quickstrike keyword is being revealed, the quickstrike keyword resolves after any When Revealed abilities on that minion' - her When Revealed (the stun) resolves before her attack, as Wasp's Teamwork waits for her threat", () => {
+describe("56079 Hellcat: Quickstrike resolves after her When Revealed (RRG 'Quickstrike' p. 36)", () => {
+  it("56079 Hellcat: 'if a minion with the quickstrike keyword is being revealed, the quickstrike keyword resolves after any When Revealed abilities on that minion' - her When Revealed (the stun) resolves before her attack, as Wasp's Teamwork waits for her threat", () => {
     const s = heroForm(bareIronMan({ modularSetIds: IRON_SETS }));
     const run = villainPhase(s, firstLegal, ADVANCE, "56079");
     const revealedAt = run.events.findIndex(
@@ -455,8 +455,8 @@ describe("56079 Hellcat: Quickstrike resolves after her When Revealed (RRG 'Quic
   });
 });
 
-describe("56117 Paladin: Quickstrike resolves after his When Revealed (RRG 'Quickstrike' p. 37)", () => {
-  it.fails("56117 Paladin: his When Revealed discards a card from your hand before his Quickstrike attack, so a card in that hand cannot be played into the attack's windows", () => {
+describe("56117 Paladin: Quickstrike resolves after his When Revealed (RRG 'Quickstrike' p. 36)", () => {
+  it("56117 Paladin: his When Revealed discards a card from your hand before his Quickstrike attack, so a card in that hand cannot be played into the attack's windows", () => {
     const s = heroForm(bareIronMan({ modularSetIds: ["paladin", ...IRON_SETS.slice(1)] }));
     const run = villainPhase(s, firstLegal, ADVANCE, "56117");
     const revealedAt = run.events.findIndex(

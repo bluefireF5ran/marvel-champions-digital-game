@@ -96,17 +96,20 @@ describe("The Reavers modular set (38029-38035)", () => {
   });
 
   describe("Teamwork (REAVER)", () => {
-    it("a revealed REAVER with another REAVER in play activates alone, once, before its When Revealed (Q2)", () => {
+    it("a revealed REAVER with another REAVER in play activates alone, once, after its When Revealed (RRG p. 43): Wade Cole attacks at ATK 3", () => {
       const { state: staged, id: skullbuster } = withReaver(SKULLBUSTER);
       const { state, events } = reveal(staged, WADE, ...REST);
       const [wade] = inPlay(state, WADE);
       expect(inst(state, wade!).engagedWith).toBe(P1);
-      // Wade's own attack: printed ATK 2, made before Cybernetic Enhancements (+1 ATK) was attached to him.
+      // Wade's own attack: printed ATK 2, +1 from the Cybernetic Enhancements his When Revealed attached to him first.
       const attacks = attacksBy(events, wade!);
       expect(attacks).toHaveLength(1);
-      expect(attacks[0]).toMatchObject({ baseAtk: 2 });
+      expect(attacks[0]).toMatchObject({ baseAtk: 3 });
       expect(resolved(events)).toContain("38032.when-revealed");
-      expect(cyberneticsOn(state, wade!)).toHaveLength(1);
+      // Cybernetic Enhancements was on him for that attack, so its own "Forced Response: After attached enemy attacks,
+      // discard this card" answered it: it is in the discard pile now.
+      expect(cyberneticsOn(state, wade!)).toHaveLength(0);
+      expect(inDiscard(state, CYBERNETICS)).toHaveLength(1);
       // The minion already in play only took its ordinary villain-phase activation.
       expect(attacksBy(events, skullbuster)).toHaveLength(1);
       expect(

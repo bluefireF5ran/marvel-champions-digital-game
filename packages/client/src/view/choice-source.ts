@@ -463,6 +463,8 @@ export function promptTitleOf(
     orderPlayers: "Order the players",
     chooseBottomCards: "Choose which cards go to the bottom",
     orderTriggers: "Order these effects",
+    // A revealed minion with both Quickstrike and Teamwork: the first player picks which resolves first.
+    orderKeywords: "Choose which keyword resolves first",
     chooseTriggers: "Trigger an ability?",
     chooseTarget: "Choose a target",
     chooseAttachmentTarget: "Choose a host",

@@ -40,7 +40,8 @@ const afterEngagesYou = { on: "minionEngaged", selfIs: "source" } as const;
  * Pierce, Skullbuster, Bonebreaker, Wade Cole, Murray Reese), The Reavers side scheme and Cybernetic Enhancements x2.
  *
  * - **Teamwork (REAVER)** and Villainous / Toughness are data (the engine's `resolveTeamwork`, docs §3.1: only the
- *   entering minion activates, before its When Revealed, §4 Q2).
+ *   entering minion activates; revealed, it activates after its When Revealed, RRG 1.8 p. 43, the owner's answer
+ *   30B of 2026-10-12 over §4 Q2).
  * - **Bonebreaker** (erratum, RRG 1.8 p. 69): the printed "Forced Interrupt: After Bonebreaker engages you" is a
  *   Forced Response, which the "after" wording always was; scripted as one.
  * - **Cybernetic Enhancements**: the host and +1 ATK are data; "Otherwise, this card gains surge" is its

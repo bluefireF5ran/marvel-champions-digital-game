@@ -65,7 +65,7 @@ describe("rulesGlossaryOf", () => {
     expect(quickstrike?.conflict).toBeDefined();
   });
 
-  test("quickstrike also carries a short player-facing note that doesn't pick a side", () => {
+  test("quickstrike also carries a short player-facing note, free of implementer wording", () => {
     const quickstrike = everyGlossaryEntry().find((entry) => entry.id === "quickstrike");
     expect(quickstrike?.playerNote).toBeDefined();
     expect(quickstrike?.playerNote).not.toContain("This repo");

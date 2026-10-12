@@ -49,8 +49,8 @@ vi.setConfig({ testTimeout: 240_000 });
  * still gives the tough card when its damage defeats the attacker). Owner answers: 14 = A (Skrull Business: the milled
  * card is still read by Super Skrull), 15 = B (Fantastic Powers dresses a Super Skrull already in play).
  *
- * Quickstrike and When Revealed: Hellcat (round 1) attacks and is stunned-for-Hulkling in an order the engine is being
- * changed on (RRG "Quickstrike" p. 36 says When Revealed first); nothing asserted here depends on that order.
+ * Quickstrike and When Revealed: Hellcat (round 1) stuns Hulkling with her When Revealed, then attacks (RRG
+ * "Quickstrike" p. 36; the owner's answer 30B of 2026-10-12); nothing asserted here depends on that order.
  */
 
 interface Plan {
@@ -249,8 +249,8 @@ describe("Hulkling (Protection) precon against Iron Man in registration-iron-man
     expect(ofType(events, "statusGiven").filter((e) => e.status === "tough")).toMatchObject([{ instanceId: hulk() }]);
     expect(inst(state, hulk()).statuses.tough).toBe(1);
     expect(damageOn(hulk())).toBe(0);
-    // Hellcat's When Revealed (you are stunned) resolves; whether before or after his attack (FFG Feb 28, 2026 Ruling
-    // 4 and RRG "Quickstrike" p. 36 differ on the order) nothing here depends on it.
+    // Hellcat's When Revealed (you are stunned) resolves before her Quickstrike attack (RRG "Quickstrike" p. 36, the
+    // owner's answer 30B over FFG Feb 28, 2026 Ruling 4); nothing here depends on the order.
     expect(inst(state, hulk()).statuses.stunned).toBe(1);
     expect(state.round).toBe(2);
     expect([...handCodes()].sort()).toEqual(["56033", "56037", "56038"]);

@@ -63,6 +63,9 @@ export type Vars = Readonly<Record<string, number>>;
 /** Where a reveal began (the reveal frame's `source`; docs/phase7-wave6.md §3.64). */
 export type RevealSource = "encounterDeck" | "elsewhere";
 
+/** A keyword that answers a revealed minion's engagement once its reveal has finished (`Frame<"reveal">.keywordOrder`). */
+export type RevealKeyword = "quickstrike" | "teamwork";
+
 /**
  * The one thwart a "(thwart)" ability makes (RRG 1.8 "Thwart", p. 44: "An ability labeled as a thwart is considered a
  * single thwart, even if that thwart removes multiple instances of threat"), carried by the root effects frame of the
@@ -659,8 +662,34 @@ export type StackFrame =
        * after it (the owner's answer to question 19 = A). Absent on every other reveal.
        */
       readonly perPlayerAs?: number;
-      /** With `stage: "uniqueCheck"`: the stage the reveal continues to when the card is let in. */
+      /**
+       * With `stage: "uniqueCheck"`: the stage the reveal continues to when the card is let in. Legacy: no reveal sets
+       * it any more (the check always goes on to `whenRevealed`); `"quickstrike"` is read only off a frame saved before
+       * the reveal order of the owner's answer 30B (2026-10-12).
+       */
       readonly afterUnique?: "quickstrike" | "whenRevealed";
+      /**
+       * The player this minion engaged by this reveal: the revealing player it entered play engaged with (RRG 1.8
+       * "Reveal", p. 38, step 2), or the finder a minion found in play engaged because it was not already engaged
+       * with them ("Find", p. 19). Its quickstrike and teamwork resolve once the reveal's steps are done (`keywords`),
+       * and only while it is still in play and still engaged with this player. Absent on a held minion (`heldBy`), a
+       * card that engaged nobody, and a frame saved after its `quickstrike` stage under the old order, whose keywords
+       * have already resolved.
+       */
+      readonly engagedPlayerId?: PlayerId;
+      /**
+       * `cardEntersPlay` events of this minion that resolved while it was being revealed, oldest first: their response
+       * windows wait for the end of the reveal (RRG 1.8 "Reveal", p. 38: "Responses (both forced and non-forced) to
+       * any step of the revealing of an encounter card are not resolved until after all steps of the reveal process
+       * have been completed"; FAQ "Widow's Bite (#10)", p. 60; the owner's answer 32B). They share the window of the
+       * reveal's own `cardRevealed` announcement, after the minion's quickstrike and teamwork.
+       */
+      readonly heldResponses?: readonly TriggerEvent[];
+      /**
+       * With `stage: "keywords"`: the engagement keywords still to resolve, in the order they resolve. Absent until the
+       * order is known (a minion with both asks the first player, the owner's answer 34B).
+       */
+      readonly keywordOrder?: readonly RevealKeyword[];
       /**
        * The effects frame whose pre-"then" text this reveal is ("Reveal that minion, then give it a tough status
        * card"): if the card's effects are cancelled, that frame is marked unresolved (RRG 1.8 "'Then'", p. 44).
@@ -686,8 +715,20 @@ export type StackFrame =
        * `uniqueCheck`: a minion, side scheme or environment has entered play and its enter-play window has resolved; it is
        * discarded if it still matches a card in play (RRG 1.8 "Unique Icon"), else the reveal goes on to `afterUnique`.
        *
-       * `quickstrike`: a minion has entered play engaged with its player (its enter-play window has resolved), and its
-       * quickstrike attack comes next, before its When Revealed (ruling, Feb 28, 2026 (4) answer 2).
+       * `quickstrike`: legacy. Until the owner's answer 30B (2026-10-12) a minion's quickstrike and teamwork resolved
+       * here, before its When Revealed (ruling, Feb 28, 2026 (4) answer 2). No reveal enters this stage any more; a
+       * frame saved in it records whom the minion engaged (`engagedPlayerId`) and goes on to `whenRevealed`, so its
+       * keywords resolve at `keywords` like any other reveal's.
+       *
+       * `finish`: steps 1 to 3 are done; step 4 discards a treachery (RRG 1.8 "Reveal", p. 38).
+       *
+       * `keywords`: every step of the reveal is done, and the minion's engagement keywords resolve, one at a time, each
+       * read as it resolves: quickstrike (RRG 1.8 p. 36: "If a minion with the quickstrike keyword is being revealed,
+       * the quickstrike keyword resolves after any 'When Revealed' abilities on that minion are resolved") and teamwork
+       * (p. 43, the same sentence). Skipped when neither applies.
+       *
+       * `responses`: the keywords are done; the responses to the reveal are announced (`cardRevealed` with the held
+       * enters-play responses, `encounterCardResolved`, `minionEngaged`), then surge.
        */
       readonly stage:
         | "faceup"
@@ -699,6 +740,8 @@ export type StackFrame =
         | "whenRevealed"
         | "settleAttach"
         | "finish"
+        | "keywords"
+        | "responses"
         | "done";
     })
   /** RRG "Initiating Abilities" steps 6–7, after costs are paid. */

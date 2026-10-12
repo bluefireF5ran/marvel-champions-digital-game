@@ -556,7 +556,8 @@ existing primitive needs one more case); **new**. Searches that found nothing ar
   counted. MC56 p. 9's example: Falcon engages Emily while Spider-Man (Avenger) is engaged with Jason, so Falcon
   activates against Emily.
 - **Exists.** Wave 6 §3.1: the keyword in `content/src/schema/keywords.ts`, the engine-internal `EffectSpec
-resolveTeamwork`, resolved in `reveal.ts` after quickstrike and after the minion's When Revealed.
+resolveTeamwork`, resolved in `reveal.ts` once the reveal's steps are done (the `keywords` stage): after the minion's
+  When Revealed, with quickstrike, the first player choosing which goes first when a minion has both (§4.0, 30B, 34B).
 - **To prove here.** The trait may be gained (Drafted 56080 gives Avenger to any minion); the keyword may be gained
   (Earth's Mightiest Heroes 56077, §3.12, and then only matters for a minion entering play afterwards); the minion
   activates (attack or scheme by the player's form), and the engaged player is the one it entered engaged with.

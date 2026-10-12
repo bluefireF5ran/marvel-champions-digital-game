@@ -624,6 +624,32 @@ describe("Werewolf Pack (39052)", () => {
     expect(inst(after, werewolf!).tucked).toEqual([]);
   });
 
+  // RRG 1.8 "Quickstrike" (p. 36): a revealed minion's quickstrike, granted here by The Mojo Files ("Each minion gains
+  // quickstrike"), resolves after its When Revealed (the owner's answer 30B, 2026-10-12). So the ally is already under
+  // the Werewolf Pack when it attacks, and cannot be declared as that attack's defender.
+  it("with The Mojo Files in play (granted Quickstrike, RRG p. 36): its When Revealed defeats the ally first, then it attacks; the ally is not offered as a defender", () => {
+    const withHellcat = intoPlayArea(heroGame(), P1, HELLCAT);
+    const { state } = encounterCardInVillainArea(withHellcat.state, MOJO_FILES);
+    const offered: string[] = [];
+    const picker: Picker = (s) => {
+      const choice = s.pendingChoice!;
+      const [werewolf] = inPlay(s, WEREWOLF);
+      if (choice.prompt.kind === "declareDefender" && choice.prompt.attack.enemyInstanceId === werewolf)
+        offered.push(...choice.options.map((o) => o.optionId));
+      return firstLegal(s);
+    };
+    const { state: after, events } = revealWith(state, picker);
+    const [werewolf] = inPlay(after, WEREWOLF);
+    expect(inst(after, werewolf!).tucked).toEqual([withHellcat.id]);
+    const whenRevealed = events.findIndex((e) => e.type === "abilityResolved" && e.abilityId === "39052.when-revealed");
+    const attacks = of(events, "attackResolved").filter((e) => e.enemyInstanceId === werewolf);
+    expect(attacks).toHaveLength(1);
+    expect(whenRevealed).toBeGreaterThanOrEqual(0);
+    expect(whenRevealed).toBeLessThan(events.indexOf(attacks[0]!));
+    expect(offered.length).toBeGreaterThan(0);
+    expect(offered).not.toContain(withHellcat.id);
+  });
+
   describe("Forced Interrupt: when it would be defeated, discard an ally from under it instead, then heal it", () => {
     /** She-Hulk with a Werewolf Pack engaged, 3 of its 4 hit points gone, `under` tucked beneath it. */
     const hunted = (...under: string[]) => {

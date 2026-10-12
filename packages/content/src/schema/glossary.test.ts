@@ -119,10 +119,13 @@ describe("glossary entries", () => {
     expect(discount?.sources.some((s) => s.kind === "rrg")).toBe(false);
   });
 
-  it("flags the quickstrike resolution-order conflict between RRG 1.8 and the February 28, 2026 ruling instead of picking a side", () => {
+  it("flags the quickstrike resolution-order conflict between RRG 1.8 p. 36 and the February 28, 2026 ruling, and says the RRG is followed (answer 30B)", () => {
     const quickstrike = glossaryEntry("quickstrike");
     expect(quickstrike?.conflict).toBeTruthy();
     expect(quickstrike?.conflict).toMatch(/When Revealed/);
+    expect(quickstrike?.conflict).toMatch(/This repo follows the RRG/);
+    expect(quickstrike?.conflict).not.toMatch(/has not picked a side/);
+    expect(quickstrike?.definition).toMatch(/after the minion's When Revealed/);
   });
 
   it("no entry other than quickstrike and teamwork declares a conflict (keep the flag meaningful, not boilerplate)", () => {
@@ -130,9 +133,11 @@ describe("glossary entries", () => {
     expect(conflicted.map((e) => e.id).sort()).toEqual(["quickstrike", "teamwork"]);
   });
 
-  it("flags teamwork's resolution order against RRG 1.8 p. 43 and the February 28, 2026 ruling, and teamwork cites both", () => {
+  it("flags teamwork's resolution order against RRG 1.8 p. 43 and the February 28, 2026 ruling, says the RRG is followed, and cites both", () => {
     const teamwork = glossaryEntry("teamwork");
     expect(teamwork?.conflict).toMatch(/When Revealed/);
+    expect(teamwork?.conflict).toMatch(/This repo follows the RRG/);
+    expect(teamwork?.conflict).not.toMatch(/unsettled/);
     expect(teamwork?.sources).toEqual([
       { kind: "rrg", page: 43 },
       { kind: "ruling", date: "February 28, 2026 - Ruling 4" },
@@ -147,9 +152,10 @@ describe("glossary entries", () => {
     }
   });
 
-  it("quickstrike's player note doesn't pick a side and stays a short one-liner", () => {
+  it("quickstrike's player note says which order is played here and stays a short one-liner", () => {
     const quickstrike = glossaryEntry("quickstrike");
-    expect(quickstrike?.playerNote).toMatch(/Rulings differ/);
+    expect(quickstrike?.playerNote).toMatch(/after the minion's When Revealed/);
+    expect(quickstrike?.playerNote).toMatch(/earlier ruling/);
     expect(quickstrike?.playerNote?.length).toBeLessThan(120);
   });
 });
@@ -253,7 +259,7 @@ describe("wave 6 mechanics (guided mode section 3.14)", () => {
     expect(glossaryEntry("tough")?.definition).toMatch(/Colossus/);
     expect(glossaryEntry("hinder")?.definition).toMatch(/isn't a scheme/);
     expect(glossaryEntry("permanent")?.definition).toMatch(/before setup begins/);
-    expect(glossaryEntry("teamwork")?.definition).toMatch(/before the minion's When Revealed/);
+    expect(glossaryEntry("teamwork")?.definition).toMatch(/after the minion's When Revealed/);
   });
 });
 

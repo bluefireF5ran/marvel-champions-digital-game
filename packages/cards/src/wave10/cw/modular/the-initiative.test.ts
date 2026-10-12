@@ -301,7 +301,7 @@ describe("Hellcat (56079)", () => {
     expect(card.keywords).toEqual([{ name: "quickstrike" }]);
   });
 
-  it("WHEN REVEALED (hero): Quickstrike attacks first (2 damage), then you are stunned and take no indirect damage", () => {
+  it("WHEN REVEALED (hero): you are stunned and take no indirect damage, then Quickstrike attacks (2 damage; RRG p. 36)", () => {
     const start = game();
     const run = villainPhase(start, [BLANK, HELLCAT, FILLER_A]);
     const hellcat = inPlayCard(run.state, HELLCAT)!;
@@ -310,6 +310,46 @@ describe("Hellcat (56079)", () => {
     expect(statuses(run.state).stunned).toBe(1);
     // Rhino 2 + Hellcat's Quickstrike 2, and nothing from the indirect damage.
     expect(inst(run.state, hero(run.state)).damage).toBe(4);
+  });
+
+  // RRG 1.8 "Quickstrike" (p. 36): "If a minion with the quickstrike keyword is being revealed, the quickstrike keyword
+  // resolves after any 'When Revealed' abilities on that minion are resolved" (the owner's answer 30B, 2026-10-12, over
+  // FFG's February 28, 2026 - Ruling 4, which named Hellcat).
+  it("WHEN REVEALED resolves before her Quickstrike (RRG p. 36): the hero holds the stunned card when her attack initiates", () => {
+    const run = villainPhase(game(), [BLANK, HELLCAT, FILLER_A]);
+    const hellcat = inPlayCard(run.state, HELLCAT)!;
+    const at = (pred: (e: (typeof run.events)[number]) => boolean) => run.events.findIndex(pred);
+    const stunned = at((e) => e.type === "statusGiven" && e.status === "stunned" && e.instanceId === hero(run.state));
+    const whenRevealed = at((e) => e.type === "abilityResolved" && e.abilityId === "56079.when-revealed");
+    const initiated = at(
+      (e) =>
+        e.type === "triggerEvent" &&
+        e.phase === "initiated" &&
+        e.event.kind === "enemyAttack" &&
+        e.event.enemyInstanceId === hellcat,
+    );
+    expect(stunned).toBeGreaterThanOrEqual(0);
+    expect(whenRevealed).toBeGreaterThanOrEqual(0);
+    expect(stunned).toBeLessThan(initiated);
+    expect(whenRevealed).toBeLessThan(initiated);
+    expect(attacksBy(run.state, run.events, HELLCAT)).toHaveLength(1);
+  });
+
+  it("WHEN REVEALED resolves before her Quickstrike (RRG p. 36): already stunned, the 2 indirect damage lands before her attack's 2", () => {
+    const start = game();
+    const run = villainPhase(withStatus(start, hero(start), "stunned"), [BLANK, HELLCAT, FILLER_A]);
+    const hellcat = inPlayCard(run.state, HELLCAT)!;
+    const hits = run.events.flatMap((e) =>
+      e.type === "damageDealt" && e.targetInstanceId === hero(run.state) ? [[e.sourceInstanceId, e.amount]] : [],
+    );
+    // Rhino's attack, then her When Revealed's indirect damage, then her own attack.
+    expect(hits.slice(-2).map(([, amount]) => amount)).toEqual([2, 2]);
+    const whenRevealed = run.events.findIndex(
+      (e) => e.type === "abilityResolved" && e.abilityId === "56079.when-revealed",
+    );
+    const attacked = run.events.findIndex((e) => e.type === "attackResolved" && e.enemyInstanceId === hellcat);
+    expect(whenRevealed).toBeGreaterThanOrEqual(0);
+    expect(whenRevealed).toBeLessThan(attacked);
   });
 
   it("WHEN REVEALED (hero): if you were already stunned you take 2 indirect damage on top, and stay stunned", () => {
@@ -321,7 +361,7 @@ describe("Hellcat (56079)", () => {
     expect(inst(run.state, hero(run.state)).damage).toBe(6);
   });
 
-  it("WHEN REVEALED (alter-ego): Quickstrike schemes (SCH 1), you are stunned", () => {
+  it("WHEN REVEALED (alter-ego): you are stunned; Quickstrike does nothing against an alter-ego (RRG p. 36)", () => {
     const run = villainPhase(alterEgoGame(), [BLANK, HELLCAT, FILLER_A]);
     expect(statuses(run.state).stunned).toBe(1);
     expect(attacksBy(run.state, run.events, HELLCAT)).toEqual([]);

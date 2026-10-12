@@ -347,8 +347,8 @@ describe("Zzzax 55059 and the Zzzax ally 55066: a printed [energy] resource", ()
 
 describe("Whirlwind 55058", () => {
   // MC55 p. 5 card 55058: "Quickstrike" and "Forced Response: After Whirlwind attacks you, take 1 indirect damage for each
-  // side scheme in play". RRG "Quickstrike" (p. 36) and ruling February 28, 2026 - Ruling 4 (2): a minion engages, and
-  // Quickstrike triggers on that engagement. The attack is a real attack, so the Forced Response answers it.
+  // side scheme in play". RRG "Quickstrike" (p. 36): a minion engages, and Quickstrike answers that engagement (once
+  // its reveal is done; he has no When Revealed). The attack is a real attack, so the Forced Response answers it.
   it("revealed from the encounter deck, his Quickstrike attack happens at once and its Forced Response counts the side schemes in play", () => {
     const hurt = (withSideScheme: boolean): { damage: number; attacks: number } => {
       const sim = open();

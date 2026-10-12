@@ -3079,8 +3079,8 @@ export interface AttachCost {
  *   random an order as one shuffled after), then the card is put into play as `EffectSpec putIntoPlay` does it: not
  *   revealed, so no When Revealed and no surge (RRG 1.8 "Play, Put into Play", p. 32; "When Revealed", p. 48),
  *   announced as entering play and engaging, with quickstrike and teamwork after it (owner decision 2026-10-11,
- *   box-heroes question 18 = A, provisional; rulings February 28, 2026 - Rulings 1 and 4). Those resolve before the
- *   frame paid for.
+ *   box-heroes question 18 = A, provisional; ruling February 28, 2026 - Ruling 1, and Ruling 4's "Quickstrike
+ *   triggers upon engagement" for a minion that is not revealed). Those resolve before the frame paid for.
  */
 export interface EncounterSearchIntoPlayCost {
   readonly slot: string;

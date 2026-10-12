@@ -296,6 +296,45 @@ describe("Paladin (56117)", () => {
     expect(picks.size).toBeGreaterThan(1);
   });
 
+  // RRG 1.8 "Quickstrike" (p. 36): revealed, his Quickstrike resolves after his When Revealed (the owner's answer 30B,
+  // 2026-10-12). "Toughness" (p. 45) is not moved (answer 33A): he has his tough status card from entering play.
+  it("WHEN REVEALED resolves before his Quickstrike (RRG p. 36): the card is gone from your hand when his attack initiates, and he attacks holding his tough card", () => {
+    const start = game();
+    const claws = handOf(start).find((i) => codeOf(start, i) === "56007")!;
+    let handAtAttack: readonly InstanceId[] | undefined;
+    let toughAtAttack: number | undefined;
+    const paladinOf = (s: GameState) => copiesIn(s, PALADIN)[0]!;
+    const pick = (s: GameState): readonly string[] => {
+      const choice = s.pendingChoice!;
+      // The first question his attack asks: who defends it.
+      if (choice.prompt.kind === "declareDefender" && choice.prompt.attack.enemyInstanceId === paladinOf(s)) {
+        handAtAttack ??= handOf(s);
+        toughAtAttack ??= inst(s, paladinOf(s)).statuses.tough;
+      }
+      return choosing("56007")(s);
+    };
+    const run = villainPhase(start, pick, PALADIN);
+    const paladin = paladinOf(run.state);
+    const discarded = run.events.findIndex(
+      (e) => e.type === "cardMoved" && e.instanceId === claws && e.to.kind === "discard",
+    );
+    const attacked = run.events.findIndex(
+      (e) =>
+        e.type === "triggerEvent" &&
+        e.phase === "initiated" &&
+        e.event.kind === "enemyAttack" &&
+        e.event.enemyInstanceId === paladin,
+    );
+    expect(discarded).toBeGreaterThanOrEqual(0);
+    expect(discarded).toBeLessThan(attacked);
+    expect(handAtAttack).toHaveLength(4);
+    expect(handAtAttack).not.toContain(claws);
+    expect(toughAtAttack).toBe(1);
+    expect(types(run.events, "attackResolved").filter((e) => e.enemyInstanceId === paladin)).toMatchObject([
+      { baseAtk: 2 },
+    ]);
+  });
+
   it("WHEN REVEALED with an empty hand: nothing is discarded", () => {
     const start = game();
     const emptied = { ...start, players: start.players.map((p) => ({ ...p, hand: [], deck: [], discard: [] })) };
