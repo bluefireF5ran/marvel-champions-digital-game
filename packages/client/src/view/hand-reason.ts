@@ -16,6 +16,7 @@ const EXACT: Readonly<Record<string, string>> = {
 };
 
 export const NEUTRAL_PLAY_TAG = "can't play";
+export const ENTER_PLAY_BARRED_TAG = "can't enter play";
 
 export function noTargetTag(message: string): string {
   const exact = EXACT[message.toLowerCase()];
@@ -25,5 +26,8 @@ export function noTargetTag(message: string): string {
   const controlled = /^play only if you control an? (.+) character$/i.exec(message);
   if (controlled) return `needs ${controlled[1]} in play`;
   if (/^nothing in play to /i.test(message)) return "no target";
+  // A rule that keeps the card out of play: "Teddy Altman: Winged Shape cannot enter play" (Hulkling's one Shapeshift
+  // upgrade), or a campaign's "<card> cannot enter play during this game". The full sentence is in Inspect.
+  if (/ cannot enter play( during this game)?$/i.test(message)) return ENTER_PLAY_BARRED_TAG;
   return NEUTRAL_PLAY_TAG;
 }

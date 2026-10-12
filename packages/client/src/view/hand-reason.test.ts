@@ -12,6 +12,9 @@ const MAPPED: readonly (readonly [string, string])[] = [
   ["upgrade has no valid host", "no target"],
   ["nothing in play to attach Mjolnir to", "no target"],
   ["nothing in play to deal damage to for the cost", "no target"],
+  // `enterPlayBarMessage` (packages/engine/src/rules.ts): a rule on a card, then a campaign's own words.
+  ["Teddy Altman: Winged Shape cannot enter play", "can't enter play"],
+  ["Professor X cannot enter play during this game", "can't enter play"],
 ];
 
 describe("noTargetTag", () => {

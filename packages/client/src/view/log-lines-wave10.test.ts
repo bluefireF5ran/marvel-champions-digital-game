@@ -165,6 +165,131 @@ describe("Civil War events (docs/phase7-wave10.md sections 3.2, 3.10, 3.15, 3.19
     expect(logLine(moved, state, me, POOL_DEPS, false, undefined, burst([defeated, moved], 1))?.text).toBe(
       `${named(a)} was defeated and placed facedown under ${named(state.mainScheme.instanceId)}.`,
     );
-    expect(logLine(moved, state, me, POOL_DEPS, false, undefined, burst([moved], 0))).toBeNull();
+    // Not defeated: an ordinary tuck, worded as one.
+    expect(logLine(moved, state, me, POOL_DEPS, false, undefined, burst([moved], 0))?.text).toBe(
+      `${named(a)} is tucked under ${named(state.mainScheme.instanceId)}.`,
+    );
+  });
+});
+
+describe("hero pack and box hero events (docs/phase7-wave10-hero-packs.md, -box-heroes.md)", () => {
+  let a: string;
+  let b: string;
+  beforeAll(() => {
+    [a, b] = Object.keys(state.instances) as [string, string];
+  });
+  const named = (id: string): string => state.cardPool[state.instances[id]!.cardId]!.name;
+  const burst = (events: GameEvent[], at: number) => ({ events, at });
+  const withLine = (event: GameEvent, events: GameEvent[], game: GameState = state) =>
+    logLine(event, game, me, POOL_DEPS, false, undefined, burst(events, events.indexOf(event)))?.text;
+  /** Instance `id` made a Labor card: an encounter card a player owns, home in that player's Labor deck. */
+  const asLabor = (id: string): GameState =>
+    ({
+      ...state,
+      instances: {
+        ...state.instances,
+        [id]: { ...state.instances[id]!, ownerId: me, home: { kind: "separateDeck", playerId: me, name: "Labor" } },
+      },
+    }) as unknown as GameState;
+
+  test("a played upgrade with no host is discarded", () => {
+    expect(text({ type: "playedUpgradeHasNoHost", instanceId: a, playerId: me } as GameEvent)).toBe(
+      `${named(a)} has nothing to attach to, so it is discarded. What was paid stays paid.`,
+    );
+  });
+
+  test("a card refused by a tuck limit", () => {
+    expect(text({ type: "cardNotTucked", instanceId: a, hostInstanceId: b, reason: "limit" } as GameEvent)).toBe(
+      `${named(a)} is not tucked under ${named(b)}: it holds no more.`,
+    );
+  });
+
+  test("a card tucked under another, and discarded from under it", () => {
+    const tucked = {
+      type: "cardMoved",
+      instanceId: a,
+      cardId: state.instances[a]!.cardId,
+      from: { kind: "hand", playerId: me },
+      to: { kind: "tucked", hostInstanceId: b },
+    } as unknown as GameEvent;
+    expect(withLine(tucked, [tucked])).toBe(`${named(a)} is tucked under ${named(b)}.`);
+    const refused = { type: "cardNotTucked", instanceId: a, hostInstanceId: b, reason: "limit" } as GameEvent;
+    expect(withLine(tucked, [refused, tucked])).toBeUndefined();
+    const out = {
+      type: "cardMoved",
+      instanceId: a,
+      cardId: state.instances[a]!.cardId,
+      from: { kind: "tucked", hostInstanceId: b },
+      to: { kind: "discard", playerId: me },
+    } as unknown as GameEvent;
+    expect(withLine(out, [out])).toBe(`${named(a)} is discarded from under ${named(b)}.`);
+  });
+
+  test("an interrupt that no longer applies", () => {
+    expect(
+      text({ type: "interruptConditionLapsed", instanceId: a, abilityId: "x", event: {} } as unknown as GameEvent),
+    ).toBe(`${named(a)}'s interrupt does not resolve: the damage it was to answer has changed.`);
+  });
+
+  test("a deck discard still counted after a card took it", () => {
+    const base = { type: "deckDiscardStillCounted", playerId: me, instanceId: a, slot: "s" };
+    expect(text({ ...base, takenByInstanceId: b } as GameEvent)).toBe(
+      `${named(a)} was taken by ${named(b)} and still counts as discarded.`,
+    );
+    expect(text({ ...base, takenByInstanceId: null } as GameEvent)).toBe(
+      `${named(a)} was taken from the discard pile and still counts as discarded.`,
+    );
+  });
+
+  test("a Labor card revealed, discarded for want of a target, sent back, or sent to the victory display", () => {
+    const game = asLabor(a);
+    expect(
+      logLine(
+        { type: "encounterCardRevealed", instanceId: a, cardId: "x", playerId: me } as GameEvent,
+        game,
+        me,
+        POOL_DEPS,
+      )?.text,
+    ).toBe(`You revealed ${named(a)} from your Labor deck.`);
+    expect(
+      logLine(
+        { type: "encounterCardRevealed", instanceId: b, cardId: "x", playerId: me } as GameEvent,
+        game,
+        me,
+        POOL_DEPS,
+      )?.text,
+    ).toBe(`You revealed ${named(b)}.`);
+    expect(
+      logLine(
+        { type: "revealedCardDiscarded", instanceId: a, cardId: "x", playerId: me, reason: "notAttached" } as GameEvent,
+        game,
+        me,
+        POOL_DEPS,
+      )?.text,
+    ).toBe(`${named(a)} had nothing to attach to when You revealed it, so it is discarded.`);
+    expect(
+      logLine(
+        {
+          type: "returnedToSeparateDeck",
+          instanceId: a,
+          cardId: "x",
+          playerId: me,
+          name: "Labor",
+          instead: "encounterDiscard",
+        } as GameEvent,
+        game,
+        me,
+        POOL_DEPS,
+      )?.text,
+    ).toBe(`${named(a)} goes back into Your Labor deck, facedown, instead of leaving it.`);
+    const victory = {
+      type: "cardMoved",
+      instanceId: a,
+      cardId: "x",
+      from: { kind: "playArea", playerId: me },
+      to: { kind: "victoryDisplay" },
+    } as unknown as GameEvent;
+    expect(logLine(victory, game, me, POOL_DEPS)?.text).toBe(`${named(a)} goes to the victory display.`);
+    expect(logLine(victory, state, me, POOL_DEPS)).toBeNull();
   });
 });

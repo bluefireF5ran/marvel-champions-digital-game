@@ -429,7 +429,18 @@ describe("damage on an attachment", () => {
   });
 
   test("an attachment with no break point shows bare damage, and nothing when it has none", () => {
-    const chip = { instanceId: "i1" as InstanceId, name: "Tarp", exhausted: false, counters: [], faceup: true };
+    const chip = {
+      instanceId: "i1" as InstanceId,
+      name: "Tarp",
+      exhausted: false,
+      counters: [],
+      faceup: true,
+      ownedBy: null,
+      tucked: [],
+      tuckedCount: 0,
+      tuckMax: null,
+      tuckedNote: null,
+    };
     expect(attachmentChipLabel({ ...chip, damage: 3, damageThreshold: null })).toBe("Tarp · 3 damage");
     expect(attachmentChipLabel({ ...chip, damage: 0, damageThreshold: null })).toBe("Tarp");
     expect(attachmentChipDamage({ ...chip, damage: 0, damageThreshold: null })).toBeNull();

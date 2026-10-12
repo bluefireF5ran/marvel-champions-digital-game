@@ -77,7 +77,14 @@ import { hintsFor, type Hint, type HintTrigger } from "../../view/guide-hints.js
 import { guidePrefs } from "../../guide/guide-store.js";
 import { GuideGateHolder, type GuideGate } from "./guide-gate.js";
 import { BASIC_TO_KIND, basicKindOf, retarget, type Selection } from "./selection.js";
-import { costPickSlot, needsPlayAim, paymentAimOf, playAimPrompt } from "../../view/play-aim.js";
+import {
+  costPickSlot,
+  needsPlayAim,
+  paymentAimOf,
+  playAimPrompt,
+  searchedPickFor,
+  type SearchedPickView,
+} from "../../view/play-aim.js";
 import { actionAbilityCost } from "../../view/cost-choice-model.js";
 import {
   paymentIntoOf,
@@ -333,7 +340,11 @@ export class BoardController {
     if (this.#selection.kind === "choosingController") {
       return focusOrder({ kind: "targeting", targets: this.#seatTiles(this.#selection.controllers) }, marks);
     }
-    if (this.#selection.kind === "choosingAbility" || this.#selection.kind === "choosingDestination") {
+    if (
+      this.#selection.kind === "choosingAbility" ||
+      this.#selection.kind === "choosingDestination" ||
+      this.#selection.kind === "choosingSearched"
+    ) {
       const { action } = this.#selection.entry;
       return focusOrder({ kind: "targeting", targets: action.kind === "playCard" ? [action.instanceId] : [] }, marks);
     }
@@ -470,7 +481,11 @@ export class BoardController {
       this.chooseSource(id);
       return true;
     }
-    if (this.#selection.kind === "choosingAbility" || this.#selection.kind === "choosingDestination") {
+    if (
+      this.#selection.kind === "choosingAbility" ||
+      this.#selection.kind === "choosingDestination" ||
+      this.#selection.kind === "choosingSearched"
+    ) {
       // The card being asked about goes back on a second tap; the bar's buttons are the only way to answer.
       const { action } = this.#selection.entry;
       if (action.kind === "playCard" && action.instanceId === id) this.cancel();
@@ -718,6 +733,20 @@ export class BoardController {
     return { subject: cardName(game, action.instanceId), options: this.#selection.options };
   }
 
+  /** The searched-minion list: the card being played and each minion the search found, with its area, or null. */
+  searchedPick(): SearchedPickView | null {
+    return this.#selection.kind === "choosingSearched" ? this.#selection.pick : null;
+  }
+
+  /** The list's answer: the play goes on with that minion in the cost's slot, as a board pick would. */
+  async chooseSearched(instanceId: InstanceId): Promise<void> {
+    if (this.#readOnly || this.#selection.kind !== "choosingSearched") return;
+    const { entry, pick, controllerId, confirmFree } = this.#selection;
+    if (!pick.options.some((option) => option.instanceId === instanceId)) return;
+    this.#selection = { kind: "idle" };
+    await this.#playAs(entry, controllerId, confirmFree, instanceId);
+  }
+
   /** The "Where?" bar: the ally being played and each place it may go, with its price there, or null when not open. */
   destinationChoice(): DestinationChoiceView | null {
     return this.#selection.kind === "choosingDestination" ? this.#selection.choice : null;
@@ -807,6 +836,13 @@ export class BoardController {
   ): Promise<void> {
     const { game } = appSession().store.state;
     if (target === null && needsPlayAim(entry) && game) {
+      // A search cost (Hunted): its candidates are in the encounter deck, not on the board, so a list asks.
+      const pick = searchedPickFor(game, POOL_DEPS, entry);
+      if (pick) {
+        this.#selection = { kind: "choosingSearched", entry, pick, controllerId, confirmFree };
+        this.#host.redraw();
+        return;
+      }
       this.#selection = {
         kind: "targeting",
         action: entry,

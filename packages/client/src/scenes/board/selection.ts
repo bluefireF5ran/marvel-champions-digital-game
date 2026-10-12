@@ -16,7 +16,7 @@ import type { FocusTarget } from "../../view/focus.js";
 import type { BasicAction } from "../../view/highlights.js";
 import type { EventAbilityOption } from "../../view/event-ability-choice.js";
 import type { PaymentState } from "../../view/payment-model.js";
-import { aimedAt } from "../../view/play-aim.js";
+import { aimedAt, type SearchedPickView } from "../../view/play-aim.js";
 import type { PlayDestinationChoice } from "../../view/play-destination.js";
 
 /** What the player has picked so far, when an action needs a target or a payment. */
@@ -91,6 +91,17 @@ export type Selection =
    * (`view/play-destination.ts`). The play carries on with the pick already made (host, seat), as `#playAs` left it.
    */
   | {
+      /**
+       * A cost that searches the encounter deck and discard pile for a minion (Hunted) listed more than one: the cards
+       * are not on the board, so they are chosen from a list that names each one's area (`view/play-aim.ts`).
+       */
+      readonly kind: "choosingSearched";
+      readonly entry: LegalAction;
+      readonly pick: SearchedPickView;
+      readonly controllerId: PlayerId | null;
+      readonly confirmFree: boolean;
+    }
+  | {
       readonly kind: "choosingDestination";
       readonly entry: LegalAction;
       readonly choice: PlayDestinationChoice;
@@ -156,7 +167,7 @@ export function targetState(selection: Selection, id: InstanceId): TargetState {
     const { action } = selection.entry;
     return action.kind === "playCard" && action.instanceId === id ? "selected" : "unavailable";
   }
-  if (selection.kind === "choosingDestination") {
+  if (selection.kind === "choosingDestination" || selection.kind === "choosingSearched") {
     const { action } = selection.entry;
     return action.kind === "playCard" && action.instanceId === id ? "selected" : "unavailable";
   }

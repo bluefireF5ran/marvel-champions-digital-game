@@ -20,6 +20,8 @@ import {
   cardTypeName,
   getCard,
   getInstance,
+  isOwnedEncounterCard,
+  tuckLimitOf,
   type EngineDeps,
   type GameEvent,
   type GameState,
@@ -30,6 +32,9 @@ import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
 import { foeWord } from "./foe-words.js";
 import { cardName, faceUpName, formWords, optionLabelOf, playerName, seatName } from "./names.js";
+
+/** A line that opens with a card named only as far as the table may see it ("a facedown card") starts with a capital. */
+const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 export type StatusName = "stunned" | "confused" | "tough";
 
@@ -285,6 +290,35 @@ function describe(
           voice: "villain",
         };
       }
+      // docs/phase7-wave10-hero-packs.md H3.12 (Ionic Physiology): a card tucked under another card, and one leaving
+      // from under it (the basic attack discards them). A defeated ally's tuck is worded above; a spent tucked card
+      // has its own line (`tuckedCardSpent`).
+      if (
+        event.to.kind === "tucked" &&
+        event.from.kind !== "tucked" &&
+        !burst?.events.some((other) => other.type === "cardNotTucked" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: cap(`${card(event.instanceId)} is tucked under ${faceUpName(state, event.to.hostInstanceId)}.`),
+          voice: "player",
+        };
+      }
+      if (
+        event.from.kind === "tucked" &&
+        event.to.kind === "discard" &&
+        !burst?.events.some((other) => other.type === "tuckedCardSpent" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: cap(
+            `${card(event.instanceId)} is discarded from under ${faceUpName(state, event.from.hostInstanceId)}.`,
+          ),
+          voice: "player",
+        };
+      }
+      // A Labor card (an encounter card a player owns, H3.1) that is defeated or completed reaches the victory display.
+      if (event.to.kind === "victoryDisplay" && isOwnedEncounterCard(state, event.instanceId)) {
+        return { text: cap(`${card(event.instanceId)} goes to the victory display.`), voice: "player" };
+      }
       // A minion a card held (Thunderbolt Backup's end-of-round swap) comes off it and engages a player: the engine
       // records only the move, so without this line the swap read as one minion being held and nothing else.
       if (
@@ -330,6 +364,47 @@ function describe(
     case "separateDeckReset":
       return {
         text: `${possessive(event.playerId)} ${event.name} deck was empty: its discard pile is shuffled back into it.`,
+        voice: "player",
+      };
+    // RRG 1.8 FAQ "Hercules Hero Pack - Labor Cards" (p. 65): a revealed attachment that found nothing to attach to.
+    case "revealedCardDiscarded":
+      return {
+        text: cap(
+          `${card(event.instanceId)} had nothing to attach to when ${who(event.playerId)} revealed it, so it is discarded.`,
+        ),
+        voice: "villain",
+      };
+    // docs/phase7-wave10-box-heroes.md B3.1 (Hunted): the board shows nothing change for the upgrade, so say why.
+    case "playedUpgradeHasNoHost":
+      return {
+        text: cap(`${card(event.instanceId)} has nothing to attach to, so it is discarded. What was paid stays paid.`),
+        voice: "player",
+      };
+    // docs/phase7-wave10-hero-packs.md H3.12: "Max 3 cards tucked here."
+    case "cardNotTucked": {
+      const limit = tuckLimitOf(state, deps, event.hostInstanceId);
+      return {
+        text: cap(
+          `${card(event.instanceId)} is not tucked under ${faceUpName(state, event.hostInstanceId)}: it holds ${limit === null ? "no more" : `at most ${limit}`}.`,
+        ),
+        voice: "player",
+      };
+    }
+    // RRG 1.8 "Interrupt" (p. 25): the damage changed under it, so it does not initiate (owner decision 29B).
+    case "interruptConditionLapsed":
+      return {
+        text: cap(`${card(event.instanceId)}'s interrupt does not resolve: the damage it was to answer has changed.`),
+        voice: "player",
+      };
+    // docs/phase7-wave10-box-heroes.md B3.3 (Skrull Business): taken away from the discard, still counted as discarded.
+    case "deckDiscardStillCounted":
+      return {
+        text:
+          event.takenByInstanceId === null
+            ? cap(`${card(event.instanceId)} was taken from the discard pile and still counts as discarded.`)
+            : cap(
+                `${card(event.instanceId)} was taken by ${card(event.takenByInstanceId)} and still counts as discarded.`,
+              ),
         voice: "player",
       };
     case "returnedToSeparateDeck":
@@ -756,8 +831,17 @@ function describe(
         voice: "scenario",
       };
     }
-    case "encounterCardRevealed":
+    case "encounterCardRevealed": {
+      // A Labor card is an encounter card its owner's identity holds in a separate deck (H3.1): say which deck.
+      const owned = getInstance(state, event.instanceId);
+      if (isOwnedEncounterCard(state, event.instanceId) && owned?.home.kind === "separateDeck" && owned.ownerId) {
+        return {
+          text: `${who(event.playerId)} revealed ${card(event.instanceId)} from ${owned.ownerId === viewer ? "your" : `${who(owned.ownerId)}'s`} ${owned.home.name} deck.`,
+          voice: "villain",
+        };
+      }
       return { text: `${who(event.playerId)} revealed ${card(event.instanceId)}.`, voice: "villain" };
+    }
     case "surgeTriggered":
       return {
         // Owner decision 22B: a surge deals a facedown encounter card that waits for the reveal step.

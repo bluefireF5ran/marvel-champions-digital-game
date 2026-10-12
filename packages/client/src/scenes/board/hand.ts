@@ -29,6 +29,7 @@ import {
   drawAbilityBar,
   destinationQuestionRow,
   drawDestinationBar,
+  drawSearchedPickBar,
   drawFormBar,
   drawPlayConfirmBar,
   drawSourceBar,
@@ -80,6 +81,7 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
   const formChoice = ctx.controller.formChoice();
   const abilityChoice = ctx.controller.abilityChoice();
   const destinationChoice = ctx.controller.destinationChoice();
+  const searchedPick = ctx.controller.searchedPick();
   let top = rect.y + HAND_CAPTION_HEIGHT;
   if (sourceChoice) {
     const height = hit.target + SOURCE_BAR_NOTE;
@@ -95,6 +97,10 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
     // On a narrow bar the question gets its own line above the buttons, so the bar is that much taller.
     const height = BAR_HEIGHT + destinationQuestionRow(rect.width);
     drawDestinationBar(ctx, { x: rect.x, y: rect.y, width: rect.width, height }, destinationChoice);
+    top = rect.y + height + 4;
+  } else if (searchedPick) {
+    const height = BAR_HEIGHT + destinationQuestionRow(rect.width);
+    drawSearchedPickBar(ctx, { x: rect.x, y: rect.y, width: rect.width, height }, searchedPick);
     top = rect.y + height + 4;
   } else if (playConfirmation) {
     drawPlayConfirmBar(ctx, { x: rect.x, y: rect.y, width: rect.width, height: BAR_HEIGHT }, playConfirmation);
@@ -276,8 +282,9 @@ function drawPaymentTable(ctx: BoardDrawContext, row: HandRowLayout, payment: Pa
       const wash = scene.add.graphics();
       wash.fillStyle(surface.ink.hex, 0.3).fillRect(tile.x + 3, tile.y + 3, tile.width - 6, tile.height - 6);
     }
-    const where = source.helperName !== null ? source.helperName : "in play";
-    tableTag(scene, tile, source.spent ? "spent" : where, surface.ink.hex, "top");
+    // A hand card spent through its own ability (Energy Siphon) says the amount it takes, one tile per amount.
+    const where = source.helperName ?? source.amountNote ?? (source.spendsHandCard ? "from hand" : "in play");
+    tableTag(scene, tile, source.spent && source.amountNote === null ? "spent" : where, surface.ink.hex, "top");
     tableTag(scene, tile, poolText(source.pool), signal.cost.hex, "bottom");
     ctx.frame.focusRects.set(focusKey({ kind: "card", instanceId: source.instanceId }), tile);
     // By option, not by card: a card offering two resource abilities is two tiles.

@@ -80,16 +80,19 @@ export function drawPaymentBar(ctx: BoardDrawContext, rect: Rect, payment: Payme
     // The price note comes before the instruction: a denominator that isn't the number printed on the card is
     // the first thing a player will question, and "tap cards to spend" can wait behind the answer.
     const note = payment.priceNote ? ` ${payment.priceNote}.` : "";
+    // What the picks add beyond the cost, and who helped pay: counted from the engine's own query, never worked out here.
+    const over = payment.overpaidNote ? ` ${payment.overpaidNote}.` : "";
+    const helped = payment.helperLines.map((line) => ` ${line}.`).join("");
     scene.add
       .text(
         headlineLeft,
         rect.y + rect.height / 2,
-        `${payment.headline}.${note} Tap cards to spend.${outstanding}`,
+        `${payment.headline}.${note} Tap cards to spend.${outstanding}${over}${helped}`,
         textStyle(typeRole.emphasis, surface.paper.hex),
       )
       .setOrigin(0, 0.5)
       .setWordWrapWidth(headlineRoom)
-      .setMaxLines(1);
+      .setMaxLines(2);
   }
   const payRect: Rect = { x: buttonsLeft, y: rect.y + 4, width: buttonWidth, height: rect.height - 8 };
   ctx.frame.buttons.push(

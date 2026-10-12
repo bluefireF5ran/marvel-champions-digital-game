@@ -15,6 +15,10 @@ import {
   characterProfile,
   currentName,
   getInstance,
+  isOwnedEncounterCard,
+  locateCard,
+  separateDeckDefinition,
+  tuckLimitOf,
   getPlayer,
   identityFace,
   iconsOn,
@@ -222,6 +226,8 @@ export interface CharacterPanel {
    * lent card is indistinguishable from one of your own.
    */
   readonly ownerName: string | null;
+  /** "Hercules's Labor" on a Labor card in a play area (an encounter card a player owns); null for every other card. */
+  readonly ownedBy: string | null;
   /** Lasting effects aimed at this identity's seat, as short notes ("next card costs 1 less"). */
   readonly effects: readonly string[];
   /**
@@ -272,6 +278,22 @@ export interface AttachmentChip {
    * any more than the table's own picture of it does (`faceOf`'s own `back` branch).
    */
   readonly faceup: boolean;
+  /** "Hercules's Labor" for a Labor card hanging here (an encounter card a player owns); null for every other card. */
+  readonly ownedBy: string | null;
+  /**
+   * Cards tucked under this attachment, faceup ones named (Ionic Physiology holds up to three events; RRG 1.8 "Tuck",
+   * p. 45). Public information: a table shows what sits under a card. Empty for almost every attachment.
+   */
+  readonly tucked: readonly TuckedCardView[];
+  /** `tucked.length`. */
+  readonly tuckedCount: number;
+  /** The most it may hold (`tuckLimitOf`, the engine's own answer), or null when no rule limits it. */
+  readonly tuckMax: number | null;
+  /**
+   * The count against the maximum - "2 of 3 tucked" - or "2 tucked" with no maximum; null with nothing tucked and no
+   * maximum. A card with a maximum says "0 of 3 tucked" at none, so the room left is read, never guessed.
+   */
+  readonly tuckedNote: string | null;
   /**
    * The count its own text waits for on a kind of counter ("charm": 5 on a Hypnotic Gaze), so the chip reads "3/5 charm"
    * and shows the goal even at none (`counterGoalsOf`). Absent when it waits for none.
@@ -320,6 +342,8 @@ export function attachmentChipText(chip: AttachmentChip): string {
     chip.name,
     ...toward,
     ...chip.counters.filter((counter) => !(counter.name in goals)).map((counter) => `${counter.count} ${counter.name}`),
+    chip.ownedBy,
+    chip.tuckedNote,
     chip.exhausted ? "exhausted" : null,
   ]
     .filter(Boolean)
@@ -774,6 +798,33 @@ export interface SeparateDeckPile {
    */
   readonly discardTopInstanceId: InstanceId | null;
   readonly discardTopArt: ArtSource | null;
+  /** The deck by its owner, as the table says it: "Hercules's Labor deck" (the per-pile wording; the label stays short). */
+  readonly ownerLabel: string;
+  /** `"encounter"`: a deck of encounter cards a player owns (Hercules's Labor deck); `"player"` for every other deck. */
+  readonly family: "player" | "encounter";
+  /** The deck's printed `topCardFaceup`. False: no one may look at the top card, and Inspect on the pile shows a back. */
+  readonly topFaceup: boolean;
+  /** False when the deck's cards never enter a discard pile (`discardPile: "none"`): the pile draws no discard box and no count. */
+  readonly hasDiscard: boolean;
+  /** Whether Inspect on this pile may show a card (its top is faceup). False reads "Facedown. No one may look at it." */
+  readonly inspectable: boolean;
+  /** "Facedown. No one may look at it. 3 cards." for a pile whose cards are hidden; null when the top is faceup. */
+  readonly hiddenNote: string | null;
+  /**
+   * The deck's own cards that are out of it and where they are - revealed, in play, in the victory display - for an
+   * encounter-card deck only (Hercules's Labor cards: a card is dealt faceup while it is revealed, then sits in play
+   * or in the victory display, or goes back to the bottom of the deck). Empty for every other deck.
+   */
+  readonly outside: readonly SeparateDeckOutsideCard[];
+}
+
+/** One card of an encounter-card separate deck that is not in it now (`locateCard` says where). */
+export interface SeparateDeckOutsideCard {
+  readonly instanceId: InstanceId;
+  readonly name: string;
+  readonly where: "revealed" | "in play" | "attached" | "victory display";
+  /** "Defeat the Hydra - attached to Rhino", the line the zone draws. */
+  readonly line: string;
 }
 
 const ROMAN = ["I", "II", "III", "IV", "V"] as const;
@@ -823,6 +874,10 @@ function separateDeckPiles(state: GameState, me: PlayerState): readonly Separate
     // `topCardFaceup` (RRG-scoped to the deck's own definition) keeps the engine's `CardInstance.faceup` true for
     // this card, so `faceOf` — the same visibility-aware face lookup every other pile on the table already uses —
     // reads it correctly without this file re-deriving "is the top card visible" itself.
+    const definition = separateDeckDefinition(state, me.playerId, name);
+    const family = definition?.cardFamily === "encounter" ? "encounter" : "player";
+    const topFaceup = definition?.topCardFaceup ?? true;
+    const noun = /\bdeck$/i.test(name) ? name : `${name} deck`;
     return {
       name,
       deckCount: pile.deck.length,
@@ -831,8 +886,62 @@ function separateDeckPiles(state: GameState, me: PlayerState): readonly Separate
       topArt: top ? artFor(cardOf(state, top), faceOf(state, top)) : null,
       discardTopInstanceId: discardTop,
       discardTopArt: discardTop ? artFor(cardOf(state, discardTop), { kind: "front" }) : null,
+      ownerLabel: `${possessiveName(playerName(state, me.playerId))} ${noun}`,
+      family,
+      topFaceup,
+      hasDiscard: (definition?.discardPile ?? "own") !== "none",
+      inspectable: topFaceup,
+      hiddenNote: topFaceup
+        ? null
+        : `Facedown. No one may look at it. ${pile.deck.length} card${pile.deck.length === 1 ? "" : "s"}.`,
+      outside: family === "encounter" ? outsideCardsOf(state, me.playerId, name, pile.deck) : [],
     };
   });
+}
+
+/** "Hercules's", "Thor's": always 's, as the plan and the cards say it. */
+const possessiveName = (name: string): string => `${name}'s`;
+
+/**
+ * The cards whose home is this encounter-card deck and that are out of it, in instance order, with where each is now.
+ * A revealed card is `dealtEncounter` while it is revealed; one in play sits in a play area or hangs on a card; a
+ * defeated or completed one is in the victory display (RRG 1.8 FAQ "Hercules Hero Pack - Labor Cards", p. 65).
+ */
+function outsideCardsOf(
+  state: GameState,
+  playerId: PlayerId,
+  deckName: string,
+  inDeck: readonly InstanceId[],
+): readonly SeparateDeckOutsideCard[] {
+  const out: SeparateDeckOutsideCard[] = [];
+  for (const instance of Object.values(state.instances)) {
+    if (instance.ownerId !== playerId || instance.home.kind !== "separateDeck" || instance.home.name !== deckName) {
+      continue;
+    }
+    if (inDeck.includes(instance.instanceId)) continue;
+    const zone = locateCard(state, instance.instanceId);
+    const name = currentName(state, instance.instanceId) ?? cardOf(state, instance.instanceId)?.name ?? "Card";
+    const entry = (where: SeparateDeckOutsideCard["where"], line: string): void => {
+      out.push({ instanceId: instance.instanceId, name, where, line });
+    };
+    if (zone?.kind === "dealtEncounter") entry("revealed", `${name} - being revealed`);
+    else if (zone?.kind === "victoryDisplay") entry("victory display", `${name} - in the victory display`);
+    else if (zone?.kind === "attachment") {
+      entry("attached", `${name} - attached to ${faceUpName(state, zone.hostInstanceId)}`);
+    } else if (zone?.kind === "playArea") entry("in play", `${name} - in play`);
+  }
+  return out;
+}
+
+/**
+ * "Hercules's Labor" for an encounter card a player owns (a Labor card; `isOwnedEncounterCard`), null for every other
+ * card. An encounter card all the same, so no one controls it: the label says whose deck it came from.
+ */
+export function ownedEncounterLabel(state: GameState, id: InstanceId): string | null {
+  if (!isOwnedEncounterCard(state, id)) return null;
+  const instance = getInstance(state, id);
+  if (!instance || instance.ownerId === null || instance.home.kind !== "separateDeck") return null;
+  return `${possessiveName(playerName(state, instance.ownerId))} ${instance.home.name}`;
 }
 
 /**
@@ -1111,6 +1220,7 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
       instance.ownerId !== null && instance.controllerId !== null && instance.ownerId !== instance.controllerId
         ? playerName(state, instance.ownerId)
         : null,
+    ownedBy: ownedEncounterLabel(state, id),
     effects: seatEffectsOf(state, state.players.find((seat) => seat.identity.instanceId === id)?.playerId ?? null),
     tucked: tuckedCardsUnder(state, id),
     tuckedCount: instance.tucked.length,
@@ -1557,11 +1667,33 @@ function attachmentChipsOf(state: GameState, instance: CardInstance, deps: Engin
       // A facedown card's text is hidden, so its threshold is too.
       damageThreshold: faceup ? breakPointOf(state, attachmentId, deps) : null,
       faceup,
+      ownedBy: ownedEncounterLabel(state, attachmentId),
+      ...tuckFacts(state, attachmentId, deps),
       ...(faceup && Object.keys(counterGoalsOf(state, attachmentId, deps)).length > 0
         ? { counterGoals: counterGoalsOf(state, attachmentId, deps) }
         : {}),
     };
   });
+}
+
+/**
+ * What a card holds under it against what it may hold (`tuckLimitOf`): the cards, the count, the engine's maximum and the
+ * words for them. The client never counts room itself: a maximum is the engine's number or there is none.
+ */
+export function tuckFacts(
+  state: GameState,
+  id: InstanceId,
+  deps: EngineDeps,
+): Pick<AttachmentChip, "tucked" | "tuckedCount" | "tuckMax" | "tuckedNote"> {
+  const tucked = tuckedCardsUnder(state, id);
+  const tuckMax = tuckLimitOf(state, deps, id);
+  return {
+    tucked,
+    tuckedCount: tucked.length,
+    tuckMax,
+    tuckedNote:
+      tuckMax !== null ? `${tucked.length} of ${tuckMax} tucked` : tucked.length > 0 ? `${tucked.length} tucked` : null,
+  };
 }
 
 /**

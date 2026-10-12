@@ -96,6 +96,12 @@ export interface PaymentSourceView extends PaymentSource {
    * abilities.
    */
   readonly helperName: string | null;
+  /**
+   * What the source's own cost takes, in words, from the amount it carries (`PaymentSource.costSelection`): "take 2
+   * damage" on Energy Siphon spent from the hand (one source per amount the engine allows), "remove 2 threat". Null for
+   * a source with no chosen amount. The tile says it so the amount is read before the card is spent.
+   */
+  readonly amountNote: string | null;
 }
 
 export interface PaymentView {
@@ -164,6 +170,20 @@ export interface PaymentView {
    * own thumbnail in the bar.
    */
   readonly subjectInHand: boolean;
+  /**
+   * What the picks generate beyond the cost, as a count: "Overpaid by 2" is the note the bar shows. Only while the
+   * engine accepts the selection (a payment that does not cover the cost is not overpaid, it is short), and only for a
+   * count of pips: which resources the card reads as paid and which as overpaid is the engine's, asked of the player
+   * when it matters (`paidResourcesChosen`), so no type is named. 0 when nothing is over.
+   */
+  readonly overpaid: number;
+  /** "Overpaid by 2", or null. What overpaying does for the card is not exposed by the engine, so it is not said. */
+  readonly overpaidNote: string | null;
+  /**
+   * One line per other player whose hand cards the picks spend toward an alliance card: "Helped by Ana: 1 energy",
+   * from the picked sources' own pools. Empty for an ordinary payment.
+   */
+  readonly helperLines: readonly string[];
   /**
    * The command to send, when the engine accepts this exact selection. Null
    * while it does not — with the engine's reason in `blockedBy`.
@@ -330,7 +350,12 @@ export function paymentView(
     ...source,
     spent: picked.includes(source.optionId),
     helperName: helperNameOf(state, playerId, source),
+    amountNote: amountNoteOf(source),
   }));
+  // A chosen-size cost (`chosenResources`) spends up to `max` and overpays the rest; any other cost spends what it
+  // requires. Only counted once the engine accepts the selection.
+  const requiredTotal = poolTotal(requirement) + (query.chosenResources?.max ?? 0);
+  const overpaid = attempt.ok ? Math.max(0, paid - requiredTotal) : 0;
   return {
     headline,
     subject,
@@ -345,6 +370,9 @@ export function paymentView(
     sources,
     tableSources: sources.filter((source) => source.kind === "resourceAbility" || source.helperName !== null),
     subjectInHand: subject !== null && locateCard(state, subject)?.kind === "hand",
+    overpaid,
+    overpaidNote: overpaid > 0 ? `Overpaid by ${overpaid}` : null,
+    helperLines: helperLinesOf(sources),
     command: attempt.ok ? attempt.command : null,
     blockedBy: attempt.ok ? null : attempt.message,
     costReductionOptions,
@@ -409,6 +437,30 @@ function helperNameOf(state: GameState, payerId: PlayerId, source: PaymentSource
   const owner = state.players.find((player) => player.hand.includes(source.instanceId));
   if (!owner || owner.playerId === payerId) return null;
   return faceUpName(state, owner.identity.instanceId) ?? "Helper";
+}
+
+/** "take 2 damage" / "remove 2 threat" from the amount a source's own cost carries; null when it carries none. */
+function amountNoteOf(source: PaymentSource): string | null {
+  const selection = source.costSelection;
+  if (!selection) return null;
+  if (selection.damageSelf !== undefined) return `take ${selection.damageSelf} damage`;
+  if (selection.removeThreat !== undefined) return `remove ${selection.removeThreat} threat`;
+  return null;
+}
+
+/** "Helped by Ana: 1 energy, 1 mental", one line per helper in seat order of first pick, from the picked sources. */
+function helperLinesOf(sources: readonly PaymentSourceView[]): readonly string[] {
+  const byHelper = new Map<string, Record<string, number>>();
+  for (const source of sources) {
+    if (!source.spent || source.helperName === null) continue;
+    const total = byHelper.get(source.helperName) ?? {};
+    for (const [type, count] of Object.entries(source.pool)) if (count > 0) total[type] = (total[type] ?? 0) + count;
+    byHelper.set(source.helperName, total);
+  }
+  return [...byHelper].map(([name, pool]) => {
+    const words = Object.entries(pool).map(([type, count]) => `${count} ${type}`);
+    return `Helped by ${name}: ${words.join(", ") || "nothing"}`;
+  });
 }
 
 /**

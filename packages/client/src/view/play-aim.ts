@@ -10,6 +10,7 @@
 import {
   additionalPlayCostOf,
   cardOf,
+  locateCard,
   type AbilityCost,
   type Command,
   type CostChoices,
@@ -114,4 +115,51 @@ export function playAimPrompt(state: GameState, deps: EngineDeps, entry: LegalAc
   if (action.kind !== "playCard") return "Choose a target";
   const card = cardOf(state, action.instanceId);
   return card?.type === "upgrade" ? `Choose what ${name} attaches to` : `Choose a target for ${name}`;
+}
+
+/** One minion a search cost could put into play, and where it is now. */
+export interface SearchedPickOption {
+  readonly instanceId: InstanceId;
+  readonly name: string;
+  /** "in the encounter deck" or "in the encounter discard": the area as words, so it is read without colour. */
+  readonly area: string;
+  /** "Hellcat - in the encounter deck", numbered when two options would otherwise read the same. */
+  readonly label: string;
+}
+
+/** The chooser a search cost's pick opens (Hunted): a list of the cards the engine found, each with its area. */
+export interface SearchedPickView {
+  readonly prompt: string;
+  readonly options: readonly SearchedPickOption[];
+}
+
+const AREA_WORDS: Readonly<Record<string, string>> = {
+  encounterDeck: "in the encounter deck",
+  encounterDiscard: "in the encounter discard",
+};
+
+/**
+ * The candidates of a cost that searches the encounter deck and discard pile (Hunted 56007), when the engine lists
+ * more than one: they are not on the board, so they cannot be highlighted there and are listed instead, each with the
+ * area it was found in. Null for every other play. Only cards the engine listed (`LegalAction.targets`) appear.
+ */
+export function searchedPickFor(state: GameState, deps: EngineDeps, entry: LegalAction): SearchedPickView | null {
+  const { action } = entry;
+  if (action.kind !== "playCard" || !additionalPlayCostOf(state, deps, action.instanceId)?.attachToSlot) return null;
+  if (!needsPlayAim(entry)) return null;
+  const base = entry.targets.map((instanceId) => {
+    const name = cardOf(state, instanceId)?.name ?? "Card";
+    const zone = locateCard(state, instanceId);
+    const area = (zone && AREA_WORDS[zone.kind]) || "out of play";
+    return { instanceId, name, area, text: `${name} - ${area}` };
+  });
+  const total = new Map<string, number>();
+  for (const option of base) total.set(option.text, (total.get(option.text) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const options = base.map(({ text, ...option }): SearchedPickOption => {
+    const nth = (seen.get(text) ?? 0) + 1;
+    seen.set(text, nth);
+    return { ...option, label: (total.get(text) ?? 0) > 1 ? `${text} (${nth})` : text };
+  });
+  return { prompt: playAimPrompt(state, deps, entry), options };
 }
