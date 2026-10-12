@@ -27,9 +27,10 @@
  * this deck", the required ones first and fixed, the rest togglable up to the
  * scenario's own cap.
  */
-import type { AnyCard, Scenario } from "@mc/content";
+import type { AnyCard, EncounterSet, Scenario } from "@mc/content";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
-import { setAsideModularSetCountFor } from "@mc/content";
+import { modularSetCountRangeOf, setAsideModularSetCountFor } from "@mc/content";
+import { modularPickCountProblem } from "@mc/cards";
 import {
   ALL_OPEN,
   EXTRAS_GROUP_ID,
@@ -110,6 +111,8 @@ export interface ModularSetOption {
 export interface ModularPickerContext {
   readonly scope?: ModularScope;
   readonly exclusions?: readonly ModularSetExclusion[];
+  /** The encounter sets known (default: the app's pool); a test or the builder may pass a wider list. */
+  readonly encounterSets?: readonly EncounterSet[];
 }
 
 export interface RequiredEncounterSet {
@@ -154,6 +157,70 @@ export function modularPickCountFor(scenario: Scenario, playerCount: number): nu
   return scenario.modularSetCount ?? 1;
 }
 
+/** The number of sets the table may pick: a fixed count has `min === max`; a Civil War scenario has 3 to 4 (MC56 p. 4). */
+export interface ModularPickRange {
+  readonly min: number;
+  readonly max: number;
+}
+
+/** The pick range for `scenario`; a fixed-count scenario (everything but Civil War) is `{ n, n }`, as `modularPickCountFor`. */
+export function modularPickRangeFor(scenario: Scenario, playerCount: number): ModularPickRange {
+  if (modularPicksAreSetAside(scenario)) {
+    const n = modularPickCountFor(scenario, playerCount);
+    return { min: n, max: n };
+  }
+  const range = modularSetCountRangeOf(scenario);
+  return { min: range.min, max: range.max };
+}
+
+const COUNT_WORDS: Readonly<Record<number, string>> = {
+  1: "One",
+  2: "Two",
+  3: "Three",
+  4: "Four",
+  5: "Five",
+  6: "Six",
+};
+
+/** Why an unchosen tile is disabled once a range is full: "Four is the most (MC56 p. 4)". Null below the maximum or for a fixed count. */
+export function modularAtMaxReason(range: ModularPickRange, picked: number): string | null {
+  if (range.min === range.max || picked < range.max) return null;
+  return `${COUNT_WORDS[range.max] ?? String(range.max)} is the most (MC56 p. 4)`;
+}
+
+export interface ModularPickStatus {
+  /** "3 or 4 sets" for a range, "4 sets" for a fixed count. */
+  readonly rangeLabel: string;
+  /** "3 to 4 sets. Chosen: 4." (a fixed count: "4 sets. Chosen: 2."). */
+  readonly line: string;
+  /** How many more are needed to reach the minimum. */
+  readonly needed: number;
+  /** How many more may still be added before the maximum. */
+  readonly allowedMore: number;
+  /** "Pick 2 more", "Room for 1 more", or null when the maximum is reached. */
+  readonly hint: string | null;
+  /** The cards package's own text for a count outside the range ("uses 3 to 4 modular sets, got 2"); null when allowed. */
+  readonly problem: string | null;
+}
+
+/** What the picker says about the count: how many are chosen, how many more are needed or allowed. */
+export function modularPickStatus(scenario: Scenario, picked: number, playerCount: number): ModularPickStatus {
+  const range = modularPickRangeFor(scenario, playerCount);
+  const noun = (n: number): string => `${n} set${n === 1 ? "" : "s"}`;
+  const rangeLabel = range.min === range.max ? noun(range.max) : `${range.min} or ${range.max} sets`;
+  const lead = range.min === range.max ? noun(range.max) : `${range.min} to ${range.max} sets`;
+  const needed = Math.max(0, range.min - picked);
+  const allowedMore = Math.max(0, range.max - picked);
+  return {
+    rangeLabel,
+    line: `${lead}. Chosen: ${picked}.`,
+    needed,
+    allowedMore,
+    hint: needed > 0 ? `Pick ${needed} more` : allowedMore > 0 ? `Room for ${allowedMore} more` : null,
+    problem: modularPicksAreSetAside(scenario) ? null : modularPickCountProblem(scenario, picked),
+  };
+}
+
 /** Every candidate, with its display name, real card count/descriptor, and whether it's currently chosen. Listed group by group. */
 export function modularSetOptionsFor(
   draft: SetupDraft,
@@ -164,9 +231,14 @@ export function modularSetOptionsFor(
   const scope = context.scope ?? ALL_OPEN;
   const exclusions = context.exclusions ?? MODULAR_SET_EXCLUSIONS;
   const chosen = new Set(effectiveModularSetIds(draft, scenario));
-  const setsById = new Map(POOL_ENCOUNTER_SETS.map((set) => [set.id as string, set.name]));
+  const encounterSets = context.encounterSets ?? POOL_ENCOUNTER_SETS;
+  const setsById = new Map(encounterSets.map((set) => [set.id as string, set.name]));
   const scenarioId = scenario.id as string;
-  const candidates = modularCandidatesFor(scenario, scope);
+  const candidates = modularCandidatesFor(scenario, scope, encounterSets);
+  const atMaxReason = modularAtMaxReason(
+    modularPickRangeFor(scenario, draft.seats.length),
+    candidates.filter((c) => chosen.has(c.id)).length,
+  );
   const asOption = (c: (typeof candidates)[number], index: number): ModularSetOption => ({
     kind: "set" as const,
     id: c.id,
@@ -178,7 +250,10 @@ export function modularSetOptionsFor(
     groupId: c.groupId,
     // Only the group's first tile carries its label.
     groupLabel: index === 0 || candidates[index - 1]!.groupId !== c.groupId ? c.groupLabel : null,
-    disabledReason: modularExclusionReason(scenarioId, c.id, exclusions),
+    disabledReason:
+      c.disabledReason ??
+      modularExclusionReason(scenarioId, c.id, exclusions) ??
+      (chosen.has(c.id) ? null : atMaxReason),
   });
   // The first group (recommended, or a restricted pool's own sets) takes the Random chip right after its sets.
   const firstGroupId = candidates[0]?.groupId ?? RECOMMENDED_GROUP_ID;
@@ -338,8 +413,14 @@ export function toggleModularSet(
       return draft;
     return toggleExtraModularSet(draft, setId);
   }
-  const cap = modularPickCountFor(scenario, playerCount);
+  const range = modularPickRangeFor(scenario, playerCount);
+  const cap = range.max;
   const current = [...effectiveModularSetIds(draft, scenario)];
+  if (!current.includes(setId)) {
+    // The other side's sets are never added; a range never rolls the oldest pick out (deselect first to swap).
+    if (modularCandidatesFor(scenario).find((c) => c.id === setId)?.disabledReason !== undefined) return draft;
+    if (range.min !== range.max && current.length >= cap) return draft;
+  }
   // A pairing rules QA barred (`modular-exclusions.ts`) can be taken back out but never added.
   if (!current.includes(setId) && modularExclusionReason(scenario.id as string, setId) !== null) return draft;
   if (current.includes(setId)) {

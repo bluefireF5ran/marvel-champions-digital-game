@@ -44,6 +44,10 @@ export const RECOMMENDED_GROUP_ID = "recommended";
 export const EXTRAS_GROUP_ID = "extras";
 /** A restricted pool's own sets, drawn as one unlabeled group. */
 export const POOL_GROUP_ID = "pool";
+/** The other side's sets in a Civil War scenario: listed last, disabled, folded by default (owner, question 7b = A). */
+export const OTHER_SIDE_GROUP_ID = "other-side";
+/** The scenario's own side's sets that its leader does not recommend: "Registration sets" / "Resistance sets". */
+export const OWN_SIDE_GROUP_ID = "own-side";
 
 export interface ModularCandidate {
   readonly id: string;
@@ -51,6 +55,8 @@ export interface ModularCandidate {
   readonly groupId: string;
   /** The small label over the group's first tile; null for an unlabeled group. */
   readonly groupLabel: string | null;
+  /** Why the scenario cannot take this set (the other side's), drawn on the disabled tile; absent when it can. */
+  readonly disabledReason?: string;
 }
 
 interface CycleInfo {
@@ -98,21 +104,37 @@ export function setIsUnlocked(set: EncounterSet, scope: ModularScope): boolean {
 export { isScenarioSpecificSet };
 
 /**
+ * SEAM for the cards package's refusal text. Today the client words the other side's reason from the data (`side`);
+ * once `modularPickProblem` refuses a set of the other side with its own message (MC56 p. 4), return that message here
+ * (`modularPickProblem(scenario, set.id, POOL_ENCOUNTER_SETS)`) and nowhere else.
+ */
+export function otherSideReason(scenario: Scenario, set: EncounterSet): string | null {
+  if (set.side === undefined || scenario.side === undefined || set.side === scenario.side) return null;
+  return `${set.name} is a ${set.side} set; this scenario is ${scenario.side} (MC56 p. 4)`;
+}
+
+/**
  * True for a set the picker may list for `scenario`, before the unlock gate: exactly what the builders accept, plus the
  * pairings `MODULAR_SET_EXCLUSIONS` names, which are listed disabled with their short reason (the builder refuses them).
  */
-function isOfferable(set: EncounterSet, scenario: Scenario): boolean {
+function isOfferable(set: EncounterSet, scenario: Scenario, pool: readonly EncounterSet[]): boolean {
+  // The other side's sets are listed disabled, not omitted: judge every other rule as if the scenario had no side.
+  const { side: _side, ...sideless } = scenario;
   return (
-    modularPickProblem(scenario, set.id as string, POOL_ENCOUNTER_SETS) === null ||
+    modularPickProblem(sideless, set.id as string, pool) === null ||
     modularExclusionReason(scenario.id as string, set.id as string) !== null
   );
 }
 
 /**
- * Every modular candidate for `scenario`, in draw order: the recommended sets, then the rest grouped by cycle in
+ * Every modular candidate for `scenario` among `encounterSets` (the app's pool by default), in draw order: the recommended sets, then the rest grouped by cycle in
  * release order (the pool's own declaration order inside a cycle).
  */
-export function modularCandidatesFor(scenario: Scenario, scope: ModularScope = ALL_OPEN): readonly ModularCandidate[] {
+export function modularCandidatesFor(
+  scenario: Scenario,
+  scope: ModularScope = ALL_OPEN,
+  encounterSets: readonly EncounterSet[] = POOL_ENCOUNTER_SETS,
+): readonly ModularCandidate[] {
   const recommended = scenario.recommendedModularSetIds.map((id) => id as string);
   const isRecommended = (id: string): boolean => recommended.includes(id);
 
@@ -132,24 +154,46 @@ export function modularCandidatesFor(scenario: Scenario, scope: ModularScope = A
     groupLabel: "Recommended",
   }));
   const have = new Set(recommended);
-  const setsById = new Map(POOL_ENCOUNTER_SETS.map((set) => [set.id as string, set]));
+  const setsById = new Map(encounterSets.map((set) => [set.id as string, set]));
 
   // A scenario that uses no modular set (Breakout, The Hood) keeps Core's five: nothing here to add a set to.
   const noModulars = scenario.modularSetCount === 0 && scenario.modularSetPool === undefined;
   const pool: readonly EncounterSet[] = noModulars
     ? CORE_MODULAR_SET_IDS.map((id) => setsById.get(id)).filter((s): s is EncounterSet => s !== undefined)
-    : POOL_ENCOUNTER_SETS.filter((set) => isOfferable(set, scenario) && setIsUnlocked(set, scope));
+    : encounterSets.filter((set) => isOfferable(set, scenario, encounterSets) && setIsUnlocked(set, scope));
 
   const rest = pool.filter((set) => !have.has(set.id as string));
   const keyed = rest.map((set, index) => ({ set, index, cycle: cycleOfSet(set) }));
   keyed.sort((a, b) => (a.cycle?.order ?? 999) - (b.cycle?.order ?? 999) || a.index - b.index);
-  for (const { set, cycle } of keyed)
-    out.push({
-      id: set.id as string,
-      recommended: false,
-      groupId: cycle?.id ?? "other",
-      groupLabel: cycle?.label ?? "Other",
-    });
+  const otherSide: ModularCandidate[] = [];
+  const ownSide: ModularCandidate[] = [];
+  const neutral: ModularCandidate[] = [];
+  for (const { set, cycle } of keyed) {
+    const reason = otherSideReason(scenario, set);
+    if (reason !== null)
+      otherSide.push({
+        id: set.id as string,
+        recommended: false,
+        groupId: OTHER_SIDE_GROUP_ID,
+        groupLabel: "Other side",
+        disabledReason: reason,
+      });
+    else if (set.side !== undefined && set.side === scenario.side)
+      ownSide.push({
+        id: set.id as string,
+        recommended: false,
+        groupId: OWN_SIDE_GROUP_ID,
+        groupLabel: set.side === "registration" ? "Registration sets" : "Resistance sets",
+      });
+    else
+      neutral.push({
+        id: set.id as string,
+        recommended: false,
+        groupId: cycle?.id ?? "other",
+        groupLabel: cycle?.label ?? "Other",
+      });
+  }
+  out.push(...ownSide, ...neutral, ...otherSide);
   return out;
 }
 
