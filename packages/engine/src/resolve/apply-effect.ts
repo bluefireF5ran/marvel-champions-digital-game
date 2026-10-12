@@ -1549,23 +1549,41 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // `byEffect`, and the rules that stop a defeat (cannotBeDefeated, permanent) still do.
       const inPlay = cardsInPlay(ctx.state);
       const defeatingPlayer = frame.controllerId;
+      // In an "(attack)" ability a player uses, the enemies this defeats are attacked by the identity and the defeat is
+      // that attack's (RRG 1.8 "Attack (Player Ability Type)", p. 10; `attack-ability.ts`, "A defeat instruction"):
+      // guard is read for each, and a cancelled attack defeats no enemy.
+      const ability = abilityAttackOf(ctx.state, ctx.deps, frame);
+      const attack = ability?.waiting;
+      const attacked: Extract<TriggerEvent, { kind: "characterAttacked" }>[] = [];
+      const named = targets(effect.target)
+        .filter((id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"))
+        // "Cannot be defeated again" (FAQ "Malice (#199)", RRG 1.8 p. 64): no defeat, so no window for one either.
+        .filter((id) => !cannotBeDefeatedAgain(ctx.state, id))
+        // Nor for a card already defeated, in play only until its When Defeated abilities resolve (`alreadyDefeated`).
+        .filter((id) => !alreadyDefeated(ctx.state, id));
+      const defeats = (ability ? skipUnattackable(ctx, ability, frame.selfInstanceId, named) : named).map((id) => {
+        const ofAttack = attack ? abilityAttackDamage(ctx.state, ctx.deps, attack, id) : null;
+        if (ofAttack) attacked.push(ofAttack.attacked);
+        return {
+          kind: "characterDefeated" as const,
+          instanceId: id,
+          byEffect: true as const,
+          ...(effect.ignoreWhenDefeated === true ? { ignoreWhenDefeated: true as const } : {}),
+          ...(defeatingPlayer ? { defeatedByPlayerId: defeatingPlayer } : {}),
+          ...(frame.selfInstanceId ? { sourceInstanceId: frame.selfInstanceId } : {}),
+          ...(attack && ofAttack
+            ? {
+                sourceInstanceId: attack.event.attackerInstanceId,
+                viaInstanceId: frame.selfInstanceId,
+                fromAttack: true as const,
+                parentFrameId: attack.frameId,
+              }
+            : {}),
+        };
+      });
+      if (attack) noteAttackedByAbility(ctx, attack.frameId, attacked);
       // Several allies and minions defeated by this one effect are defeated together (docs/phase7-wave5.md §4.1 Q49).
-      pushDefeats(
-        ctx,
-        targets(effect.target)
-          .filter((id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"))
-          // "Cannot be defeated again" (FAQ "Malice (#199)", RRG 1.8 p. 64): no defeat, so no window for one either.
-          .filter((id) => !cannotBeDefeatedAgain(ctx.state, id))
-          // Nor for a card already defeated, in play only until its When Defeated abilities resolve (`alreadyDefeated`).
-          .filter((id) => !alreadyDefeated(ctx.state, id))
-          .map((id) => ({
-            kind: "characterDefeated" as const,
-            instanceId: id,
-            byEffect: true as const,
-            ...(defeatingPlayer ? { defeatedByPlayerId: defeatingPlayer } : {}),
-            ...(frame.selfInstanceId ? { sourceInstanceId: frame.selfInstanceId } : {}),
-          })),
-      );
+      pushDefeats(ctx, defeats);
       return;
     }
     case "removeCounters": {

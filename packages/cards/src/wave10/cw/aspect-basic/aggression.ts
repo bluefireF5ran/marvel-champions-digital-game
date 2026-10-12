@@ -7,10 +7,13 @@ import {
   chooseTarget,
   chosen,
   constant,
+  defeat,
   defineAbilities,
   eventTarget,
   exhaustThis,
   gets,
+  hasAttachment,
+  heroAction,
   heroInterrupt,
   interrupt,
   modifyAttack,
@@ -34,6 +37,8 @@ import { SPIDER_WOMAN_KIT } from "../../../wave2/trors/spider-woman-kit.js";
 import { DRAX_PACK_CARDS } from "../../../wave3/drax/drax-pack-cards.js";
 import { ADAM_WARLOCK_PACK_CARDS } from "../../../wave4/mts/adam-warlock-pack-cards.js";
 import { ICEMAN_ASPECT_BASIC } from "../../../wave8/iceman/aspect-basic.js";
+
+const ELITE = trait("Elite");
 
 /**
  * Wave 10 scripting module `cw/aspect-basic/aggression` (docs/phase7-wave10.md section 8.4, docs/phase7-wave10-box-heroes.md B8.4).
@@ -62,6 +67,14 @@ import { ICEMAN_ASPECT_BASIC } from "../../../wave8/iceman/aspect-basic.js";
  *
  * **56013.aggressive-conditioning-constant**: "You get +3 hit points" (the identity) and "your hero gets +1 ATK", for
  * whichever player controls it (data: play under any player's control, max 1 per player).
+ *
+ * **56016.coup-de-grace-action**: "Hero Action (attack): Defeat a non-Elite minion with an upgrade attached. Ignore any
+ * 'When Defeated' abilities on that minion." (docs/phase7-wave10-box-heroes.md B3.2). The upgrade is a player upgrade
+ * (an encounter attachment is not one), under any player's control, and with no such minion the card cannot be played.
+ * The minion is defeated outright, with no damage, so a tough status card does not stop it; its own When Defeated
+ * abilities are ignored (RRG 1.8 "Ignore", p. 23) and the rest of its defeat is unchanged. The event is an attack by
+ * the hero (RRG 1.8 "Labeled Ability", p. 26): a stunned hero discards the stunned card and defeats nothing. Retaliate
+ * deals nothing, as the minion is no longer in play (RRG 1.8 "Retaliate X", p. 38).
  *
  * **56017.savage-strike-interrupt**: +6 ATK and piercing for that one basic attack (Sharp Claws' shape).
  */
@@ -94,6 +107,12 @@ export const ASPECT_BASIC_AGGRESSION: AbilityRegistry = defineAbilities({
 
   "56015.bring-it-action": DRAX_PACK_CARDS["19030.bring-it-action"]!,
 
+  "56016.coup-de-grace-action": heroAction(
+    { label: "attack" },
+    chooseTarget("minion", query("minion", { withoutTrait: ELITE, ...hasAttachment(query("upgrade")) })),
+    defeat(chosen("minion"), { ignoreWhenDefeated: true }),
+  ),
+
   "56017.savage-strike-interrupt": heroInterrupt(
     when.attacks(YOUR_IDENTITY, { basic: true }),
     modifyStat("atk", 6, yourIdentity, "endOfAttack"),
@@ -103,7 +122,5 @@ export const ASPECT_BASIC_AGGRESSION: AbilityRegistry = defineAbilities({
   "56018.audacity-response": ADAM_WARLOCK_PACK_CARDS["21046.audacity-response"]!,
 });
 
-/** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const ASPECT_BASIC_AGGRESSION_SKIPPED: Readonly<Record<string, string>> = {
-  "56016.coup-de-grace-action": "waits on box-heroes B8.2 task 2 (B3.2)",
-};
+/** Refs of this module's cards deliberately left unscripted, each with its written reason. None. */
+export const ASPECT_BASIC_AGGRESSION_SKIPPED: Readonly<Record<string, string>> = {};

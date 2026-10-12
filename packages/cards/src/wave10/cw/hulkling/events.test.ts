@@ -134,20 +134,21 @@ describe("Hulkling events registry", () => {
     (CW_CARDS.find((c) => c.id === cardId(code)) as EventCard).abilities.map((a) => a.id as string);
 
   it("every ability validates, with the printed timing", () => {
-    for (const id of [STRIKE_A, IMPERSONATION_A, SHAPESHIFTER_A])
+    for (const id of [STRIKE_A, DEFENSE_I, IMPERSONATION_A, SHAPESHIFTER_A])
       expect(validateDefinition(HULKLING_EVENTS[id]!), id).toEqual([]);
     for (const id of [STRIKE_A, IMPERSONATION_A, SHAPESHIFTER_A])
       expect(HULKLING_EVENTS[id]!.trigger, id).toMatchObject({ kind: "action", form: "hero" });
+    expect(HULKLING_EVENTS[DEFENSE_I]!.trigger).toMatchObject({ kind: "interrupt", forced: false, form: "hero" });
+    expect(HULKLING_EVENTS[DEFENSE_I]!.label).toEqual(["defense"]);
   });
 
-  it("three of the four printed refs are registered; Armored Defense waits on an engine fix", () => {
-    expect(Object.keys(HULKLING_EVENTS_SKIPPED)).toEqual([DEFENSE_I]);
-    expect(HULKLING_EVENTS_SKIPPED[DEFENSE_I]).toContain("atEndOfAttack");
+  it("all four printed refs are registered and none is skipped", () => {
+    expect(HULKLING_EVENTS_SKIPPED).toEqual({});
     expect(printed(STRIKE)).toEqual([STRIKE_A]);
     expect(printed(DEFENSE)).toEqual([DEFENSE_I]);
     expect(printed(IMPERSONATION)).toEqual([IMPERSONATION_A]);
     expect(printed(SHAPESHIFTER)).toEqual([SHAPESHIFTER_A]);
-    expect(Object.keys(HULKLING_EVENTS).sort()).toEqual([STRIKE_A, IMPERSONATION_A, SHAPESHIFTER_A].sort());
+    expect(Object.keys(HULKLING_EVENTS).sort()).toEqual([STRIKE_A, DEFENSE_I, IMPERSONATION_A, SHAPESHIFTER_A].sort());
   });
 });
 
@@ -209,11 +210,7 @@ describe(`${STRIKE_A}: Hero Action (attack): deal 5 damage to an enemy, ready yo
   });
 });
 
-/**
- * Armored Defense is not registered (see HULKLING_EVENTS_SKIPPED): the two tests marked below fail against the engine.
- * The block stays, skipped, as the acceptance test for the engine fix; unskip it together with the script in events.ts.
- */
-describe.skip(`${DEFENSE_I}: Hero Interrupt (defense): when an enemy attacks, deal damage to it equal to your DEF; after the attack, give Hulkling a tough status card`, () => {
+describe(`${DEFENSE_I}: Hero Interrupt (defense): when an enemy attacks, deal damage to it equal to your DEF; after the attack, give Hulkling a tough status card`, () => {
   /** Hulkling in hero form (with `shape` if given), the villain's boost card neutral, and Armored Defense in hand. */
   function game(opts: { shape?: string; stunVillain?: boolean; minion?: boolean; alterEgo?: boolean } = {}) {
     let s = opts.alterEgo ? hulklingGame() : hulklingHeroGame();

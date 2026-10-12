@@ -215,8 +215,8 @@ function attackCanDamage(
 
 /**
  * The effects inside `value` through which an "(attack)" ability would attack the card bound to `slot`: an `attack`
- * aimed at it, and a `dealDamage` instruction aimed at it that is the attack's damage (`isAttackInstruction`). A
- * branch, an option and post-"then" text are read too.
+ * aimed at it, a `dealDamage` instruction aimed at it that is the attack's damage (`isAttackInstruction`), and a
+ * `defeat` aimed at it. A branch, an option and post-"then" text are read too.
  */
 function attacksThroughSlot(value: unknown, slot: string, found: EffectSpec[] = []): EffectSpec[] {
   if (Array.isArray(value)) {
@@ -225,9 +225,13 @@ function attacksThroughSlot(value: unknown, slot: string, found: EffectSpec[] = 
   }
   if (value === null || typeof value !== "object") return found;
   const record = value as Readonly<Record<string, unknown>>;
-  if ((record.kind === "attack" || record.kind === "dealDamage") && refersToSlot(record.target, slot)) {
-    const effect = value as Extract<EffectSpec, { kind: "attack" | "dealDamage" }>;
-    if (effect.kind === "attack" || isAttackInstruction(effect)) found.push(effect);
+  if (
+    (record.kind === "attack" || record.kind === "dealDamage" || record.kind === "defeat") &&
+    refersToSlot(record.target, slot)
+  ) {
+    const effect = value as Extract<EffectSpec, { kind: "attack" | "dealDamage" | "defeat" }>;
+    // A defeat instruction of an "(attack)" ability attacks the enemy it names, as its damage does.
+    if (effect.kind === "attack" || effect.kind === "defeat" || isAttackInstruction(effect)) found.push(effect);
   }
   for (const item of Object.values(record)) attacksThroughSlot(item, slot, found);
   return found;
@@ -298,7 +302,14 @@ function judgedCanAffect(
   // A card already defeated, in play only while its When Defeated abilities resolve, cannot be defeated again
   // (`alreadyDefeated`; RRG 1.8 "When Defeated Abilities", p. 48). The rules that stop a defeat as it applies
   // ("cannot be defeated", Permanent) are not judged here, as before.
-  if (effect.kind === "defeat") return !alreadyDefeated(state, id);
+  if (effect.kind === "defeat") {
+    // An "(attack)" ability's defeat of an enemy attacks it (`attack-ability.ts`, "A defeat instruction").
+    if (context.attackLabeled && isAttackTarget(state, id, deps)) {
+      const attacker = labeledAttacker(state, context);
+      if (attacker !== null && !canAttack(state, attacker, id, deps)) return false;
+    }
+    return !alreadyDefeated(state, id);
+  }
   if (effect.kind === "removeThreat") {
     // A "(thwart)"-labeled ability's removal is a thwart by its controller's identity (`EffectContext.thwartLabeled`).
     if (context.thwartLabeled && isScheme(state, id))
@@ -826,7 +837,7 @@ function holdsAttackInstruction(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(holdsAttackInstruction);
   if (value === null || typeof value !== "object") return false;
   const record = value as Readonly<Record<string, unknown>>;
-  if (record.kind === "attack" || record.kind === "dealDamage") return true;
+  if (record.kind === "attack" || record.kind === "dealDamage" || record.kind === "defeat") return true;
   if (record.kind === "divide" && record.what === "damage") return true;
   return Object.values(record).some(holdsAttackInstruction);
 }
@@ -886,7 +897,11 @@ function attackNamesNoAttackableEnemy(
   };
   const visit = (list: readonly EffectSpec[], always: boolean): void => {
     for (const effect of list) {
-      if (effect.kind === "attack" || (effect.kind === "dealDamage" && isAttackInstruction(effect))) {
+      if (
+        effect.kind === "attack" ||
+        effect.kind === "defeat" ||
+        (effect.kind === "dealDamage" && isAttackInstruction(effect))
+      ) {
         const attacker =
           effect.kind === "attack" ? attackerOf(state, effect, context) : labeledAttacker(state, context);
         if (!always || (effect.kind === "attack" && effect.attacker && readsBindings(effect.attacker))) {

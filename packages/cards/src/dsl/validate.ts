@@ -1422,6 +1422,9 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
       problems.push(`${where}: a held minion is attached faceup (as: "heldMinion" with facedown)`);
     if (effect.kind === "attach" && effect.as === "captive" && effect.facedown === true)
       problems.push(`${where}: a captive ally is attached faceup (as: "captive" with facedown)`);
+    // The flag is the literal `true` or absent, so a serialized definition has one form (the engine reads `=== true`).
+    if (effect.kind === "defeat" && effect.ignoreWhenDefeated !== undefined && effect.ignoreWhenDefeated !== true)
+      problems.push(`${where}: ignoreWhenDefeated is true or absent`);
     // One trait, or the traits of a character (docs/phase7-wave6.md §3.50), never both or neither.
     if (effect.kind === "grantTraitUntil" && (effect.trait === undefined) === (effect.traitsOf === undefined))
       problems.push(`${where}: needs exactly one of trait and traitsOf`);

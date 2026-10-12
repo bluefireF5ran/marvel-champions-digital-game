@@ -828,19 +828,22 @@ export function villainDefeatRemoves(state: GameState, villainId: InstanceId): b
  * villain is defeated. The game is won when every villain is (The Wrecking Crew insert: "If the players defeat all
  * 4 villains, they win the game!"). Returns the frame that chooses the next active villain, when one is needed.
  */
-export function defeatVillainStage(ctx: Ctx, villainId: InstanceId): StackFrame | null {
+export function defeatVillainStage(ctx: Ctx, villainId: InstanceId, ignoreWhenDefeated = false): StackFrame | null {
   const villain = mustVillain(ctx.state, villainId);
   const nextIndex = villain.stageIndex + 1;
   // The defeated stage's own "When Defeated" (Kang (I): "Advance the main scheme to stage 2 at the end of the phase";
   // Kang (III): "The players win the game."), read before the stage changes. Resolved after this defeat's bookkeeping.
-  const whenDefeated = gameAbilityFrames(
-    ctx,
-    villainId,
-    ["whenDefeated"],
-    null,
-    villainStageOf(ctx.state, villainId).abilities,
-    ctx.state.firstPlayerId,
-  );
+  // None when the defeating effect ignores them (`EffectSpec defeat` `ignoreWhenDefeated`; RRG 1.8 "Ignore", p. 23).
+  const whenDefeated = ignoreWhenDefeated
+    ? []
+    : gameAbilityFrames(
+        ctx,
+        villainId,
+        ["whenDefeated"],
+        null,
+        villainStageOf(ctx.state, villainId).abilities,
+        ctx.state.firstPlayerId,
+      );
   if (nextIndex > villain.lastStageIndex || nextIndex >= villainStageCount(ctx.state, villainId)) {
     // RRG 1.8 "Victory X" (p. 46): a defeated character with the keyword is placed in the victory display — here the
     // villain's last stage card (Loki I, `mts` 21160–21164; the Brotherhood of Mutants, `mut_gen` 32121–32124;

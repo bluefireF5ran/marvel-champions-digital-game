@@ -3950,8 +3950,15 @@ export type EffectSpec =
    * be defeated" interrupts, When Defeated, Victory X and responses all see it; `cannotBeDefeated` and the permanent
    * keyword still stop it. An ally or minion is discarded, an identity's player is eliminated, and a villain's stage falls
    * (RRG 1.8 "Villain Defeat", p. 47). Characters only. docs/phase7-wave3.md §3.9.
+   *
+   * `ignoreWhenDefeated`: "Defeat a non-[Elite] minion with an upgrade attached. Ignore any 'When Defeated' abilities on
+   * that minion." (Coup de Grâce, `cw` 56016; docs/phase7-wave10-box-heroes.md B3.2). RRG 1.8 "Ignore" (p. 23): the
+   * ignored abilities are treated "as not being in effect or present", so none of the defeated card's own When
+   * Defeated abilities resolve (RRG 1.8 "When Defeated Abilities", p. 48), printed or gained. Nothing else about the
+   * defeat changes: its "would be defeated" interrupts, Victory X, its attachments leaving with it, and every other
+   * card's abilities that answer the defeat ("when attached minion is defeated", "after … is defeated").
    */
-  | { readonly kind: "defeat"; readonly target: TargetRef }
+  | { readonly kind: "defeat"; readonly target: TargetRef; readonly ignoreWhenDefeated?: true }
   /**
    * A player sits the scenario out: a campaign's setup lets a player defeated in the last scenario decline to rejoin
    * (MC45 p. 20, MC50 p. 6; the printed text says "can rejoin" and nothing about a player who does not, so the sit-out

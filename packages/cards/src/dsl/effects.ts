@@ -320,8 +320,17 @@ export const discard = (target: TargetRef): EffectSpec => ({ kind: "discardFromP
  * effect rather than by damage. Everything that sees an ordinary defeat sees this one (interrupts, When Defeated,
  * Victory X, `cannotBeDefeated`); a villain's stage falls the same way "Villain Defeat" (RRG 1.8 p. 47) describes,
  * and an identity's player is eliminated. Characters only.
+ *
+ * `ignoreWhenDefeated`: "Defeat a … minion … Ignore any 'When Defeated' abilities on that minion." (Coup de Grâce,
+ * `cw` 56016; docs/phase7-wave10-box-heroes.md B3.2) → `defeat(chosen("minion"), { ignoreWhenDefeated: true })`. The
+ * defeated card's own When Defeated abilities do not resolve (RRG 1.8 "Ignore", p. 23); Victory X, its attachments'
+ * "when attached minion is defeated" and other cards' responses to the defeat all still do.
  */
-export const defeat = (target: TargetRef): EffectSpec => ({ kind: "defeat", target });
+export const defeat = (target: TargetRef, opts: { readonly ignoreWhenDefeated?: true } = {}): EffectSpec => ({
+  kind: "defeat",
+  target,
+  ...(opts.ignoreWhenDefeated !== undefined ? { ignoreWhenDefeated: opts.ignoreWhenDefeated } : {}),
+});
 /**
  * A player sits the scenario out (`EffectSpec sitOutScenario`; MC45 p. 20, MC50 p. 6; owner decision 66B,
  * docs/phase7-wave9.md §4.1): eliminated without a defeat and, during setup, taken out of the count of players who

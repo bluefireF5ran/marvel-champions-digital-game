@@ -311,6 +311,11 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         if (stepDeferredResponses(ctx, frame)) return;
         // Earlier conditions of the same occurrence did happen: their shared window still opens (RRG 1.8 p. 45).
         if (openJoinedResponses(ctx, frame)) return;
+        // "At the end of this attack" delayed effects created before the attack ended (in its "when [enemy] attacks"
+        // window) still resolve: the attack has ended, which is their timing point (RRG 1.8 "Delayed Effect", p. 16;
+        // ruling January 11, 2026 - Ruling 1, answer 3: Armored Defense defeating the attacking minion still gives the
+        // tough status card). An effect that names the departed attacker finds nothing to do.
+        if (pushEndEffects(ctx, frame)) return;
         // RRG "Cancel": the canceled effect is not considered to have occurred, so no responses.
         emit(ctx, { type: "triggerEvent", event: frame.event, phase: "cancelled" });
         // A replaced discard from a hand or a deck did not discard its card (docs/phase7-wave9.md §4.1 Q20).
@@ -420,15 +425,8 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       if (stepDeferredResponses(ctx, frame)) return;
       // Handed-over conditions this frame's own response window never gathered (it found nothing to do, or deferred).
       if (openJoinedResponses(ctx, frame)) return;
-      if (frame.endEffects.length > 0) {
-        // "At the end of this attack": run after the response window, before the event is gone.
-        setFrame(ctx, { ...frame, endEffects: [] });
-        const event = withResults(frame.event, frame.vars);
-        for (const deferred of [...frame.endEffects].reverse()) {
-          pushEffects(ctx, { ...deferred, event, eventFrameId: null });
-        }
-        return;
-      }
+      // "At the end of this attack": run after the response window, before the event is gone.
+      if (pushEndEffects(ctx, frame)) return;
       reportResults(ctx, frame, true);
       expireEventLastingEffects(ctx, frame.frameId);
       popFrame(ctx);
@@ -439,6 +437,22 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       return;
     }
   }
+}
+
+/**
+ * Pushes the "at the end of this attack / activation" effects held on `frame` (`endEffects`), first held resolving
+ * first, and empties the list; false when there are none. The frame stays on the stack beneath them and is resolved
+ * again afterwards. Called where the event ends: its `done` stage, and the cancel path of an activation that ended
+ * before it resolved.
+ */
+function pushEndEffects(ctx: Ctx, frame: Frame<"event">): boolean {
+  if (frame.endEffects.length === 0) return false;
+  setFrame(ctx, { ...frame, endEffects: [] });
+  const event = withResults(frame.event, frame.vars);
+  for (const deferred of [...frame.endEffects].reverse()) {
+    pushEffects(ctx, { ...deferred, event, eventFrameId: null });
+  }
+  return true;
 }
 
 /**
@@ -867,7 +881,7 @@ function beginOneDefeat(
   const villain = villainOf(ctx.state, id);
   if (villain) {
     if (villain.defeated) return false;
-    const choice = defeatVillainStage(ctx, id);
+    const choice = defeatVillainStage(ctx, id, event.ignoreWhenDefeated === true);
     if (choice && !ctx.state.outcome) pushFrames(ctx, [choice]);
     return true;
   }
@@ -881,7 +895,8 @@ function beginOneDefeat(
   }
   // Permanent (docs/phase7-wave5.md §4.1 Q46): an effect that says "defeat" is its card's ability; reaching zero hit
   // points is the game's rule, with no source card, whatever dealt the damage.
-  const sourceId = event.byEffect === true ? event.sourceInstanceId : undefined;
+  // An attack's defeat names the attacker as its source and the ability's card as `viaInstanceId`.
+  const sourceId = event.byEffect === true ? (event.viaInstanceId ?? event.sourceInstanceId) : undefined;
   const sourceCardId = sourceId ? getInstance(ctx.state, sourceId)?.cardId : undefined;
   if (permanentStopsLeaving(ctx.state, ctx.deps, id, sourceCardId)) {
     emit(ctx, { type: "leavePlayBlocked", instanceId: id, reason: "permanent" });
@@ -934,6 +949,20 @@ function beginOneDefeat(
   };
 }
 
+/**
+ * The defeated ally's or minion's own When Defeated abilities, in card order (RRG 1.8 "When Defeated Abilities", p. 48).
+ * None for a defeat that ignores them (`ignoreWhenDefeated`; RRG 1.8 "Ignore", p. 23: an ignored ability is treated
+ * "as not being in effect or present"): the card then goes straight to its leaving step.
+ */
+export function whenDefeatedFrames(
+  ctx: Ctx,
+  event: Extract<TriggerEvent, { kind: "characterDefeated" }>,
+  actingPlayerId: PlayerId | null,
+): readonly StackFrame[] {
+  if (event.ignoreWhenDefeated === true) return [];
+  return gameAbilityFrames(ctx, event.instanceId, ["whenDefeated"], event, undefined, actingPlayerId);
+}
+
 /** A defeated ally's or minion's leaving step (`leaveAfterWhenDefeated`), with the destination its defeat read. */
 function defeatLeaveSpec(followUp: DefeatFollowUp): EffectSpec {
   return {
@@ -957,7 +986,7 @@ function applyDefeat(ctx: Ctx, event: Extract<TriggerEvent, { kind: "characterDe
   const id = event.instanceId;
   const frames: StackFrame[] = [
     ...(begun.spill ? [eventFrame(ctx, begun.spill)] : []),
-    ...gameAbilityFrames(ctx, id, ["whenDefeated"], event, undefined, begun.actingPlayerId),
+    ...whenDefeatedFrames(ctx, event, begun.actingPlayerId),
     leaveAfterWhenDefeated(ctx, id, begun.printedId, defeatLeaveSpec(begun), begun.controllerId, begun.sourceCardId),
   ];
   pushFrames(ctx, frames);

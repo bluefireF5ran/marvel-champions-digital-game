@@ -1,5 +1,6 @@
 import { CW_CARDS, PLAYABLE_CARDS, cardId, type AnyCard } from "@mc/content";
 import {
+  activeEncounterDeck,
   characterProfile,
   createGame,
   legalActions,
@@ -72,6 +73,9 @@ const MERCENARY = "01101"; // Core minion: guard, 3 hit points
 const WHIPLASH = "01172"; // Core minion: retaliate 1, 4 hit points
 const ADVANCE = "01186"; // Core treachery, boost 0
 const VEST = "01081"; // Core protection upgrade, cost 1
+const HYDRA_SOLDIER = "01182"; // Core minion: 4 hit points, "When Defeated: Deal the engaged player an encounter card."
+const MADAME_HYDRA = "01181"; // Core minion: Elite
+const HORN = "01100"; // Core encounter attachment (Enhanced Ivory Horn)
 
 const SHE_HULK = "core-she-hulk-aggression";
 const SPIDER_MAN = "core-spider-man-justice";
@@ -177,11 +181,11 @@ describe("registry", () => {
   const cwData = (code: string) =>
     CW_CARDS.find((c) => c.id === cardId(code)) as AnyCard & { abilities: { id: string }[] };
 
-  it("registers every printed ref of 56010 to 56018 but Coup de Grace, which waits on B3.2", () => {
-    expect(SKIPPED).toEqual({ [REF[COUP]]: "waits on box-heroes B8.2 task 2 (B3.2)" });
+  it("registers every printed ref of 56010 to 56018, and none is skipped", () => {
+    expect(SKIPPED).toEqual({});
     const printed = Object.keys(REF).flatMap((code) => cwData(code).abilities.map((a) => a.id as string));
     expect(printed.sort()).toEqual([...MINE].sort());
-    expect(Object.keys(REGISTRY).sort()).toEqual(MINE.filter((r) => r !== REF[COUP]).sort());
+    expect(Object.keys(REGISTRY).sort()).toEqual([...MINE].sort());
   });
 
   it("every script validates", () => {
@@ -197,6 +201,8 @@ describe("registry", () => {
       spendCounters: { counterType: "fuel", amount: 1 },
     });
     expect(kind(REF[CONDITIONING])).toMatchObject({ kind: "constant" });
+    expect(kind(REF[COUP])).toMatchObject({ kind: "action", form: "hero" });
+    expect(REGISTRY[REF[COUP]]!.label).toEqual(["attack"]);
     expect(kind(REF[SAVAGE])).toMatchObject({ kind: "interrupt", forced: false, form: "hero" });
   });
 
@@ -501,10 +507,143 @@ describe(`${REF[BRING_IT]} (reprint of 19030): draw 1 card for each minion engag
   });
 });
 
-describe(`${REF[COUP]}: Coup de Grace waits on box-heroes B8.2 task 2 (B3.2)`, () => {
-  it("is left unscripted: no ability is registered for it", () => {
-    expect(REGISTRY[REF[COUP]]).toBeUndefined();
-    expect(Object.keys(SKIPPED)).toEqual([REF[COUP]]);
+describe(`${REF[COUP]}: Hero Action (attack): defeat a non-Elite minion with an upgrade attached, ignoring its When Defeated abilities`, () => {
+  const SOLDIER = "soldier" as InstanceId;
+  /** Surgery: a deck card of P1's becomes a copy of the player upgrade `code`, attached to `host` under P1's control. */
+  function upgradeOn(s: GameState, code: string, host: InstanceId, keep: readonly InstanceId[]) {
+    const made = convertDeckCard(s, code, keep);
+    const off: GameState = {
+      ...made.state,
+      players: made.state.players.map((p) =>
+        p.playerId === P1 ? { ...p, deck: p.deck.filter((i) => i !== made.id) } : p,
+      ),
+    };
+    const on = patchInstance(off, made.id, { attachedTo: host, controllerId: P1, faceup: true });
+    return { id: made.id, state: patchInstance(on, host, { attachments: [...inst(on, host).attachments, made.id] }) };
+  }
+  /** Surgery: a fresh copy of the encounter attachment `code` attached to `host`. */
+  function encounterAttachmentOn(s: GameState, code: string, host: InstanceId): GameState {
+    const id = "encounter-attachment" as InstanceId;
+    const instance = { ...inst(s, host), instanceId: id, cardId: cardId(code), attachedTo: host, engagedWith: null };
+    const placed: GameState = { ...s, instances: { ...s.instances, [id]: instance as never } };
+    return patchInstance(placed, host, { attachments: [...inst(placed, host).attachments, id] });
+  }
+  /** Coup de Grace in hand against `minion` (engaged as `SOLDIER`) with Suppressing Fire (a player upgrade) attached. */
+  function game(minion: string = HYDRA_SOLDIER) {
+    const { state, id } = coreGame(COUP);
+    const engaged = engageMinion(state, minion, SOLDIER);
+    const upgrade = upgradeOn(engaged, SUPPRESSING, SOLDIER, [id]);
+    return { state: upgrade.state, id, upgrade: upgrade.id };
+  }
+  const dealt = (s: GameState): number => playerOf(s, P1).dealtEncounter.length;
+  const encounterDiscard = (s: GameState): readonly InstanceId[] => activeEncounterDeck(s).discard;
+
+  it("plays for 2 from a Core hero's deck: the minion is defeated with no damage dealt, and its When Defeated does not resolve", () => {
+    const { state, id, upgrade } = game();
+    expect((card(COUP) as { cost?: number }).cost).toBe(2);
+    expect(textOf(HYDRA_SOLDIER)).toContain("When Defeated: Deal the engaged player an encounter card.");
+    const targets: string[][] = [];
+    const after = drive(state, { targets, keep: [id] }, playCommand(state, id)!);
+    expect(targets).toEqual([[SOLDIER]]);
+    expect(playerOf(after, P1).playArea).not.toContain(SOLDIER);
+    expect(encounterDiscard(after)).toContain(SOLDIER);
+    // Hydra Soldier's "When Defeated: Deal the engaged player an encounter card" is ignored.
+    expect(dealt(state)).toBe(0);
+    expect(dealt(after)).toBe(0);
+    // The rest of the defeat happens: its attached upgrade is discarded with it, and the event is discarded.
+    expect(playerOf(after, P1).discard).toContain(upgrade);
+    expect(playerOf(after, P1).discard).toContain(id);
+    expect(inst(after, villainOf(after)).damage).toBe(0);
+  });
+
+  it("the same minion defeated by a basic attack resolves its When Defeated: the engaged player is dealt 1 encounter card", () => {
+    const { state } = game();
+    const hero = identityOf(state, P1);
+    const worn = patchInstance(state, SOLDIER, { damage: 4 - profile(state).atk });
+    const after = drive(worn, { take: ["decline"] }, basicAttack(hero, SOLDIER));
+    expect(encounterDiscard(after)).toContain(SOLDIER);
+    expect(dealt(after)).toBe(1);
+  });
+
+  it("Suppressing Fire on the defeated minion still answers the defeat: the hero heals 2 (box-heroes B3.2)", () => {
+    const { state, id } = game();
+    const hero = identityOf(state, P1);
+    const hurt = withDamage(state, hero, 3);
+    const windows: string[][] = [];
+    const after = drive(hurt, { take: [REF[SUPPRESSING]], windows, keep: [id] }, playCommand(hurt, id)!);
+    expect(offeredIn(windows, REF[SUPPRESSING])).toBe(true);
+    expect(encounterDiscard(after)).toContain(SOLDIER);
+    expect(inst(after, hero).damage).toBe(1);
+    expect(dealt(after)).toBe(0);
+  });
+
+  it("no damage is dealt, so a tough status card does not stop the defeat", () => {
+    const { state, id } = game();
+    const tough = patchInstance(state, SOLDIER, { statuses: { ...inst(state, SOLDIER).statuses, tough: 1 } });
+    const after = drive(tough, { keep: [id] }, playCommand(tough, id)!);
+    expect(encounterDiscard(after)).toContain(SOLDIER);
+    expect(dealt(after)).toBe(0);
+  });
+
+  it("retaliate deals nothing: the defeated minion is no longer in play", () => {
+    const { state, id } = game(WHIPLASH);
+    const hero = identityOf(state, P1);
+    const after = drive(state, { keep: [id] }, playCommand(state, id)!);
+    expect(encounterDiscard(after)).toContain(SOLDIER);
+    expect(inst(state, hero).damage).toBe(0);
+    expect(inst(after, hero).damage).toBe(0);
+  });
+
+  it("only a minion with an upgrade attached is offered: a second minion without one is left alone", () => {
+    const { state, id } = game();
+    const two = engageMinion(state, SHOCKER, "shocker-1");
+    const targets: string[][] = [];
+    const after = drive(two, { targets, keep: [id] }, playCommand(two, id)!);
+    expect(targets).toEqual([[SOLDIER]]);
+    expect(playerOf(after, P1).playArea).toContain("shocker-1" as InstanceId);
+    expect(inst(after, "shocker-1" as InstanceId).damage).toBe(0);
+  });
+
+  it("cannot be played with no minion in play, or when the only minion has no upgrade attached", () => {
+    const { state, id } = coreGame(COUP);
+    expect(playCommand(state, id)).toBeNull();
+    const bare = engageMinion(state, HYDRA_SOLDIER, SOLDIER);
+    expect(playCommand(bare, id)).toBeNull();
+  });
+
+  it("an encounter attachment is not an upgrade: a minion with only one attached is not a legal target", () => {
+    const { state, id } = coreGame(COUP);
+    const engaged = engageMinion(state, HYDRA_SOLDIER, SOLDIER);
+    expect(card(HORN).type).toBe("attachment");
+    const horned = encounterAttachmentOn(engaged, HORN, SOLDIER);
+    expect(inst(horned, SOLDIER).attachments).toHaveLength(1);
+    expect(playCommand(horned, id)).toBeNull();
+  });
+
+  it("an Elite minion with an upgrade attached is not a legal target", () => {
+    const { state, id } = game(MADAME_HYDRA);
+    expect((card(MADAME_HYDRA) as unknown as { traits: string[] }).traits).toContain("ELITE");
+    expect(inst(state, SOLDIER).attachments).toHaveLength(1);
+    expect(playCommand(state, id)).toBeNull();
+  });
+
+  it("is a Hero Action: not playable in alter-ego form", () => {
+    const { state, id } = coreGame(COUP, { alterEgo: true });
+    const engaged = engageMinion(state, HYDRA_SOLDIER, SOLDIER);
+    const staged = upgradeOn(engaged, SUPPRESSING, SOLDIER, [id]).state;
+    expect(playCommand(staged, id)).toBeNull();
+  });
+
+  it("it is an attack by the hero: a stunned hero discards the stunned card and the minion is not defeated", () => {
+    const { state, id, upgrade } = game();
+    const hero = identityOf(state, P1);
+    const dazed = stunned(state, hero);
+    const after = drive(dazed, { keep: [id] }, playCommand(dazed, id)!);
+    expect(inst(after, hero).statuses.stunned).toBe(0);
+    expect(playerOf(after, P1).playArea).toContain(SOLDIER);
+    expect(inst(after, SOLDIER).attachments).toEqual([upgrade]);
+    expect(playerOf(after, P1).discard).toContain(id);
+    expect(dealt(after)).toBe(0);
   });
 });
 

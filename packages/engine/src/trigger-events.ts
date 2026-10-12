@@ -545,13 +545,20 @@ export type TriggerEventBody =
        */
       readonly byEffect?: true;
       /**
+       * The defeating effect ignores the defeated card's own "When Defeated" abilities (`EffectSpec defeat`
+       * `ignoreWhenDefeated`; RRG 1.8 "Ignore", p. 23): none of them resolves as the defeat applies. Every other part of
+       * the defeat, and every other card's ability that answers it, is unchanged.
+       */
+      readonly ignoreWhenDefeated?: true;
+      /**
        * Set by the defeat sweep on villains that reached zero together: whether each could be defeated ("cannot be
        * defeated while X has any hit points remaining") was read once for all of them, before any applied, so applying
        * one does not re-read it after another has already advanced to a fresh stage (docs/phase7-wave4.md §3.3).
        */
       readonly protectionChecked?: true;
       /**
-       * The defeating damage was attack damage (`dealDamage.fromAttack`: an attack's damage, or its overkill spill), so
+       * The defeating damage was attack damage (`dealDamage.fromAttack`: an attack's damage, or its overkill spill), or
+       * the defeat was an "(attack)" ability's own instruction (`attack-ability.ts`, "A defeat instruction"), so
        * "When an ally is defeated by an enemy attack" (Regroup, `drax` 19032) is `fromAttack: true` with `sourceIs` an
        * enemy (docs/phase7-wave3.md §3.45). Absent for any other defeat.
        */
@@ -594,6 +601,13 @@ export type TriggerEventBody =
        * defeating *card*. Null when nothing player- or card-driven defeated it.
        */
       readonly sourceInstanceId?: InstanceId | null;
+      /**
+       * For a defeat by an effect (`byEffect`) that an "(attack)" ability made as its attack (`attack-ability.ts`, "A
+       * defeat instruction"): the card whose ability says "defeat", where `sourceInstanceId` is then the attacking
+       * identity, as `dealDamage.viaInstanceId` is to its source. The rules that read the defeating card (Permanent,
+       * "card abilities cannot remove") read this one. Absent for every other defeat.
+       */
+      readonly viaInstanceId?: InstanceId | null;
       /**
        * Excess damage (RRG 1.8 "Excess Damage", p. 19): how far the damage that defeated this character went beyond its
        * remaining hit points, the value overkill would spill ("If a card ability counts excess damage dealt, that ability

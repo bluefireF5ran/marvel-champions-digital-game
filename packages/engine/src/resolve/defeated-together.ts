@@ -40,8 +40,8 @@ import type { DefeatedTogetherMember, EffectSpec } from "../spec.js";
 import type { StackFrame, TriggerCandidate } from "../stack.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { simultaneousOrderer } from "../villain/authority.js";
-import { beginDefeat } from "./event.js";
-import { base, eventFrame, type Frame, gameAbilityFrames } from "./frames.js";
+import { beginDefeat, whenDefeatedFrames } from "./event.js";
+import { base, eventFrame, type Frame } from "./frames.js";
 import { hasCandidates } from "./triggers.js";
 import { candidateOption, pushWindow } from "./window.js";
 
@@ -201,16 +201,7 @@ export function executeDefeatedTogether(ctx: Ctx, frame: Frame<"effects">, step:
     }
     case "whenDefeated": {
       const byCard = step.members.map((member) =>
-        member.defeated
-          ? gameAbilityFrames(
-              ctx,
-              member.event.instanceId,
-              ["whenDefeated"],
-              member.event,
-              undefined,
-              member.defeated.actingPlayerId,
-            )
-          : [],
+        member.defeated ? whenDefeatedFrames(ctx, member.event, member.defeated.actingPlayerId) : [],
       );
       let frames = byCard.flat();
       // Several cards' When Defeated abilities: the first player orders them (RRG 1.8 p. 40).
