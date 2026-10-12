@@ -365,7 +365,19 @@ const finding =
     if (choice.playerId === P1) return choice.options.some((o) => o.optionId === mine) ? [mine] : [];
     return choice.options.slice(0, 1).map((o) => o.optionId);
   };
-const takingNothing: Picker = (s) => (s.pendingChoice?.prompt.kind === "chooseCards" ? [] : firstLegal(s));
+/** Declines the "may search" yes/no (the option labelled "Do not ..."), else the first legal answer. */
+const declining: Picker = (s) => {
+  const choice = s.pendingChoice;
+  if (choice?.prompt.kind !== "chooseOption") return firstLegal(s);
+  return [choice.options.find((o) => o.label.startsWith("Do not"))!.optionId];
+};
+/** Per player: P1 answers with `mine`, the others with `others`. */
+const byPlayer =
+  (mine: Picker, others: Picker): Picker =>
+  (s) =>
+    (s.pendingChoice!.playerId === P1 ? mine : others)(s);
+const topLevelShuffles = (events: readonly { type: string; zone?: unknown }[]) =>
+  events.filter((e) => e.type === "deckShuffled" && (e.zone as { kind?: string }).kind === "deck").length;
 const reductions = (state: GameState) => state.lastingEffects.filter((e) => e.kind === "costReduction");
 const priceOf = (state: GameState, id: InstanceId, player: PlayerId = P1) => playCostOf(state, player, id, WAVE10_DEPS);
 /** Hercules thwarts Evaluate Threat's last threat away, and the When Defeated search resolves. */
@@ -468,11 +480,28 @@ describe("59028 Evaluate Threat", () => {
     expect(priceOf(moveTo(next, r.thor, "hand"), r.thor)).toMatchObject({ printed: 4, current: 4 });
   });
 
-  it("a player may take no card: no reduction and nothing added to the hand", () => {
-    const r = defeated(herculesHeroGame({ deps: WAVE10_DEPS }), () => takingNothing);
+  it("a player may decline to search: no reduction, nothing added to the hand, the deck is not shuffled", () => {
+    const r = defeated(herculesHeroGame({ deps: WAVE10_DEPS }), () => declining);
     expect(r.state.villainArea).not.toContain(r.scheme);
     expect(reductions(r.state)).toEqual([]);
     expect(handCodes(r.state)).not.toContain(THOR);
+    expect(topLevelShuffles(r.events)).toBe(0);
+  });
+
+  it("a player who searches and takes a card has the deck shuffled once and the card reduced", () => {
+    const r = defeated(herculesHeroGame({ deps: WAVE10_DEPS }));
+    expect(topLevelShuffles(r.events)).toBe(1);
+    expect(reductions(r.state)).toHaveLength(1);
+  });
+
+  it("two players decide separately: the one who declines is not shuffled or reduced, the other is", () => {
+    const r = defeated(twoPlayerGame(), (thor) => byPlayer(finding(thor), declining));
+    expect(topLevelShuffles(r.events)).toBe(1);
+    expect(reductions(r.state).map((e) => e.cardInstanceId)).toEqual([r.thor]);
+    const flipped = defeated(twoPlayerGame(), () => byPlayer(declining, firstLegal));
+    expect(topLevelShuffles(flipped.events)).toBe(1);
+    expect(reductions(flipped.state)).toHaveLength(1);
+    expect(reductions(flipped.state)[0]!.cardInstanceId).not.toBe(flipped.thor);
   });
 
   it("two players each search their own cards and each card taken is reduced, for whoever plays it", () => {

@@ -658,7 +658,7 @@ describe("59028 Evaluate Threat: 'Each player MAY search their deck and discard 
       villainArea: [...base.villainArea, scheme],
     };
     const state = patchInstance(inPlay, scheme, { faceup: true, threat: 1, controllerId: P1 });
-    const run = drive(state, { declineCards: !takeACard }, basicThwart(identityOf(state), scheme));
+    const run = drive(state, takeACard ? {} : { option: "Do not" }, basicThwart(identityOf(state), scheme));
     const shuffles = ofType(run.events, "deckShuffled").filter(
       (e) => (e.zone as unknown as { kind?: string }).kind === "deck",
     );
@@ -667,7 +667,7 @@ describe("59028 Evaluate Threat: 'Each player MAY search their deck and discard 
   it("a player who takes a card searched the deck: it is shuffled once (RRG 'Search' p. 39)", () => {
     expect(defeated(true).shuffles).toBe(1);
   });
-  it.fails("a player who declines the search (takes no card although Avenger cards are there) searched nothing, so nothing is shuffled (RRG 'Search' p. 39: 'If any portion of a deck is searched ... shuffle')", () => {
+  it("a player who declines the search searched nothing, so nothing is shuffled (RRG 'Search' p. 39: 'If any portion of a deck is searched ... shuffle')", () => {
     expect(defeated(false).shuffles).toBe(0);
   });
 });

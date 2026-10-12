@@ -5,6 +5,8 @@ import {
   anyOf,
   cards,
   chooseCards,
+  chooseOneBy,
+  option,
   chosen,
   constant,
   costIf,
@@ -66,8 +68,11 @@ import { WONDER_MAN_BASIC } from "../wonder_man/basic.js";
  * trait." (a `playOnlyIf`, read at the play, as the schema cannot express an OR of two traits; see Moon Girl 28018).
  * "When Defeated: Each player may search their deck and discard pile for an Avenger or S.H.I.E.L.D. card and add it to
  * their hand. (Shuffle.) Reduce the cost to play each of those cards by 2 until the end of the phase." Each player in
- * turn order picks up to one card (`min: 0`, "may"), the deck is shuffled, and `reduceCostOfCards` binds a reduction
- * of 2 to each card taken. Rulings June 2, 2026 - Ruling 2 (4): the reduction is for the next time the card is played
+ * turn order first decides whether to search (`chooseOneBy`, the "may"). A player who declines is shown nothing, and
+ * their deck is not shuffled (RRG 1.8 "Search", p. 39: only a searched deck is shuffled). A player who searches takes
+ * exactly one matching card (`min: 1`: a search that finds a legal card must take it, as Air Cover; with no match
+ * nothing is taken), the deck is shuffled whether or not a card was found (a search that looks through a deck shuffles
+ * it), and `reduceCostOfCards` binds a reduction of 2 to the card taken. Rulings June 2, 2026 - Ruling 2 (4): the reduction is for the next time the card is played
  * that phase, even if it is bounced (discarded and returned to hand); July 9, 2026 - Ruling 3 (3): for the next time
  * it is played, not repeatedly (docs/phase7-wave10-hero-packs.md H3.11).
  *
@@ -96,14 +101,21 @@ export const HERCULES_BASIC: AbilityRegistry = defineAbilities({
   "59028.when-defeated": whenDefeated(
     forEachPlayer(
       eachPlayer,
-      chooseCards("found", zone(["deck", "discard"], thatPlayer, { filter: AVENGER_OR_SHIELD }), {
-        min: 0,
-        max: 1,
-        chooser: thatPlayer,
-      }),
-      moveCards(cards(chosen("found")), "hand"),
-      shuffleDeck(thatPlayer),
-      reduceCostOfCards(chosen("found"), 2, "phase"),
+      chooseOneBy(
+        thatPlayer,
+        option(
+          "Search your deck and discard pile",
+          chooseCards("found", zone(["deck", "discard"], thatPlayer, { filter: AVENGER_OR_SHIELD }), {
+            min: 1,
+            max: 1,
+            chooser: thatPlayer,
+          }),
+          moveCards(cards(chosen("found")), "hand"),
+          shuffleDeck(thatPlayer),
+          reduceCostOfCards(chosen("found"), 2, "phase"),
+        ),
+        option("Do not search"),
+      ),
     ),
   ),
 

@@ -27,7 +27,7 @@ are thorough (every card has a play-through); what they could not see is below.
 | Id  | Card                   | Severity                                    | Test (in `qa-hercules.qa.test.ts`)                          |
 | --- | ---------------------- | ------------------------------------------- | ----------------------------------------------------------- |
 | F1  | 59004 Protect Humanity | wrong result, low (unreachable with prints), fixed | `it` (was `it.fails`) "... with Amadeus Cho removed from the game ..." |
-| F2  | 59028 Evaluate Threat  | wrong result, low (a shuffle only)          | `it.fails` "... a player who declines the search ..."       |
+| F2  | 59028 Evaluate Threat  | wrong result, low (a shuffle only), fixed  | `it` (was `it.fails`) "... a player who declines the search ..." |
 
 ### F1. Protect Humanity stays in play when Amadeus Cho cannot be found
 
@@ -50,6 +50,10 @@ are thorough (every card has a play-through); what they could not see is below.
 - Owner: `game-rules-architect` (the engine's Labor-target failure) or `ability-scripting-engineer`.
 
 ### F2. Evaluate Threat shuffles the deck of a player who declines to search
+
+**Status: fixed.** The script now asks each player "search or not" (`chooseOneBy`); only a player who searches takes
+one card (`min: 1`, as Air Cover) and has the deck shuffled. The pin is a passing `it` and `basic.test.ts` has module
+tests. The text below is the finding as audited.
 
 - Printed: "When Defeated: Each player **may** search their deck and discard pile for an Avenger or S.H.I.E.L.D. card and
   add it to their hand. (Shuffle.) ..."
