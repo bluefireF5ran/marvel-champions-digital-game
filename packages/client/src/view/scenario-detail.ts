@@ -19,6 +19,7 @@
  */
 import type { AnyCard, CardId, EncounterSet, ScalingValue, Scenario, VillainStage } from "@mc/content";
 import { pooledModularShortSummary, pooledModularSummary } from "./modular-summary.js";
+import { foeWord } from "./foe-words.js";
 import { hasRandomVillain, randomVillainLabel } from "./random-villain.js";
 import { formatScaling } from "./scaling-text.js";
 
@@ -35,6 +36,8 @@ export interface ScenarioDetail {
   readonly scenarioName: string;
   readonly packCode: string;
   readonly villainName: string;
+  /** "Villain", or "Leader" for a Civil War scenario (`foeWord`): the singular word the screens put before `villainName`. */
+  readonly foeWord: string;
   /**
    * True when the opening villain is drawn at random (`Scenario.randomVillainName`: Morlock Siege's shuffled villain
    * deck, On the Run's one Marauder), so `villainCardId`'s own name and numbers are only a placeholder. `villainName`
@@ -137,6 +140,7 @@ export function scenarioDetailOf(
     scenarioName: scenario.name,
     packCode: scenario.packCode as string,
     villainName,
+    foeWord: foeWord(scenario, { cardsById }),
     villainIsRandom,
     displayName,
     tileTitle: titledByScenario ? scenario.name : displayName,
@@ -167,7 +171,7 @@ export function scenarioDetailOf(
 export function scenarioDetailLines(detail: ScenarioDetail): readonly string[] {
   const lines: string[] = [];
   lines.push(
-    `Villain: ${detail.villainName}${detail.otherVillainNames.length > 0 ? ` + ${detail.otherVillainNames.length} more (${detail.otherVillainNames.join(", ")})` : ""}`,
+    `${detail.foeWord}: ${detail.villainName}${detail.otherVillainNames.length > 0 ? ` + ${detail.otherVillainNames.length} more (${detail.otherVillainNames.join(", ")})` : ""}`,
   );
   lines.push(`Main scheme: ${detail.mainSchemeName} — starting threat ${formatScaling(detail.startingThreat)}`);
   lines.push(

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import type { AnyCard, Scenario } from "@mc/content";
 import { createGame, mainSchemeValue, scale } from "@mc/engine";
 import { encounterDeckPreviewOf } from "./encounter-preview.js";
 import {
@@ -70,6 +71,29 @@ describe("tableSetupPreviewOf", () => {
     const preview = tableSetupPreviewOf(config, breakout, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
     expect(preview.obligationsCount).toBe(0); // Wrecking Crew: no obligations
     expect(preview.villainTotalHp).toBeGreaterThan(0);
+  });
+
+  test("a leader scenario labels its row Leader; Rhino and Breakout keep Villain", () => {
+    const config = buildScenario("rhino", {
+      difficulty: "standard",
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 1,
+    });
+    const villain = CARDS_BY_ID.get(rhino.villainCardId as string)!;
+    const leader = { ...villain, id: "fixture-iron-man", printedType: "leader" } as unknown as AnyCard;
+    const cards = new Map<string, AnyCard>([...CARDS_BY_ID, ["fixture-iron-man", leader]]);
+    const scenario = { ...rhino, villainCardId: "fixture-iron-man" } as unknown as Scenario;
+    const asLeader = tableSetupPreviewOf(config, scenario, "standard", cards, POOL_ENCOUNTER_SETS);
+    expect(gameSummaryRowsOf(asLeader)[0]!.label).toBe("Leader");
+    const asVillain = tableSetupPreviewOf(config, rhino, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(gameSummaryRowsOf(asVillain)[0]!.label).toBe("Villain");
+    const crew = buildScenario("breakout", {
+      difficulty: "standard",
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 1,
+    });
+    const multi = tableSetupPreviewOf(crew, breakout, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(gameSummaryRowsOf(multi)[0]!.value).toContain("villains");
   });
 });
 

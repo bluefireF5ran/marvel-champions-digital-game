@@ -26,6 +26,7 @@ import {
   shelfSubtitleOf,
   type ScenarioDetail,
 } from "../view/scenario-detail.js";
+import { foeWord } from "../view/foe-words.js";
 import { formatScaling } from "../view/scaling-text.js";
 import { scenarioProductsOf, withSelectionPinned } from "../view/roster-filter.js";
 import { packCompactChipsToRows } from "../view/chip-layout.js";
@@ -606,7 +607,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       { label: "Main scheme", value: detail.mainSchemeName },
       { label: "Starting threat", value: `${formatScaling(detail.startingThreat)} start${accel}` },
       {
-        label: "Villain HP",
+        label: `${detail.foeWord} HP`,
         value: detail.villainIsRandom
           ? "Varies"
           : detail.stages.map((stage) => formatScaling(stage.hp).split(" ")[0]).join(" · ") ||
@@ -837,7 +838,12 @@ export class ScenarioSelectScene extends Phaser.Scene {
         : ({ kind: "hero" } as const);
     this.scene.launch(SCENES.inspect, {
       card: { cardId: s.villainCardId as CardId, face },
-      choice: { optionId: s.id as string, label: s.multipleVillains ? "Play this scenario" : "Play this villain" },
+      choice: {
+        optionId: s.id as string,
+        label: s.multipleVillains
+          ? "Play this scenario"
+          : `Play this ${foeWord(s, { cardsById: CARDS_BY_ID, lower: true })}`,
+      },
     });
   }
 }
