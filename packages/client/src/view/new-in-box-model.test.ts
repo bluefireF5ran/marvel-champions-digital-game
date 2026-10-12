@@ -271,7 +271,12 @@ describe("entries that apply to Core cards too", () => {
     expect(home.link).toEqual({ label: "Also a Core rule", boxId: "core" });
     const onCore = page("core").heroMechanics.find((r) => r.id === "counters")!;
     expect(onCore.link).toEqual({ label: "Added with Mutant Genesis", boxId: "cycle6" });
-    expect(ids(page("core").scenarioMechanics)).toEqual(["encounterDeckEmpty", "mainSchemeBSide", "surgeDealt"]);
+    expect(ids(page("core").scenarioMechanics)).toEqual([
+      "cannotTakeDamage",
+      "encounterDeckEmpty",
+      "mainSchemeBSide",
+      "surgeDealt",
+    ]);
     expect(page("cycle1").keywords.find((r) => r.id === "setup")!.link?.boxId).toBe("core");
     expect(page("core").keywords.find((r) => r.id === "setup")!.link?.label).toBe("Added with The Rise of Red Skull");
   });
@@ -438,6 +443,33 @@ describe("the Civil War box notice", () => {
     expect(layout.noticeRect!.y + layout.noticeRect!.height).toBeLessThanOrEqual(layout.totalHeight);
     for (const r of boxPageRowRects(layout)) expect(rectsOverlap(r, layout.noticeRect!)).toBe(false);
     expect(layout.heights.reduce((a, b) => a + b, 0)).toBeCloseTo(layout.totalHeight);
+  });
+
+  it("lists the Civil War entries by group, with the Core-wide targeting rule linked to Core", () => {
+    const p = page("cycle10");
+    expect(ids(p.keywords)).toEqual([]);
+    expect([...ids(p.scenarioMechanics)].sort()).toEqual([
+      "avengerTeamwork",
+      "cannotTakeDamage",
+      "civilWarCooperative",
+      "civilWarSides",
+      "competitiveMode",
+      "customScenario",
+      "enemyTeam",
+      "givenAsBoost",
+      "leaderCard",
+      "unregistered",
+      "yourLeader",
+    ]);
+    expect([...ids(p.heroMechanics)].sort()).toEqual([
+      "huntedMinion",
+      "ionicPhysiology",
+      "laborGiftDecks",
+      "overpaying",
+      "shapeshift",
+      "teamworkEvent",
+    ]);
+    expect(page("core").scenarioMechanics.find((r) => r.id === "cannotTakeDamage")?.link?.boxId).toBe("cycle10");
   });
 
   it("a locked box has no page", () => {

@@ -285,7 +285,24 @@ export type ConceptId =
   | "grantedPreparation"
   | "reluctantFoe"
   | "persistentDamage"
-  | "additionalAllyCost";
+  | "additionalAllyCost"
+  | "leaderCard"
+  | "civilWarSides"
+  | "customScenario"
+  | "civilWarCooperative"
+  | "enemyTeam"
+  | "yourLeader"
+  | "competitiveMode"
+  | "avengerTeamwork"
+  | "givenAsBoost"
+  | "unregistered"
+  | "cannotTakeDamage"
+  | "huntedMinion"
+  | "shapeshift"
+  | "ionicPhysiology"
+  | "overpaying"
+  | "laborGiftDecks"
+  | "teamworkEvent";
 
 export const CONCEPT_IDS: readonly ConceptId[] = [
   "threat",
@@ -412,6 +429,23 @@ export const CONCEPT_IDS: readonly ConceptId[] = [
   "reluctantFoe",
   "persistentDamage",
   "additionalAllyCost",
+  "leaderCard",
+  "civilWarSides",
+  "customScenario",
+  "civilWarCooperative",
+  "enemyTeam",
+  "yourLeader",
+  "competitiveMode",
+  "avengerTeamwork",
+  "givenAsBoost",
+  "unregistered",
+  "cannotTakeDamage",
+  "huntedMinion",
+  "shapeshift",
+  "ionicPhysiology",
+  "overpaying",
+  "laborGiftDecks",
+  "teamworkEvent",
 ];
 
 export type GlossaryId = KeywordName | StatusName | ConceptId;
@@ -599,6 +633,24 @@ const INTRODUCED_IN: Record<GlossaryId, Intro> = {
   reluctantFoe: { box: "cycle9", group: "scenario" },
   persistentDamage: { box: "cycle9", group: "scenario" },
   additionalAllyCost: { box: "cycle9", group: "scenario" },
+  // Civil War and its two hero packs (Tigra / Hulkling, Wonder Man, Hercules). The Teamwork and Hinder keywords were written in earlier boxes.
+  leaderCard: { box: "cycle10", group: "scenario" },
+  civilWarSides: { box: "cycle10", group: "scenario" },
+  customScenario: { box: "cycle10", group: "scenario" },
+  civilWarCooperative: { box: "cycle10", group: "scenario" },
+  enemyTeam: { box: "cycle10", group: "scenario" },
+  yourLeader: { box: "cycle10", group: "scenario" },
+  competitiveMode: { box: "cycle10", group: "scenario" },
+  avengerTeamwork: { box: "cycle10", group: "scenario" },
+  givenAsBoost: { box: "cycle10", group: "scenario" },
+  unregistered: { box: "cycle10", group: "scenario" },
+  cannotTakeDamage: { box: "cycle10", group: "scenario", alsoCore: true },
+  huntedMinion: { box: "cycle10", group: "hero" },
+  shapeshift: { box: "cycle10", group: "hero" },
+  ionicPhysiology: { box: "cycle10", group: "hero" },
+  overpaying: { box: "cycle10", group: "hero" },
+  laborGiftDecks: { box: "cycle10", group: "hero" },
+  teamworkEvent: { box: "cycle10", group: "hero" },
 };
 
 function tagged<Id extends GlossaryId>(raw: Record<Id, UntaggedEntry<Id>>): Record<Id, GlossaryEntry<Id>> {
@@ -2268,6 +2320,205 @@ const CONCEPT_RAW: Record<ConceptId, UntaggedEntry<ConceptId>> = {
     sources: [
       { kind: "card", cards: "Divided Loyalties 50173" },
       { kind: "rrg", page: 13 },
+    ],
+  },
+  leaderCard: {
+    id: "leaderCard",
+    kind: "concept",
+    displayName: "A leader",
+    definition:
+      'A leader takes the villain\'s place in a Civil War scenario and works exactly like a villain. Stages I and II are used in standard play, III and IV in expert. Outside Civil War, "enemy leader" just means the villain.',
+    sources: [
+      { kind: "rulebook", label: "MC56 p. 3" },
+      { kind: "rrg", page: 26 },
+      { kind: "ruling", date: "July 9, 2026 - Ruling 3" },
+    ],
+  },
+  civilWarSides: {
+    id: "civilWarSides",
+    kind: "concept",
+    displayName: "Sides: registration and resistance",
+    definition:
+      "Every Civil War leader, main scheme and modular set belongs to one side, registration or resistance. A scenario uses cards of its own side only, so a resistance leader never plays with registration sets.",
+    sources: [
+      { kind: "rrg", page: 29 },
+      { kind: "rulebook", label: "MC56 p. 4" },
+      { kind: "ruling", date: "January 11, 2026 - Ruling 1" },
+    ],
+  },
+  customScenario: {
+    id: "customScenario",
+    kind: "concept",
+    displayName: "A custom Civil War scenario",
+    definition:
+      "Build one by choosing a side, a leader of that side, three or four modular sets of that side, and one stage 1 and one stage 2 main scheme of that side. Modular sets from other products count toward the three or four. The game can also pick all of it at random.",
+    sources: [
+      { kind: "rrg", page: 29 },
+      { kind: "rulebook", label: "MC56 p. 4" },
+      { kind: "rulebook", label: "MC56 p. 5" },
+      { kind: "owner-ruling", date: "Oct 11, 2026" },
+    ],
+  },
+  civilWarCooperative: {
+    id: "civilWarCooperative",
+    kind: "concept",
+    displayName: "Playing Civil War cooperatively",
+    definition:
+      "The leader in play is the enemy leader, and it is the villain. The enemy team is the players. Resolve its choices with the grim rule: imagine what an opponent would do. A mention of your leader cannot be resolved, so the alternate effect printed on the card happens instead. Do as much as you can.",
+    sources: [
+      { kind: "rulebook", label: "MC56 p. 6" },
+      { kind: "rrg", page: 4 },
+    ],
+  },
+  enemyTeam: {
+    id: "enemyTeam",
+    kind: "concept",
+    displayName: "The enemy team",
+    definition:
+      "When a card says the enemy team searches, chooses, attaches or exhausts, the players make that choice, as an opponent would. In this game the first player makes it, in a prompt marked as the enemy team's. If only one card or target fits, nothing is asked.",
+    sources: [
+      { kind: "rulebook", label: "MC56 p. 6" },
+      { kind: "rrg", page: 19 },
+      { kind: "owner-ruling", date: "Oct 11, 2026" },
+    ],
+  },
+  yourLeader: {
+    id: "yourLeader",
+    kind: "concept",
+    displayName: "Your leader",
+    definition:
+      'In a cooperative game you have no leader of your own, so any part of a card that refers to your leader does nothing. The printed "Otherwise" then applies instead, usually aimed at you or your hero. The enemy leader is the villain.',
+    sources: [
+      { kind: "rulebook", label: "MC56 p. 6" },
+      { kind: "rrg", page: 26 },
+      { kind: "ruling", date: "July 9, 2026 - Ruling 3" },
+    ],
+  },
+  competitiveMode: {
+    id: "competitiveMode",
+    kind: "concept",
+    displayName: "Competitive mode",
+    definition:
+      'Some Civil War cards say "In competitive mode, ...". Competitive mode, where two teams face each other\'s leaders, is not available in this game yet. Read that clause as not applying: if the card has an "Otherwise" sentence, follow it, and if not, that part does nothing.',
+    sources: [
+      { kind: "card", cards: "Choosing Sides 56063a; Drafted 56080; Neighborhood Hero 56183" },
+      { kind: "rulebook", label: "MC56 p. 6" },
+      { kind: "rulebook", label: "MC56 p. 14" },
+      { kind: "rulebook", label: "MC56 p. 17" },
+      { kind: "owner-ruling", date: "Oct 11, 2026" },
+    ],
+  },
+  avengerTeamwork: {
+    id: "avengerTeamwork",
+    kind: "concept",
+    displayName: "Teamwork (Avenger)",
+    definition:
+      "Some Civil War minions have Teamwork (Avenger). When one enters play and engages you, if another Avenger minion is in play, it activates against you at once. That other Avenger may be engaged with a different player. A minion that gains the Avenger trait counts.",
+    sources: [
+      { kind: "rulebook", label: "MC56 p. 9" },
+      { kind: "rrg", page: 43 },
+      { kind: "card", cards: "Falcon 56150; Drafted 56080" },
+    ],
+  },
+  givenAsBoost: {
+    id: "givenAsBoost",
+    kind: "concept",
+    displayName: "Given to the enemy leader as a boost card",
+    definition:
+      "Some minions say, when defeated, give this card to the enemy leader as a facedown boost card. The minion leaves play and goes facedown to the villain instead of the discard pile. At the villain's next activation it is turned up as well as the boost card dealt then.",
+    sources: [
+      { kind: "card", cards: "Falcon 56150; Dangerous Recruits 56091" },
+      { kind: "rrg", page: 11 },
+      { kind: "rrg", page: 48 },
+    ],
+  },
+  unregistered: {
+    id: "unregistered",
+    kind: "concept",
+    displayName: "Unregistered",
+    definition:
+      "Unregistered is a trait some cards give to your identity or to every hero. Other encounter cards read it: one hits an Unregistered identity harder, one exhausts each Unregistered identity, and Hunting Rebel Heroes deals damage when another card gives heroes the trait.",
+    sources: [
+      {
+        kind: "card",
+        cards: "Unregistered Super 56106; Government Contractor 56120; Hunting Rebel Heroes 56097b; Cape-Killer 56105",
+      },
+    ],
+  },
+  cannotTakeDamage: {
+    id: "cannotTakeDamage",
+    kind: "concept",
+    displayName: "Targets that cannot take damage",
+    definition:
+      "An enemy that cannot take damage is not a valid target for an attack, and that includes a basic attack. You cannot choose it, so anything that depends on attacking it cannot happen.",
+    sources: [
+      { kind: "rrg", page: 42 },
+      { kind: "ruling", date: "March 19, 2026 - Ruling 2" },
+    ],
+  },
+  huntedMinion: {
+    id: "huntedMinion",
+    kind: "concept",
+    displayName: "Tigra's Hunted",
+    definition:
+      "To play Hunted, Tigra searches the encounter deck and discard pile for a minion and puts it into play engaged with her. Hunted attaches to that minion and stuns it. While Tigra is in hero form the minion has no Guard, and when it is defeated Tigra readies.",
+    sources: [{ kind: "card", cards: "Hunted 56007" }],
+  },
+  shapeshift: {
+    id: "shapeshift",
+    kind: "concept",
+    displayName: "Hulkling's Shapeshift upgrades",
+    definition:
+      "Hulkling has four Shapeshift upgrades, each changing his stats while it is in play. When one enters play under his control, every other Shapeshift upgrade he controls is discarded and he readies. So he holds one shape at a time, and changing shape is an extra action.",
+    sources: [
+      { kind: "rrg", page: 42 },
+      { kind: "card", cards: "Shapeshift upgrades of Hulkling" },
+      { kind: "owner-ruling", date: "Oct 11, 2026" },
+    ],
+  },
+  ionicPhysiology: {
+    id: "ionicPhysiology",
+    kind: "concept",
+    displayName: "Wonder Man's Ionic Physiology",
+    definition:
+      "Wonder Man starts with this permanent upgrade in play. His energy events are tucked under it after they resolve, up to three, and each tucked card adds 1 ATK. After he makes a basic attack, the tucked cards are discarded. Thwarting, defending and attack events do not discard them.",
+    sources: [
+      { kind: "card", cards: "Ionic Physiology; Power Recycling" },
+      { kind: "rrg", page: 45 },
+      { kind: "ruling", date: "March 6, 2026 - Ruling 4" },
+    ],
+  },
+  overpaying: {
+    id: "overpaying",
+    kind: "concept",
+    displayName: "Overpaying a cost",
+    definition:
+      "Some cards do more when you generate more resources than their cost. The extra is the overpay, and you pay it as you pay the cost. A wild resource used to overpay is named as one type. The pay prompt shows how much is extra.",
+    sources: [
+      { kind: "rrg", page: 13 },
+      { kind: "ruling", date: "January 17, 2026 - Ruling 4" },
+    ],
+  },
+  laborGiftDecks: {
+    id: "laborGiftDecks",
+    kind: "concept",
+    displayName: "Hercules' Labor and Gift decks",
+    definition:
+      "Hercules has two facedown three-card decks beside his player deck, which don't count toward its size. In alter-ego form, with no Labor card in play, he reveals the top Labor card. When a Labor card reaches the victory display and he is in hero form, Atonement puts the top Gift card, a permanent upgrade, into play.",
+    sources: [
+      { kind: "card", cards: "Hercules 59001; Atonement" },
+      { kind: "rrg", page: 65 },
+    ],
+  },
+  teamworkEvent: {
+    id: "teamworkEvent",
+    kind: "concept",
+    displayName: "Teamwork (the event)",
+    definition:
+      "Teamwork is a Leadership event, not the Teamwork keyword of Avenger minions. Play it as a Hero Interrupt when you use your basic thwart or basic attack: exhaust an ally you control and add that ally's matching power to your hero's power for this use.",
+    sources: [
+      { kind: "card", cards: "Teamwork 59021" },
+      { kind: "ruling", date: "June 19, 2026 - Ruling 1" },
     ],
   },
 };

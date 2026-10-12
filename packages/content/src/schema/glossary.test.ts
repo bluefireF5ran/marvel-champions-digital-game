@@ -563,6 +563,7 @@ describe("introducedIn (the How to play hub's 'New in this box' pages)", () => {
       "attackAbilityOne",
       "attackTargets",
       "basicPowerStat",
+      "cannotTakeDamage",
       "counters",
       "effectDefender",
       "encounterDeckEmpty",
@@ -574,5 +575,87 @@ describe("introducedIn (the How to play hub's 'New in this box' pages)", () => {
       "unusualCosts",
     ]);
     expect(glossaryEntry("counters")?.introducedIn).toBe("cycle6");
+  });
+});
+
+describe("wave 10 mechanics (Civil War, Tigra, Hulkling, Wonder Man, Hercules)", () => {
+  const SCENARIO_IDS = [
+    "leaderCard",
+    "civilWarSides",
+    "customScenario",
+    "civilWarCooperative",
+    "enemyTeam",
+    "yourLeader",
+    "competitiveMode",
+    "avengerTeamwork",
+    "givenAsBoost",
+    "unregistered",
+    "cannotTakeDamage",
+  ] as const;
+  const HERO_IDS = [
+    "huntedMinion",
+    "shapeshift",
+    "ionicPhysiology",
+    "overpaying",
+    "laborGiftDecks",
+    "teamworkEvent",
+  ] as const;
+  const WAVE_10_IDS = [...SCENARIO_IDS, ...HERO_IDS];
+
+  it("every id has a sourced concept entry in cycle10, in its group", () => {
+    for (const id of WAVE_10_IDS) {
+      const entry = glossaryEntry(id);
+      expect(entry?.kind, id).toBe("concept");
+      expect(entry?.introducedIn, id).toBe("cycle10");
+      expect(entry?.sources.length, id).toBeGreaterThan(0);
+      expect(entry?.mechanicGroup, id).toBe((SCENARIO_IDS as readonly string[]).includes(id) ? "scenario" : "hero");
+    }
+    expect(GLOSSARY_ENTRIES.filter((e) => e.introducedIn === "cycle10")).toHaveLength(WAVE_10_IDS.length);
+  });
+
+  it("only the targeting rule Core cards already use also applies to Core", () => {
+    expect(WAVE_10_IDS.filter((id) => glossaryEntry(id)?.appliesToCore)).toEqual(["cannotTakeDamage"]);
+    expect(glossaryEntry("cannotTakeDamage")?.sources).toContainEqual({
+      kind: "ruling",
+      date: "March 19, 2026 - Ruling 2",
+    });
+  });
+
+  it("the cooperative terms cite the rulebook page that defines them", () => {
+    for (const id of ["civilWarCooperative", "enemyTeam", "yourLeader", "competitiveMode"] as const) {
+      expect(glossaryEntry(id)?.sources, id).toContainEqual({ kind: "rulebook", label: "MC56 p. 6" });
+    }
+    expect(glossaryEntry("leaderCard")?.sources).toContainEqual({ kind: "rulebook", label: "MC56 p. 3" });
+    expect(glossaryEntry("customScenario")?.sources).toContainEqual({ kind: "rulebook", label: "MC56 p. 5" });
+  });
+
+  it("the cooperative reading says what happens: the first player decides, your leader does nothing, competitive is unavailable", () => {
+    expect(glossaryEntry("enemyTeam")?.definition).toMatch(
+      /first player makes it, in a prompt marked as the enemy team's/,
+    );
+    expect(glossaryEntry("yourLeader")?.definition).toMatch(/does nothing/);
+    expect(glossaryEntry("yourLeader")?.definition).toMatch(/Otherwise/);
+    expect(glossaryEntry("competitiveMode")?.definition).toMatch(/not available in this game yet/);
+    expect(glossaryEntry("civilWarCooperative")?.definition).toMatch(/grim rule/);
+  });
+
+  it("the Teamwork keyword and the Teamwork event are two entries", () => {
+    expect(glossaryEntry("teamwork")?.kind).toBe("keyword");
+    expect(glossaryEntry("teamworkEvent")?.kind).toBe("concept");
+    expect(glossaryEntry("avengerTeamwork")?.id).not.toBe(glossaryEntry("teamworkEvent")?.id);
+    expect(glossaryEntry("teamworkEvent")?.definition).toMatch(/not the Teamwork keyword/);
+  });
+
+  it("states the hero limits: one shape, three tucked cards, overpay", () => {
+    expect(glossaryEntry("shapeshift")?.definition).toMatch(/one shape at a time/);
+    expect(glossaryEntry("ionicPhysiology")?.definition).toMatch(/up to three/);
+    expect(glossaryEntry("overpaying")?.sources).toContainEqual({ kind: "rrg", page: 13 });
+  });
+
+  it("uses American spelling and no dashes in what a player reads", () => {
+    for (const id of WAVE_10_IDS) {
+      const entry = glossaryEntry(id)!;
+      expect(`${entry.displayName} ${entry.definition}`, id).not.toMatch(/colour|behaviour|labour|[–—]/i);
+    }
   });
 });
