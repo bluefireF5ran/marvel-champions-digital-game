@@ -19,6 +19,7 @@ import type { OutsideFacts } from "./outside-facts.js";
 import { encounterDeckId, instanceId, playerId, type EncounterDeckId, type InstanceId, type PlayerId } from "./ids.js";
 import { linkedKeywordNames, linkedKeywordsOf, linkedNameKey } from "./linked.js";
 import { podSetupFault, type PodSetup, type PodState } from "./pod.js";
+import { COMPETITIVE_MODE_UNAVAILABLE_MESSAGE, type GameMode } from "./game-mode.js";
 import { createRng, nextInt } from "./rng.js";
 import {
   FIRST_CAMPAIGN_STEP,
@@ -368,6 +369,11 @@ export interface GameSetupConfig {
    * and nothing about the game changes.
    */
   readonly pod?: PodSetup;
+  /**
+   * The game mode (docs/phase7-wave10.md §1.9, §3.4). Absent: cooperative. `"competitive"` is refused with
+   * `mode_unavailable`, before anything else about the config is judged.
+   */
+  readonly gameMode?: GameMode;
 }
 
 /**
@@ -682,6 +688,14 @@ function setAsideUntilCalledOf(rule: SetAsideUntilCalled | undefined): SetAsideU
 
 /** RRG Appendix II: Setup, minus obligations/nemesis sets/setup abilities (they need slice 2). */
 export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAULT_DEPS): SetupResult {
+  // The mode is judged first, so its message never depends on what else is wrong with the config.
+  if (requested.gameMode === "competitive") {
+    return { ok: false, error: engineError("mode_unavailable", COMPETITIVE_MODE_UNAVAILABLE_MESSAGE) };
+  }
+  // The input may come from a save file or another device.
+  if (requested.gameMode !== undefined && requested.gameMode !== "cooperative") {
+    return invalid(`gameMode must be "cooperative" or "competitive", not ${String(requested.gameMode)}`);
+  }
   // A random starting villain (Loki; docs/phase7-wave4.md §3.7) is drawn first, from the game's own seeded RNG.
   let rng = createRng(requested.seed);
   let config = requested;

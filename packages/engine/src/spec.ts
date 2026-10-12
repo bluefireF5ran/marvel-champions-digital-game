@@ -40,6 +40,7 @@ import type { CampaignLogValueSpec, LogWriteMode } from "./campaign.js";
 import type { Command } from "./commands.js";
 import type { FrameId, InstanceId, PlayerId } from "./ids.js";
 import type { GroupRef, SharedThreatCause } from "./pod.js";
+import type { GameMode } from "./game-mode.js";
 import type { ReportedFact, SetupOutsideFact } from "./outside-facts.js";
 import type { ResourceRequirement, TypedResource } from "./resources.js";
 import type { FacedownRole, Form, GameStep, MainSchemeAdvancedBy } from "./state.js";
@@ -1553,6 +1554,12 @@ export type Predicate =
    * End)" (Ambush!, 27100), "If … or this is expert mode" (Sinister Beatdown 27101a). docs/phase7-wave5.md §3.11.
    */
   | { readonly kind: "inMode"; readonly mode: "standard" | "expert" }
+  /**
+   * The game mode (`GameState.gameMode`, docs/phase7-wave10.md §3.4; MC56 pp. 6, 14): "In competitive mode, move 2
+   * threat … Otherwise, place 2[per_hero] threat here." (Neighborhood Hero, `cw` 56183), "In cooperative mode, find the
+   * chosen leader's side scheme and reveal it." (56063a). A game with no mode recorded is cooperative.
+   */
+  | { readonly kind: "gameMode"; readonly is: GameMode }
   /**
    * "(2 facedown boost cards instead if this is the first attack this turn)" (Venom III, `sm` 27075;
    * docs/phase7-wave5.md §3.12): read in the response to an attack, true when exactly one attack this turn
@@ -4597,6 +4604,12 @@ export type EffectSpec =
       readonly player: PlayerRef;
       readonly carry?: readonly string[];
     }
+  /**
+   * A marker for printed text that applies only in competitive mode and is not built (docs/phase7-wave10.md §3.4):
+   * `text` is the printed sentence. It does nothing and logs nothing. It stands as the competitive branch of an `if`
+   * on `Predicate gameMode`, so the clause is in the script, where it can be listed, and not left out of it.
+   */
+  | { readonly kind: "competitiveOnly"; readonly text: string }
   /**
    * "Deal damage to [the pod's shared villain] equal to …" / "place 1 threat on [the pod's shared scheme]" (the Shatter
    * the Illusion card, step 1; Mischief and Mayhem 1B, `tt` 55033b; docs/phase7-wave9.md §3.66). The two neutral cards

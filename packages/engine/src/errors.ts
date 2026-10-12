@@ -28,6 +28,12 @@ export type EngineErrorCode =
    * `message` is written to be shown verbatim.
    */
   | "duplicate_unique_card"
+  /**
+   * The setup asks for a game mode this engine does not play yet: `GameSetupConfig.gameMode: "competitive"`
+   * (docs/phase7-wave10.md §1.9). Raised by `createGame` before anything else is judged, so the message never depends
+   * on what else is wrong. `message` is written to be shown verbatim.
+   */
+  | "mode_unavailable"
   | "game_over"
   | "choice_pending"
   | "no_choice_pending"

@@ -1332,6 +1332,12 @@ export const gameAreasSplit: Predicate = { kind: "gameAreasSplit" };
  */
 export const inMode = (mode: "standard" | "expert"): Predicate => ({ kind: "inMode", mode });
 /**
+ * "In competitive mode, …. Otherwise, …" (docs/phase7-wave10.md §3.4): the game mode, which is cooperative in every
+ * game played today. The printed sentence is written in full, with the part that is not built as a marker:
+ * `ifThen(inCompetitiveMode(), competitiveOnly("In competitive mode, move 2 threat …"), placeThreat(…))`.
+ */
+export const inCompetitiveMode = (): Predicate => ({ kind: "gameMode", is: "competitive" });
+/**
  * "X is equal to Ironheart's [Version] number" (`ironheart`; docs/phase7-wave5.md §3.23): `traitNumber(yourIdentity,
  * "Version")` reads "VERSION 2" as 2 (from the printed hero face while in alter-ego form).
  */

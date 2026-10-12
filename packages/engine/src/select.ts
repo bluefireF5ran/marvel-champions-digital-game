@@ -1,5 +1,6 @@
 import type { AbilityId, AbilityReference, AnyCard, CardId, HeroIdentityCard, Trait } from "@mc/content";
 import { podOf, resolveGroup } from "./pod.js";
+import { gameModeOf } from "./game-mode.js";
 import {
   type AbilityDefinition,
   type AbilityTriggerSpec,
@@ -3093,6 +3094,8 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
     }
     case "inMode":
       return (state.scenarioRules.difficulty ?? "standard") === predicate.mode;
+    case "gameMode":
+      return gameModeOf(state) === predicate.is;
     case "firstAttackThisTurn": {
       const { against, by } = predicate;
       const matching = (state.attacksThisTurn ?? []).filter(

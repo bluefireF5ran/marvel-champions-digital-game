@@ -10,6 +10,7 @@ import type { RuleSpec } from "./abilities.js";
 import type { EffectSpec, StatusName } from "./spec.js";
 import type { EncounterDealSource, LeaveCauseSide, TriggerEvent } from "./trigger-events.js";
 import type { PodState } from "./pod.js";
+import type { GameMode } from "./game-mode.js";
 
 export type Form = "hero" | "alterEgo";
 
@@ -1253,6 +1254,12 @@ export interface GameState {
    * serializes as before.
    */
   readonly pod?: PodState;
+  /**
+   * The game mode (docs/phase7-wave10.md §3.4), written by setup from `GameSetupConfig.gameMode`. Read through
+   * `gameModeOf` (`game-mode.ts`) alone. **Absent** in a cooperative game, so every game before the field serializes
+   * as before; setup refuses `"competitive"`, so today it is absent in every game setup makes.
+   */
+  readonly gameMode?: GameMode;
   /**
    * The campaign this game is a scenario of, exactly as the runner composed it (design §7.1) — **frozen**: nothing
    * in a game ever writes here. Because it lands in the replay baseline, a saved campaign game replays without

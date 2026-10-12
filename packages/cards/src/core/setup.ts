@@ -11,7 +11,7 @@ import {
   type PlayModes,
   type ScenarioSetupOptions,
 } from "@mc/content";
-import type { GameSetupConfig, PlayerSetup, SetupStack } from "@mc/engine";
+import type { GameMode, GameSetupConfig, PlayerSetup, SetupStack } from "@mc/engine";
 import { PLAYABLE_ENCOUNTER_SETS, chosenModularSetIds } from "../modular-pool.js";
 
 export { chosenModularSetIds };
@@ -105,6 +105,8 @@ export interface CoreScenarioOptions {
    * `players`.
    */
   readonly stack?: SetupStack;
+  /** The game mode (`GameSetupConfig.gameMode`). Absent is cooperative; the engine refuses `"competitive"`. */
+  readonly gameMode?: GameMode;
 }
 
 const cardsById = new Map<string, AnyCard>(CORE_CARDS.map((card) => [card.id, card]));
@@ -260,5 +262,6 @@ export function coreScenario(scenarioId: string, options: CoreScenarioOptions): 
     ...(difficulty === "expert" ? { difficulty: "expert" as const } : {}),
     ...(options.firstPlayerIndex !== undefined ? { firstPlayerIndex: options.firstPlayerIndex } : {}),
     ...(options.stack ? { stack: options.stack } : {}),
+    ...(options.gameMode !== undefined ? { gameMode: options.gameMode } : {}),
   };
 }

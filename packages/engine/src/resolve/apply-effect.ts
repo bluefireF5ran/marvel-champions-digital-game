@@ -2505,6 +2505,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       for (const id of targets(effect.villain))
         if (villainOf(ctx.state, id)) swapVillain(ctx, id, { pool: effect.with, dial: effect.dial });
       return;
+    case "competitiveOnly":
+      return;
     case "raiseMoment": {
       // docs/phase7-wave8.md §3.39: one moment per player named, each the "you" of their own, in player order. Logged
       // always; on the stack only when an ability could answer (`heard`), so an unanswered moment changes nothing else.

@@ -776,7 +776,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
       } else if (card.specificTo.kind === "competitive") {
         add(
           "competitive_card",
-          `${name} is used only in competitive (team-vs-team) mode, which is not available yet.`,
+          `${name} is used only in competitive (team-vs-team) mode. Competitive mode is coming soon.`,
           [card.id],
         );
       } else if (grantedCopies(card.id) < entry.quantity) {

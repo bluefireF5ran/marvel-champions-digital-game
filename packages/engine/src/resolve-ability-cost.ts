@@ -184,6 +184,7 @@ export const PROBE_FIELDS: { readonly [K in keyof Required<GameState>]: "game" |
   revealedPileCards: "game",
   accusation: "game",
   pod: "game",
+  gameMode: "game",
   campaign: "game",
   campaignWrites: "game",
   setupStack: "game",

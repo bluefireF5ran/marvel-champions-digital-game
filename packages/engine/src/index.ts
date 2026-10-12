@@ -27,6 +27,9 @@ export {
   SINGLE_GROUP,
 } from "./pod.js";
 
+export type { GameMode } from "./game-mode.js";
+export { COMPETITIVE_MODE_UNAVAILABLE_MESSAGE, gameModeOf } from "./game-mode.js";
+
 export type { RngState } from "./rng.js";
 export { createRng, nextInt, nextUint32, shuffle } from "./rng.js";
 

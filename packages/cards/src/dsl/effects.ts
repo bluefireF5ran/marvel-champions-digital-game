@@ -2934,6 +2934,13 @@ export const raiseMoment = (name: string, player: PlayerRef = you, carry: readon
   ...(carry.length > 0 ? { carry } : {}),
 });
 /**
+ * Printed text that applies only in competitive mode, which is not built (docs/phase7-wave10.md §3.4): `text` is the
+ * printed sentence. It does nothing. It goes in the competitive branch of `ifThen(inCompetitiveMode(), …)`, so
+ * the clause is in the script (`competitiveOnlyTexts` lists them) and never left out; the validator refuses it
+ * anywhere a cooperative game would reach it.
+ */
+export const competitiveOnly = (text: string): EffectSpec => ({ kind: "competitiveOnly", text });
+/**
  * "Choose a group in your pod" (the Fading Figments, Fenris Wolf 55042, Hraesvelgr 55043, Laufey 55044, New Jotunheim
  * 55048, `tt`; docs/phase7-wave9.md §3.67): the first player picks a group of the pod, this one included (MC55 p. 23),
  * bound under `bind` for `inGroup(chosenGroup(bind), …)`. In Single Group Mode the one group is bound with no

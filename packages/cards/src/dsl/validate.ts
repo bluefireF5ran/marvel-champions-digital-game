@@ -81,6 +81,7 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkCounterDivision(definition, problems);
   checkSpendX(definition, problems);
   checkPod(definition, problems);
+  checkCompetitiveOnly(definition.effects, false, problems);
   checkCost(definition, problems);
   checkScaled(definition, "definition", problems);
   checkBindings(definition, problems);
@@ -143,6 +144,37 @@ function checkPod(definition: AbilityDefinition, problems: string[]): void {
     if (effect.amount.kind === "const" && (!Number.isInteger(effect.amount.value) || effect.amount.value < 1))
       problems.push("sharedEvent: a constant amount must be a whole number of at least 1");
   }
+}
+
+/**
+ * `competitiveOnly` stands for printed text a cooperative game never resolves (docs/phase7-wave10.md §3.4), so it sits
+ * only where the game mode has already been asked: in the `then` of an `if` on `inCompetitiveMode()` (or the
+ * `otherwise` of one on the cooperative mode), at any depth. Anywhere else a cooperative game would reach it and
+ * silently do nothing. It carries the printed sentence, which is what lists it.
+ */
+function checkCompetitiveOnly(effects: readonly EffectSpec[], competitive: boolean, problems: string[]): void {
+  for (const effect of effects) {
+    if (effect.kind === "competitiveOnly") {
+      if (effect.text.trim() === "") problems.push("competitiveOnly: give the printed text it stands for");
+      if (!competitive)
+        problems.push("competitiveOnly: only in the competitive branch of an if on inCompetitiveMode()");
+    }
+    if (effect.kind === "if" && effect.condition.kind === "gameMode") {
+      const whenTrue = effect.condition.is === "competitive";
+      checkCompetitiveOnly(effect.then, competitive || whenTrue, problems);
+      checkCompetitiveOnly(effect.otherwise ?? [], competitive || !whenTrue, problems);
+      continue;
+    }
+    for (const list of nestedLists(effect)) checkCompetitiveOnly(list, competitive, problems);
+  }
+}
+
+/**
+ * The printed text of every `competitiveOnly` marker in an ability, in script order: the competitive clauses the
+ * script names and does not resolve (docs/phase7-wave10.md §3.4).
+ */
+export function competitiveOnlyTexts(definition: AbilityDefinition): readonly string[] {
+  return allEffects(definition.effects).flatMap((effect) => (effect.kind === "competitiveOnly" ? [effect.text] : []));
 }
 
 /**
