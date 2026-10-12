@@ -60,12 +60,13 @@ const SHOCKER = "01103"; // Core minion, ATK 2, SCH 1, 3 hit points
 const REFS = [
   "59041.all-versus-all-forced-response",
   "59041.when-defeated",
+  "59042.when-revealed",
+  "59042.when-defeated",
   "59042.hecate-forced-response",
   "59043.kyknos-forced-response",
   "59044.bewitched-officer-constant",
   "59045.when-defeated",
 ];
-const HECATE_SPLIT = ["59042.when-revealed", "59042.when-defeated"];
 
 const dataOf = (code: string) =>
   HERCULES_CARDS.find((c) => (c.id as string) === code)! as unknown as Record<string, unknown>;
@@ -165,16 +166,15 @@ const attackedEvents = (events: readonly GameEvent[]) =>
   );
 
 describe("registry", () => {
-  it("registers the six refs, each a valid definition, and skips only Hecate's When Revealed and When Defeated (split from one printed ability)", () => {
+  it("registers the eight refs, each a valid definition, with nothing skipped", () => {
     expect(Object.keys(HERCULES_ALL_VERSUS_ALL).sort()).toEqual([...REFS].sort());
     for (const [id, def] of Object.entries(HERCULES_ALL_VERSUS_ALL)) expect(validateDefinition(def), id).toEqual([]);
-    expect(Object.keys(HERCULES_ALL_VERSUS_ALL_SKIPPED)).toEqual(HECATE_SPLIT);
-    for (const id of HECATE_SPLIT) expect(HERCULES_ALL_VERSUS_ALL[id]).toBeUndefined();
+    expect(HERCULES_ALL_VERSUS_ALL_SKIPPED).toEqual({});
   });
 
-  it("the data names exactly the registered refs plus the skipped one for the five cards", () => {
+  it("the data names exactly the registered refs for the five cards", () => {
     const refs = SET.flatMap((code) => ((dataOf(code).abilities ?? []) as { id: string }[]).map((a) => a.id));
-    expect(refs.sort()).toEqual([...REFS, ...HECATE_SPLIT].sort());
+    expect(refs.sort()).toEqual([...REFS].sort());
   });
 
   it("carries the printed timing of each ability", () => {
@@ -183,6 +183,8 @@ describe("registry", () => {
       forced: true,
     });
     expect(HERCULES_ALL_VERSUS_ALL["59041.when-defeated"]!.trigger).toMatchObject({ kind: "whenDefeated" });
+    expect(HERCULES_ALL_VERSUS_ALL["59042.when-revealed"]!.trigger).toMatchObject({ kind: "whenRevealed" });
+    expect(HERCULES_ALL_VERSUS_ALL["59042.when-defeated"]!.trigger).toMatchObject({ kind: "whenDefeated" });
     expect(HERCULES_ALL_VERSUS_ALL["59042.hecate-forced-response"]!.trigger).toMatchObject({
       kind: "response",
       forced: true,
@@ -319,13 +321,68 @@ describe("Hecate (59042)", () => {
     expect(attacksBy(run.state, run.events, RHINO)).toMatchObject([{ baseAtk: 2, boostIcons: 2, damageDealt: 4 }]);
   });
 
-  it("is skipped: When Revealed and When Defeated are two refs not yet scripted", () => {
-    // A revealed Hecate does not find All Versus All until the refs are scripted; this pins today's behavior.
+  it("the two refs share one find-and-reveal body, the same as Roving Mobs'", () => {
+    expect(HERCULES_ALL_VERSUS_ALL["59042.when-defeated"]!.effects).toEqual(
+      HERCULES_ALL_VERSUS_ALL["59045.when-defeated"]!.effects,
+    );
+    expect(HERCULES_ALL_VERSUS_ALL["59042.when-revealed"]!.effects).toEqual(
+      HERCULES_ALL_VERSUS_ALL["59045.when-defeated"]!.effects,
+    );
+  });
+
+  it("WHEN REVEALED: All Versus All is found in the deck and revealed (2 threat plus 2 Hinder), Hecate stays engaged", () => {
     const run = villainPhase(game(), [BLANK, HECATE, FILLER_A]);
+    expect(inst(run.state, inPlayCard(run.state, HECATE)!).engagedWith).toBe(P1);
+    expect(threatOn(run.state, AVA)).toBe(4);
+    expect(run.state.villainArea.filter((i) => codeOf(run.state, i) === AVA)).toHaveLength(1);
+    expect(piles(run.state).deck.map((i) => codeOf(run.state, i))).not.toContain(AVA);
+  });
+
+  it("WHEN REVEALED with All Versus All already in play: nothing is revealed and its threat is unchanged", () => {
+    const placed = avaInPlay(game(), 5);
+    const run = villainPhase(placed.state, [BLANK, HECATE, FILLER_A]);
+    expect(run.state.villainArea.filter((i) => codeOf(run.state, i) === AVA)).toEqual([placed.id]);
+    expect(inst(run.state, placed.id).threat).toBe(5);
+  });
+
+  it("WHEN REVEALED with All Versus All nowhere to be found: nothing happens", () => {
+    const run = villainPhase(take(game(), AVA).state, [BLANK, HECATE, FILLER_A]);
     expect(inPlayCard(run.state, HECATE)).toBeDefined();
     expect(inPlayCard(run.state, AVA)).toBeUndefined();
-    for (const id of HECATE_SPLIT)
-      expect(HERCULES_ALL_VERSUS_ALL_SKIPPED[id]).toContain("split from 59042.hecate-constant");
+  });
+
+  it("WHEN DEFEATED: All Versus All is found and revealed again, and Hecate is in the discard pile", () => {
+    const hecate = minionInPlay(game(), HECATE);
+    const state = defeatWithAttack(WAVE10_DEPS, hecate.state, hecate.id);
+    expect(inPlayCard(state, HECATE)).toBeUndefined();
+    // Revealed with 4 (2 plus 2 Hinder); her own defeat is then "after a character is defeated": its Forced Response adds 2.
+    expect(inst(state, inPlayCard(state, AVA)!).threat).toBe(6);
+    expect(inDiscard(state, HECATE)).toHaveLength(1);
+  });
+
+  it("WHEN DEFEATED with All Versus All found in the discard pile and in the set-aside area", () => {
+    for (const stage of [discarded(game(), AVA), setAside(game(), AVA)]) {
+      const hecate = minionInPlay(stage, HECATE);
+      const state = defeatWithAttack(WAVE10_DEPS, hecate.state, hecate.id);
+      expect(inst(state, inPlayCard(state, AVA)!).threat).toBe(6);
+      expect(state.encounterSetAside).toEqual([]);
+    }
+  });
+
+  it("WHEN DEFEATED with All Versus All already in play: nothing is revealed and its threat is unchanged by her ability", () => {
+    const placed = avaInPlay(minionInPlay(game(), HECATE).state, 5);
+    const hecate = inPlayCard(placed.state, HECATE)!;
+    const state = defeatWithAttack(WAVE10_DEPS, placed.state, hecate);
+    expect(state.villainArea.filter((i) => codeOf(state, i) === AVA)).toEqual([placed.id]);
+    // Only All Versus All's own Forced Response (2 threat after a character is defeated) lands: 5 + 2.
+    expect(inst(state, placed.id).threat).toBe(7);
+  });
+
+  it("WHEN DEFEATED with All Versus All nowhere to be found: nothing happens", () => {
+    const hecate = minionInPlay(take(game(), AVA).state, HECATE);
+    const state = defeatWithAttack(WAVE10_DEPS, hecate.state, hecate.id);
+    expect(inPlayCard(state, AVA)).toBeUndefined();
+    expect(inDiscard(state, HECATE)).toHaveLength(1);
   });
 });
 

@@ -26,6 +26,7 @@ import {
   theMainScheme,
   valueAtLeast,
   whenDefeated,
+  whenRevealed,
   you,
 } from "../../dsl/index.js";
 
@@ -56,7 +57,9 @@ const findAndRevealAllVersusAll = () =>
  * Defeated: it is set aside (the set-aside pile Hecate and Roving Mobs find it in), not discarded.
  *
  * **Hecate (59042)**: Forced Response: after she activates, 2 threat on the All Versus All side scheme (nothing when it
- * is not in play). Her When Revealed/Defeated (data refs 59042.when-revealed and 59042.when-defeated) is NOT scripted: see the skipped map.
+ * is not in play).
+ * "When Revealed/Defeated: Find the All Versus All side scheme and reveal it." is two refs in the data (59042.when-revealed
+ * and 59042.when-defeated), one shared body, the same find-and-reveal as Roving Mobs.
  *
  * **Kyknos (59043)**: Forced Response: after he activates, 2 threat on All Versus All; otherwise 1 threat on the main
  * scheme (RRG 1.8 "Otherwise", p. 31: the second half only when the first could not be done, here with no All Versus
@@ -77,6 +80,9 @@ export const HERCULES_ALL_VERSUS_ALL: AbilityRegistry = defineAbilities({
   "59041.all-versus-all-forced-response": forcedResponse(after.defeated(query("character")), placeThreat(2, self)),
   "59041.when-defeated": whenDefeated(moveCards(cards(self), "encounterSetAside")),
 
+  "59042.when-revealed": whenRevealed(findAndRevealAllVersusAll()),
+  "59042.when-defeated": whenDefeated(findAndRevealAllVersusAll()),
+
   "59042.hecate-forced-response": forcedResponse(
     after.enemyActivates("self"),
     ifThen(exists(ALL_VERSUS_ALL), placeThreat(2, find(ALL_VERSUS_ALL))),
@@ -95,9 +101,4 @@ export const HERCULES_ALL_VERSUS_ALL: AbilityRegistry = defineAbilities({
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const HERCULES_ALL_VERSUS_ALL_SKIPPED: Readonly<Record<string, string>> = {
-  "59042.when-revealed":
-    "wave 10 scripting in progress: hercules/all-versus-all - split from 59042.hecate-constant; the body is the same find-and-reveal as Roving Mobs 59045",
-  "59042.when-defeated":
-    "wave 10 scripting in progress: hercules/all-versus-all - split from 59042.hecate-constant; the body is the same find-and-reveal as Roving Mobs 59045",
-};
+export const HERCULES_ALL_VERSUS_ALL_SKIPPED: Readonly<Record<string, string>> = {};
