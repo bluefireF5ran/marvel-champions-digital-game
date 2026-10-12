@@ -24,10 +24,10 @@ Two findings, both low. The 59 scripts read correctly against the print in targe
 word, form restriction, cost against effect, limit and "you" against any player, except where noted. The module tests
 are thorough (every card has a play-through); what they could not see is below.
 
-| Id  | Card                   | Severity                                    | Test (in `qa-hercules.qa.test.ts`)                          |
-| --- | ---------------------- | ------------------------------------------- | ----------------------------------------------------------- |
+| Id  | Card                   | Severity                                           | Test (in `qa-hercules.qa.test.ts`)                                     |
+| --- | ---------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
 | F1  | 59004 Protect Humanity | wrong result, low (unreachable with prints), fixed | `it` (was `it.fails`) "... with Amadeus Cho removed from the game ..." |
-| F2  | 59028 Evaluate Threat  | wrong result, low (a shuffle only), fixed  | `it` (was `it.fails`) "... a player who declines the search ..." |
+| F2  | 59028 Evaluate Threat  | wrong result, low (a shuffle only), fixed          | `it` (was `it.fails`) "... a player who declines the search ..."       |
 
 ### F1. Protect Humanity stays in play when Amadeus Cho cannot be found
 
