@@ -2520,6 +2520,15 @@ export const oncePerRoundPerPlayer: AbilityLimit = { count: 1, period: "round", 
 /** "(Limit once per phase.)" (Super Speed, Quicksilver 14001a). */
 export const oncePerPhase: AbilityLimit = { count: 1, period: "phase" };
 /**
+ * "(Limit once per phase per player.)" on a forced interrupt or response (Cut Off Support 56063b, Open Rebellion
+ * 56172b, `cw`; docs/phase7-wave10.md §3.14): counted separately for each player the triggering event belongs to (the
+ * player who reveals the treachery), whoever resolves the ability. `oncePerRoundPerPlayer` counts by the player using
+ * a shared card's action instead. "Forced Interrupt: When a player reveals a treachery, place 1 threat here." is
+ * `forcedInterrupt(on.encounterCardRevealed(query("treachery")), { limit: oncePerPhasePerEventPlayer },
+ * placeThreat(1, self))`.
+ */
+export const oncePerPhasePerEventPlayer: AbilityLimit = { count: 1, period: "phase", per: "eventPlayer" };
+/**
  * "(Max 1 per event.)", "(Max 1 per attack.)", "(Max 1 per basic power use.)" (Web-Bracelet, Ghost Kick, Phantom Flip,
  * `sm`; docs/phase7-wave5.md §3.14): one use per triggering event instance, shared by every copy of the card's title
  * (RRG 1.8 "Max 1 per [instance]", p. 28). The instance is whatever event the ability triggers on. On an interrupt or

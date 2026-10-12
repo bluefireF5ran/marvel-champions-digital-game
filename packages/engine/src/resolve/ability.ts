@@ -41,7 +41,8 @@ function triggeringEventKey(state: GameState, event: TriggerEvent | null): strin
  * The `abilityUses` key a limit counts against. An unqualified limit uses `<instance>:<ability>`, exactly as before;
  * `limit.per` appends `#<value>` so the same ability keeps one count per value ("limit once per round for each
  * aspect", Superhuman Agility; "once per round per player", The Grand Collection — `#player:<id>`, the player using
- * it, docs/phase7-wave3.md §3.36). `#` never appears in an ability id, so `clearAbilityUses` can strip it back off.
+ * it, docs/phase7-wave3.md §3.36; "once per phase per player" on a forced trigger — `#eventPlayer:<id>`, the player
+ * the triggering event belongs to, docs/phase7-wave10.md §3.14). `#` never appears in an ability id, so `clearAbilityUses` can strip it back off.
  */
 export function limitKeyOf(
   state: GameState,
@@ -58,6 +59,11 @@ export function limitKeyOf(
   }
   const base = abilityUseKey(id, abilityId);
   if (definition.limit?.per === "player") return `${base}#player:${playerId ?? "none"}`;
+  // "Once per phase per player" on a forced ability nobody controls (docs/phase7-wave10.md §3.14): the event's player.
+  if (definition.limit?.per === "eventPlayer") {
+    const [eventPlayer] = event ? eventSubjects(event).players : [];
+    return `${base}#eventPlayer:${eventPlayer ?? "none"}`;
+  }
   if (definition.limit?.per !== "aspectOfEventCard") return base;
   const [subject] = event ? eventSubjects(event).targets : [];
   const card = subject ? cardOf(state, subject) : undefined;

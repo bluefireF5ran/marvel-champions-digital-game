@@ -580,6 +580,9 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
         "a repeatable resource ability needs a fixed spendCounters cost only, and no limit but one per card paid for",
       );
   }
+  // docs/phase7-wave10.md §3.14: the count is kept for the triggering event's player, so there must be an event.
+  if (definition.limit?.per === "eventPlayer" && trigger.kind !== "interrupt" && trigger.kind !== "response")
+    problems.push("a limit per event player is a triggered ability's: an interrupt or a response");
   // docs/phase7-wave9.md §3.46 (a): "(Limit once per card.)" counts a resource ability's uses in one payment.
   if (definition.limit?.per === "paidCard") {
     if (trigger.kind !== "resource") problems.push("a limit per card paid for is a resource ability's");

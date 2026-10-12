@@ -12,12 +12,22 @@
  * 11 of setup puts into play), and an ability that becomes live when the stage turns does not trigger for something
  * that happened before. The turn is its own event on the stack, `mainSchemeTurnsToB`, behind the A side's frames; its
  * apply step turns the stage and only then puts the B side's own Setup and When Revealed frames on the stack.
+ *
+ * **Hinder on a stage** (docs/phase7-wave10.md §3.13). RRG 1.8 "Hinder X" (p. 22): "A card with the hinder X keyword
+ * enters play with X threat on it", "in addition to any threat it normally enters play with"; MC56 p. 9: "When a card
+ * with hinder X enters play, place X threat on that card." A stage's keywords are its B side's, printed or gained from
+ * its own text ("If there is more than 1 player on your team, this stage gains hinder 2[per_hero]", the Civil War
+ * stage 1B cards), so they are read once that side is the faceup one: the turn places `keywordTotal(hinder)` as one
+ * placement, before the B side's Setup and When Revealed resolve. The stage's starting threat is its own placement
+ * (at setup it is already on the stage; on an advance it follows on the stack), so the stage ends with both. Read
+ * once, as the stage turns: a stage that gains hinder later, or loses it, has no threat placed or removed for it.
  */
 
 import type { Ctx } from "../ctx.js";
 import { pushFrames } from "../ctx.js";
 import { updateMainSchemeState } from "../effects.js";
 import type { InstanceId, PlayerId } from "../ids.js";
+import { keywordTotal } from "../keywords.js";
 import { mainSchemeStageOf, mainSchemeStateOf } from "../query.js";
 import type { StackFrame } from "../stack.js";
 import type { TriggerEvent } from "../trigger-events.js";
@@ -59,10 +69,20 @@ export function applyMainSchemeTurnsToB(ctx: Ctx, event: Extract<TriggerEvent, {
   const scheme = mainSchemeStateOf(ctx.state, event.schemeInstanceId);
   if (!scheme || scheme.stageIndex !== event.stageIndex) return;
   updateMainSchemeState(ctx, event.schemeInstanceId, ({ faceupSide: _turned, ...turned }) => turned);
-  pushFrames(
-    ctx,
-    event.resolve.flatMap((kind) =>
+  const hinder = keywordTotal(ctx.state, event.schemeInstanceId, "hinder", ctx.deps);
+  pushFrames(ctx, [
+    ...(hinder > 0
+      ? [
+          eventFrame(ctx, {
+            kind: "placeThreat",
+            schemeInstanceId: event.schemeInstanceId,
+            amount: hinder,
+            sourceInstanceId: null,
+          }),
+        ]
+      : []),
+    ...event.resolve.flatMap((kind) =>
       gameAbilityFrames(ctx, event.schemeInstanceId, [kind], null, undefined, event.playerId),
     ),
-  );
+  ]);
 }

@@ -3142,7 +3142,17 @@ export interface AbilityLimit {
    *   NOT SETTLED by a ruling: whether "per card" also joins two payments made for one card (its play, and later the
    *   cost of an ability it prints). Each payment is counted on its own here (the spec's reading, reported with it).
    */
-  readonly per?: "aspectOfEventCard" | "player" | "triggeringEvent" | "paidCard";
+  /**
+   * - `"eventPlayer"`: "Forced Interrupt: When a player reveals a treachery, place 1 threat here. **(Limit once per
+   *   phase per player.)**" (Cut Off Support 56063b, Open Rebellion 56172b, `cw`; docs/phase7-wave10.md §3.14). RRG 1.8
+   *   "Limit" (pp. 26-27). One count for each player the triggering event belongs to: its player subject
+   *   (`eventSubjects(event).players[0]`, the player `PlayerRef eventPlayer` names; for a reveal, the revealing
+   *   player). `"player"` keys by the ability's controller, and an encounter card's forced ability has none of its
+   *   own, so that key would not tell the players apart. The key does not depend on who resolves the ability. An
+   *   event with no player subject shares one count (`none`), as does an ability used with no triggering event; the
+   *   DSL validator allows it on an interrupt or a response only.
+   */
+  readonly per?: "aspectOfEventCard" | "player" | "eventPlayer" | "triggeringEvent" | "paidCard";
 }
 
 /**
