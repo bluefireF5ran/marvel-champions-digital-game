@@ -862,7 +862,7 @@ export class DecksScene extends Phaser.Scene {
   #drawListHeader(left: number, y: number, column: number): number {
     const heading = this.add.text(left, y, "Your decks", textStyle(typeRole.barTitle, surface.ink.hex)).setFontSize(19);
     const buttonWidth = Math.min(
-      Math.max(minChipCellWidth("+ New deck"), 108),
+      this.#chipWidth({ id: "new-deck", text: "+ New deck", selected: false, onClick: () => {} }),
       Math.max(0, column - heading.width - 20),
     );
     const buttonHeight = this.#row;
@@ -876,7 +876,7 @@ export class DecksScene extends Phaser.Scene {
       new McButton(this, {
         kind: "secondary",
         label: "+ New deck",
-        type: typeRole.label,
+        type: STAMP_CHIP_TYPE,
         rect: buttonRect,
         onClick: () => this.#openBuilder(),
       }),
@@ -1709,7 +1709,7 @@ export class DecksScene extends Phaser.Scene {
       new McButton(this, {
         kind: "onInk",
         label: "Duplicate",
-        type: typeRole.label,
+        type: typeRole.backLabel,
         rect: duplicateRect,
         onClick: doDuplicate,
       }),
