@@ -752,6 +752,32 @@ export const WAVE9_STARTER_DECKS: readonly StarterDeck[] = [
   ...TT_STARTER_DECKS,
 ];
 
+// ---------------------------------------------------------------------------------------------------------------
+// Wave 10 (PLAN.md Phase 7, docs/phase7-wave10.md): cycle 10, Civil War `cw` (MC56, the custom scenario expansion:
+// Tigra and Hulkling, four leaders, sixteen main schemes, sixteen modular sets, Standard PvP). `hercules` and
+// `wonder_man` (the cycle's hero packs) join later. Declared here (before `PLAYABLE_CARDS`, which reads
+// `WAVE10_CARDS`) for the same source-order reason as the earlier waves. Pool membership is not a claim that a pack is
+// scripted: `unscriptedCards` keeps unscripted precons from being seated. MC56 has no campaign (MC56 p. 3).
+// ---------------------------------------------------------------------------------------------------------------
+export * from "./cw/index.js";
+
+import { CW_CARDS } from "./cw/cards.js";
+import { CW_ENCOUNTER_SETS } from "./cw/encounterSets.js";
+import { CW_SCENARIOS } from "./cw/scenarios.js";
+import { CW_STARTER_DECKS } from "./cw/starterDecks.js";
+
+/** Every card in the wave 10 (cycle 10) pool: Core plus the packs shipped so far, in release order. A sibling pool that starts from Core, like `WAVE9_CARDS`. */
+export const WAVE10_CARDS: readonly AnyCard[] = [...CORE_CARDS, ...CW_CARDS];
+
+/** Every wave 10 encounter set (Core's own villain sets are not included). */
+export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [...CW_ENCOUNTER_SETS];
+
+/** Every wave 10 scenario: Civil War's four (one per leader). */
+export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS];
+
+/** Every wave 10 starter deck: Tigra and Hulkling (`cw`). */
+export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [...CW_STARTER_DECKS];
+
 /**
  * Every playable card: Core, the eight wave 1 packs, the six cycle 1 packs, the six cycle 2 packs, the six cycle
  * 3 packs, then the five cycle 4 packs shipped so far (`sm`, `nova`, `ironheart`, `spiderham`, `spdr` — `silk`, also
@@ -773,6 +799,7 @@ export const PLAYABLE_CARDS: readonly AnyCard[] = [
   ...WAVE7_CARDS.slice(CORE_CARDS.length),
   ...WAVE8_CARDS.slice(CORE_CARDS.length),
   ...WAVE9_CARDS.slice(CORE_CARDS.length),
+  ...WAVE10_CARDS.slice(CORE_CARDS.length),
 ];
 
 /**

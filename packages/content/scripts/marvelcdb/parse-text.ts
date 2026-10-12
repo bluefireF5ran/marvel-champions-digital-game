@@ -516,6 +516,9 @@ function parseAttach(
   if (ATTACH_CLAUSE_VERB.test(target)) return undefined;
   const simple: Readonly<Record<string, AttachmentHost>> = {
     "a minion": { kind: "minion" },
+    // Resistance Fighter (`cw` 56191, MC56): "Attach to a minion of the enemy team's choice." The chooser is the enemy
+    // team (in cooperative play, "you": MC56 p. 6, the grim rule), a choice the card's script owns; the host is any minion.
+    "a minion of the enemy team's choice": { kind: "minion" },
     "an enemy": { kind: "enemy" },
     "an ally": { kind: "ally" },
     "a hero": { kind: "hero" },

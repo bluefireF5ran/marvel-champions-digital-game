@@ -27,6 +27,11 @@ export interface Pack {
   readonly releaseDate?: string;
 }
 
+/** The two sides of the Civil War box (MC56): the Superhero Registration Act's and the Resistance's. */
+export type CivilWarSide = "registration" | "resistance";
+
+export const CIVIL_WAR_SIDES: readonly CivilWarSide[] = ["registration", "resistance"];
+
 /**
  * Modular encounter sets appear across multiple products (e.g. "Legions of
  * Hydra" ships in more than one box). A card's `encounterSetIds` (on the
@@ -53,6 +58,14 @@ export interface EncounterSet {
    * not built, so no scenario may list one (`validateScenario`).
    */
   readonly competitiveOnly?: boolean;
+  /**
+   * The Civil War side a set belongs to (docs/phase7-wave10.md §1.3), on the sixteen modular sets, the four leader sets,
+   * the registration and resistance main scheme sets and the two Standard PvP copies. MC56 p. 4: "Select three or four
+   * modular sets from the chosen side. (You cannot mix registration and resistance modular sets.)"; ruling Jan 11, 2026
+   * R1: "you cannot use Registration modular sets with a Resistance leader, nor vice versa." MarvelCDB has no such field,
+   * so it is curated per set id. Absent: a neutral set (every set outside the Civil War box).
+   */
+  readonly side?: CivilWarSide;
   /**
    * `"standard"` / `"expert"` for a set in the Standard or Expert classification: Core's Standard and Expert sets, and
    * The Hood's Standard II and Expert II (docs/phase7-wave4.md §1.9). RRG 1.8 "Standard Set" (p. 40): "The standard set
@@ -165,6 +178,16 @@ export function setAsideModularSetCountFor(scenario: Scenario, playerCount: numb
   const count = scenario.setAsideModularSetCount;
   if (count === undefined) return 0;
   return typeof count === "number" ? count : count.base + count.perPlayer * playerCount;
+}
+
+/**
+ * How many modular sets a setup may pick for `scenario`: `modularSetCountRange` when it has one, otherwise exactly
+ * `modularSetCount` (1 when absent). The one reader of the two fields together (docs/phase7-wave10.md §1.4).
+ */
+export function modularSetCountRangeOf(scenario: Scenario): { readonly min: number; readonly max: number } {
+  if (scenario.modularSetCountRange) return scenario.modularSetCountRange;
+  const count = scenario.modularSetCount ?? 1;
+  return { min: count, max: count };
 }
 
 /**
@@ -399,6 +422,26 @@ export interface Scenario {
    * "The Wrecking Crew does not use other encounter sets", so 0.
    */
   readonly modularSetCount?: number;
+  /**
+   * The range of modular sets a custom setup may pick, when it is not exactly `modularSetCount` (docs/phase7-wave10.md
+   * §1.4). MC56 p. 4: "Select three or four modular sets from the chosen side", so the four Civil War scenarios carry
+   * `{ min: 3, max: 4 }` beside a `modularSetCount` of 4 (the precon's recommendation). Read it through
+   * `modularSetCountRangeOf`. Absent: exactly `modularSetCount` (1 when that is absent too).
+   */
+  readonly modularSetCountRange?: { readonly min: number; readonly max: number };
+  /**
+   * The Civil War side the scenario is played on (docs/phase7-wave10.md §1.4). Every set the scenario names that has a
+   * `side` must match it, and so must its main scheme card's set (`validateScenarioEncounterSets`,
+   * `validateScenarioMainSchemeStages`). Absent: a scenario with no side.
+   */
+  readonly side?: CivilWarSide;
+  /**
+   * Present when `mainSchemeCardId` holds several stages of one number and the setup picks one of each (MC56 p. 5: "choose
+   * any one of each from the chosen side"; docs/phase7-wave10.md §1.2, §1.4). The options are derived (every stage of that
+   * number), so the record lists only the recommendation: the `MainSchemeStage.printedCardId` of the stage 1 and of the
+   * stage 2 the precon names (MC56 pp. 7 and 8).
+   */
+  readonly mainSchemeStages?: { readonly recommended: readonly [CardId, CardId] };
   /**
    * Villain cards of this scenario that are not in the villain deck at setup, but set aside for card abilities to
    * bring in (wave 2). The Once and Future Kang insert, "Setup": "stage 1A instructs the players to set each copy of

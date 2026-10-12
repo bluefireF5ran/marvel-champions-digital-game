@@ -5,6 +5,7 @@
  */
 import type {
   AttachmentHost,
+  CivilWarSide,
   CoreAspect,
   EvidenceColor,
   IdentityDeckbuilding,
@@ -348,6 +349,13 @@ export interface EncounterSetCuration {
    * 2026-10-04 (GMW Campaign Challenge, RRG 1.8 p. 61).
    */
   readonly campaignSpecific?: true;
+  /** `EncounterSet.side` (docs/phase7-wave10.md §1.3): a Civil War set's side, curated because MarvelCDB carries none. */
+  readonly side?: CivilWarSide;
+  /**
+   * `EncounterSet.competitiveOnly` for a set other than the legacy `standard_pvp` code (wave 10: the two Standard PvP
+   * copies `standard_pvp_registration` and `standard_pvp_resistance`, see `PackCuration.setRecodes`).
+   */
+  readonly competitiveOnly?: true;
 }
 
 export interface ScenarioCuration {
@@ -388,6 +396,15 @@ export interface ScenarioCuration {
   readonly nemesisSetsSetAside?: true;
   /** Absent = 1 (one modular encounter set). The Wrecking Crew insert sets this 0. */
   readonly modularSetCount?: number;
+  /** `Scenario.modularSetCountRange` (docs/phase7-wave10.md §1.4): "three or four modular sets", MC56 p. 4. */
+  readonly modularSetCountRange?: { readonly min: number; readonly max: number };
+  /** `Scenario.side` (docs/phase7-wave10.md §1.4). */
+  readonly side?: CivilWarSide;
+  /**
+   * `Scenario.mainSchemeStages.recommended`, by the MarvelCDB code of each stage's B face (`56063b`, `56064b`): the
+   * precon's stage 1 then stage 2. Needs a main scheme card whose stages carry `printedCardId`.
+   */
+  readonly recommendedMainSchemeStageCodes?: readonly [string, string];
   /**
    * See `Scenario.setAsideModularSetCount` (docs/phase7-wave4.md §1.12) — The Hood's Making Connections 1A:
    * "Choose 7 modular encounter sets and set them aside (you may choose randomly)." Absent = none set aside.
@@ -473,6 +490,16 @@ export interface SeparateDeckCuration {
  * `deck_limit: 1`) duplicates the real Captive ally `04098` under a code in Hulk's (`10xxx`) range, and is not a
  * printed card (docs/phase7-wave2.md §5.2).
  */
+/** One `PackCuration.setRecodes` entry. */
+export interface SetRecode {
+  /** Top-level MarvelCDB record codes (`56128a` re-files `56128a` and its nested `56128b`). */
+  readonly codes: readonly string[];
+  readonly setCode: string;
+  readonly setName: string;
+  readonly reason: string;
+  readonly evidence: string;
+}
+
 export interface IgnoredRecord {
   readonly code: string;
   readonly reason: string;
@@ -637,6 +664,14 @@ export interface PackCuration {
    * `EncounterSetCuration`. Absent = no set in this pack needs one.
    */
   readonly encounterSets?: Readonly<Record<string, EncounterSetCuration>>;
+  /**
+   * Records filed under another set than the one they belong to, re-filed before anything reads them (wave 10, Civil
+   * War: MarvelCDB files both printings of the Standard PvP set under `standard_pvp`, the registration copy 56125 to
+   * 56128 and the resistance copy 56203 to 56206, so the side exists only in the code range). Each entry names the
+   * top-level record codes (a nested back face follows its front) and the set they move to; the set's name comes from
+   * `setName`. A code the pack lacks, or one already in that set, is an error. Absent = none.
+   */
+  readonly setRecodes?: readonly SetRecode[];
   /**
    * MarvelCDB codes that genuinely have no artwork reference anywhere on MarvelCDB (checked on the live API, not
    * merely the cached raw file) and for which no independently-viewable second source could be located either —

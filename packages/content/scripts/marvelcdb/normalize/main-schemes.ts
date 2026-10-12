@@ -268,6 +268,8 @@ export function normalizeMainSchemes(ctx: NormalizeContext): Map<string, string>
       };
       const builtStage: MainSchemeStage = {
         stageNumber,
+        // Kept only on a card that holds several stages of one number (below).
+        printedCardId: brand("card", rb.code),
         ...(solo ? { stageLetter: ra.stage as string } : {}),
         ...(firstName !== undefined && b.name !== firstName ? { name: b.name } : {}),
         startingThreat: schemeField(rb.base_threat, rb.base_threat_fixed, "startingThreat", rb.base_threat_per_group),
@@ -316,6 +318,15 @@ export function normalizeMainSchemes(ctx: NormalizeContext): Map<string, string>
       };
       record(ctx, soloCard, set, ownParts);
     }
+    // docs/phase7-wave10.md §1.2: `MainSchemeStage.printedCardId`, the B face's code, is the stable key of a stage on a
+    // card with several stages of one number (Civil War's four stage 1s and four stage 2s); a card whose stage numbers
+    // are unique carries none, so the other packs' data is unchanged.
+    const numbers = stages.map((st) => st.stageNumber);
+    if (new Set(numbers).size === numbers.length)
+      for (let i = 0; i < stages.length; i++) {
+        const { printedCardId: _key, ...rest } = stages[i] as MainSchemeStage;
+        stages[i] = rest;
+      }
     const first = parts[0];
     const firstStage = stages[0];
     if (!first || !firstStage) continue;

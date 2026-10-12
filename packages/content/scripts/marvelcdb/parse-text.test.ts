@@ -193,6 +193,14 @@ describe("attach shapes: tough status clause and identity without a named attach
     expect(parsed.unclassified.filter((u) => u.includes("attach rule"))).toEqual([]);
   });
 
+  it("a minion of the enemy team's choice is a minion host and keeps the surge fallback (cw 56191)", () => {
+    const parsed = parseCardText("Attach to a minion of the enemy team's choice. Otherwise, this card gains surge.", {
+      villainNames: new Set(),
+    });
+    expect(parsed.attachesTo).toEqual({ kind: "minion" });
+    expect(parsed.unclassified).toEqual([]);
+  });
+
   it('"Attach to your identity if a copy of X is not attached to you." is a yourIdentity host without X', () => {
     const parsed = parseCardText(
       "Attach to your identity if a copy of Targeted for Elimination is not attached to you. Otherwise, this card gains surge.",
