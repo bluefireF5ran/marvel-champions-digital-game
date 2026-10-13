@@ -70,6 +70,7 @@ import { TUTORIAL_LESSONS } from "../guide/tutorial-lessons.js";
 import type { LessonObservation } from "../view/lesson-model.js";
 import { drawHand, HandScroll } from "./board/hand.js";
 import type { RowDrag } from "../view/hand-scroll.js";
+import { PlayAreaScroll } from "../view/play-area-row.js";
 import { bindGamepad, bindKeyboard, type IntentBinding } from "./board/input.js";
 import { BoardMotion } from "./board/motion.js";
 import { drawSchemes, SchemeScrollState } from "./board/schemes.js";
@@ -220,13 +221,15 @@ export class BoardScene extends Phaser.Scene {
             onSilence: () => setGuidePrefs(silenceWarning(guidePrefs(), hint.key)),
           }),
   });
-  /** Dev/QA padding of the schemes column, minions and environments (`__mcBoardDebug.setBoardPad`); null in every real game. */
-  #debugPad: { sideSchemes?: number; minions?: number; environments?: number } | null = null;
+  /** Dev/QA padding of the schemes column, minions, environments and play area (`__mcBoardDebug.setBoardPad`); null in every real game. */
+  #debugPad: { sideSchemes?: number; minions?: number; environments?: number; playArea?: number } | null = null;
   /** The schemes column's scroll position, which has to survive the whole-board redraw that rebuilds its region. */
   readonly #schemeScroll = new SchemeScrollState();
   /** The pulsing rings on the valid targets: redrawn alone when the schemes column scrolls under them. */
   #targetRings: McSelectionRing[] = [];
   readonly #hand = new HandScroll(() => this.#draw());
+  /** The play area row's scroll: a crowded row keeps its cards readable and scrolls sideways, on every layout. */
+  readonly #playAreaScroll = new PlayAreaScroll(() => this.#draw());
   readonly #logPanel = new LogPanel(() => this.#draw());
   readonly #motion = new BoardMotion(this);
 
@@ -254,6 +257,7 @@ export class BoardScene extends Phaser.Scene {
   /** The hand's flick coasts frame by frame; everything else on the table moves by tween or by redraw. */
   override update(_time: number, deltaMs: number): void {
     this.#hand.tick(deltaMs);
+    this.#playAreaScroll.row.tick(deltaMs);
     // Checked every frame, not only on a store update: the villain-phase walkthrough and the pending-choice
     // overlay each close themselves (Skip, Continue, an answered decision) without dispatching a command, so a
     // beat queued behind either would otherwise wait for the *next* command instead of opening the moment the way
@@ -379,6 +383,8 @@ export class BoardScene extends Phaser.Scene {
     // needs scrolling at all — the tabbed board is the only one that ever
     // does (`drawHand`), so this is a no-op everywhere else.
     this.input.on("wheel", this.#hand.onWheel, this.#hand);
+    // And over a crowded play area, which checks the pointer is over its own row.
+    this.input.on("wheel", this.#playAreaScroll.row.onWheel, this.#playAreaScroll.row);
     // The same for the game log, which checks the pointer is over it.
     this.input.on("wheel", this.#logPanel.onWheel, this.#logPanel);
     // The Inspect overlay's "Play it" comes back here, because playing a card
@@ -397,6 +403,7 @@ export class BoardScene extends Phaser.Scene {
       this.game.events.off("mc-play-card", this.#onInspectPlay, this);
       this.game.events.off("mc-use-ability", this.#onInspectUseAbility, this);
       this.input.off("wheel", this.#hand.onWheel, this.#hand);
+      this.input.off("wheel", this.#playAreaScroll.row.onWheel, this.#playAreaScroll.row);
       this.input.off("wheel", this.#logPanel.onWheel, this.#logPanel);
       /**
        * The overlays this scene launches run in parallel over it, so stopping
@@ -469,12 +476,18 @@ export class BoardScene extends Phaser.Scene {
                 labelText: label?.text ?? null,
               };
             }),
-        // Dev/QA only: pads the schemes column, the minion row or the environments to N by cloning the first one
+        // The play area row's scroll position and how far it can go (dev e2e hook).
+        playAreaScroll: () => ({
+          scrollX: this.#playAreaScroll.row.scrollX,
+          maxScroll: this.#playAreaScroll.row.maxScroll,
+        }),
+        // Dev/QA only: pads the schemes column, the minion row, the environments or the play area to N by cloning
         // under fake ids (they render and scroll like real ones, but are not targetable: the engine knows nothing
         // of them).
         setSideSchemeCount: (count: number | null) => this.#setDebugPad(count === null ? null : { sideSchemes: count }),
-        setBoardPad: (pad: { sideSchemes?: number; minions?: number; environments?: number } | null) =>
-          this.#setDebugPad(pad),
+        setBoardPad: (
+          pad: { sideSchemes?: number; minions?: number; environments?: number; playArea?: number } | null,
+        ) => this.#setDebugPad(pad),
         zoneRect: (name: string) => (this.#layout?.zones as Record<string, Rect | null> | undefined)?.[name] ?? null,
       };
     }
@@ -917,7 +930,7 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
-  #setDebugPad(pad: { sideSchemes?: number; minions?: number; environments?: number } | null): void {
+  #setDebugPad(pad: { sideSchemes?: number; minions?: number; environments?: number; playArea?: number } | null): void {
     this.#debugPad = pad;
     const state = appSession().store.state;
     if (state.game && state.perspectiveId) {
@@ -954,6 +967,16 @@ export class BoardScene extends Phaser.Scene {
           },
       );
       padded = { ...padded, minions };
+    }
+    if (pad.playArea !== undefined) {
+      // The player's own cards over again (the identity when nothing is in play yet), so a crowded row can be drawn.
+      const real = model.myPlayArea.length > 0 ? model.myPlayArea : [model.me];
+      const myPlayArea = Array.from(
+        { length: pad.playArea },
+        (_unused, index) =>
+          model.myPlayArea[index] ?? { ...real[index % real.length]!, instanceId: `padp-${index}` as InstanceId },
+      );
+      padded = { ...padded, myPlayArea };
     }
     const firstEnv = model.environments[0];
     if (pad.environments !== undefined && firstEnv) {
@@ -1011,7 +1034,8 @@ export class BoardScene extends Phaser.Scene {
       hand: this.#hand,
       schemeScroll: this.#schemeScroll,
       focusedCard: this.#focusRegion === "board" && this.#focus?.kind === "card" ? this.#focus.instanceId : null,
-      onSchemeScroll: () => this.#refreshRings(),
+      playAreaScroll: this.#playAreaScroll,
+      onRegionScroll: () => this.#refreshRings(),
       frame: this.#frame,
       motion: this.#motion,
       teamUpRings: this.#teamUpRings(layout.tabbed),
@@ -1204,7 +1228,7 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
-  /** The schemes column scrolled without a redraw: the rings that follow its rows follow them. */
+  /** The schemes column or the play area row scrolled without a redraw: the rings that follow its cards follow them. */
   #refreshRings(): void {
     this.#drawTargetRings();
     this.#drawFocusRing();

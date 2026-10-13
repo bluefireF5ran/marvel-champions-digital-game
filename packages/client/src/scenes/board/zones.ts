@@ -10,7 +10,7 @@ import type { InstanceId, PlayerId } from "@mc/engine";
 import { drawArt } from "../../art/card-art.js";
 import { CARD_BACKS, type ArtSource } from "../../art/art-source.js";
 import { accent, ink, signal, status, surface, typeRole } from "../../tokens.js";
-import { cssOf, textStyle } from "../../ui/theme.js";
+import { cssOf, skin, textStyle } from "../../ui/theme.js";
 import { appSession } from "../../session.js";
 import { McButton, fitText, fitTight, fitWrapped, hatchRect, label, paintPanel } from "../../ui/widgets.js";
 import type {
@@ -71,7 +71,10 @@ import { bandHeightWithMinions, MINION_ROW_MIN_HEIGHT } from "../../view/enemies
 import { pileKey, type BoardDrawContext } from "./context.js";
 import { drawPile } from "./piles.js";
 import { addTapTarget } from "./tap-target.js";
-import { dimAlpha, targetState } from "./selection.js";
+import { dimAlpha, focusKey, targetState } from "./selection.js";
+import { playAreaRow, sliceWithin } from "../../view/play-area-row.js";
+import { setMask } from "../../ui/rex.js";
+import { clipToViewport } from "../../ui/scroll-clip.js";
 
 export function drawEnemies(ctx: BoardDrawContext, rect: Rect, model: BoardModel): void {
   const g = ctx.scene.add.graphics();
@@ -1180,8 +1183,125 @@ export function drawPlayArea(ctx: BoardDrawContext, rect: Rect, model: BoardMode
       .setOrigin(0.5);
     return;
   }
-  const slots = cardRow(inner, model.myPlayArea.length, { gap: 8, maxHeight: inner.height });
-  model.myPlayArea.forEach((panel, index) => drawCharacter(ctx, slots[index]!, panel));
+  // Past a readable floor the cards stop shrinking and the row scrolls sideways (issue #119, `view/play-area-row.ts`).
+  const { slots } = playAreaRow(inner, model.myPlayArea.length);
+  const ids = model.myPlayArea.map((panel) => panel.instanceId);
+  const selection = ctx.controller.selection;
+  const { row } = ctx.playAreaScroll;
+  ctx.playAreaScroll.settle(
+    inner,
+    ids,
+    slots,
+    ctx.focusedCard,
+    selection.kind === "targeting" ? selection.action.targets : null,
+  );
+  if (!row.canScroll) {
+    model.myPlayArea.forEach((panel, index) => drawCharacter(ctx, slots[index]!, panel));
+    return;
+  }
+  const count = label(scene, 0, rect.y + 6, `${ids.length} cards`, typeRole.label, surface.ink.hex, ink.label);
+  count.setX(inner.x + inner.width - count.width);
+
+  // Every tap target the cards register (the card, and each attachment strip on it), where it was drawn, so its focus
+  // rect can follow the scroll. A sideways drag that starts on any of them scrolls the row.
+  const drawnAt = row.scrollX;
+  const registered: { readonly id: InstanceId; readonly rect: Rect }[] = [];
+  const rowCtx: BoardDrawContext = {
+    ...ctx,
+    makeTapTarget: (target, id, onTap, _drag, onHover) => {
+      registered.push({ id, rect: target });
+      ctx.makeTapTarget(target, id, onTap, row.drag, onHover);
+    },
+  };
+  const before = scene.children.list.length;
+  model.myPlayArea.forEach((panel, index) => {
+    const slot = slots[index]!;
+    drawCharacter(rowCtx, { ...slot, x: slot.x - drawnAt }, panel);
+  });
+  // Everything the cards just added, in one strip clipped to the zone: a scroll moves the strip, not the board
+  // (`drawHand` does the same for the phone's hand).
+  const strip = scene.add.container(0, 0);
+  const drawn = scene.children.list.slice(before, -1);
+  if (drawn.length > 0) strip.add(drawn);
+  const clip: Rect = { x: inner.x - 3, y: rect.y, width: inner.width + 6, height: rect.height };
+  const mask = scene.make.graphics({}, false);
+  mask.fillStyle(0xffffff).fillRect(clip.x, clip.y, clip.width, clip.height);
+  ctx.frame.masks.push(mask);
+  setMask(strip, mask, "world");
+
+  // Where each card is now. Its rect is cut to the zone, and a card scrolled off has none, so a ring, a beat or the
+  // focus ring is never drawn over the identity or the other heroes. A mask hides pixels, not hit areas, so a card
+  // answers a tap only while it is wholly inside the zone (`ui/scroll-clip.ts`).
+  const place = (scrollX: number): void => {
+    const shift = drawnAt - scrollX;
+    ids.forEach((id, index) => {
+      const slot = slots[index]!;
+      const slice = sliceWithin({ ...slot, x: slot.x - scrollX }, inner);
+      if (slice) ctx.frame.hitRects.set(id, slice);
+      else ctx.frame.hitRects.delete(id);
+    });
+    for (const { id, rect: target } of registered) {
+      const key = focusKey({ kind: "card", instanceId: id });
+      const slice = sliceWithin({ ...target, x: target.x + shift }, inner);
+      if (slice) ctx.frame.focusRects.set(key, slice);
+      else ctx.frame.focusRects.delete(key);
+    }
+    clipToViewport([strip], clip);
+  };
+  place(drawnAt);
+  const hint = drawPlayAreaScrollHint(ctx, inner, drawnAt);
+  row.attach((scrollX) => {
+    strip.setX(drawnAt - scrollX);
+    place(scrollX);
+    hint(scrollX);
+    ctx.onRegionScroll();
+  });
+}
+
+/**
+ * A fade and a chevron on whichever edge of the play area has more cards past it. The chevron is a button: a click
+ * moves the row most of a zone's width that way, for a mouse with no wheel to hand. Returns the redraw for a new
+ * scroll position.
+ */
+function drawPlayAreaScrollHint(ctx: BoardDrawContext, area: Rect, scrollX: number): (scrollX: number) => void {
+  const { scene } = ctx;
+  const { row } = ctx.playAreaScroll;
+  const band = 28;
+  const g = scene.add.graphics();
+  const ground = skin("rail", "rest").fill;
+  const style = { ...textStyle({ ...typeRole.label, size: 26 }, surface.ink.hex), fontStyle: "bold" };
+  const edges = ([-1, 1] as const).map((direction) => {
+    const x = direction < 0 ? area.x : area.x + area.width - band;
+    const chevron = scene.add
+      .text(x + band / 2, area.y + area.height / 2, direction < 0 ? "‹" : "›", style)
+      .setOrigin(0.5);
+    const zone = scene.add
+      .zone(x, area.y, band, area.height)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerup", () => row.scrollBy(direction * area.width * 0.8));
+    return { direction, chevron, zone };
+  });
+  const draw = (at: number): void => {
+    g.clear();
+    // Stepped bars, not a gradient fill: a gradient beside a masked layer blanked the board in headless GPU runs
+    // (`drawHandScrollHint`).
+    const steps = 6;
+    const step = band / steps;
+    for (const { direction, chevron, zone } of edges) {
+      const shown = direction < 0 ? at > 0.5 : at < row.maxScroll - 0.5;
+      chevron.setVisible(shown);
+      if (zone.input) zone.input.enabled = shown;
+      if (!shown) continue;
+      for (let i = 0; i < steps; i++) {
+        g.fillStyle(ground, 0.2 + (0.75 * (i + 1)) / steps);
+        if (direction > 0) g.fillRect(area.x + area.width - band + i * step, area.y, step, area.height);
+        else g.fillRect(area.x + band - (i + 1) * step, area.y, step, area.height);
+      }
+    }
+  };
+  draw(scrollX);
+  return draw;
 }
 
 /**
