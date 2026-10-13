@@ -4,8 +4,10 @@
  * The desktop and Android builds are downloaded from GitHub releases, not an app store, so nothing tells a player a
  * newer one exists. This asks GitHub's public API for the repo's latest published release (drafts and prereleases
  * are never "latest", so a release still building is not offered) and offers it only when it is newer than this
- * build *and* carries an installer for the platform it is running on. The web app is redeployed on every merge and
- * never asks.
+ * build *and* carries an installer for the platform it is running on. Where the install can tell which installer it
+ * came from (the desktop shell's `installer_kind` command, `src-tauri/src/lib.rs`), the offer links straight to that
+ * file; the release page, with its notes and every download, is always the other link. The web app is redeployed on
+ * every merge and never asks.
  *
  * The API sends `access-control-allow-origin: *`, so this is the webview's own `fetch` in both shells, with no native
  * HTTP scope to widen. Unauthenticated calls are limited to 60 an hour per IP; one per launch is far inside that.
@@ -17,8 +19,17 @@ import { CLIENT_VERSION } from "../version.js";
 const REPO_URL = "https://github.com/quincarter/marvel-champions-digital-game";
 const LATEST_RELEASE_API = "https://api.github.com/repos/quincarter/marvel-champions-digital-game/releases/latest";
 
-/** What a release has to carry an installer for. iOS is absent: no release ships an iOS build. */
-export type InstallTarget = "android" | "windows" | "macos" | "linux";
+/** The platforms a release ships installers for. iOS is absent: no release ships an iOS build. */
+export type InstallOs = "android" | "windows" | "macos" | "linux";
+
+/** One installer file of a release: what this install was itself installed from. */
+export type InstallerKind = "apk" | "nsis" | "msi" | "dmg-aarch64" | "dmg-x64" | "appimage" | "deb" | "rpm";
+
+export interface InstallTarget {
+  readonly os: InstallOs;
+  /** Null when the install can't tell (a Linux distro that is neither Debian- nor Red Hat-like). */
+  readonly kind: InstallerKind | null;
+}
 
 export interface ReleaseAsset {
   readonly name: string;
@@ -35,34 +46,49 @@ export interface LatestRelease {
 
 export interface AvailableUpdate {
   readonly version: string;
-  /** The installer itself where the platform has exactly one, otherwise the release page to pick from. */
-  readonly url: string;
+  /** This install's own installer in the new release, or null when it isn't known or isn't there. */
+  readonly downloadUrl: string | null;
+  /** The release page: the changelog, and every download to pick from. */
+  readonly notesUrl: string;
 }
 
-/** The installers each target can use, as the release workflow names them (release-on-merge.yml). */
-const INSTALLERS: Record<InstallTarget, RegExp> = {
+/** Any installer for each platform, as the release workflow names them (release-on-merge.yml). */
+const OS_INSTALLERS: Record<InstallOs, RegExp> = {
   android: /\.apk$/i,
   windows: /(-setup\.exe|\.msi)$/i,
   macos: /\.dmg$/i,
   linux: /\.(AppImage|deb|rpm)$/i,
 };
 
-/**
- * Targets with one obvious installer open it directly. macOS has a .dmg per architecture and the webview's user
- * agent reports Intel on both, and Linux has three package formats, so those open the release page instead.
- */
-const DIRECT_DOWNLOAD: Partial<Record<InstallTarget, RegExp>> = {
-  android: /\.apk$/i,
-  windows: /-setup\.exe$/i,
+const KIND_INSTALLER: Record<InstallerKind, { readonly os: InstallOs; readonly file: RegExp }> = {
+  apk: { os: "android", file: /\.apk$/i },
+  nsis: { os: "windows", file: /-setup\.exe$/i },
+  msi: { os: "windows", file: /\.msi$/i },
+  "dmg-aarch64": { os: "macos", file: /_aarch64\.dmg$/i },
+  "dmg-x64": { os: "macos", file: /_x64\.dmg$/i },
+  appimage: { os: "linux", file: /\.AppImage$/i },
+  deb: { os: "linux", file: /\.deb$/i },
+  rpm: { os: "linux", file: /\.rpm$/i },
 };
 
-export function installTarget(platform: Platform, userAgent: string): InstallTarget | null {
+export function installOs(platform: Platform, userAgent: string): InstallOs | null {
   if (platform === "capacitor") return /android/i.test(userAgent) ? "android" : null;
   if (platform !== "tauri") return null;
   if (/windows/i.test(userAgent)) return "windows";
   if (/mac os x|macintosh/i.test(userAgent)) return "macos";
   if (/linux|x11/i.test(userAgent)) return "linux";
   return null;
+}
+
+/**
+ * Android has one installer. On desktop the shell reports its own (`reported`); anything it reports that isn't an
+ * installer for `os` is ignored, leaving the release page as the only link.
+ */
+export function installTargetOf(os: InstallOs, reported: unknown): InstallTarget {
+  if (os === "android") return { os, kind: "apk" };
+  const kind =
+    typeof reported === "string" && Object.hasOwn(KIND_INSTALLER, reported) ? (reported as InstallerKind) : null;
+  return { os, kind: kind !== null && KIND_INSTALLER[kind].os === os ? kind : null };
 }
 
 /** `[major, minor, patch]` of `1.2.3` or `v1.2.3`, or null for anything else (a pre-release suffix included). */
@@ -103,17 +129,17 @@ function isRepoUrl(url: unknown): url is string {
   return typeof url === "string" && url.startsWith(`${REPO_URL}/`);
 }
 
-/** The update to offer, or null: not newer, or published without an installer for `target`. */
+/** The update to offer, or null: not newer, or published without an installer for the target's platform. */
 export function updateFor(
   release: LatestRelease,
   currentVersion: string,
   target: InstallTarget,
 ): AvailableUpdate | null {
   if (!isNewerVersion(release.version, currentVersion)) return null;
-  if (!release.assets.some((asset) => INSTALLERS[target].test(asset.name))) return null;
-  const direct = DIRECT_DOWNLOAD[target];
-  const installer = direct === undefined ? undefined : release.assets.find((asset) => direct.test(asset.name));
-  return { version: release.version, url: installer?.url ?? release.url };
+  if (!release.assets.some((asset) => OS_INSTALLERS[target.os].test(asset.name))) return null;
+  const file = target.kind === null ? null : KIND_INSTALLER[target.kind].file;
+  const installer = file === null ? undefined : release.assets.find((asset) => file.test(asset.name));
+  return { version: release.version, downloadUrl: installer?.url ?? null, notesUrl: release.url };
 }
 
 let answered: Promise<AvailableUpdate | null> | null = null;
@@ -124,10 +150,12 @@ let answered: Promise<AvailableUpdate | null> | null = null;
  */
 export function checkForUpdate(): Promise<AvailableUpdate | null> {
   if (answered !== null) return answered;
-  const target = installTarget(detectPlatform(), globalThis.navigator?.userAgent ?? "");
-  if (target === null) return (answered = Promise.resolve(null));
-  const asking = fetchLatestRelease().then(
-    (release) => (release === null ? null : updateFor(release, CLIENT_VERSION, target)),
+  const platform = detectPlatform();
+  const os = installOs(platform, globalThis.navigator?.userAgent ?? "");
+  if (os === null) return (answered = Promise.resolve(null));
+  const asking = Promise.all([fetchLatestRelease(), platform === "tauri" ? reportedInstallerKind() : null]).then(
+    ([release, reported]) =>
+      release === null ? null : updateFor(release, CLIENT_VERSION, installTargetOf(os, reported)),
     () => {
       answered = null;
       return null;
@@ -141,4 +169,14 @@ async function fetchLatestRelease(): Promise<LatestRelease | null> {
   const response = await fetch(LATEST_RELEASE_API, { headers: { Accept: "application/vnd.github+json" } });
   if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
   return parseLatestRelease(await response.json());
+}
+
+/** The desktop shell's own answer to "which installer am I from?"; null if it has none to give. */
+async function reportedInstallerKind(): Promise<unknown> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke("installer_kind");
+  } catch {
+    return null;
+  }
 }

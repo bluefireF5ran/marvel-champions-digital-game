@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  installTarget,
+  installOs,
+  installTargetOf,
   isNewerVersion,
   parseLatestRelease,
   parseVersion,
   updateFor,
+  type InstallOs,
+  type InstallerKind,
   type LatestRelease,
 } from "./update-check.js";
 
@@ -36,7 +39,7 @@ const githubJson = (assets: readonly string[], extra: object = {}) => ({
 
 const release = (assets: readonly string[]): LatestRelease => parseLatestRelease(githubJson(assets))!;
 
-describe("installTarget", () => {
+describe("installOs", () => {
   const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/141.0";
   const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15";
   const LINUX = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15";
@@ -44,16 +47,16 @@ describe("installTarget", () => {
   const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15";
 
   it("names the desktop OS under Tauri and Android under Capacitor", () => {
-    expect(installTarget("tauri", WINDOWS)).toBe("windows");
-    expect(installTarget("tauri", MAC)).toBe("macos");
-    expect(installTarget("tauri", LINUX)).toBe("linux");
-    expect(installTarget("capacitor", ANDROID)).toBe("android");
+    expect(installOs("tauri", WINDOWS)).toBe("windows");
+    expect(installOs("tauri", MAC)).toBe("macos");
+    expect(installOs("tauri", LINUX)).toBe("linux");
+    expect(installOs("capacitor", ANDROID)).toBe("android");
   });
 
   it("is null on the web and on iOS, which no release ships a build for", () => {
-    expect(installTarget("web", WINDOWS)).toBeNull();
-    expect(installTarget("web", ANDROID)).toBeNull();
-    expect(installTarget("capacitor", IPHONE)).toBeNull();
+    expect(installOs("web", WINDOWS)).toBeNull();
+    expect(installOs("web", ANDROID)).toBeNull();
+    expect(installOs("capacitor", IPHONE)).toBeNull();
   });
 });
 
@@ -104,42 +107,82 @@ describe("parseLatestRelease", () => {
   });
 });
 
+describe("installTargetOf", () => {
+  it("is always the APK on Android", () => {
+    expect(installTargetOf("android", null)).toEqual({ os: "android", kind: "apk" });
+  });
+
+  it("takes the desktop shell's own installer", () => {
+    expect(installTargetOf("windows", "msi")).toEqual({ os: "windows", kind: "msi" });
+    expect(installTargetOf("macos", "dmg-aarch64")).toEqual({ os: "macos", kind: "dmg-aarch64" });
+    expect(installTargetOf("linux", "appimage")).toEqual({ os: "linux", kind: "appimage" });
+  });
+
+  it("ignores an answer that is unknown, empty or for another platform", () => {
+    expect(installTargetOf("linux", "")).toEqual({ os: "linux", kind: null });
+    expect(installTargetOf("linux", null)).toEqual({ os: "linux", kind: null });
+    expect(installTargetOf("windows", "toString")).toEqual({ os: "windows", kind: null });
+    expect(installTargetOf("windows", "deb")).toEqual({ os: "windows", kind: null });
+  });
+});
+
 describe("updateFor", () => {
+  const page = `${REPO}/releases/tag/v0.20.0`;
+  const file = (name: string): string => `${REPO}/releases/download/v0.20.0/${name}`;
+
   it("offers nothing when the release is not newer", () => {
-    expect(updateFor(release(ALL_ASSETS), "0.20.0", "windows")).toBeNull();
-    expect(updateFor(release(ALL_ASSETS), "0.21.0", "android")).toBeNull();
+    expect(updateFor(release(ALL_ASSETS), "0.20.0", { os: "windows", kind: "nsis" })).toBeNull();
+    expect(updateFor(release(ALL_ASSETS), "0.21.0", { os: "android", kind: "apk" })).toBeNull();
   });
 
-  it("opens the one installer directly on Android and Windows", () => {
-    expect(updateFor(release(ALL_ASSETS), "0.19.1", "android")).toEqual({
+  it("links the changelog and the installer this install came from", () => {
+    const downloads = {
+      apk: "marvel-champions-0.20.0.apk",
+      nsis: "Marvel.Champions_0.20.0_x64-setup.exe",
+      msi: "Marvel.Champions_0.20.0_x64_en-US.msi",
+      "dmg-aarch64": "Marvel.Champions_0.20.0_aarch64.dmg",
+      "dmg-x64": "Marvel.Champions_0.20.0_x64.dmg",
+      appimage: "Marvel.Champions_0.20.0_amd64.AppImage",
+      deb: "Marvel.Champions_0.20.0_amd64.deb",
+      rpm: "Marvel.Champions-0.20.0-1.x86_64.rpm",
+    } as const;
+    const osOf = { apk: "android", nsis: "windows", msi: "windows", appimage: "linux", deb: "linux", rpm: "linux" };
+    for (const [kind, name] of Object.entries(downloads) as [InstallerKind, string][]) {
+      const os = (osOf as Record<string, InstallOs>)[kind] ?? "macos";
+      expect(updateFor(release(ALL_ASSETS), "0.19.1", { os, kind })).toEqual({
+        version: "0.20.0",
+        downloadUrl: file(name),
+        notesUrl: page,
+      });
+    }
+  });
+
+  it("links only the release page when the installer isn't known", () => {
+    expect(updateFor(release(ALL_ASSETS), "0.19.1", { os: "linux", kind: null })).toEqual({
       version: "0.20.0",
-      url: `${REPO}/releases/download/v0.20.0/marvel-champions-0.20.0.apk`,
+      downloadUrl: null,
+      notesUrl: page,
     });
-    expect(updateFor(release(ALL_ASSETS), "0.19.1", "windows")?.url).toBe(
-      `${REPO}/releases/download/v0.20.0/Marvel.Champions_0.20.0_x64-setup.exe`,
-    );
-  });
-
-  it("opens the release page on macOS and Linux, which have several installers", () => {
-    const page = `${REPO}/releases/tag/v0.20.0`;
-    expect(updateFor(release(ALL_ASSETS), "0.19.1", "macos")?.url).toBe(page);
-    expect(updateFor(release(ALL_ASSETS), "0.19.1", "linux")?.url).toBe(page);
   });
 
   it("offers nothing to a platform the release has no installer for", () => {
     const desktopOnly = release(ALL_ASSETS.filter((name) => !name.endsWith(".apk")));
-    expect(updateFor(desktopOnly, "0.19.1", "android")).toBeNull();
-    expect(updateFor(desktopOnly, "0.19.1", "windows")).not.toBeNull();
+    expect(updateFor(desktopOnly, "0.19.1", { os: "android", kind: "apk" })).toBeNull();
+    expect(updateFor(desktopOnly, "0.19.1", { os: "windows", kind: "nsis" })).not.toBeNull();
 
     const androidOnly = release(["marvel-champions-0.20.0.apk", "SHA256SUMS.txt"]);
-    expect(updateFor(androidOnly, "0.19.1", "android")).not.toBeNull();
-    expect(updateFor(androidOnly, "0.19.1", "windows")).toBeNull();
-    expect(updateFor(androidOnly, "0.19.1", "macos")).toBeNull();
-    expect(updateFor(androidOnly, "0.19.1", "linux")).toBeNull();
+    expect(updateFor(androidOnly, "0.19.1", { os: "android", kind: "apk" })).not.toBeNull();
+    expect(updateFor(androidOnly, "0.19.1", { os: "windows", kind: "msi" })).toBeNull();
+    expect(updateFor(androidOnly, "0.19.1", { os: "macos", kind: "dmg-x64" })).toBeNull();
+    expect(updateFor(androidOnly, "0.19.1", { os: "linux", kind: null })).toBeNull();
   });
 
-  it("falls back to the release page when Windows has only the .msi", () => {
+  it("falls back to the release page when the platform has installers but not this install's own", () => {
     const msiOnly = release(["Marvel.Champions_0.20.0_x64_en-US.msi"]);
-    expect(updateFor(msiOnly, "0.19.1", "windows")?.url).toBe(`${REPO}/releases/tag/v0.20.0`);
+    expect(updateFor(msiOnly, "0.19.1", { os: "windows", kind: "nsis" })).toEqual({
+      version: "0.20.0",
+      downloadUrl: null,
+      notesUrl: page,
+    });
   });
 });
