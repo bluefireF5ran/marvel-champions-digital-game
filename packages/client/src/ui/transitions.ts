@@ -194,6 +194,10 @@ export function goToScreen(
   data?: object,
   durationMs: number = motion.screenFadeMs,
 ): void {
+  // Phaser keeps a scene's last start data when `start` gets none (`Systems#start` only assigns a truthy `data`), so
+  // a bare "back to Title" would replay the Decks screen's "Play this deck" hand-off and bounce straight to Take
+  // your seats again, forever. Every screen change passes an object, empty when the caller has nothing to say.
+  data ??= {};
   if (reduced() || durationMs <= 0) {
     scene.scene.start(key, data);
     return;

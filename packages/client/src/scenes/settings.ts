@@ -158,7 +158,7 @@ export class SettingsOverlay extends Phaser.Scene {
         if (this.scene.isActive(overlay) || this.scene.isSleeping(overlay)) this.scene.stop(overlay);
       }
       if (this.scene.isActive(SCENES.board)) this.scene.stop(SCENES.board);
-      this.scene.start(SCENES.howToPlay);
+      this.scene.start(SCENES.howToPlay, {});
     });
   }
 

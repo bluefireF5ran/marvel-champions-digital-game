@@ -62,7 +62,7 @@ export function titleFocusOrder(input: TitleFocusInput): readonly string[] {
 export interface DecksFocusInput {
   /** Import by MarvelCDB URL/id is dev/preview-only (PLAN.md Phase 9); paste always shows. */
   readonly showMarvelCdbImport: boolean;
-  /** Every deck row, in list order (group headers and the trailing "+ New deck" tile excluded — see `newDeck` below) — not just the ones currently on screen. `McVirtualList` scrolls a row into view when it takes focus, so a row off-screen is still a real stop. */
+  /** Every deck row, in list order (group headers excluded; "+ New deck" sits on the pane header, ahead of the search field) — not just the ones currently on screen. `McVirtualList` scrolls a row into view when it takes focus, so a row off-screen is still a real stop. */
   readonly deckIds: readonly string[];
   /** S8's quick-filter chip ids (aspect, source, "Legal only"), between the search field and the list. */
   readonly chipIds: readonly string[];
@@ -91,8 +91,8 @@ export interface DecksFocusInput {
 }
 
 /**
- * The Decks screen (W9b, D14): Back, then — wide — the search field, the "Filters" toggle, its quick-filter chips
- * (only while expanded), every deck row, "+ New deck", the Import/Export box's Paste/MarvelCDB/Export buttons and
+ * The Decks screen (W9b, D14): Back, then — wide — "+ New deck" on the pane header, the search field, the "Filters"
+ * toggle, its quick-filter chips (only while expanded), every deck row, the Import/Export box's Paste/MarvelCDB/Export buttons and
  * whichever of Paste's or MarvelCDB's own field+Import stops the accordion currently has open, then the card
  * pool's own filter chips and every pool card, then the selected deck's stats-pane actions (Check, Edit/Delete
  * when it's editable, Duplicate, Play this deck ▸). Narrow shows the same three groups behind a
@@ -101,11 +101,11 @@ export interface DecksFocusInput {
  */
 export function decksFocusOrder(input: DecksFocusInput): readonly string[] {
   const listGroup = [
+    "new-deck",
     "deck-search",
     "filters-toggle",
     ...(input.filtersExpanded ? input.chipIds.map((id) => `deck-chip:${id}`) : []),
     ...input.deckIds.map((id) => `deck:${id}`),
-    "new-deck",
     "ie-paste-toggle",
     "ie-marvelcdb-toggle",
     "ie-export",
