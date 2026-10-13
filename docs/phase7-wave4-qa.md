@@ -206,7 +206,7 @@ Verified two are real (not rebuilt); wrote the third, which did not previously h
 
 1. **Tower Defense double defeat** (§3.3) — **verified, real.**
    `packages/cards/src/wave4/mts/tower-defense.test.ts`, `"§3.3: both villains reaching 0 in one attack are both
-defeated (Jun 2, 2026 (2) simultaneous damage)"`: both Proxima Midnight and Corvus Glaive are patched to lethal
+   defeated (Jun 2, 2026 (2) simultaneous damage)"`: both Proxima Midnight and Corvus Glaive are patched to lethal
    damage, one is killed with a real `basicAttack`, and the test asserts **both** villains' own `defeated` flags are
    `true` and `after.outcome?.result === "win"` — a real, driven simultaneous-defeat, not a synthetic state check.
    Re-ran clean.
@@ -222,11 +222,11 @@ defeated (Jun 2, 2026 (2) simultaneous damage)"`: both Proxima Midnight and Corv
      scenario _before_ the loss) survive the Tower Defense retry unchanged — the closest analogue MC21 actually
      prints to "a permanent effect survives a retry," since it has no printed removal instruction of its own.
    - `"expert campaign: hit points carry over scenario to scenario, capped at base, and losing the last scenario
-loses the campaign"` — the box's own persistent-HP rule, separately proven.
+     loses the campaign"` — the box's own persistent-HP rule, separately proven.
      Re-ran clean (`packages/cards/src/campaigns/mts.qa.test.ts` + `tower-defense.test.ts`, 32 tests, all pass).
 3. **The Loki swap carrying attachments, status cards and the dial (§3.7)** — **no card-level test existed; written
    this checkpoint.** `packages/cards/src/wave4/mts/loki.test.ts`, new test `"§3.7: an advance-swap carries
-attachments and status cards on the same instance, and each Loki's own dial (single-stage: stageIndex 0) stays"`:
+   attachments and status cards on the same instance, and each Loki's own dial (single-stage: stageIndex 0) stays"`:
    attaches Loki's Staff (21170) and gives the villain a confused status card (not "tough" — that would intercept
    the test's own lethal attack and prevent the advance-swap this test needs to happen at all), triggers the
    advance-to-set-aside-villain path (All Hail King Loki 1B's forced interrupt, the same shape `loki.test.ts`
@@ -253,7 +253,7 @@ port of the Calvin Zabo fix** — three real complications, found live, are reco
    (unrelated to 21120), with its own `declareDefender` prompt that resolves _before_ 21120 is even revealed. A
    defender picker that greedily declares Captain America for the first prompt it sees spends her tough on the
    _wrong_ attack (confirmed live: the engine's own event log showed `damagePrevented`/`statusRemoved
-{reason: "preventedDamage"}` for that attack, not `{reason: "piercing"}`), leaving nothing for the piercing test
+   {reason: "preventedDamage"}` for that attack, not `{reason: "piercing"}`), leaving nothing for the piercing test
    to prove by the time 21120's own attack happens.
 2. **`21120.when-revealed-hero`'s own "ability" stack frame pops as soon as its effects begin**, before the
    `enemyAttack` those effects push resolves — so a picker that checks `state.stack` for that ability id at
@@ -630,7 +630,7 @@ printed text; watched specifically for the patterns the task named (indirect dam
   **not** the same bug: `placeThreat`/`dealDamage` are not capped, idempotent effects the way `giveStatus` is, so
   "a Spell exists" and "threat/damage was actually placed" are equivalent here. Checked directly, not assumed.
 - **Infinity Gauntlet's Mind Stone/Power Stone (21130/21131)** correctly use `ifThen(hasStatus(identityOf(you),
-...), <already-true branch>, <apply-status branch>)` — reading the identity's own current status directly, not an
+  ...), <already-true branch>, <apply-status branch>)` — reading the identity's own current status directly, not an
   existence check on some other query — which is the correct pattern Magic Muscle should have used instead of
   `exists(BRUTE_ENEMY)`.
 
@@ -698,7 +698,7 @@ word, cost vs. effect, keyword grant, and the "already X"/existence-check orderi
 - **Joining Forces (26035)**: `min: 1, max: 1` on both the Avenger and Guardian searches (not `min: 0`) correctly
   makes the whole Alliance action illegal to initiate if either pool is empty, matching "the players put a total of
   1 [Avenger] ally **and** 1 [Guardian] ally" as a joint requirement, not an optional one; `excluding:
-chosen("avenger")` on the second search stops one card from filling both slots.
+  chosen("avenger")` on the second search stops one card from filling both slots.
 - **Machine Man (26022)**: `on.basicPowerUsing("self", { power: ["attack", "thwart"] })` correctly excludes defense
   (the errata'd "for this use" wording, RRG 1.5, is read via `modifyBasicPower` scoped to the triggering use, not a
   standing buff).

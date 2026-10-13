@@ -82,9 +82,9 @@ discard the tough status card Belle gave.**
 - Repro (`rogue/qa.test.ts`, "Senyaka's piercing attack discards the tough card Belle just gave", `it.fails`): Rogue in
   hero form, Senyaka (32161, a minion whose attacks gain piercing) engaged, Touched put on him with Skin Contact, the
   villain stunned, Bulletproof Belle in hand; end the turn and play Belle when Senyaka attacks. Actual: `statusGiven
-tough`, `attackResolved { baseAtk: 3, damageDealt: 3 }`, `damagePrevented { amount: 3, reason: "effect" }`, and no
+  tough`, `attackResolved { baseAtk: 3, damageDealt: 3 }`, `damagePrevented { amount: 3, reason: "effect" }`, and no
   `statusRemoved`; Rogue keeps the tough card (the next treachery's damage then uses it). Expected: a `statusRemoved
-tough` between the prevention and the end of the attack.
+  tough` between the prevention and the end of the attack.
 - Cause: `packages/engine/src/resolve/event.ts` (~line 877 to 915), the `preventedByAttackFlag` and `damagePreventerOf`
   branches return before `pierceTough` runs; the code's own comment calls this an "UNCONFIRMED READING" and says no cycle
   1 card reaches it. Belle is the first card that does, and the ruling settles it. The same ruling's #2 (keywords have

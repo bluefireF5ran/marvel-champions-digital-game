@@ -135,7 +135,7 @@ being `null` not `undefined`, and not inventing a card's data, applies unchanged
 
 - **An event card's own "Hero Action"/"Hero Action (attack)"/"Action" text resolves automatically when the event
   is played** (`resolve/play-card.ts`'s `"abilities"` stage, `definition.trigger.kind === "action"`, `forced:
-true`) — **there is no separate `useAbility` command for it.** `play(P1, id, payment)` alone triggers it, and
+  true`) — **there is no separate `useAbility` command for it.** `play(P1, id, payment)` alone triggers it, and
   any in-play cost the ability itself carries (e.g. `exhaustCardsCost`) is paid automatically as part of resolving
   the play, not offered as a separate choice, when there's exactly one legal candidate to exhaust. This tripped up
   the first drafts of several Hawkeye/Spider-Woman event tests, which mistakenly tried `use(...)` on them.
@@ -163,7 +163,7 @@ true`) — **there is no separate `useAbility` command for it.** `play(P1, id, p
   not copied per pack.
 - **`characterProfile()` has no `keywords`, `traits`, or `hp` field** — it's stats only (`atk`/`thw`/`def`/`rec`/
   `sch`/`maxHp`/`missing`). Use `hasKeyword(state, id, name, deps)` (`@mc/engine`, `keywords.ts`) and `traitsOf
-(state, id, deps)` (`@mc/engine`, `select.ts`) for those, and `characterProfile(...)?.maxHp` (not `.hp`) for hit
+  (state, id, deps)` (`@mc/engine`, `select.ts`) for those, and `characterProfile(...)?.maxHp` (not `.hp`) for hit
   points.
 - **A trait string is the schema's upper-cased spelling** ("AERIAL", not "Aerial") — `traitsOf(...).map(String)`
   reads back exactly what `@mc/content`'s `trait(...)` constructor produced, and `dsl/values.ts`'s `TRAIT` map
@@ -212,7 +212,7 @@ true`) — **there is no separate `useAbility` command for it.** `play(P1, id, p
   interrupt, `hawkeye.test.ts`, before this was found: `settle(..., picking(theTrigger))` alone picked the trigger
   correctly but then paid its cost with an empty selection at the very next prompt). Answer a `payForAbility` prompt
   reached through a resource-spend cost with an explicit pick (`answer(state, [state.pendingChoice.options[0]!.
-optionId], deps)`), not `firstLegal`/`picking`'s fallback.
+  optionId], deps)`), not `firstLegal`/`picking`'s fallback.
 - **`answer`/`settleUntil` default to `CORE_DEPS` when `deps` is omitted** — a wave 2 (or any non-Core) test that
   calls either without passing `WAVE2_DEPS` explicitly gets a state where the ability being tested is invisible to
   `heard`/`hasCandidates` (it isn't in `CORE_DEPS.abilities`), so its trigger window never opens. This looks exactly
@@ -319,7 +319,7 @@ needed, and deciding which is out of `ability-scripting-engineer`'s remit.
   protection, not one fixed value.
 - **Closest existing primitive:** `TargetQuery.anyTrait: readonly Trait[]` (the OR-of-traits field, landed in wave
   1's primitives batch) — an `anyAspect: readonly CoreAspect[]` field of the identical shape, or an `isAspectCard:
-true` boolean (since "an aspect card" always means exactly those four, never a fixed list a card author chooses)
+  true` boolean (since "an aspect card" always means exactly those four, never a fixed list a card author chooses)
   would both work; the latter is simpler if no cycle 1 or later card ever needs a _subset_ of the four.
 
 ### 6.3 A cost requiring a wild resource specifically, not "any one resource" (1 card in `trors`, recurs across later packs)
@@ -388,7 +388,7 @@ true` boolean (since "an aspect card" always means exactly those four, never a f
 - **The gap:** no `TargetRef`/`PlayerRef` reads a scheme's own defeating player for a _later_ effect in the same
   ability. `on.defeated`'s `byYou` filter (used on the _responding_ ability's own trigger condition) can name "you
   defeated it" as a yes/no gate, but can't hand that player back as a `PlayerRef` value for `enemyAttack(theVillain,
-{ against: <that player> })`, `chooseCards(..., { chooser: <that player> })`, etc.
+  { against: <that player> })`, `chooseCards(..., { chooser: <that player> })`, etc.
 - **Closest existing primitive:** the `defendingCharacter`/`eventSource`/`eventTarget` family of context-scoped
   refs (`dsl/values.ts`) — a `defeatingPlayer: PlayerRef` reading the current `characterDefeated`/`schemeDefeated`
   event's own defeating player (already recorded on that event, since `byYou` reads it) would slot in the same way.
@@ -422,12 +422,12 @@ true` boolean (since "an aspect card" always means exactly those four, never a f
   boost icons on that card."
 - **The gap:** `formChanged`'s own event shape (`packages/engine/src/spec.ts`) carries `to: "hero" | "alterEgo"`,
   but `EventPattern` has no field to filter on it — only `on.youChangeForm()`'s hardcoded `{ playerIs: "controller"
-}`, which also doesn't fit here: this is a _villain_ ability reacting to _any_ player's change, not "you." A
+  }`, which also doesn't fit here: this is a _villain_ ability reacting to _any_ player's change, not "you." A
   `PlayerRef { kind: "eventPlayer" }` already exists (`spec.ts`) and would supply "they" for the effect body once
   the trigger itself can be written.
 - **Closest existing primitive:** a `to?: "hero" | "alterEgo"` field on `EventPattern`, read the same way
   `requireResults` reads other event-carried fields, plus a version of `on.youChangeForm` (or a new `on.
-playerChangesForm`) with no built-in `playerIs: "controller"` scoping.
+  playerChangesForm`) with no built-in `playerIs: "controller"` scoping.
 
 ### 6.11 Already known, not newly found (see `docs/phase7-wave2.md` §3.11)
 
@@ -453,7 +453,7 @@ playerChangesForm`) with no built-in `playerIs: "controller"` scoping.
   minion has no controller of its own, so "you" is the engaged player, the same reading The Viper's own "while
   engaged with you" constant uses (`04054.the-viper-constant`, `trors/spider-woman-obligation-nemesis.ts`).
 - **Found by testing (§4.1's rule), not a missing vocabulary word.** Scripted once as `gainsTrait(GIANT, query(
-"minion", { self: true }), { while: hasTrait(identityOf(engagedPlayerOf(self)), GIANT) })` (and the Tiny/ATK
+  "minion", { self: true }), { while: hasTrait(identityOf(engagedPlayerOf(self)), GIANT) })` (and the Tiny/ATK
   sibling) — this typechecked, looked structurally like The Viper's constant, and was only "is defined"-tested
   before this pass. A real reveal-from-encounter-deck test (`ant/kit.test.ts`, since reverted) crashed the engine
   with `RangeError: Maximum call stack size exceeded` the moment Yellowjacket was in play and _anything_ called
@@ -461,7 +461,7 @@ playerChangesForm`) with no built-in `playerIs: "controller"` scoping.
 - **The gap, precisely.** `traitsOf(state, id)` (`packages/engine/src/select.ts`, its trait-grant scan around lines
   145–173) loops over every card in play and evaluates every constant `traitGrant`'s `while` predicate
   _unconditionally_, before checking whether the grant's own `target` even matches the requested `id`. A `while:
-hasTrait(ref, trait)` predicate's `evaluate` case (`select.ts`, `"hasTrait"`) calls `traitsOf(state, refId)` — a
+  hasTrait(ref, trait)` predicate's `evaluate` case (`select.ts`, `"hasTrait"`) calls `traitsOf(state, refId)` — a
   full, unmemoized re-entry into the very function currently running. Because the predicate's inputs never depend
   on the outer call's `id`, the re-entrant call hits the identical ability's identical `while` again, unconditionally,
   every single time: an **unconditional** infinite recursion (not merely deep), so no board size or player count
@@ -728,7 +728,7 @@ and assert the printed outcome, not `toBeDefined()`). Made both real:
 - **Tech Theft** (12026): a real test now attaches a TECH-trait upgrade (Reinforced Suit) to an ally, confirms its
   `+2 hit points` constant applies, reveals Tech Theft from the nemesis set (a `PlayerState.setAside` card, staged
   onto the encounter deck the same way `hawkeye.test.ts`'s `stackSetAside` does — a new local `
-stageNemesisCardForReveal`/`revealFromEncounterDeck` pair in `ant/kit.test.ts`, generalizable to `wsp`/`qsv`/`scw`
+  stageNemesisCardForReveal`/`revealFromEncounterDeck` pair in `ant/kit.test.ts`, generalizable to `wsp`/`qsv`/`scw`
   the same way `stackSetAside` was flagged as reusable in `trors`), and confirms Reinforced Suit's own text (and so
   its +2 hit points) is now blank.
 - **Yellowjacket** (12027): turning its "is defined" test into a real one _found a genuine engine crash_, not a
@@ -771,8 +771,8 @@ found all four §6.13/§6.14 gaps landed there the same day they were pinned:
   destinations), so only the "advance to stage 4A" half of that ref carries an effect
   (`stateCheck(not(gameAreasSplit), advanceMainScheme(...))`).
 - **Un-skipped `11013a.when-revealed`**: two new DSL builders, `centralMainScheme` and `tuckedUnderRef` (`dsl/
-values.ts`, wrapping the landed `TargetRef { kind: "tuckedUnder" }`, §10.2), let `revealCard(tuckedUnderRef(
-centralMainScheme), firstPlayer)` reveal the facedown Kang's Dominion(s) tucked there by the stage 3 areas' own
+  values.ts`, wrapping the landed `TargetRef { kind: "tuckedUnder" }`, §10.2), let `revealCard(tuckedUnderRef(
+  centralMainScheme), firstPlayer)` reveal the facedown Kang's Dominion(s) tucked there by the stage 3 areas' own
   Forced Responses — no new effect needed, `revealCard` already runs the whole reveal procedure on whatever it's
   given, tucked cards included.
 - **`11013b.when-revealed` is still blocked** — §10.1's `anyOf` selector landed, but that only solves the "search
@@ -897,7 +897,7 @@ fixture:
   `anyOfCards`, a thin wrapper around the already-landed `CardSelector { kind: "anyOf" }`). `kang.test.ts` gained a
   second full split-and-rejoin playthrough (Ant-Man, not Hawkeye — see the data-gap note below) proving 11013b's own
   search-and-engage fires automatically right after 11013a's, in the same stage advance, exactly as `resolve/
-defeat.ts`'s own `advanceMainScheme` comment says ("the new stage's A side is revealed first … then the B side").
+  defeat.ts`'s own `advanceMainScheme` comment says ("the new stage's A side is revealed first … then the B side").
 - **`13001a.small-but-mighty`** (`wsp/kit.ts`) — `on.defeats(source)`, a new `on.*` builder wrapping `sourceIs`
   across both `characterDefeated`/`schemeDefeated` (§17.2). Tested both ways: Wasp's own basic attack defeating a
   minion damages the villain; the Ant-Man ally's identical defeat (same defeating _player_, different defeating
@@ -906,7 +906,7 @@ defeat.ts`'s own `advanceMainScheme` comment says ("the new stage's A side is re
   which silently made the first draft of this test fail on a false premise (the ability wasn't broken; the test
   never let it fire).
 - **`13002.ant-man-constant`/`-2`** (`wsp/kit.ts`) and **`12027.yellowjacket-constant`/`-2`** (`ant/obligation-
-nemesis.ts`) — scripted exactly as originally attempted before the crash (§6.15's own "Scripted once as…" quote),
+  nemesis.ts`) — scripted exactly as originally attempted before the crash (§6.15's own "Scripted once as…" quote),
   now safe under `traitsOf`'s §17.5 `DEFAULT_DEPS` guard. Both verified with a real reveal/play-then-read-traits-and-
   stats test in each pack's own `kit.test.ts`, not re-added on the strength of the engine docblock's own claim that
   the fix makes them safe — §4.1's rule again, this time in the "un-skip" direction.
@@ -916,7 +916,7 @@ nemesis.ts`) — scripted exactly as originally attempted before the crash (§6.
   interrupt window (a `chooseTriggers` prompt, then a `payForCard` prompt — `accepting(...)` alone isn't enough for
   the payment step, since `firstLegal`'s `minSelections: 0` fallback backs out of a real cost instead of paying it;
   needed a small custom picker answering `payForCard` with the first offered card, the same pattern `wave1/drs/
-pack-cards.test.ts` already uses), confirming the raised damage (Tiny ATK 1 → Giant ATK 2 + 2 = 4), the form
+  pack-cards.test.ts` already uses), confirming the raised damage (Tiny ATK 1 → Giant ATK 2 + 2 = 4), the form
   change, and that no lasting effect survives past the attack ("for this use").
 - **`13008.red-room-training-constant-2`** (`wsp/kit.ts`) — `attacksGainKeywords({ basicOnly: true })` (§17.3, the
   DSL extended with the new option). Tested with a real tough-status-card discard (piercing's only observable
@@ -967,13 +967,13 @@ supplied by the engine).
   matching by _label text_ (`accepting(...)`, the convention every prior pack's tests already use for
   `chooseTriggers`) silently matches nothing here and a test believes an effect fired when it picked zero cards.
   Needed a dedicated "take every offered candidate, up to the prompt's own max" picker (`pickAllCards`, `pack-
-cards.test.ts`) for Multiple Man and Serval Industries.
+  cards.test.ts`) for Multiple Man and Serval Industries.
 - **`declareDefender`'s own "no defense" answer is `["decline"]`, not `[]`** — `firstLegal` already knows this
   (`if (choice.prompt.kind === "declareDefender") return ["decline"]`), but a test driving the choice by hand
   (to declare a _specific_ defender first) must remember it too; answering `[]` is rejected outright as an invalid
   selection count, not treated as declining.
 - **An upgrade attaches rather than sitting in `playArea`** — `cardsInPlay(state)`, not `playerOf(state, p
-).playArea`, is what finds it once played (Nerves of Steel's own test found this the hard way: `playArea` was
+  ).playArea`, is what finds it once played (Nerves of Steel's own test found this the hard way: `playArea` was
   empty, the card was attached to the identity instead, per RRG's own default host when none is named).
 - **A multi-copy card's own precon quantity means `instancesOf(...)[0]` is not necessarily the one in play** — with
   3 copies of Nerves of Speed printed only 3, always pick the in-play one explicitly (`cardsInPlay(state).find(...)`
@@ -985,7 +985,7 @@ cards.test.ts`) for Multiple Man and Serval Industries.
   Serval Industries' own test, not by any assertion failure message that pointed at the actual mistake.
 - **`chooseOne`'s own option ids are index-based (`"0"`, `"1"`, or `"<index>#<n>"` under `allowRepeat`), never the
   option's label text** — a picker matching by label must inspect `option.label` itself (`choice.options.find(o =>
-o.label === wanted)`), not try to match the label against `optionId`.
+  o.label === wanted)`), not try to match the label against `optionId`.
 - **A villain phase's `declareDefender` interrupt for "when you defend" resolves _after_ the defending character's
   own `basicPowerUsed` response, not before** — both get pushed onto the stack at the same moment (`setDefender`
   announces `defended` first, then `basicPowerUsing`/`basicPowerUsed` are pushed after it), and the stack is LIFO,
@@ -1163,7 +1163,7 @@ cards need, `cannotChangeFormUntil(until, player?)` and `cannotReadyUntil(target
   (`cannotChangeFormUntil`, tested blocking and then releasing a real `changeForm` command across two rounds,
   `kit.test.ts`), `12029.when-revealed` (`encounterSetOf`, tested by planting a second nemesis-set card a few cards
   down in the shared deck and confirming the search discards real filler before finding it), `12032.muster-
-courage-action` (already-there `chooseTarget.count`/`optional`; genuinely unreachable from the Leadership-only
+  courage-action` (already-there `chooseTarget.count`/`optional`; genuinely unreachable from the Leadership-only
   `ant-leadership` precon, `toBeDefined()`-only, the same situation off-aspect cards hit in every other pack).
 - `wsp` — `13012.wasp-interrupt` (already-there `overpaid.energy`, tested both ways with her own two basic resource
   cards isolating the type filter).
@@ -1208,10 +1208,10 @@ field 15023 needed (§18.6/§24) since the last session touched this file.
 - **`11049.fear-of-kang-constant` ("You cannot attack Kang") is the one ref this session did _not_ script**,
   and it is the main finding: §18.2's claim that "every primitive `cannotAttack` included already exists" does
   not hold for a _player-scoped_ "you cannot attack" restriction. `RuleSpec cannotAttack` is `{ target:
-TargetQuery; while?: Predicate }` — shaped for its one existing user, Distracting Taunts ("**Players** cannot
+  TargetQuery; while?: Predicate }` — shaped for its one existing user, Distracting Taunts ("**Players** cannot
   attack other villains", genuinely plural/global) — and has no `player` field the way `cannotThwart`/
   `cannotChangeForm`/`cannotPlay` do. Read the engine source first (`attackForbidden`, `packages/engine/src/
-select.ts`): the function that walks constant `cannotAttack` rules is never handed the attacking player at all,
+  select.ts`): the function that walks constant `cannotAttack` rules is never handed the attacking player at all,
   only the target being attacked — so no `TargetQuery` construction on the _card_ side can recover "only this
   obligation's own controller" once inside it. **Proven, not just read**, per this brief's own instruction to
   build a two-player game and look (`toafk/fear-of-kang-constant.test.ts`): a synthetic, bare `cannotAttack` rule
@@ -1262,7 +1262,7 @@ through it, and `cannotPlay`'s `cards` query was fixed to read a rule's speaker 
 obligation's raw one (§25.3). Both fixes were used here, not just read about:
 
 - `11049.fear-of-kang-constant` ships as `constant(rule({ kind: "cannotAttack", target: query("villain", { name:
-cardName("11001") }), player: you }))` — no DSL change needed, `rule` already passes a `RuleSpec` straight through.
+  cardName("11001") }), player: you }))` — no DSL change needed, `rule` already passes a `RuleSpec` straight through.
 - `fear-of-kang-constant.test.ts` was rewritten, not deleted: it keeps its original regression guard (a _bare_,
   target-only `cannotAttack` rule — Distracting Taunts' own shape — is still table-wide by design, blocking a second
   player who never held the obligation) and adds the assertion that matters now: the shipped `player: you` shape

@@ -37,14 +37,14 @@ Three things worth calling out precisely, none of them requiring a fix:
 - **§4.1 Q59 (In Cold Blood's "You cannot play events until after that attack resolves" needs `applyRuleUntil` to
   last until the end of an attack) is built and tested, though the spec's own table still lists it "open".**
   `ghost-spider/obligation-nemesis.ts`'s `27029.when-revealed` writes `applyRuleUntil({ kind: "cannotPlay", … },
-"endOfAttack", …, { attack: "initiated" })` before the `enemyAttack` it gates, exactly as the docblock prescribes,
+  "endOfAttack", …, { attack: "initiated" })` before the `enemyAttack` it gates, exactly as the docblock prescribes,
   and `obligation-nemesis.test.ts`'s "Backflip cannot prevent The Lizard's attack" test proves both halves: Backflip
   (a Hero Interrupt event) is refused during the attack it names, and the restriction is gone
   (`lastingEffects.some(e => e.rule.kind === "cannotPlay")` is `false`) once that attack resolves. This is a stale
   spec-table entry, not a real open item — flagged back rather than silently left for someone to trip over.
 - **§4.1 Q63 (a `resolveSpecials` caller must resolve only the Special it names, not every Special on the card) is
   scripted exactly as decided and stress-tested by stacking, not just isolation.** Both `resolveSpecialsOf(...,
-{ abilities: […] })` call sites (`events.ts`'s Web-Shot/Swing In, `support-upgrades-allies.ts`'s Power
+  { abilities: […] })` call sites (`events.ts`'s Web-Shot/Swing In, `support-upgrades-allies.ts`'s Power
   Within/Defense Mechanism) pass an explicit single-ability filter, and every one of their four tests asserts the
   _other_ Special's absence in the same breath as the named one's presence (no stray tough/confuse from Web-Shot, no
   stray damage/stun from Swing In, and the mirror image for Power Within/Defense Mechanism) — a real negative case
@@ -99,7 +99,7 @@ remit: "don't edit the spec's status columns or open questions").
   are this pass's own two heroes' cards.
 - **Did not open a diagnostic/throwaway harness** — every claim and test in this pass ran directly against real
   `WAVE5_DEPS` (`pnpm --filter @mc/cards exec vitest run src/wave5/sm/ghost-spider src/wave5/sm/spider-man-morales
-src/wave5/sm/cross-hero.test.ts` — 16 files, 141 tests, all passing before and after this pass's own three
+  src/wave5/sm/cross-hero.test.ts` — 16 files, 141 tests, all passing before and after this pass's own three
   additions).
 
 ## 5. Findings routed elsewhere

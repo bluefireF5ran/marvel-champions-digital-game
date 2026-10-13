@@ -50,7 +50,7 @@ No wording drift found between any scanned card and its `text.printed` in this s
 - **"Hapless Pedestrians" 27064a/b** (main scheme): 1A's Setup ("Search the encounter deck for the City Streets
   environment and put it into play. Place 4 sand counters on it.") matches the rulebook's own Sandman page text
   quoted in `docs/phase7-wave5.md` line 259 and is exercised in `sandman/scenario.test.ts` (`inst(streets)…["sand"]
-=== 4`). 1B's Forced Response is data-only per the file's own comment; not independently re-verified against the
+  === 4`). 1B's Forced Response is data-only per the file's own comment; not independently re-verified against the
   scan in this pass (a gap — see §3 below).
 - **City in Chaos (`city-in-chaos.ts`)**: Panic in the Streets' text-box blanking correctly scopes to LOCATION and
   PERSONA traits only (traits print outside the text box per RRG 1.8 "Blank", p. 10, so they survive un-blanked

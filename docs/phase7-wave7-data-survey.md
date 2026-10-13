@@ -24,7 +24,7 @@ lower: each main scheme stage is a pair of raw records, 40077 plus 40077a and so
 Notes:
 
 - The four emitted packs normalize with zero survey issues. All four `Cycle` records read `{ id: "cycle7", name:
-"Cycle 7", order: 7 }` in both `packs.ts` and the curation. Rename the name only to "NeXt Evolution" (the id stays;
+  "Cycle 7", order: 7 }` in both `packs.ts` and the curation. Rename the name only to "NeXt Evolution" (the id stays;
   `data-only.test.ts` line ~117 asserts `cycleId` only). `mut_gen.ts` is the model (its curation header, line 17).
 - Release dates in the curations: psylocke and angel 2023-09-22, x23 and deadpool 2023-11-17. The sources doc gives
   the box as August 18, 2023 (Hall of Heroes).
@@ -53,14 +53,14 @@ it. No image-extension drift was seen.
 Drift is from the wave 6 parser changes (#94 touched `parse-text.ts`), not from raw data:
 
 - **Elixir 42011** (committed vs regen). Committed has `playRestrictions: { requiresIdentityTrait: trait("X-FORCE OR
-X-MEN") }` and abilities `[42011.elixir-response]`. Regen drops the play restriction and emits
+  X-MEN") }` and abilities `[42011.elixir-response]`. Regen drops the play restriction and emits
   `[42011.elixir-constant, 42011.elixir-response]`. The committed value is a bogus single trait named "X-FORCE OR
   X-MEN"; the regen moves "Play only if your identity has the X-Force or X-Men trait" into a constant ability for the
   scripter. Regen is the better data, but it is an either-trait restriction the schema cannot express as a
   `requiresIdentityTrait` (the single-trait ones, Pete Wisdom 41018 and IPAC, still parse). Consider an `anyOf` trait
   list on `playRestrictions` (section 5).
 - **Self-Isolation 43028**: abilities `[43028.obligation]` becomes `[43028.self-isolation-constant,
-43028.self-isolation-response]` (the obligation text now parses into a constant ability plus a Response). Ability ids
+  43028.self-isolation-response]` (the obligation text now parses into a constant ability plus a Response). Ability ids
   change; grep found no reference to either id in `packages/cards`, `engine` or `client`, so nothing breaks today.
 
 Regen should be done once, in the step that renames the cycle, and the two diffs reviewed by hand. The deadpool and

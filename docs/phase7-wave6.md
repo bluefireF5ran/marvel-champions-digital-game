@@ -96,7 +96,7 @@ comes with its own set of 5 upgrades." Raw set codes `brawler` (32176–32180), 
   Compassion (32182, 32192) are printed in two roles each. They stay separate ids; they never enter a deck, so the
   copy limit does not apply.
 - **New optional `Campaign.roles?: readonly CampaignRole[]`**, `CampaignRole { id: string; name: string;
-encounterSetId: EncounterSetId; aspects: readonly [Aspect, Aspect] }`. The role-to-aspect pairing is a fact printed
+  encounterSetId: EncounterSetId; aspects: readonly [Aspect, Aspect] }`. The role-to-aspect pairing is a fact printed
   in the product (MC32 p. 5), so it lives with the other product facts in `@mc/content`, where the client can show it;
   the `CampaignDefinition` in `@mc/cards` reads it for role-building (§3.23). Validation: each `encounterSetId` is in
   `campaignSetIds`, the two aspects differ, ids are unique.
@@ -143,7 +143,7 @@ print "Toughness. Victory 2." on both faces.
   `expertVillains`) and needs no engine change.
 - **Scenario fields, all existing** (`packages/content/src/schema/sets.ts`): `villainCardId: 32121a`,
   `setAsideVillainCardIds: [32122a, 32123a, 32124a]`, `expertVillains: { villainCardId: 32121b,
-setAsideVillainCardIds: [32122b, 32123b, 32124b] }`, `startingVillain: "random"`, `victory: "cardAbility"` (Save the
+  setAsideVillainCardIds: [32122b, 32123b, 32124b] }`, `startingVillain: "random"`, `victory: "cardAbility"` (Save the
   School 32130 wins), `victoryCondition: { skirmish: 1, standard: 2, expert: 3, heroic: 4 }`. No `multipleVillains`.
 - The engine side is §3.21 (expected to compose).
 
@@ -751,8 +751,8 @@ villain was making ends (RRG 1.8 "Villain Defeat", p. 47). If any step fails, it
   the existing `attack` and `defended` events. FAQ "Powerful Punch (#14)" (p. 63) is the QA fixture: an attack-labeled
   interrupt counts as attacking (flip), and she then defends that attack (flip again).
 - Permanently Phased (32055): "Flip your mass form upgrade to Phased" is `changeAdditionalForm("mass", { toName:
-"Phased" })`; "You cannot attack, defend or change mass form" is `cannotAttack`, `cannotDefend`, `cannotChangeForm {
-formType: "mass" }`.
+  "Phased" })`; "You cannot attack, defend or change mass form" is `cannotAttack`, `cannotDefend`, `cannotChangeForm {
+  formType: "mass" }`.
 
 ### 3.23 Campaign roles
 
@@ -763,7 +763,7 @@ formType: "mass" }`.
 > an in-game `putIntoPlay` under the seat; `removeFromCampaign` for "Remove each role upgrade that began the game in
 > play" (Victory) and for the card's own "Remove this card from the game and the campaign pool" (in game, kept across a
 > retry by RRG 1.8 p. 29); `choose` from `collection { categories: ["event"] / ["upgrade"], aspects }` with `grantCard
-{ permanence: "thisGame" }` for role-building (`expiringGrants`).
+> { permanence: "thisGame" }` for role-building (`expiringGrants`).
 
 **Verify:** that a `random` over a `campaignSet` skips cards removed from the campaign (the role pool shrinks), and that
 two seats cannot strike the same option.
@@ -1731,7 +1731,7 @@ Pass 3 (MojoMania):
 32. **The pack's name** (§7.1). MarvelCDB's `pack_name` and Hall of Heroes say "Mojo Mania"; the insert's cover and
     text, the card text ("the MojoMania scenario pack", 39002a, 39015a, 39025a), the RRG 1.8 FAQ and errata headings
     (pp. 64, 69) and main scheme 39025's own title say "MojoMania". **Default:** keep the emitted `Pack.name:
-"MojoMania"`; "Mojo Mania" is only a search alias; correct `phase7-wave6-sources.md` and `phase7-wave5-sources.md`
+    "MojoMania"`; "Mojo Mania" is only a search alias; correct `phase7-wave6-sources.md` and `phase7-wave5-sources.md`
     (which also put the pack in cycle 5).
 33. **The MojoMania campaign in this wave** (§3.72). The definition of done names the box's campaign, not a scenario
     pack's. **Default:** ship `MOJO_CAMPAIGN` in wave 6, after the three scenarios; its log is rebuilt from the
@@ -1989,12 +1989,12 @@ rulebooks in `docs/campaign-modes/` (not done in this pass).
 `["expert"]` for all three; `evidence` cites the 1A text and the insert page):
 
 - `magog`: `villainSetCode: "magog"`, `villainCardCode: "39001a"`, `expertVillains: { villainCardCode: "39001b",
-setAsideVillainCardCodes: [] }`, `villainStages: { standard: [1, 1], expert: [1, 1] }`, `victory: "cardAbility"`
+  setAsideVillainCardCodes: [] }`, `villainStages: { standard: [1, 1], expert: [1, 1] }`, `victory: "cardAbility"`
   (1B: "The players cannot win the game unless they wow the crowd"; MaGog's defeat is always replaced),
   `modularSetCount: 1`, `recommendedModularSetCodes` the six genre sets, `modularSetPool { restricted: false }`.
 - `spiral`: `villainSetCode: "spiral"`, `villainStages: { standard: [1, 2], expert: [2, 3] }`, `modularSetCount: 3`,
   `modularSetPool { restricted: true }`, `separateDecks: [{ name: "show", contents: { cardType: "environment", trait:
-SHOW, cardIds: ["39017"] }, discardPile: "none", whenEmpty: "remainsEmpty", closedToPlayerCards: true }]`.
+  SHOW, cardIds: ["39017"] }, discardPile: "none", whenEmpty: "remainsEmpty", closedToPlayerCards: true }]`.
 - `mojo`: `villainSetCode: "mojo"`, `villainStages: { standard: [1, 2], expert: [2, 3] }`, `modularSetCount: 0`,
   `setAsideModularSetCount: { base: 1, perPlayer: 1 }`, `modularSetPool { restricted: true }`.
 - `longshot` is `extraModular` and in no scenario's lists. `modularSetPool`, the per-player count, `extraModular`
@@ -2055,7 +2055,7 @@ under the revealing player's control, surges and cannot be canceled. §3.71, §4
 - **Spiral** is emitted as `39012b` with side A the CORNERED faces (12B/13B/14B) and `startingSide: "A"`. The scans
   print 12A as ESCAPED, and the insert (p. 11) says "Spiral begins the game on her ESCAPED side": emit `39012a` with
   side A ESCAPED, side B CORNERED, no `startingSide`. ESCAPED's ATK prints "★" (39012a scan): keep `dashedStats:
-["atk"]` with a `cardNotes` line (her forced interrupt replaces every attack before the dashed-stat skip).
+  ["atk"]` with a `cardNotes` line (her forced interrupt replaces every attack before the dashed-stat skip).
 - **Mojo 39022–39024:** "Forced Response (Hero): After your turn ends, …" is emitted as a constant
   (`39022.mojo-constant` …). The parser should read the form qualifier on a forced response as it does "When Revealed
   (Alter-Ego)"; the ids change, so before scripting.

@@ -116,4 +116,4 @@ test pins the RRG reading with the real cards.
 - `cd packages/cards && pnpm exec vitest run src/wave6/mut_gen/qa.test.ts`: 23 passed, 1 expected fail (the pinned bug), 24 tests,
   about 90 s.
 - `pnpm exec oxlint` and `pnpm exec oxfmt --check` on the test file and `pnpm --filter @mc/cards exec tsc -p tsconfig.json
---noEmit` for the file: clean.
+  --noEmit` for the file: clean.

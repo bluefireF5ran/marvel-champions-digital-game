@@ -66,7 +66,7 @@ ability refs line up one-for-one and the slug after the dot matches (e.g. `03016
 **Consequences for a pack agent:**
 
 - **Never define an ability id for a card `reprints.ts` already supplies.** `mergeRegistries` throws `"defined
-twice"` if your module and `WAVE1_REPRINT_ABILITIES` both define the same id — this is the intended guard rail,
+  twice"` if your module and `WAVE1_REPRINT_ABILITIES` both define the same id — this is the intended guard rail,
   not a bug to work around.
 - Check `wave1ReprintPairs()` (or just try building and read the "defined twice" error) before writing a script for
   a card that looks like a Core reprint by name. **Matched by (name, type), not name alone** — `Hulk` is a hero

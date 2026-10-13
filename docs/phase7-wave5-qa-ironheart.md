@@ -79,7 +79,7 @@ resolved) and pass.
    a hand-scripted standard game, and a 2-player standard game, but no expert game, before this pass). Modeled
    directly on `../nova/e2e.test.ts`'s own "Rhino (expert), solo: Nova" (itself modeled on
    `wave4/hood/e2e.test.ts`'s own "(expert)" test): `ironheartScenario("rhino", { seed: SEED, difficulty:
-"expert" })`, played to a real outcome by the card-name-agnostic greedy driver, replayed and asserted
+   "expert" })`, played to a real outcome by the card-name-agnostic greedy driver, replayed and asserted
    deep-equal against the live session state. Confirmed passing directly against `WAVE5_DEPS`.
 2. **`packages/cards/src/wave5/ironheart/zzzax.test.ts`, "retypes a card's printed resource without collapsing its
    icon count — a [physical][physical] card (Strength, 01090) still counts as 2"** — a regression test for the

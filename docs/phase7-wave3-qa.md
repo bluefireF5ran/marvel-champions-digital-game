@@ -389,7 +389,7 @@ which shares "You Stand Accused!"'s bug (below) rather than the fixed one.
    p. 18 prints "search … for **one copy** … then deal **that card**" — singular. Confirmed live: the recorded
    Power Stone controller's `dealtEncounter` held three separate `16116` instances. Test:
    `gmw.qa.test.ts`'s `it.skip("a recorded Power Stone controller is dealt exactly one copy of the treachery
-(MC16 p. 18)")`.
+   (MC16 p. 18)")`.
 2. **Pincer Maneuver (16112) is revealed twice, not once — the more consequential twin of the same bug.** `16112`
    also has `quantityInSet: 2`; the same `selectCards`/`printedId` shape in `mc16.s5.setup.pincer-maneuver` matches
    both copies, and `revealCard(chosen("pincer"), firstPlayer)` reveals both. Confirmed live: Ronan's setup ends
@@ -397,7 +397,7 @@ which shares "You Stand Accused!"'s bug (below) rather than the fixed one.
    "3 minus Evasion Counters" threat MC16 p. 18 describes for _the_ (singular) scheme — doubling both the total
    threat obligation and the "First Player Action: exhaust the Milano" scheme's real board presence at every
    Ronan game. Test: `gmw.qa.test.ts`'s `it.skip("only one Pincer Maneuver side scheme is revealed and placed
-(MC16 p. 18)")`.
+   (MC16 p. 18)")`.
 
 Both bugs share one root cause: `CardSelector`'s `encounter`/`scenarioDeck`/`separateDeck` variants (spec.ts) have
 no "select at most N of the matches" primitive, only `top` (positional, single-zone). Filed for `game-rules-
@@ -498,7 +498,7 @@ expert mechanics, and log-fed setups); this pass's own job was to find what thos
   callout. The bug (`campaignLaunchConfig` dropping `CampaignGameStart.encounterSets`) and its fix are already
   merged into `feature/wave-4` as commit `50dd9bd0`, with its own regression tests in
   `packages/client/src/campaign/dev-fixtures.test.ts` (`"a client-launched campaign game actually contains its
-composed encounter-set cards"`, `"...replays the same composed encounter-set cards"`) covering both MTS and a
+  composed encounter-set cards"`, `"...replays the same composed encounter-set cards"`) covering both MTS and a
   GMW case (Brotherhood of Badoon's Badoon Blitz Campaign Challenge side scheme). Confirmed still green
   (`pnpm --filter @mc/client test` — 186 files, 2175 tests, all pass) and confirmed the fix is generic (client-side
   `SessionConfig.campaignEncounterSets` plumbing, not scenario-specific), so it covers `gmw`'s other four scenarios
@@ -539,7 +539,7 @@ s4/s5) — fixed.**
   overwrote — erased — whatever damage Collector II had just dealt, rather than the ruling's intended order (restore
   HP, _then_ Collector II's damage lands on top of the correct total).
 - **Test:** `packages/cards/src/campaigns/gmw.qa.test.ts`, describe `"ruling June 2, 2026 (3) #2 — campaign setup
-(HP restore) finishes before Collector II's own When Revealed damage"` — a real 1-seat expert-campaign game (both
+  (HP restore) finishes before Collector II's own When Revealed damage"` — a real 1-seat expert-campaign game (both
   `expertCampaign: true` and game-mode `expert: true`, since Collector II is the _game-mode_ expert face) that wins
   Brotherhood of Badoon with a recorded low `remainingHp`, enters Infiltrate the Museum, and drives Collector II's
   own When Revealed choice to "Take 3 damage" with a custom `Picker`. Confirmed failing before the fix (received
@@ -552,7 +552,7 @@ s4/s5) — fixed.**
   Infiltrate the Museum's Collector II reads the timing at all; every other scenario's own setup has no in-setup
   damage source for this ordering to matter to).
 - **Commit:** (this pass's commit, see `git log` on `feature/wave-4` for the SHA — `packages/cards/src/campaigns/
-gmw.ts` + `packages/cards/src/campaigns/gmw.qa.test.ts`); changie fragment `Fixed-20260926-000042.yaml`.
+  gmw.ts` + `packages/cards/src/campaigns/gmw.qa.test.ts`); changie fragment `Fixed-20260926-000042.yaml`.
 - **Not fixed, flagged instead:** `packages/cards/src/campaigns/trors.ts` and `packages/cards/src/campaigns/mts.ts`
   use the identical `setRemainingHitPoints(campaignLogValue("remainingHp", ...), ...)` shape at
   `DEFAULT_CAMPAIGN_WINDOW` too (`trors.ts:240`/`:754`, `mts.ts:145`). Neither box's own rulebook is confirmed to
