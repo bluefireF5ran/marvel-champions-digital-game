@@ -1939,6 +1939,10 @@ export type RuleSpec =
    * `attacker` deals — the excess reported to "for each point of excess damage" (Into the Fray) and "after you deal
    * excess damage" (Rocket Raccoon), and the overkill damage that spills on. Modeled as a constant, not an optional
    * interrupt: see docs/phase7-wave3.md §3.18 and §4 Q10.
+   *
+   * It applies to each measure of the attack's excess that is above 0 (owner answer 42B, 2026-10-12): the excess of
+   * the damage taken (`excessDealt`, what overkill spills) and the excess of the damage dealt (`excessAsDealt`), each
+   * on its own. With only the damage dealt in excess, only that number goes up and nothing spills (`excessAsDealtOf`).
    */
   | {
       readonly kind: "excessDamageBonus";

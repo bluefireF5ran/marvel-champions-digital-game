@@ -1734,7 +1734,15 @@ export interface SchemeWouldPlaceThreat {
  * damage step records `totalAtk` (`TOTAL_ATK_RESULT`). Damage, and the attack it belongs to, records `excessDealt` (the
  * excess of the damage taken) and `excessAsDealt` (of the damage dealt, `EXCESS_AS_DEALT_RESULT`).
  */
-export type TriggerEvent = TriggerEventBody & { readonly results?: Vars };
+export type TriggerEvent = TriggerEventBody & {
+  readonly results?: Vars;
+  /**
+   * The cards that entered play after this condition occurred, in the order they entered: none of them answers it
+   * in a response window (RRG 1.8 "Triggering Condition", p. 45; "Response", p. 38; the owner's answer 43B,
+   * `entered-since.ts`). Absent until a card does, which is nearly always.
+   */
+  readonly enteredPlaySince?: readonly InstanceId[];
+};
 
 /**
  * The result key an enemy attack records "its total ATK for that attack" under (docs/phase7-wave8.md §3.81): the

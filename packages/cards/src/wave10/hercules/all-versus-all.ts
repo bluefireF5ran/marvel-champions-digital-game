@@ -60,6 +60,9 @@ const findAndRevealAllVersusAll = () =>
  * is not in play).
  * "When Revealed/Defeated: Find the All Versus All side scheme and reveal it." is two refs in the data (59042.when-revealed
  * and 59042.when-defeated), one shared body, the same find-and-reveal as Roving Mobs.
+ * Revealed by her When Defeated, All Versus All does not answer her defeat with its own Forced Response: it was not in
+ * play when she was defeated (RRG 1.8 "Triggering Condition", p. 45; owner answer 43B, 2026-10-12; an engine rule,
+ * `entered-since.ts`, nothing in this script). It enters play with 4 threat for one hero and answers the next defeat.
  *
  * **Kyknos (59043)**: Forced Response: after he activates, 2 threat on All Versus All; otherwise 1 threat on the main
  * scheme (RRG 1.8 "Otherwise", p. 31: the second half only when the first could not be done, here with no All Versus

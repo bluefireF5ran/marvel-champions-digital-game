@@ -34,7 +34,6 @@ import {
   titleShowing,
   getInstance,
   getPlayer,
-  isMinion,
   mustInstance,
   villainOf,
   areaOfCard,
@@ -94,6 +93,7 @@ import {
   runCarriedHostStep,
 } from "./cards.js";
 import { currentActivationFrameId, type StackFrame, type Vars } from "../stack.js";
+import { forgetEnteredWhileApplying } from "../entered-since.js";
 import { STATUS_NAMES, type GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
@@ -360,7 +360,10 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         return;
       }
       setFrame(ctx, { ...frame, stage: "responses" });
-      if (applyEvent(ctx, frame) === false) {
+      const happened = applyEvent(ctx, frame) !== false;
+      // The event has occurred. A card its own change put into play entered with it, not after it (`entered-since.ts`).
+      updateFrame(ctx, frame.frameId, (f) => forgetEnteredWhileApplying(f, frame.event.enteredPlaySince));
+      if (!happened) {
         // The event found nothing to do (a defeat whose character was healed first):
         // it didn't happen, so nothing responds to it.
         updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, stage: "done" } : f));
@@ -405,7 +408,7 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         );
         return;
       }
-      // A minion that enters play by being revealed: the responses to its entering wait for the end of its reveal.
+      // A card that enters play by being revealed: the responses to its entering wait for the end of its reveal.
       if (holdResponsesForReveal(ctx, frame, event)) return;
       // How many forced responses this event triggers, reported to a `bind` ("If that scheme's 'Forced Response'
       // ability is not triggered this way"). Only recorded when there are some, so other results are unchanged.
@@ -615,16 +618,19 @@ function stepDeferredResponses(ctx: Ctx, frame: Frame<"event">): boolean {
 }
 
 /**
- * The response window of a minion's `cardEntersPlay` waits while that minion is being revealed: the resolved event is
+ * The response window of a card's `cardEntersPlay` waits while that card is being revealed: the resolved event is
  * handed to its reveal frame (`Frame<"reveal">.heldResponses`), which opens the window once every step of the reveal
- * is done and its quickstrike and teamwork have resolved (`announceRevealFinished`). False, with nothing done, for any
- * other event, and for a minion that enters play with no reveal of its own in progress (put into play, a cost's
- * entry, a flip), whose window opens as it always did.
+ * is done and, for a minion, its quickstrike and teamwork have resolved (`announceRevealFinished`). False, with
+ * nothing done, for any other event, and for a card that enters play with no reveal of its own in progress (put into
+ * play, a cost's entry, a flip), whose window opens as it always did.
  *
  * RRG 1.8 "Reveal" (p. 38): "Responses (both forced and non-forced) to any step of the revealing of an encounter card
  * are not resolved until after all steps of the reveal process have been completed." FAQ "Widow's Bite (#10)" (p. 60):
  * "Quickstrike and the 'Response' on Widow's Bite have the same timing trigger. Keywords have timing priority over
- * 'Response' abilities, so Quickstrike resolves first." The owner's answer 32B (2026-10-12) builds this for a minion.
+ * 'Response' abilities, so Quickstrike resolves first." The owner's answer 32B (2026-10-12) built this for a minion;
+ * answer 35B (same day) for every card a reveal puts into play, since the sentence is about "an encounter card": a
+ * side scheme, an environment, an attachment (whenever in its reveal it attaches), an obligation, and a player card
+ * revealed off the encounter deck.
  *
  * Not moved: the event's interrupts ("when a minion would enter play / engage"), which resolved before this; its apply
  * step, where toughness places its tough status card as the minion enters play (RRG 1.8 "Toughness", p. 45; the
@@ -632,7 +638,7 @@ function stepDeferredResponses(ctx: Ctx, frame: Frame<"event">): boolean {
  */
 function holdResponsesForReveal(ctx: Ctx, frame: Frame<"event">, event: TriggerEvent): boolean {
   if (event.kind !== "cardEntersPlay" || frame.responsesWith !== undefined) return false;
-  if ((frame.joinedResponses ?? []).length > 0 || !isMinion(ctx.state, event.instanceId)) return false;
+  if ((frame.joinedResponses ?? []).length > 0) return false;
   const reveal = ctx.state.stack.find(
     (f) => f.kind === "reveal" && f.instanceId === event.instanceId && !f.newFace && f.stage !== "done",
   );
@@ -1288,7 +1294,8 @@ export function announceDamagePrevented(ctx: Ctx, event: Extract<TriggerEvent, {
 /**
  * The excess damage one `dealDamage` event deals: the damage the target takes beyond its remaining hit points, plus any
  * `excessDamageBonus` ("When your hero's attack deals any amount of excess damage, increase that amount by 1", Follow
- * Through; docs/phase7-wave3.md §3.18), added only when there is some.
+ * Through; docs/phase7-wave3.md §3.18), added only when there is some. The same bonus raises the excess of the damage
+ * dealt when that has some, independently of this value (`excessAsDealtOf`, owner answer 42B).
  *
  * RRG 1.8 "Overkill" (p. 31, revised in 1.8): "If a card ability counts excess damage dealt, that ability counts the
  * same value of excess damage that is calculated when resolving the overkill keyword", and overkill deals "any damage
@@ -1349,23 +1356,30 @@ export function excessDamageOf(
  * - **Damage of 0 as it would be dealt** (a defense that covers the attack): nothing was dealt, no excess.
  * - **No modifier of damage taken at all**: equal to `excessDamageOf`.
  *
- * `excessDamageBonus` ("When your hero's attack deals any amount of excess damage, increase that amount by 1") stays
- * a reader of the damage taken: it is added here exactly when it was added there (`excessTaken` positive), never on
- * the strength of this value alone.
+ * `excessDamageBonus` ("When your hero's attack deals any amount of excess damage, increase that amount by 1", Follow
+ * Through) answers either excess (owner answer 42B, 2026-10-12; before it, answer A kept it on the excess taken
+ * alone). Its condition is "any amount of excess damage", and there are two measures of that amount, so each is
+ * raised exactly when it is itself above 0:
+ * - this value, whenever the damage dealt has excess, whether or not any was taken (4 dealt to a 3-hit-point minion
+ *   that takes 1 less: 1 becomes 2; 6 dealt into a tough status card: 3 becomes 4);
+ * - `excessDamageOf`, as before, whenever the damage taken has excess.
+ * A measure at 0 is not "any amount" and stays 0: the bonus never makes excess taken out of excess dealt, so with only
+ * the damage dealt in excess nothing spills by overkill and no ability counting the excess taken counts anything (RRG
+ * 1.8 "Overkill", p. 31: the spill is the "damage on that [character] beyond its hit points"; the card raises an
+ * amount of excess, it deals no damage of its own). Nor the reverse: 3 dealt to a minion that takes 1 more is 1
+ * excess taken, raised to 2, and still no excess dealt (answer 40A).
  */
 export function excessAsDealtOf(
   ctx: Ctx,
   event: Extract<TriggerEvent, { kind: "dealDamage" }>,
   damageBefore: number,
   maxHp: number | undefined,
-  excessTaken = 0,
 ): number {
   if (maxHp === undefined) return 0;
   const measured = (event.dealt ?? event.amount) - Math.max(0, maxHp - damageBefore);
   if (measured <= 0) return 0;
   const source = event.sourceInstanceId;
-  const bonus = excessTaken > 0 && event.fromAttack && source !== null;
-  return measured + (bonus ? excessDamageBonus(ctx.state, ctx.deps, source) : 0);
+  return measured + (event.fromAttack && source !== null ? excessDamageBonus(ctx.state, ctx.deps, source) : 0);
 }
 
 /**
@@ -1597,12 +1611,6 @@ export function applyDamage(
   if (excessDealt > 0) {
     addFrameVars(ctx, frameId, { excessDealt });
     addFrameVars(ctx, event.parentFrameId, { excessDealt });
-    // An `excessDamageBonus` that raised the excess taken raises the excess as dealt with it (`excessAsDealtOf`).
-    const raised = excessAsDealtOf(ctx, event, damageBefore, hitPoints, excessDealt) - excessAsDealt;
-    if (raised > 0) {
-      addFrameVars(ctx, frameId, { [EXCESS_AS_DEALT_RESULT]: raised });
-      addFrameVars(ctx, event.parentFrameId, { [EXCESS_AS_DEALT_RESULT]: raised });
-    }
     placeExcessDamageAsThreat(ctx, event, excessDealt);
   }
   if (!sweep) return;

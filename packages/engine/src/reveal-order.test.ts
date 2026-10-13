@@ -14,6 +14,11 @@
  *
  * So one reveal runs: faceup, enters play (interrupts, toughness), When Revealed, quickstrike and teamwork, the
  * responses to it entering play, being revealed and engaging, then surge.
+ *
+ * The second list of 2026-10-12: 35B, the "Reveal" sentence holds the enters-play responses of every revealed card
+ * that enters play (a side scheme, an attachment, an environment), not only a minion's; 36B, teamwork activates
+ * against "the player it is engaged with" (p. 43) as it resolves, so a When Revealed that moved the minion moves the
+ * activation with it, while quickstrike stays on the player the reveal engaged.
  */
 
 import { flat, trait, type AbilityReference, type AnyCard, type CardId } from "@mc/content";
@@ -27,7 +32,17 @@ import type { EffectSpec, TargetRef } from "./spec.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility, type StubAbility } from "./testing/abilities.js";
 import { runCommandsPicking } from "./testing/drive.js";
-import { stubEvent, stubMainScheme, stubMinion, stubSupport, stubTreachery, stubVillain } from "./testing/fixtures.js";
+import {
+  stubAttachment,
+  stubEnvironment,
+  stubEvent,
+  stubMainScheme,
+  stubMinion,
+  stubSideScheme,
+  stubSupport,
+  stubTreachery,
+  stubVillain,
+} from "./testing/fixtures.js";
 import {
   defaultPick,
   DEFAULT_DECK,
@@ -191,6 +206,28 @@ const DECKHAND = stubMinion({
   keywords: [teamwork],
   abilities: [whenRevealed("deckhand")],
 });
+/** Teamwork (CREW), ATK 1. "When Revealed: the other player engages this minion." */
+const DEFECTOR = stubMinion({
+  id: "defector",
+  traits: [CREW],
+  atk: 1,
+  sch: 1,
+  hp: 5,
+  boostIcons: 0,
+  keywords: [teamwork],
+  abilities: [whenRevealed("defector", { kind: "engage", minion: self, player: { kind: "id", playerId: p2 } })],
+});
+/** Quickstrike and teamwork (CREW), ATK 2. "When Revealed: the other player engages this minion." */
+const MUTINEER = stubMinion({
+  id: "mutineer",
+  traits: [CREW],
+  atk: 2,
+  sch: 1,
+  hp: 5,
+  boostIcons: 0,
+  keywords: [quickstrike, teamwork],
+  abilities: [whenRevealed("mutineer", { kind: "engage", minion: self, player: { kind: "id", playerId: p2 } })],
+});
 /** A CREW minion to stand beside them. */
 const MATE = stubMinion({ id: "mate", traits: [CREW], atk: 0, sch: 0, hp: 5, boostIcons: 0 });
 
@@ -290,6 +327,53 @@ const AMBUSH = stubEvent({
   ],
 });
 
+/** A side scheme, an attachment (on the villain) and an environment, each with a When Revealed that leaves a mark. */
+const PLOT = stubSideScheme({ id: "plot", startingThreat: 3, boostIcons: 0, abilities: [whenRevealed("plot")] });
+const GEAR = stubAttachment({ id: "gear", attachesTo: { kind: "villain" }, abilities: [whenRevealed("gear")] });
+const HAZE = stubEnvironment({ id: "haze", abilities: [whenRevealed("haze")] });
+const NOT_MINIONS: readonly AnyCard[] = [PLOT, GEAR, HAZE];
+const notMinion = { categories: ["sideScheme", "attachment", "environment"] } as const;
+/** "Forced Response: After a side scheme, attachment or environment enters play, …" */
+const WATCH = stubSupport({
+  id: "watch",
+  cost: 0,
+  abilities: [
+    ability("watch.response", {
+      trigger: { kind: "response", forced: true, on: { on: "cardEntersPlay", targetIs: notMinion } },
+      effects: [mark("watch")],
+    }),
+  ],
+});
+/** "Forced Interrupt: When a side scheme, attachment or environment would enter play, …" */
+const FORESEE = stubSupport({
+  id: "foresee",
+  cost: 0,
+  abilities: [
+    ability("foresee.interrupt", {
+      trigger: { kind: "interrupt", forced: true, on: { on: "cardEntersPlay", targetIs: notMinion } },
+      effects: [mark("foresee")],
+    }),
+  ],
+});
+/** "Put the top side scheme of the encounter deck into play." */
+const PLANT = stubEvent({
+  id: "plant",
+  cost: 0,
+  abilities: [
+    ability("plant.action", {
+      trigger: { kind: "action" },
+      effects: [
+        {
+          kind: "selectCards",
+          slot: "s",
+          cards: { kind: "encounter", zones: ["deck"], filter: { categories: ["sideScheme"] } },
+        },
+        { kind: "putIntoPlay", card: { kind: "slot", slot: "s" }, controller: you },
+      ],
+    }),
+  ],
+});
+
 const MINIONS: readonly AnyCard[] = [
   SENTRY,
   ARMED,
@@ -301,9 +385,11 @@ const MINIONS: readonly AnyCard[] = [
   SHELL,
   CAPTAIN,
   DECKHAND,
+  DEFECTOR,
+  MUTINEER,
   MATE,
 ];
-const PLAYER_CARDS: readonly AnyCard[] = [BITE, GREET, BRACE, HALT, SENSE, WARD, SCOUT, AMBUSH];
+const PLAYER_CARDS: readonly AnyCard[] = [BITE, GREET, BRACE, HALT, SENSE, WARD, SCOUT, AMBUSH, WATCH, FORESEE, PLANT];
 const deps: EngineDeps = depsOf(...abilities);
 
 /**
@@ -316,7 +402,7 @@ function game(top: AnyCard, inPlay: readonly AnyCard[] = [], players = 1): GameS
     villain: VILLAIN,
     mainScheme: SCHEME,
     deps,
-    extraCards: [...MINIONS, ...PLAYER_CARDS, BLANK],
+    extraCards: [...MINIONS, ...NOT_MINIONS, ...PLAYER_CARDS, BLANK],
     encounterDeck: [top.id, ...inPlay.map((card) => card.id), ...copies(BLANK.id, 15)],
     deck: [...DEFAULT_DECK, ...PLAYER_CARDS.map((card) => card.id)],
   });
@@ -532,6 +618,75 @@ describe("responses to a revealed minion entering play wait for the reveal (RRG 
   });
 });
 
+describe("every revealed card that enters play holds its enters-play responses (RRG 1.8 p. 38; answer 35B)", () => {
+  const enteredAt = (events: readonly GameEvent[], id: InstanceId): number =>
+    events.findIndex(
+      (e) =>
+        e.type === "triggerEvent" &&
+        e.phase === "resolved" &&
+        e.event.kind === "cardEntersPlay" &&
+        e.event.instanceId === id,
+    );
+
+  it.each([
+    ["a side scheme", PLOT],
+    ["an attachment", GEAR],
+    ["an environment", HAZE],
+  ])("%s: 'after it enters play' resolves after its When Revealed", (_what, card) => {
+    const { state, events, session } = play(withSupports(game(card), WATCH), SCOUT);
+    expect(schemeCounter(state, "watch")).toBe(1);
+    expect(schemeCounter(state, "revealed")).toBe(1);
+    // It entered play in step 2, before its When Revealed; only the response window waited.
+    const entered = enteredAt(events, idOf(state, card));
+    expect(entered).toBeGreaterThanOrEqual(0);
+    expect(entered).toBeLessThan(marked(events, "revealed"));
+    expect(marked(events, "revealed")).toBeLessThan(marked(events, "watch"));
+    expect(state.stack).toEqual([]);
+    const replayed = replay(session.log, deps);
+    expect(replayed.ok && replayed.state).toEqual(session.state);
+  });
+
+  it("the reveal ends as before: the side scheme in play with its starting threat, the attachment on its host", () => {
+    const plot = play(withSupports(game(PLOT), WATCH), SCOUT).state;
+    expect(plot.villainArea).toContain(idOf(plot, PLOT));
+    expect(mustInstance(plot, idOf(plot, PLOT)).threat).toBe(3);
+    const gear = play(withSupports(game(GEAR), WATCH), SCOUT).state;
+    expect(mustInstance(gear, idOf(gear, GEAR)).attachedTo).toEqual(expect.any(String));
+  });
+
+  it.each([
+    ["a side scheme", PLOT],
+    ["an attachment", GEAR],
+  ])("%s: interrupts to it entering play are not moved, and resolve before its When Revealed", (_what, card) => {
+    const { state, events } = play(withSupports(game(card), FORESEE, WATCH), SCOUT);
+    expect(schemeCounter(state, "foresee")).toBe(1);
+    expect(marked(events, "foresee")).toBeLessThan(marked(events, "revealed"));
+    expect(marked(events, "revealed")).toBeLessThan(marked(events, "watch"));
+  });
+
+  it("only its When Revealed cancelled (RRG p. 13): it still entered play, and the response is held to the end of the reveal", () => {
+    const { state, events } = play(withSupports(game(PLOT), SENSE, WATCH), SCOUT, takingInterrupts);
+    expect(schemeCounter(state, "revealed")).toBe(0);
+    expect(schemeCounter(state, "watch")).toBe(1);
+    expect(enteredAt(events, idOf(state, PLOT))).toBeLessThan(marked(events, "watch"));
+  });
+
+  it("all of its effects cancelled (RRG p. 13): it never enters play, so nothing answers", () => {
+    const { state } = play(withSupports(game(PLOT), WARD, WATCH), SCOUT, takingInterrupts);
+    expect(state.villainArea).not.toContain(idOf(state, PLOT));
+    expect(schemeCounter(state, "watch")).toBe(0);
+  });
+
+  it("a side scheme put into play without a reveal: nothing holds the response, and no When Revealed resolves (p. 48)", () => {
+    const { state, events } = play(withSupports(game(PLOT), WATCH), PLANT);
+    expect(state.villainArea).toContain(idOf(state, PLOT));
+    expect(schemeCounter(state, "revealed")).toBe(0);
+    expect(schemeCounter(state, "watch")).toBe(1);
+    expect(events.some((e) => e.type === "encounterCardRevealed")).toBe(false);
+    expect(state.stack).toEqual([]);
+  });
+});
+
 describe("a revealed minion with teamwork (RRG 1.8 p. 43) and with both keywords (answer 34B)", () => {
   const orderPrompts = (pickOrder?: readonly string[]) => {
     const asked: { player: PlayerId; authority: string; options: string[]; ordered: boolean }[] = [];
@@ -610,6 +765,66 @@ describe("a revealed minion with teamwork (RRG 1.8 p. 43) and with both keywords
     expect(attacks(events)).toEqual([]);
     expect(teamworkAt(events)).toBeGreaterThan(marked(events, "revealed"));
     expect(mustInstance(state, state.mainScheme.instanceId).threat).toBe(1);
+  });
+
+  describe("a When Revealed that moved the minion to another player (RRG 1.8 p. 43; answers 36B, 37A)", () => {
+    const teamworkLines = (events: readonly GameEvent[]) =>
+      events.flatMap((e) => (e.type === "keywordResolved" && e.keyword === "teamwork" ? [e.playerId] : []));
+
+    it("teamwork activates against the player it is engaged with as it resolves, not the player who revealed it", () => {
+      const { asked, pick } = orderPrompts();
+      const { state, events, session } = play(game(DEFECTOR, [MATE], 2), SCOUT, pick);
+      const defector = idOf(state, DEFECTOR);
+      expect(mustInstance(state, defector).engagedWith).toBe(p2);
+      expect(asked).toEqual([]);
+      expect(teamworkLines(events)).toEqual([p2]);
+      expect(marked(events, "revealed")).toBeLessThan(teamworkAt(events));
+      expect(attacks(events).map((e) => [e.enemyInstanceId, e.attackedPlayerId])).toEqual([[defector, p2]]);
+      expect(damageOn(state, p1)).toBe(0);
+      expect(damageOn(state, p2)).toBe(1);
+      const replayed = replay(session.log, deps);
+      expect(replayed.ok && replayed.state).toEqual(session.state);
+    });
+
+    it("the other player in alter-ego form: it schemes against them", () => {
+      const start = game(DEFECTOR, [MATE], 2);
+      const p2AlterEgo: GameState = {
+        ...start,
+        players: start.players.map((p) =>
+          p.playerId === p2 ? { ...p, identity: { ...p.identity, form: "alterEgo" as const } } : p,
+        ),
+      };
+      const { state, events } = play(p2AlterEgo, SCOUT);
+      expect(teamworkLines(events)).toEqual([p2]);
+      expect(events.filter((e) => e.type === "enemyActivated")).toEqual([
+        { type: "enemyActivated", enemyInstanceId: idOf(state, DEFECTOR), activation: "scheme", playerId: p2 },
+      ]);
+      expect(attacks(events)).toEqual([]);
+      expect(mustInstance(state, state.mainScheme.instanceId).threat).toBe(1);
+    });
+
+    it("with both keywords: quickstrike keeps to the reveal's engagement, so only teamwork is live and nobody is asked", () => {
+      const { asked, pick } = orderPrompts();
+      const { state, events } = play(game(MUTINEER, [MATE], 2), SCOUT, pick);
+      const mutineer = idOf(state, MUTINEER);
+      expect(mustInstance(state, mutineer).engagedWith).toBe(p2);
+      // Nothing to order: the reveal's own engagement (with p1) is gone, which is all quickstrike answers here.
+      expect(asked).toEqual([]);
+      expect(teamworkLines(events)).toEqual([p2]);
+      // Two attacks, both on p2 and never p1: quickstrike for the engagement its When Revealed made (p. 18, p. 36),
+      // inside that When Revealed, then teamwork's activation once the reveal's steps are done.
+      expect(attacks(events).map((e) => e.attackedPlayerId)).toEqual([p2, p2]);
+      expect(attack(events, "resolved", mutineer)).toBeLessThan(teamworkAt(events));
+      expect(damageOn(state, p1)).toBe(0);
+      expect(damageOn(state, p2)).toBe(4);
+    });
+
+    it("no other CREW minion in play: teamwork does nothing for the new player either", () => {
+      const { state, events } = play(game(DEFECTOR, [], 2), SCOUT);
+      expect(mustInstance(state, idOf(state, DEFECTOR)).engagedWith).toBe(p2);
+      expect(teamworkLines(events)).toEqual([]);
+      expect(events.some((e) => e.type === "enemyActivated")).toBe(false);
+    });
   });
 });
 

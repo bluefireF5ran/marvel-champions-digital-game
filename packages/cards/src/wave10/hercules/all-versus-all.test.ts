@@ -355,8 +355,9 @@ describe("Hecate (59042)", () => {
     const hecate = minionInPlay(game(), HECATE);
     const state = defeatWithAttack(WAVE10_DEPS, hecate.state, hecate.id);
     expect(inPlayCard(state, HECATE)).toBeUndefined();
-    // Revealed with 4 (2 plus 2 Hinder); her own defeat is then "after a character is defeated": its Forced Response adds 2.
-    expect(inst(state, inPlayCard(state, AVA)!).threat).toBe(6);
+    // Revealed with 4 (2 plus 2 Hinder). It was not in play when she was defeated, so its "after a character is
+    // defeated" does not answer her defeat (RRG 1.8 "Triggering Condition", p. 45; owner answer 43B, 2026-10-12).
+    expect(inst(state, inPlayCard(state, AVA)!).threat).toBe(4);
     expect(inDiscard(state, HECATE)).toHaveLength(1);
   });
 
@@ -364,7 +365,7 @@ describe("Hecate (59042)", () => {
     for (const stage of [discarded(game(), AVA), setAside(game(), AVA)]) {
       const hecate = minionInPlay(stage, HECATE);
       const state = defeatWithAttack(WAVE10_DEPS, hecate.state, hecate.id);
-      expect(inst(state, inPlayCard(state, AVA)!).threat).toBe(6);
+      expect(inst(state, inPlayCard(state, AVA)!).threat).toBe(4);
       expect(state.encounterSetAside).toEqual([]);
     }
   });

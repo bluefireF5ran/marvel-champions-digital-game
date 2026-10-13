@@ -92,7 +92,7 @@ export function executeDamageGroupFrame(ctx: Ctx, frame: Frame<"damageGroup">): 
         const excessDealt = excessDamageOf(ctx, member.event, before, taken, maxHp);
         if (excessDealt > 0) vars.excessDealt = excessDealt;
         // …and the excess of the amount dealt, whatever kept the target from taking it (`excessAsDealtOf`).
-        const excessAsDealt = inPlay ? excessAsDealtOf(ctx, member.event, before, maxHp, excessDealt) : 0;
+        const excessAsDealt = inPlay ? excessAsDealtOf(ctx, member.event, before, maxHp) : 0;
         if (excessAsDealt > 0) vars[EXCESS_AS_DEALT_RESULT] = excessAsDealt;
         members.push({ ...member, event, vars: vars as Vars });
       }

@@ -195,7 +195,10 @@ export const ROCKET_KIT = defineAbilities({
 
   // Follow Through — Hero Interrupt: When your hero's attack deals any amount of excess damage, increase that
   // amount by 1. Modeled as a constant, not the printed optional interrupt (docs/phase7-wave3.md §3.18/§4 Q10):
-  // declining is never better than accepting for any `gmw` card.
+  // declining is never better than accepting for any `gmw` card. The engine rule raises whichever measure of the
+  // attack's excess is above 0, the damage taken's and the damage dealt's each on its own (owner answer 42B,
+  // 2026-10-12): with only the damage dealt in excess, a reader of that number (Prince of Power) counts 1 more and
+  // nothing more spills by overkill.
   "16045.follow-through-interrupt": constant(rule({ kind: "excessDamageBonus", attacker: YOUR_HERO, amount: 1 })),
 
   // Hand Cannon — Restricted (data). Uses (3 charge counters) (data). Hero Interrupt: When your hero makes a

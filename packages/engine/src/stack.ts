@@ -679,17 +679,19 @@ export type StackFrame =
        * The player this minion engaged by this reveal: the revealing player it entered play engaged with (RRG 1.8
        * "Reveal", p. 38, step 2), or the finder a minion found in play engaged because it was not already engaged
        * with them ("Find", p. 19). Its quickstrike and teamwork resolve once the reveal's steps are done (`keywords`),
-       * and only while it is still in play and still engaged with this player. Absent on a held minion (`heldBy`), a
+       * and only while it is still in play: quickstrike only while it is still engaged with this player, teamwork
+       * against whichever player it is engaged with by then (the owner's answer 36B). Absent on a held minion (`heldBy`), a
        * card that engaged nobody, and a frame saved after its `quickstrike` stage under the old order, whose keywords
        * have already resolved.
        */
       readonly engagedPlayerId?: PlayerId;
       /**
-       * `cardEntersPlay` events of this minion that resolved while it was being revealed, oldest first: their response
+       * `cardEntersPlay` events of this card that resolved while it was being revealed, oldest first: their response
        * windows wait for the end of the reveal (RRG 1.8 "Reveal", p. 38: "Responses (both forced and non-forced) to
        * any step of the revealing of an encounter card are not resolved until after all steps of the reveal process
-       * have been completed"; FAQ "Widow's Bite (#10)", p. 60; the owner's answer 32B). They share the window of the
-       * reveal's own `cardRevealed` announcement, after the minion's quickstrike and teamwork.
+       * have been completed"; FAQ "Widow's Bite (#10)", p. 60; the owner's answers 32B and, for a card that is not a
+       * minion, 35B). They share the window of the reveal's own `cardRevealed` announcement, after a minion's
+       * quickstrike and teamwork.
        */
       readonly heldResponses?: readonly TriggerEvent[];
       /**

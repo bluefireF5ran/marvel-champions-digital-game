@@ -6,6 +6,7 @@
  * on the damage dealt, per February 8, 2026 - Ruling 2 ("Dealt: 6. Excess dealt: 6 - 3 = 3. Taken: 6 - 1 = 5. Excess
  * taken: 5 - 3 = 2 (overkill to villain) … Prince of Power heals 3"). Everything else stays on the damage taken (RRG
  * 1.8 "Overkill", p. 31), so every test here also pins that `excessDealt` and the overkill spill did not move.
+ * Owner answer 42B (same day): Follow Through's "+1 excess damage" applies to this value too, whenever it is above 0.
  *
  * What "dealt" is where the ruling is silent: RRG 1.8 "Damage" (p. 14), "When the amount of damage a character takes is
  * modified (such as by damage being prevented), the amount of damage dealt is not modified"; "Prevent" (p. 35); "Tough"
@@ -268,8 +269,9 @@ describe("excess of the damage dealt (`excessAsDealt`), beside the excess of the
     expect(resolve(start(BRITTLE), THREE)).toMatchObject({ taken: 1, dealt: 0, afterDefeat: 0, spilled: 1 });
   });
 
-  describe("'increase that amount of excess damage by 1' stays keyed to the excess taken", () => {
-    it("some excess taken: both values go up by 1 (6 dealt, 5 taken, 3 hit points: 3 taken-excess, 4 dealt-excess)", () => {
+  // Owner answer 42B (2026-10-12): the bonus answers either excess, and raises each measure that is above 0.
+  describe("'increase that amount of excess damage by 1' applies to each excess that is above 0 (answer 42B)", () => {
+    it("both in excess: both values go up by 1 (6 dealt, 5 taken, 3 hit points: 3 taken-excess, 4 dealt-excess)", () => {
       expect(resolve(start(THUMBELINA, { followThrough: true }), SIX)).toMatchObject({
         taken: 3,
         dealt: 4,
@@ -278,13 +280,49 @@ describe("excess of the damage dealt (`excessAsDealt`), beside the excess of the
       });
     });
 
-    it("no excess taken: it does not apply, and the excess dealt is not raised (4 dealt, 3 taken: 0 and 1)", () => {
-      expect(resolve(start(THUMBELINA, { followThrough: true }), FOUR)).toMatchObject({
+    it("only the damage dealt in excess (4 dealt, 3 taken): the excess dealt goes from 1 to 2; none taken, nothing spills", () => {
+      expect(resolve(start(THUMBELINA, { followThrough: true }), FOUR)).toEqual({
         taken: 0,
-        dealt: 1,
-        afterDefeat: 1,
+        dealt: 2,
+        afterDefeat: 2,
         spilled: 0,
+        minionDamage: null,
+        tough: 0,
       });
+    });
+
+    it("only the damage taken in excess (3 dealt, 4 taken): the excess taken goes from 1 to 2 and spills; still none dealt", () => {
+      expect(resolve(start(BRITTLE, { followThrough: true }), THREE)).toMatchObject({
+        taken: 2,
+        dealt: 0,
+        afterDefeat: 0,
+        spilled: 2,
+      });
+    });
+
+    it("a tough status card: the excess dealt goes from 3 to 4, and still nothing is taken, spilled or defeated", () => {
+      expect(resolve(start(GRUNT, { tough: true, followThrough: true }), SIX)).toEqual({
+        taken: 0,
+        dealt: 4,
+        afterDefeat: 0,
+        spilled: 0,
+        minionDamage: 0,
+        tough: 0,
+      });
+    });
+
+    it("an interrupt that prevents 2 of the 6: 1 excess taken becomes 2, 3 excess dealt becomes 4, each raised once", () => {
+      expect(resolve(start(PADDED, { followThrough: true }), SIX)).toMatchObject({
+        taken: 2,
+        dealt: 4,
+        afterDefeat: 4,
+        spilled: 2,
+      });
+    });
+
+    it("no excess of either kind: it does not apply (2 against 3 hit points, and exactly lethal 3)", () => {
+      expect(resolve(start(GRUNT, { followThrough: true }), TWO)).toMatchObject({ taken: 0, dealt: 0, spilled: 0 });
+      expect(resolve(start(GRUNT, { followThrough: true }), THREE)).toMatchObject({ taken: 0, dealt: 0, spilled: 0 });
     });
   });
 });

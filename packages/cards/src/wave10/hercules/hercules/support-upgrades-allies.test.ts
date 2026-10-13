@@ -87,6 +87,7 @@ const HELM = "59015";
 const LION = "59016";
 const PRINCE = "59017";
 const DEATHCRY = "59018"; // Leadership ally, cost 3, ATK 3
+const FOLLOW_THROUGH = "16045"; // Aggression upgrade: +1 to the excess damage of your hero's attack
 const NEMEAN = "59005";
 const SHIELD = "59006";
 const SWORD = "59007";
@@ -688,6 +689,35 @@ describe("59017 Prince of Power", () => {
     expect(inst(after, after.activeVillainId!).damage).toBe(2);
     expect(inst(after, herc(after)).damage).toBe(2);
     expect(inst(after, prince).exhausted).toBe(true);
+  });
+
+  // Owner answer 42B (2026-10-12): Follow Through (16045, "When your hero's attack deals any amount of excess damage,
+  // increase that amount by 1") also answers an attack whose damage dealt alone has excess. 4 dealt (3 ATK + 1 Gift)
+  // to Thumbelina is 3 taken: exactly lethal, no excess taken, 1 excess dealt.
+  describe("with Follow Through 16045, only the damage dealt in excess (answer 42B)", () => {
+    function fourDealt(followThrough: boolean) {
+      let state = withGifts(quiet(herculesHeroGame()), [NEMEAN]);
+      const prince = stagedInPlay(state, PRINCE, { attach: true });
+      state = stagedInPlay(prince.state, MACE, { attach: true }).state;
+      if (followThrough) {
+        // Not in the precon: the bottom card of his deck retagged to it (test surgery), then staged like the others.
+        expect(state.cardPool[cardId(FOLLOW_THROUGH)]).toBeDefined();
+        state = patchInstance(state, playerOf(state, P1).deck.at(-1)!, { cardId: cardId(FOLLOW_THROUGH) });
+        state = stagedInPlay(state, FOLLOW_THROUGH, { attach: true }).state;
+      }
+      state = patchInstance(engageMinion(state, THUMBELINA, MINION, P1), herc(state), { damage: 5 });
+      const { state: after } = attack(state);
+      expect(locateCard(after, MINION)?.kind).not.toBe("playArea");
+      return { healed: 5 - inst(after, herc(after)).damage, spilled: inst(after, after.activeVillainId!).damage };
+    }
+
+    it("control, without it: Prince of Power heals the 1 excess dealt, and nothing spills", () => {
+      expect(fourDealt(false)).toEqual({ healed: 1, spilled: 0 });
+    });
+
+    it("with it: the excess dealt is 2, so Prince of Power heals 2; no excess was taken, so still nothing spills", () => {
+      expect(fourDealt(true)).toEqual({ healed: 2, spilled: 0 });
+    });
   });
 
   it("heals 1 per point of excess: M.O.D.O.K. with 1 hit point left, ATK 3: 2 excess, Hercules (4 damage) heals 2", () => {

@@ -75,11 +75,15 @@ tests. The text below is the finding as audited.
 reveal it" puts the scheme in play during her defeat (a When Defeated is a Forced Interrupt, RRG p. 48). All Versus All's
 "Forced Response: After a character is defeated, place 2 threat on this scheme" is then heard in the response window of
 that same defeat.
-**A (built):** it is in play when the window opens, so it answers: 2 + Hinder 2 + 2 = 6 (module test, pinned again here).
+**A (built until 2026-10-12):** it is in play when the window opens, so it answers: 2 + Hinder 2 + 2 = 6.
 **B:** a card that was not in play when the triggering condition occurred cannot respond to it: 4.
-No ruling or RRG sentence speaks to it ("Mister Knife" in the Feb 2026 rulings is a constant, not a response window).
-Recommended default: A (the response window opens after the interrupt window, and the card is in play then), but it is a
-reading.
+No ruling speaks to it ("Mister Knife" in the Feb 2026 rulings is a constant, not a response window).
+**Answered B and built (owner answer 43B, 2026-10-12, `docs/phase7-wave10.md` §4.0).** The rule is the engine's, for
+every card and every response window: a card that enters play after a triggering condition has occurred is listed on
+that condition (`TriggerEvent.enteredPlaySince`, `packages/engine/src/entered-since.ts`; RRG 1.8 "Triggering
+Condition", p. 45, "Response", p. 38) and is not gathered for its Response or Forced Response window. All Versus All
+enters play with 4 here and answers the next defeat (the module tests and the pin in `qa-hercules.qa.test.ts` now read
+4, and a second pin reads 6 after the next defeat).
 
 ## Per-ability verdicts
 
@@ -170,7 +174,7 @@ OK = read against the print, the RRG and the rulings, with the module's tests pl
 
 ### all-versus-all (8)
 
-- 59041 forced response and when defeated: OK; **Q1** for the timing with Hecate.
+- 59041 forced response and when defeated: OK; **Q1** (answered B, built) for the timing with Hecate.
 - 59042 when revealed / when defeated / forced response: OK.
 - 59043: OK. 59044: OK. Pin: its attacks are ranged, which ignores Retaliate (RRG "Ranged" p. 36): Shield of Perseus hurts
   Rhino and not the Officer, whose ATK 3 lands in full.

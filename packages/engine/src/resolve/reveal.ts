@@ -459,21 +459,31 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
 
 /**
  * Whether `keyword` answers this reveal's engagement now. Read as the keyword resolves, never as the minion engaged
- * (the owner's answer to open point 3 of docs/phase7-wave10-q30-impact.md = A): the minion must still be in play and
- * still engaged with the player it engaged by this reveal, so a When Revealed that removed it from play, moved it to
- * another player or turned its player to alter-ego leaves nothing to resolve, and a keyword it gained or lost while
- * its When Revealed resolved is read as it stands. An enemy that "cannot activate" is stopped where every activation
- * is, as its event initiates (`executeEventFrame`).
+ * (the owner's answer to open point 3 of docs/phase7-wave10-q30-impact.md = A): the minion must still be in play, so
+ * a When Revealed that removed it from play leaves nothing to resolve, and a keyword it gained or lost while its When
+ * Revealed resolved is read as it stands. An enemy that "cannot activate" is stopped where every activation is, as
+ * its event initiates (`executeEventFrame`).
  *
- * Teamwork needs the minion to have entered play (RRG 1.8 p. 43); one found in play did not (`foundInPlay`, p. 19).
+ * The two keywords part ways when the When Revealed moved the minion to another player (the owner's answers 36B and
+ * 37A, 2026-10-12):
+ * - Quickstrike answers one engagement: "After a minion with the quickstrike keyword engages a player whose identity
+ *   is in hero form, that minion attacks that player" (RRG 1.8 p. 36). The reveal's engagement was with
+ *   `engagedPlayerId`; a minion no longer engaged with that player has nothing left to answer here, and its new
+ *   engagement had its own quickstrike where it was made (`engagedInPlayFrames`).
+ * - Teamwork names no engagement, only where the minion stands as it resolves: "the minion that just entered play
+ *   activates against the player it is engaged with" (RRG 1.8 "Teamwork (Trait)", p. 43). So it still resolves, against
+ *   whichever player the minion is engaged with now (`teamworkActivation` reads `engagedWith` as it resolves), and
+ *   not at all when it is engaged with nobody. It needs the minion to have entered play engaged by this reveal
+ *   (`engagedPlayerId`) and not to have been found in play (`foundInPlay`, p. 19: "not considered to be entering
+ *   play").
  */
 function revealKeywordApplies(ctx: Ctx, frame: Frame<"reveal">, keyword: RevealKeyword): boolean {
   if (frame.effectsCancelled || frame.newFace || frame.engagedPlayerId === undefined) return false;
   const id = frame.instanceId;
   if (!cardsInPlay(ctx.state).includes(id)) return false;
-  if (getInstance(ctx.state, id)?.engagedWith !== frame.engagedPlayerId) return false;
-  if (keyword === "quickstrike") return quickstrikeAttack(ctx, id) !== null;
-  return !frame.foundInPlay && hasKeyword(ctx.state, id, "teamwork", ctx.deps);
+  const engagedWith = getInstance(ctx.state, id)?.engagedWith;
+  if (keyword === "quickstrike") return engagedWith === frame.engagedPlayerId && quickstrikeAttack(ctx, id) !== null;
+  return engagedWith != null && !frame.foundInPlay && hasKeyword(ctx.state, id, "teamwork", ctx.deps);
 }
 
 /** The frame that resolves `keyword` for this reveal, or null when it no longer applies (`revealKeywordApplies`). */
@@ -509,6 +519,8 @@ const REVEAL_KEYWORD_LABELS: Readonly<Record<RevealKeyword, string>> = {
  * RRG 1.8 "Forced", p. 20: "If two or more forced abilities would initiate at the same moment, the first player
  * determines the order"). With teamwork's condition unmet there is nothing to order: quickstrike resolves, then
  * teamwork checks its condition as it always does (`resolveTeamwork`).
+ * A minion its When Revealed moved to another player has only teamwork live here (`revealKeywordApplies`), so nobody
+ * is asked (answer 37A): teamwork activates it against its new player.
  */
 function stepRevealKeywords(ctx: Ctx, frame: Frame<"reveal">): void {
   const { keywordOrder, ...bare } = frame;
@@ -591,8 +603,8 @@ function announceRevealFinished(ctx: Ctx, frame: Frame<"reveal">, card: AnyCard)
   const engaged = frame.foundInPlay ? frame.engagedByReveal === true : !frame.newFace;
   if (!frame.effectsCancelled && engaged && card.type === "minion") events.push(...engagedEvent(ctx, frame.instanceId));
   const frames: StackFrame[] = events.map((event) => eventFrame(ctx, event));
-  // Responses to the minion entering play waited for the end of the reveal (`heldResponses`; RRG 1.8 "Reveal",
-  // p. 38; the owner's answer 32B): they share the window of the `cardRevealed` announcement, the first of these.
+  // Responses to the card entering play waited for the end of the reveal (`heldResponses`; RRG 1.8 "Reveal",
+  // p. 38; the owner's answers 32B and 35B): they share the window of the `cardRevealed` announcement, the first.
   const [announcement] = frames;
   if (announcement?.kind === "event" && held.length > 0) frames[0] = { ...announcement, joinedResponses: held };
   // RRG 1.8 "Surge" (p. 42): the keyword deals its player a facedown encounter card, queued last so the original

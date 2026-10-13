@@ -7,7 +7,9 @@
  * When Revealed, the way quickstrike does (RRG 1.8 p. 43: "If a minion with the teamwork keyword is being revealed, the
  * teamwork keyword resolves after any 'When Revealed' abilities on that minion are resolved"; the owner's answer 30B,
  * 2026-10-12, which supersedes §4.1 Q2). FAQ "Fabian Cortez (#159)" (p. 64): a minion his When Defeated puts into play
- * does not see him, since he is discarded as it enters.
+ * does not see him, since he is discarded as it enters. "The player it is engaged with" is read as teamwork resolves:
+ * a When Revealed that moved the minion to another player moves the activation with it (the owner's answer 36B,
+ * 2026-10-12).
  */
 
 import { flat, trait, type AbilityReference, type AnyCard, type CardId } from "@mc/content";
@@ -28,6 +30,7 @@ import { stubEvent, stubMainScheme, stubMinion, stubSupport, stubTreachery, stub
 import { DEFAULT_DECK, giveCard, newGame, withEncounterPiles } from "./testing/scenario.js";
 
 const p1 = playerId("p1");
+const p2 = playerId("p2");
 const ACOLYTE = trait("ACOLYTE");
 const teamwork = { name: "teamwork", sharedTrait: ACOLYTE } as const;
 const copies = (id: CardId, n: number): readonly CardId[] => Array.from({ length: n }, () => id);
@@ -62,6 +65,33 @@ const RECRUIT = stubMinion({
   boostIcons: 0,
   keywords: [teamwork, { name: "villainous" }],
   abilities: [ability("recruit.when-revealed", { trigger: { kind: "whenRevealed" }, effects: [mark] })],
+});
+/** Teamwork (ACOLYTE). "When Revealed: the other player engages this minion." */
+const DEFECTOR = stubMinion({
+  id: "defector",
+  traits: [ACOLYTE],
+  atk: 2,
+  sch: 2,
+  hp: 5,
+  boostIcons: 0,
+  keywords: [teamwork],
+  abilities: [
+    ability("defector.when-revealed", {
+      trigger: { kind: "whenRevealed" },
+      effects: [{ kind: "engage", minion: { kind: "self" }, player: { kind: "id", playerId: p2 } }, mark],
+    }),
+  ],
+});
+/** "Reveal the top card of the encounter deck." */
+const SCOUT = stubEvent({
+  id: "scout",
+  cost: 0,
+  abilities: [
+    ability("scout.action", {
+      trigger: { kind: "action" },
+      effects: [{ kind: "revealEncounterCard", player: { kind: "controller" } }],
+    }),
+  ],
 });
 /** An ACOLYTE already in play, with teamwork of its own. */
 const PARTNER = stubMinion({
@@ -129,20 +159,21 @@ const deps: EngineDeps = depsOf(...abilities);
 const toHero: Command = { type: "changeForm", playerId: p1 };
 const endTurn: Command = { type: "endTurn", playerId: p1 };
 
-const ENCOUNTER: readonly AnyCard[] = [BLANK, ONE_BOOST, RECRUIT, PARTNER, OUTSIDER, CORTEZ];
+const ENCOUNTER: readonly AnyCard[] = [BLANK, ONE_BOOST, RECRUIT, DEFECTOR, PARTNER, OUTSIDER, CORTEZ];
 
 /**
  * A game whose encounter deck is `top` then blanks, with `inPlay` (taken from the encounter deck) faceup in p1's play
  * area engaged with p1 (test surgery, so the order does not depend on the shuffle).
  */
-function game(top: readonly AnyCard[], inPlay: readonly AnyCard[] = []): GameState {
+function game(top: readonly AnyCard[], inPlay: readonly AnyCard[] = [], players = 1): GameState {
   const start = newGame({
+    players,
     villain: VILLAIN,
     mainScheme: SCHEME,
     deps,
-    extraCards: [...ENCOUNTER, INDOCTRINATE, SMASH],
+    extraCards: [...ENCOUNTER, INDOCTRINATE, SMASH, SCOUT],
     encounterDeck: [...[...top, ...inPlay].map((card) => card.id), ...copies(BLANK.id, 15)],
-    deck: [...DEFAULT_DECK, INDOCTRINATE.id, SMASH.id],
+    deck: [...DEFAULT_DECK, INDOCTRINATE.id, SMASH.id, SCOUT.id],
   });
   let deck = [...activeEncounterDeck(start).deck];
   const take = (card: AnyCard): InstanceId => {
@@ -326,5 +357,52 @@ describe("teamwork (trait)", () => {
     const engaged = createCtx(start, deps);
     resolveTeamwork(engaged, recruit);
     expect(teamworkLog(engaged.events)).toHaveLength(1);
+  });
+
+  describe("its When Revealed moved it to another player (RRG p. 43: 'the player it is engaged with'; answer 36B)", () => {
+    const withForm = (state: GameState, player: typeof p1, form: "hero" | "alterEgo"): GameState => ({
+      ...state,
+      players: state.players.map((p) => (p.playerId === player ? { ...p, identity: { ...p.identity, form } } : p)),
+    });
+    const damageOn = (state: GameState, player: typeof p1): number =>
+      mustInstance(state, mustPlayer(state, player).identity.instanceId).damage;
+
+    it("it schemes against the player it is engaged with as teamwork resolves (alter-ego), not the revealing player", () => {
+      // p1, who reveals it, is in hero form: an activation against p1 would have been an attack.
+      const start = withForm(game([DEFECTOR], [PARTNER], 2), p1, "hero");
+      const { state, events, session } = play(start, SCOUT);
+      const defector = idOf(state, DEFECTOR);
+      expect(mustInstance(state, defector).engagedWith).toBe(p2);
+      expect(mustPlayer(state, p2).playArea).toContain(defector);
+      expect(teamworkLog(events)).toEqual([
+        { type: "keywordResolved", keyword: "teamwork", instanceId: defector, playerId: p2, trait: ACOLYTE },
+      ]);
+      expect(events.filter((e) => e.type === "enemyActivated")).toEqual([
+        { type: "enemyActivated", enemyInstanceId: defector, activation: "scheme", playerId: p2 },
+      ]);
+      expect(threat(state)).toBe(2);
+      expect(damageOn(state, p1)).toBe(0);
+      expectReplays(session);
+    });
+
+    it("it attacks that player when they are in hero form, and the revealing player takes nothing", () => {
+      const start = withForm(game([DEFECTOR], [PARTNER], 2), p2, "hero");
+      const { state, events } = play(start, SCOUT);
+      const defector = idOf(state, DEFECTOR);
+      expect(events.filter((e) => e.type === "enemyActivated")).toEqual([
+        { type: "enemyActivated", enemyInstanceId: defector, activation: "attack", playerId: p2 },
+      ]);
+      expect(damageOn(state, p2)).toBe(2);
+      expect(damageOn(state, p1)).toBe(0);
+      expect(threat(state)).toBe(0);
+    });
+
+    it("the teammate it left behind still counts: the trait is shared with any other minion in play", () => {
+      const start = game([DEFECTOR], [PARTNER], 2);
+      const { state, events } = play(start, SCOUT);
+      expect(mustInstance(state, idOf(state, PARTNER)).engagedWith).toBe(p1);
+      expect(teamworkLog(events)).toHaveLength(1);
+      expect(activatedAfter(events, state, 0)).toEqual([DEFECTOR.id]);
+    });
   });
 });

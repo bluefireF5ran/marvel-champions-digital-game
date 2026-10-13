@@ -28,6 +28,7 @@ import { resetSeparateDeckIfEmpty } from "./resolve/separate-decks.js";
 import { syncTreatedAs } from "./treat-as.js";
 import { announceDeckTops } from "./deck-top.js";
 import { shownCardId } from "./hidden-reverse.js";
+import { movesIntoPlay, noteEnteredPlay } from "./entered-since.js";
 
 /**
  * Working context for one command. `state` is replaced (never mutated) by each
@@ -285,6 +286,9 @@ export function relocateCard(ctx: Ctx, id: InstanceId, to: ZoneId, position: Zon
   }
   const target = zoneOf(ctx.state, to);
   ctx.state = setZone(ctx.state, to, position === "top" ? [id, ...target] : [...target, id]);
+  // A card coming into play did not see what has already occurred: it answers none of the conditions still waiting
+  // for their response window (RRG 1.8 "Triggering Condition", p. 45; the owner's answer 43B, `entered-since.ts`).
+  if (movesIntoPlay(from, to)) ctx.state = noteEnteredPlay(ctx.state, id);
 
   let instance = mustInstance(ctx.state, id);
   const attachedTo = to.kind === "attachment" ? to.hostInstanceId : null;

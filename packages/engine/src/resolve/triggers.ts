@@ -55,6 +55,7 @@ import { cannotEnterPlay, cannotPlayCard, revealCannotBeCanceled, triggeredAbili
 import { abilityLacksValidTarget } from "./target-validity.js";
 import { KEYWORD_ABILITIES } from "../keyword-abilities.js";
 import { attackKeywordsOf, hasKeyword } from "../keywords.js";
+import { enteredPlaySince } from "../entered-since.js";
 
 /**
  * A cancel with nothing it can cancel is not offered (docs/phase7-wave4.md §3.27, §4 Q16 as the user decided it on
@@ -649,6 +650,11 @@ function gatherCandidates(
   // Read once per call, and only once some ability has the right timing.
   let noTriggers: readonly ActiveRule<"cannotResolveTriggeredAbilities">[] | undefined;
   for (const id of cardsInPlay(state)) {
+    // A card that came into play after the condition occurred does not answer it: RRG 1.8 "Triggering Condition"
+    // (p. 45), "a specific occurrence", and "Response" (p. 38), resolved "after the specified triggering condition
+    // occurs" (the owner's answer 43B; `entered-since.ts` says when a condition has occurred). Interrupts are never
+    // affected: their window opens before the condition occurs.
+    if (timing === "response" && enteredPlaySince(event, id)) continue;
     for (const ref of activeAbilityRefs(state, id, deps)) {
       const definition = deps.abilities[ref.id];
       if (!definition) continue;
@@ -744,6 +750,8 @@ function keywordCandidates(
     // Cheap before the scan of every card in play: most events are of no keyword's kind.
     if (!kinds.includes(event.kind)) continue;
     for (const id of cardsInPlay(state)) {
+      // Nor does its keyword, for the same reason (`gatherCandidates`).
+      if (timing === "response" && enteredPlaySince(event, id)) continue;
       if (!hasKeyword(state, id, ability.keyword, deps)) continue;
       if (!matchesPattern(state, trigger.on, event, timing, id, deps)) continue;
       const controllerId = controllerOf(state, id) ?? uncontrolledYouOf(state, id);

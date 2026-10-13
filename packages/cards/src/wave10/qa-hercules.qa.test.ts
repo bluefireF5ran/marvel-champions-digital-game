@@ -720,14 +720,38 @@ describe("59044 Bewitched Officer's attacks gain ranged, and a ranged attack ign
   });
 });
 
-describe("59041 All Versus All against 59042 Hecate's When Defeated: a card that enters play during the defeat (owner question Q1)", () => {
-  it("All Versus All, found and revealed by Hecate's When Defeated, is in play when the 'after a character is defeated' window opens, so it answers her own defeat: 2 + 2 Hinder + 2 = 6 (built: A; B would read 4)", () => {
+// Owner answer 43B (2026-10-12, docs/phase7-wave10.md section 4.0), the audit's question Q1: a card that was not in
+// play when a triggering condition occurred does not answer it (RRG 1.8 "Triggering Condition", p. 45; "Response",
+// p. 38). Before it, the built answer A had All Versus All answer the defeat that revealed it (6 threat).
+describe("59041 All Versus All against 59042 Hecate's When Defeated: a card that enters play during the defeat (owner question Q1 = B)", () => {
+  it("All Versus All, found and revealed by Hecate's When Defeated, was not in play when she was defeated, so it does not answer her defeat: 2 + 2 Hinder = 4", () => {
     const base = heroGame();
     const top = activeEncounterDeck(base).deck[0]!;
     const withAva = patchInstance(base, top, { cardId: cardId("59041") });
     const hecate = patchInstance(engageMinion(withAva, "59042", "hecate", P1), "hecate" as InstanceId, { damage: 3 });
     const hecateId = "hecate" as InstanceId;
     const run = drive(hecate, {}, basicAttack(hecate, identityOf(hecate), hecateId));
+    const ava = cardsInPlay(run.state).find((i) => codeOf(run.state, i) === "59041")!;
+    expect(inst(run.state, ava).threat).toBe(4);
+    // The trace says why: her defeat lists the card that came into play after it.
+    const defeat = run.events.find(
+      (e) => e.type === "triggerEvent" && e.phase === "resolved" && e.event.kind === "characterDefeated",
+    );
+    expect(defeat).toMatchObject({ event: { instanceId: hecateId, enteredPlaySince: [ava] } });
+  });
+
+  it("the next character defeated finds it in play: 2 more threat (4 + 2 = 6)", () => {
+    const base = heroGame();
+    const top = activeEncounterDeck(base).deck[0]!;
+    const withAva = patchInstance(base, top, { cardId: cardId("59041") });
+    const staged = patchInstance(engageMinion(withAva, "59042", "hecate", P1), "hecate" as InstanceId, { damage: 3 });
+    const first = drive(staged, {}, basicAttack(staged, identityOf(staged), "hecate" as InstanceId)).state;
+    const again = patchInstance(
+      patchInstance(engageMinion(first, "01184", "modok", P1), "modok" as InstanceId, { damage: 7 }),
+      identityOf(first),
+      { exhausted: false },
+    );
+    const run = drive(again, {}, basicAttack(again, identityOf(again), "modok" as InstanceId));
     const ava = cardsInPlay(run.state).find((i) => codeOf(run.state, i) === "59041")!;
     expect(inst(run.state, ava).threat).toBe(6);
   });
