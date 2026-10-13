@@ -104,9 +104,15 @@ export interface BoardDrawContext {
   /**
    * Registers a card as a tap target: a tap acts (answering an open target or
    * payment prompt first, `onTap` otherwise), a hold or right-click inspects,
-   * and — only when `onDrag` is given — a horizontal drag scrolls instead.
+   * and — only when `onDrag` is given — a horizontal drag scrolls instead. `onHover` hears a mouse move on and off it.
    */
-  makeTapTarget(rect: Rect, id: InstanceId, onTap?: () => void, drag?: RowDrag): void;
+  makeTapTarget(
+    rect: Rect,
+    id: InstanceId,
+    onTap?: () => void,
+    drag?: RowDrag,
+    onHover?: (over: boolean) => void,
+  ): void;
   /** Opens a card. `siblings` is the list ◂ ▸ steps through; without it, the hand when the card is in it. */
   inspect(id: InstanceId, siblings?: readonly InstanceId[]): void;
   /** Opens one of the scenario's printed rules cards (`Scenario.referenceCards`), which has no instance. */

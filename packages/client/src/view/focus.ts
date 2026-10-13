@@ -24,7 +24,9 @@ export type FocusTarget =
   /** The targeting panel's own "Cancel · Esc" (docs/phase4-screen-gaps.md §3 "W5") — Escape already backs out from anywhere, so this is only the tab stop for the pointer/pad control that does the same thing. */
   | { readonly kind: "cancel" }
   /** A multi-pick panel's own Confirm (`view/in-play-cost-choice.ts`): Enter on it sends the picks, the tab stop for the pointer/pad control that does the same. */
-  | { readonly kind: "confirm" };
+  | { readonly kind: "confirm" }
+  /** The action bar's Undo (`view/undo.ts`), beside End turn. */
+  | { readonly kind: "undo" };
 
 /** What the board is currently asking for, which changes what is worth focusing. */
 export type FocusMode =
@@ -32,6 +34,8 @@ export type FocusMode =
       readonly kind: "idle";
       readonly hand: readonly InstanceId[];
       readonly teamUps?: readonly string[];
+      /** True while the action bar draws Undo, so it is a stop just before End turn. */
+      readonly undo?: boolean;
       /** True when the card is drawn as a tile or chip right now; a usable card with none is not a stop. */
       readonly tiled?: (id: InstanceId) => boolean;
     }
@@ -81,6 +85,9 @@ export function focusOrder(mode: FocusMode, marks: Highlights | null): readonly 
   const basics: FocusTarget[] = BASICS.filter(
     (action) => marks?.basics.some((basic) => basic.action === action) ?? false,
   ).map((action) => ({ kind: "basic", action }));
+  // Undo sits just before End turn, where the bar draws it — and like any other control, a stop even while unusable.
+  const endTurnAt = basics.findIndex((target) => target.kind === "basic" && target.action === "endTurn");
+  if (mode.undo) basics.splice(endTurnAt < 0 ? basics.length : endTurnAt, 0, { kind: "undo" });
   const teamUps: FocusTarget[] = (mode.teamUps ?? []).map((pairKey) => ({ kind: "teamUp", pairKey }));
   return [...cards, ...abilityCards, ...basics, ...teamUps];
 }

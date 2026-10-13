@@ -1,5 +1,5 @@
 /**
- * The action bar: the four basic actions, End turn, and the advisory line.
+ * The action bar: the four basic actions, Undo, End turn, and the advisory line.
  */
 
 import { appSession } from "../../session.js";
@@ -84,8 +84,13 @@ export function drawActionBar(ctx: BoardDrawContext, rect: Rect, model: BoardMod
     endTurn: "End turn",
   };
 
-  const endTurnWidth = stacked ? rect.width - 20 : Math.min(180, rect.width * 0.28);
-  const basicsWidth = stacked ? rect.width - 20 : rect.width - endTurnWidth - 30;
+  // Undo (`view/undo.ts`) sits just before End turn: on the commit row's left when stacked, else between the basic
+  // powers and End turn. Drawn, greyed with its reason, for as long as it is the hero's own turn.
+  const undo = controller.undoOffer();
+  const undoWidth = undo ? (stacked ? Math.min(110, rect.width * 0.3) : Math.min(110, rect.width * 0.14)) : 0;
+  const undoGap = undo ? 6 : 0;
+  const endTurnWidth = stacked ? rect.width - 20 - undoWidth - undoGap : Math.min(180, rect.width * 0.28);
+  const basicsWidth = stacked ? rect.width - 20 : rect.width - endTurnWidth - 30 - undoWidth - undoGap;
   const cellWidth = (basicsWidth - (BASICS.length - 1) * 6) / BASICS.length;
 
   BASICS.forEach((action, index) => {
@@ -132,8 +137,25 @@ export function drawActionBar(ctx: BoardDrawContext, rect: Rect, model: BoardMod
   const endTurn = marks?.basics.find((basic) => basic.action === "endTurn");
   const owedReason = endTurn?.code === FORCED_ACTION_CODE && endTurn.reason ? endTurn.reason : null;
   const endTurnRect: Rect = stacked
-    ? { x: rect.x + 10, y: rect.y + hit.target, width: endTurnWidth, height: hit.primary - 6 }
+    ? { x: rect.x + 10 + undoWidth + undoGap, y: rect.y + hit.target, width: endTurnWidth, height: hit.primary - 6 }
     : { x: rect.x + rect.width - endTurnWidth - 10, y: rect.y + 4, width: endTurnWidth, height: hit.primary - 10 };
+  if (undo) {
+    const undoRect: Rect = stacked
+      ? { x: rect.x + 10, y: endTurnRect.y, width: undoWidth, height: endTurnRect.height }
+      : { x: endTurnRect.x - undoGap - undoWidth, y: rect.y + 4, width: undoWidth, height: hit.target - 8 };
+    ctx.frame.focusRects.set(focusKey({ kind: "undo" }), undoRect);
+    ctx.frame.buttons.push(
+      new McButton(scene, {
+        kind: "onInk",
+        label: "Undo",
+        type: typeRole.label,
+        rect: undoRect,
+        enabled: undo.kind === "available",
+        ...(undo.kind === "unavailable" ? { reason: undo.reason } : {}),
+        onClick: () => void controller.undo(),
+      }),
+    );
+  }
   ctx.frame.focusRects.set(focusKey({ kind: "basic", action: "endTurn" }), endTurnRect);
   ctx.frame.buttons.push(
     new McButton(scene, {

@@ -12,7 +12,14 @@ import { applyCommand, type GameState, type InstanceId, type LegalAction, type P
 import { LocalEngineHost } from "../engine/local-host.js";
 import { SessionStore } from "../store/session-store.js";
 import type { SessionConfig } from "../engine/host.js";
-import { allianceHelpersOf, beginPayment, clearPayment, paymentView, togglePayment } from "./payment-model.js";
+import {
+  allianceHelpersOf,
+  beginPayment,
+  clearPayment,
+  paymentView,
+  spentTagText,
+  togglePayment,
+} from "./payment-model.js";
 import type { PaymentState } from "./payment-model.js";
 
 const SPIDER_MAN_SOLO: SessionConfig = {
@@ -107,6 +114,28 @@ describe("payment mode", () => {
     const back = togglePayment(without, first);
     expect([...back.picked].sort()).toEqual([...suggested.picked].sort());
     expect(paymentView(state, me, back, "test", CORE_DEPS).command).not.toBeNull();
+  });
+
+  test("numbers picked hand cards in discard order and marks the last one on top, as the engine leaves the pile", () => {
+    const entry = costedPlay();
+    const opened = beginPayment(state, me, entry.action, null, CORE_DEPS)!;
+    const handCards = opened.query.sources.filter((source) => source.kind === "handCard");
+    expect(handCards.length).toBeGreaterThanOrEqual(2);
+    const [first, second] = handCards as [(typeof handCards)[number], (typeof handCards)[number]];
+
+    const both = togglePayment(togglePayment(opened, first.optionId), second.optionId);
+    const view = paymentView(state, me, both, "test", CORE_DEPS);
+    const of = (optionId: string) => view.sources.find((source) => source.optionId === optionId)!;
+    expect([of(first.optionId).discardOrder, of(first.optionId).onTop]).toEqual([1, false]);
+    expect([of(second.optionId).discardOrder, of(second.optionId).onTop]).toEqual([2, true]);
+    expect(spentTagText(of(second.optionId))).toBe("spent 2 · on top");
+    expect(view.sources.filter((source) => !source.spent).every((source) => source.discardOrder === null)).toBe(true);
+
+    // Unpicking and picking again moves a card to the end, and so to the top.
+    const reordered = togglePayment(togglePayment(both, first.optionId), first.optionId);
+    expect(paymentView(state, me, reordered, "test", CORE_DEPS).sources.find((s) => s.onTop)?.optionId).toBe(
+      first.optionId,
+    );
   });
 
   test("spending more than the cost is still accepted, so 'spend X' stays possible", () => {

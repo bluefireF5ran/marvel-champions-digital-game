@@ -1,0 +1,109 @@
+name: Bug report
+description: Something in the game is broken, or a card or rule behaves differently from the printed text or the Rules Reference.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. The more precisely you describe the game state, the faster it can be reproduced.
+        If a card or keyword resolved wrongly, please name the card and quote the rule or ruling you expected (RRG page or FAQ entry).
+  - type: dropdown
+    id: category
+    attributes:
+      label: What kind of problem is it?
+      options:
+        - A card or keyword resolved wrongly (rules)
+        - The villain or encounter deck did something wrong
+        - Display, layout or animation problem
+        - Controls or input problem
+        - Crash, freeze or the game would not load
+        - Saving or resuming a game
+        - Something else
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Web browser (desktop)
+        - Web browser (phone or tablet)
+        - Desktop app (Windows)
+        - Desktop app (macOS)
+        - Desktop app (Linux)
+        - Mobile app (iOS)
+        - Mobile app (Android)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser, OS and game version
+      description: The game version is shown in the game's menu. For the web version, include the browser.
+      placeholder: "e.g. v0.19.0, Chrome 130 on Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: heroes
+    attributes:
+      label: Heroes and aspects
+      description: Every hero in the game and the aspect each was playing, plus the number of players.
+      placeholder: "e.g. Spider-Man (Justice) and Iron Man (Aggression), 2 players"
+  - type: input
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Villain, modular encounter sets, and difficulty (Standard, Expert, Heroic).
+      placeholder: "e.g. Rhino, Bomb Scare, Standard"
+  - type: input
+    id: cards
+    attributes:
+      label: Cards involved
+      description: Any cards directly involved in the bug.
+      placeholder: "e.g. Web-Swing, Hard to Keep Down, Breakin' & Takin'"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order, including the phase and whose turn it was.
+      placeholder: |
+        1. During my hero phase, with Rhino at 12 health...
+        2. Played ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+      description: For rules bugs, cite the card text, RRG page or ruling if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots, video or game log
+      description: Drag images or a short recording in here. If the game log shows the problem, paste the relevant lines.
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Happened once
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not been reported yet.
+          required: true
