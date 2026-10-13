@@ -907,6 +907,23 @@ FFG ruling on these cards: 28A is the stronger rules conclusion, 29B a well-supp
   order).
 - **34B.** A minion with both Quickstrike and Teamwork: the first player chooses which resolves first.
 
+**Answered 2026-10-12, second list** (`35B 36B 37A 38A 39A 40A 41A 42B 43B`; the questions are in the PR's top table):
+
+- **35B.** Every revealed encounter card that enters play, not only a minion, holds the responses to its entering play
+  until its reveal has finished (RRG 1.8 "Reveal", p. 38).
+- **36B.** Teamwork resolving after a When Revealed that moved the minion activates against the player the minion is
+  engaged with as it resolves (RRG 1.8 "Teamwork", p. 43). Quickstrike stays on the player engaged by the reveal.
+- **37A.** The first player is asked to order Quickstrike and Teamwork only when both would do something.
+- **38A.** A minion put into play without a reveal: the enters-play response window opens before Quickstrike, as before.
+- **39A.** The end of a reveal keeps two windows: the held enters-play responses with "after this card is revealed",
+  then "after you engage".
+- **40A.** Prince of Power 59017 does not count extra damage taken: against an enemy that takes more than is dealt he
+  can heal less than overkill spills (RRG 1.8 "Damage", p. 14).
+- **41A.** Gilgamesh 59025 cannot be played while the identity cannot be given another confused status card.
+- **42B.** Follow Through also triggers when only the damage dealt has excess.
+- **43B.** A card that was not in play when a triggering condition occurred does not answer it: All Versus All 59041,
+  revealed by Hecate's When Defeated, does not respond to Hecate's defeat.
+
 Questions 23 to 27 are product choices, not rules (owner's note). Each B or C is recorded where its question lives:
 14 to 18 in `docs/phase7-wave10-box-heroes.md` B4, 19 to 22 in `docs/phase7-wave10-hero-packs.md` H4, 23 to 27 in
 `docs/phase7-wave10-client.md` §12.
