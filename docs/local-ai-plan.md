@@ -43,7 +43,7 @@ These follow the project's existing boundaries (CLAUDE.md, PLAN.md Phase 4).
 - **Nothing card-specific in the helper.** It works from the engine's legal actions and state, so a new pack needs no
   helper change beyond retraining.
 - **Dependency direction.** A new package `@mc/advisor` sits beside `@mc/cards`: `client → advisor → cards → engine →
-content`. The engine never imports it.
+  content`. The engine never imports it.
 - **Off by default, opt-in, and labeled.** It is a help feature under Guided mode's settings. It never plays for the
   player without being asked, and a game played with suggestions on is marked so in the game record.
 - **Deterministic and testable.** Given a state and a seed, a suggestion is reproducible. View models stay plain

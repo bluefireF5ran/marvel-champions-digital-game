@@ -356,12 +356,12 @@ new problem.
   up first (per the first pass's own priority order: Requirement/Discount are cheap and unblock keyword
   correctness broadly).
 - **Files touched this pass**, beyond the first pass's list: `packages/content/scripts/marvelcdb/{parse-text,
-survey}.ts`, `packages/content/scripts/marvelcdb/normalize/{context,checks,flatten,heroes,main-schemes,
-player-cards,starter-decks,villains}.ts`, `packages/content/scripts/marvelcdb/curation/{types,ant,wsp,scw,
-trors,qsv,toafk,bp,cyclops,gambit,drax,gam,stld,vnm,nebu,warm,vision,ncrawler,magneto,winter,falcon,ron}.ts`,
+  survey}.ts`, `packages/content/scripts/marvelcdb/normalize/{context,checks,flatten,heroes,main-schemes,
+  player-cards,starter-decks,villains}.ts`, `packages/content/scripts/marvelcdb/curation/{types,ant,wsp,scw,
+  trors,qsv,toafk,bp,cyclops,gambit,drax,gam,stld,vnm,nebu,warm,vision,ncrawler,magneto,winter,falcon,ron}.ts`,
   `packages/content/scripts/ingest-marvelcdb.ts`, `packages/content/src/data/index.ts`, `packages/content/src/
-data/wave2.test.ts` (new), `packages/content/src/data/data-only.test.ts` (new), and the new `packages/content/
-src/data/{qsv,toafk,bp,cyclops,gambit,drax,gam,stld,vnm,nebu,warm,vision,ncrawler,magneto,winter,falcon,ron}/`
+  data/wave2.test.ts` (new), `packages/content/src/data/data-only.test.ts` (new), and the new `packages/content/
+  src/data/{qsv,toafk,bp,cyclops,gambit,drax,gam,stld,vnm,nebu,warm,vision,ncrawler,magneto,winter,falcon,ron}/`
   folders. No `packages/content/src/schema/**`, `packages/engine/**`, `packages/cards/**` or `packages/client/**`
   file was touched — those packages' own concurrent changes (visible in `git status` throughout this pass) are
   the other agents' work, not mine; root `pnpm typecheck`/`pnpm test` stayed green against them throughout.
@@ -398,7 +398,7 @@ set id or field renamed/removed):
 - **`curation/toafk.ts`**: one entry (Kang), using `villainCardCode: "11001"` because `villainIdBySet` has _no_
   entry for the "kang" set — `normalize/villains.ts` deliberately leaves it unset when a set's stage numbers
   collide (Kang (I)/(II)×4/(III) are six single-stage villains, not one sequence; see Part 1 §1). `victory:
-"cardAbility"`, `setAsideVillainCardCodes`, `expertVillains` and `separateGameAreas` all transcribed from the
+  "cardAbility"`, `setAsideVillainCardCodes`, `expertVillains` and `separateGameAreas` all transcribed from the
   Kang insert and RRG 1.8 FAQ p. 60, cited in the curation file itself.
 - **Regenerated only `trors`/`toafk` (`--offline`), and confirmed by `git status` that only their `scenarios.ts`
   changed** — no other file in either pack's output differs from what was already committed. (A first attempt at
@@ -477,7 +477,7 @@ Following Part 2's own discipline — register a real curation, re-run `survey.t
   both faces of a double-sided card as if they were two independent printed copies.** Formidable Foe (an
   environment, 24049a/24049b) is one physical double-sided card; MarvelCDB's bare aggregate record `24049`
   (`quantity: 1`, correctly meaning "one physical card") was being compared against `24049a.quantity +
-24049b.quantity` (1 + 1 = 2) instead of either face's own quantity. Fixed structurally (detects "exactly two
+  24049b.quantity` (1 + 1 = 2) instead of either face's own quantity. Fixed structurally (detects "exactly two
   variants, mutually linked", not by card name or type), mirroring the `main_scheme` branch just above it in the
   same function, which already special-cases its own A/B pair for the same reason. **Also unblocks the identical
   shape in `mts`** (Mutant Genesis' `21100a/21100b`, confirmed in the gap matrix, error count 39→38) — `mts` stays
@@ -665,7 +665,7 @@ didn't touch them) so it stays a single source of truth rather than being re-der
    item 2b below.
    - **2b, still open after §7: `HostMeasure` needs `"thw"`** (a card's printed THW, the `thw` counterpart of the
      now-landed `printedCost`/existing `printedAtk`/`printedHp`). Possessed (`storm`, 36038): `"Attach to the
-ally with the lowest THW without Possessed attached."` Same `SuperlativeHostPool "ally"` (now available),
+     ally with the lowest THW without Possessed attached."` Same `SuperlativeHostPool "ally"` (now available),
      same "attach rule inside a When Revealed body" shape (now parseable) — the _only_ missing piece is this one
      measure value. The narrowest possible remaining ask.
      **Resolved (2026-09-19):** landed as `HostMeasure "thw"` (docs/phase7-wave2.md §11.1, re-checked in §15.1;
@@ -681,7 +681,7 @@ ally with the lowest THW without Possessed attached."` Same `SuperlativeHostPool
    side" / Collector's analogous text). `VillainCard`/`VillainStage` has no `flipSide` field — only encounter
    cards and player cards have one (`EncounterCardFlipSide`/`CardFlipSide`, docs/phase7-wave2.md §1.5). Proposed
    shape: `VillainStage.flipSide?: { name: string; text: CardText; traits: readonly Trait[]; keywords:
-readonly KeywordInstance[]; abilities: readonly AbilityReference[]; hp?: ScalingValue }` (hp optional/absent
+   readonly KeywordInstance[]; abilities: readonly AbilityReference[]; hp?: ScalingValue }` (hp optional/absent
    when the flip side, like both of these, prints no separate HP — "cannot be defeated" makes HP moot), and the
    standard/expert split modeled as two ordinary single-stage `VillainCard`s (not two sides of one) the way
    `toafk`'s Kang/exp_kang split already is. Also likely relevant to `aos`/`tt`'s own "villain stage label is not
@@ -694,7 +694,7 @@ readonly KeywordInstance[]; abilities: readonly AbilityReference[]; hp?: Scaling
    Humanity, and likely more unsurveyed `hercules_labor_deck` codes) — a hero-owned, encounter-shaped card.**
    Re-stated exactly as first reported. Each prints `faction_code: "hero"` (identity-specific, like the Gift
    Deck) but is typed `attachment`/`obligation` and behaves like an _encounter_ card: `"Victory 0."`, a `When
-Revealed:` trigger that searches for and attaches/plays itself, no resource cost, no deck slot.
+   Revealed:` trigger that searches for and attaches/plays itself, no resource cost, no deck slot.
    `AttachmentCard`/`ObligationCard` (`schema/cards/encounter-cards.ts`) assume `faction_code: "encounter"`. No
    shape proposed here — needs a real design decision (closest existing precedent is
    `PlayerCardCommon.separateDeck`/`IdentitySeparateDeck`, but those are ordinary player cards, not
@@ -764,10 +764,10 @@ All six landed shapes wired into `parse-text.ts`, each exactly as §7.7's table 
 - `Max N per encounter card.` → `playRestrictions.maxPerHost` (extended the existing `Max N per <category>.`
   regex in `parseRestriction`).
 - `Attach to a character with "X" in its title.` → `{ kind: "qualified", category: "character", titleContains:
-"X" }` (new pattern, tried before the generic `qualified`/superlative checks so it can't be swallowed by
+  "X" }` (new pattern, tried before the generic `qualified`/superlative checks so it can't be swallowed by
   either).
 - `Attach to an enemy that A or B attacked this turn.` → `{ kind: "qualified", category: "enemy",
-attackedThisTurnBy: ["A", "B"] }` (new pattern; still emits real, correct data even though the field is data
+  attackedThisTurnBy: ["A", "B"] }` (new pattern; still emits real, correct data even though the field is data
   only per §7.4 — the pipeline's job is correct data, not deciding playability).
 - `the ally with the highest cost` → `SuperlativeHostPool "ally"` added to the existing `supCore` regex's pool
   alternation; `cost` → `measure: "printedCost"` added to the existing descriptor ternary (not `"cost"` — the
@@ -1167,7 +1167,7 @@ permanently) is the user's to make, not this pipeline's to default on.
   card" buckets, which this pass did not open.
 - **Files touched this pass**: `packages/content/scripts/marvelcdb/normalize/main-schemes.ts`,
   `packages/content/scripts/marvelcdb/parse-text.ts`, `packages/content/scripts/marvelcdb/curation/{angel.ts
-(new), storm.ts}`, `packages/content/scripts/{ingest-marvelcdb.ts, marvelcdb/survey.ts}`,
+  (new), storm.ts}`, `packages/content/scripts/{ingest-marvelcdb.ts, marvelcdb/survey.ts}`,
   `packages/content/src/data/{index.ts, data-only.test.ts}`, the new `packages/content/src/data/{angel,storm}/`
   folders, and this doc. No `packages/content/src/schema/**`, `packages/engine/**`, `packages/cards/**` or
   `packages/client/**` file was touched.
@@ -1319,7 +1319,7 @@ changed.
   open and unrelated to this pass's work — not re-raised in detail here, see Part 6's own Handoff.
 - **Files touched this pass**: `packages/content/scripts/marvelcdb/curation/{jubilee.ts (new), psylocke.ts}`,
   `packages/content/scripts/{ingest-marvelcdb.ts, marvelcdb/survey.ts}`, `packages/content/src/data/{index.ts,
-data-only.test.ts}`, the new `packages/content/src/data/{psylocke,jubilee}/` folders, and this doc. No
+  data-only.test.ts}`, the new `packages/content/src/data/{psylocke,jubilee}/` folders, and this doc. No
   `packages/content/src/schema/**`, `packages/engine/**`, `packages/cards/**` or `packages/client/**` file was
   touched.
 
@@ -1482,8 +1482,8 @@ green. `git status` after the changes shows only the intended paths (`packages/c
 - `packages/content/src/schema/star-icon.test.ts` (new).
 - `packages/content/src/data/toafk/cards.ts` — the 11020/11049 ref split.
 - `packages/content/src/data/{angel,bkw,bp,core,cyclops,deadpool,falcon,gambit,gob,hood,iceman,ironheart,magneto,
-mojo,ncrawler,nova,psylocke,qsv,ron,silk,spdr,storm,thor,toafk,trors,twc,vnm,warm,winter,wolv,wonder_man,x23}/
-cards.ts` — the 159-card `starIcon: true` backfill.
+  mojo,ncrawler,nova,psylocke,qsv,ron,silk,spdr,storm,thor,toafk,trors,twc,vnm,warm,winter,wolv,wonder_man,x23}/
+  cards.ts` — the 159-card `starIcon: true` backfill.
 - `packages/cards/src/wave2/coverage.test.ts` — `KNOWN_SKIPPED.toafk` updated to the four new ref ids (see §1's
   boundary note). No other change in that package.
 - This doc.

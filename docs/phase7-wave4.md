@@ -90,7 +90,7 @@ schemes with foreign backs 3, missing art 4, a boost star 1, "not this set's vil
 > `DATA_ONLY_ENCOUNTER_SETS` (`data/index.ts`), 191 cards from 202 raw records (9 dropped aggregates, the normal
 > shape — see each subsection below for the per-issue fix and §1's own new field, `artUnavailable`, which the
 > 26-line survey didn't anticipate). Every other pack still normalizes cleanly (`pnpm --filter @mc/content ingest --
---all --dry-run --offline` unaffected). Both box precons (Spectrum, Adam Warlock) validate under `validateDeck`/
+> --all --dry-run --offline` unaffected). Both box precons (Spectrum, Adam Warlock) validate under `validateDeck`/
 > `requiredIdentitySet` (`packages/cards/src/wave4-precon-legality.test.ts`, 29 tests). The five scenarios and
 > `MTS_CAMPAIGN` (`data/mts/campaign.ts`, the `gmw`/`trors` shape) are data; none is playable yet (§3's own gate).
 >
@@ -99,7 +99,7 @@ schemes with foreign backs 3, missing art 4, a boost star 1, "not this set's vil
 > linked back faces, and four campaign-card backs: `21182b`, `21184b`, `21186b`, `21189b`) have no artwork reference
 > anywhere on MarvelCDB (checked on the live API, not just the cached raw file) and no independently-viewable second
 > source could be found either. Rather than block the whole box on six of 202 records, `checkCoverage` (`normalize/
-checks.ts`) now honors a per-code, per-reason exemption instead of hard-failing, resolved via a new
+> checks.ts`) now honors a per-code, per-reason exemption instead of hard-failing, resolved via a new
 > `NormalizeContext.faceCodesByCardId` map (populated explicitly in `normalize/villains.ts` for every villain
 > shape, and automatically for any single-record card, whose one face is always its own code) — mirrors the stale-
 > `imageOverrides` check both ways (errors on an unmatched entry, and on an entry that matches a face that already
@@ -163,9 +163,9 @@ The Wrecking Crew (`MultipleVillains`, wave 1 §1.1) gives each villain its own 
 
 - **`MultipleVillains.encounterDecks` gains `"shared"`**; with it `ScenarioVillain.encounterSetIds` may be empty and the
   scenario's own `encounterSetIds` build the one deck. `activation: "activeVillainOnly"` and `winCondition:
-"allVillainsDefeated"` are unchanged. Which villain is active is Focused Defense's rule (§3.2), not data.
+  "allVillainsDefeated"` are unchanged. Which villain is active is Focused Defense's rule (§3.2), not data.
 - **Parser:** "Attach to Corvus Glaive." (21104) failed because the set has two villains; it is `AttachmentHost
-{ kind: "namedVillain", name }`, which exists.
+  { kind: "namedVillain", name }`, which exists.
 - **Status (card-data-pipeline, 2026-09-25):** fixed upstream. `normalizeVillains` (`villains.ts`) treated Proxima
   Midnight I/II/III and Corvus Glaive I/II/III as one "colliding stage numbers" set the Once and Future Kang's
   branching-stage-II shape and The Sinister Six's six-independent-villains shape already use (wave 2 §1.8) — every
@@ -174,7 +174,7 @@ The Wrecking Crew (`MultipleVillains`, wave 1 §1.1) gives each villain its own 
   sharing one set". Fixed by grouping colliding records by title (the roman numeral stripped) first: if more than one
   group results and every group's own stage numbers are a complete, gapless run starting at 1, each group becomes its
   own multi-stage `VillainCard` (Tower Defense: two 3-stage cards, ids 21092/21095); Kang's groups have a gap (`{I,
-III}` skipping the branching II) and Sinister Six's are trivially single-stage, so both fall through to the
+  III}` skipping the branching II) and Sinister Six's are trivially single-stage, so both fall through to the
   unchanged per-record behavior. Re-emitted `mts` only (`pnpm --filter @mc/content ingest -- --pack mts --offline`):
   `packages/content/src/data/mts/cards.ts` now emits 21092 and 21095 as three-stage villains (21093/21094/21096/21097
   folded in as `sides[0].stages[1]`/`[2]`, ability refs unchanged since they're keyed by each stage's own printed
@@ -251,7 +251,7 @@ scenarios", so the deck belongs to the set, not to Thanos's or Loki's `Scenario`
   `"side_scheme" | "environment"`.
 - **New `EncounterSet.singleVillainOnly?: true`**: `validateScenario` and setup refuse the set with `multipleVillains`.
 - Infinity Gauntlet set: `separateDecks: [{ name: "Infinity Stone", contents: { encounterSetIds: [infinity_gauntlet],
-trait: INFINITY_STONE }, discardPile: "own", whenEmpty: "reshuffleDiscardWithoutPenalty" }]`.
+  trait: INFINITY_STONE }, discardPile: "own", whenEmpty: "reshuffleDiscardWithoutPenalty" }]`.
 
 ### 1.11 Loki: a random starting villain and a victory count
 
@@ -336,7 +336,7 @@ RRG 1.8 Appendix II (p. 51) with the wave 1–3 engine. Step 13, "Campaign Setup
   Children of Thanos minions.
 - **Precons.** Only the box's two are printed in the repo (MC21 p. 3). The four hero packs' come from their inserts.
 - **Status (card-data-pipeline, 2026-09-24):** both `mts` precons emitted (`spectrum-leadership`, `adam-warlock-all-
-aspects`, `curation/mts.ts`'s `starterDecks`), verified legal (`wave4-precon-legality.test.ts`). Spectrum's own
+  aspects`, `curation/mts.ts`'s `starterDecks`), verified legal (`wave4-precon-legality.test.ts`). Spectrum's own
   printed lists (MC21 p. 3) sum to 43 cards, not 40 — transcribed verbatim rather than force-fit, flagged in §4.
   Adam Warlock's `21031a` carries `{ aspectCount: 4, equalCardsPerAspect: true, maxCopiesPerTitle: 1 }` (§1.4).
 
@@ -371,7 +371,7 @@ stage-I cards, §1.11).
 - `thanos`: `additionalEncounterSetCodes: ["infinity_gauntlet"]`; the Infinity Stone deck itself is on the
   `infinity_gauntlet` `EncounterSet`, not this scenario (§1.10).
 - `hela`: `villainCardCode: "21136a"` (the A1/standard face, wave 3 §1.1's mode+face shape), `villainStages: {
-standard: [1, 1], expert: [1, 1] }`.
+  standard: [1, 1], expert: [1, 1] }`.
 - `loki`: `villainCardCode: "21160"`, `setAsideVillainCardCodes: ["21161", "21162", "21163", "21164"]`,
   `startingVillain: "random"`, `victoryCondition: { skirmish: 1, standard: 2, expert: 3, heroic: 4 }`,
   `victory: "cardAbility"` (§1.11).
@@ -538,7 +538,7 @@ form.
   type, the one `to` names, else the one printed `toName`, else the only one if double-sided. A single-faced form card
   turns faceup and every other faceup one of that type turns facedown (§4 Q1); a double-sided one flips (also
   announcing `cardFlipped`). Already there: nothing changes and nothing triggers. Blocked by **`RuleSpec
-cannotChangeForm { formType }`** (new field; without it the rule still means only the hero/alter-ego flip, §4 Q8).
+  cannotChangeForm { formType }`** (new field; without it the rule still means only the hero/alter-ego flip, §4 Q8).
 - **`formChanged` gains `change: "identity" | "additional"`** (always set) and, for an additional change, `formType`,
   `formName` and `formCardInstanceId`, which is the event's target. Log: `additionalFormChanged`.
 - **`EffectSpec turnFacedown { target }`**: "Turn all your energy form upgrades facedown" and the Setup's "into play,
@@ -579,7 +579,7 @@ player constant's is Focused Defense's scheme; the active villain is the one "wh
   finds it), then its starting threat. The stage is spent.
 - **`RuleSpec focusedMainScheme { scheme }`** (Focused Defense's constant, `scheme: host`): between frames the villain
   whose title the scheme's `villainOf` names takes the active counter (`activeVillainChanged { reason:
-"focusedScheme" }`), and the same scheme is the one minions scheme onto and player constants mean.
+  "focusedScheme" }`), and the same scheme is the one minions scheme onto and player constants mean.
 - **Scheme threat** (`pairedMainSchemeId`, read in `enemyScheme` after `schemeThreatDestination`): with extra main schemes
   in play, a villain places threat on the main scheme whose `villainOf` is its title, a minion on the Focused Defense
   scheme.
@@ -627,7 +627,7 @@ Famine, Pestilence, Death (`aoa` 45081–45084, "cannot be defeated while anothe
 > the threat from this stage instead" keeps the final stage from completing and the rest of the ability resolves; an
 > interrupt that replaces nothing leaves the completion to happen after it; with nothing listening the final stage
 > loses as before; replay deep-equal). **What landed:** `TriggerEvent mainSchemeCompleting { schemeInstanceId,
-stageIndex }`, pushed by `checkOneMainScheme` only when an ability listens (a game without one completes exactly as
+> stageIndex }`, pushed by `checkOneMainScheme` only when an ability listens (a game without one completes exactly as
 > before), with an interrupt window and the target scheme as its target. Its apply step (`applyMainSchemeCompleting`)
 > completes the stage only if it still would: same stage, not completed, threat still at or above the target. The
 > existing `cancelTriggeringEvent` (`instead`) is the replacement. **DSL:** `on.mainSchemeCompleting(what)`. A completion
@@ -647,7 +647,7 @@ the completion (no advance, no loss). **Composes with:** Upgrading Adaptoids 1B 
 > does not; replay deep-equal). **What landed:** nothing was missing for the damage itself: `dealDamage` already deals
 > to any card, the defeat sweep reads only characters, and "After damage is placed here" is a response to `dealDamage`
 > with `selfIs: "target"`, `damageOn(self)` reads it, and "remove all of it" is `heal` of that much. **New:** `RuleSpec
-uniqueRuleExempt { title }` ("The unique rule does not apply to Avengers Tower"), read by `matchingCardInPlay`
+> uniqueRuleExempt { title }` ("The unique rule does not apply to Avengers Tower"), read by `matchingCardInPlay`
 > (which now takes `deps`) for a card entering play. **Open, §4 Q9:** the Damaged side's "When Revealed: Discard each
 > other Avengers Tower from play" and a flip.
 
@@ -691,7 +691,7 @@ card (to confirm).
 > **`EffectSpec advanceToSetAsideVillain { villain }`** (`resolve/villain-swap.ts`): the villain stays one instance and
 > takes a random set-aside villain card of its title; the set-aside instance takes the old card, so everything on the
 > villain simply stays. A swap keeps the dial's value (its remaining hit points) and announces **`TriggerEvent
-villainSwapped`** (log `villainReplaced { reason: "swap" }`); an advance resets the dial, sends the old card to the
+> villainSwapped`** (log `villainReplaced { reason: "swap" }`); an advance resets the dial, sends the old card to the
 > victory display (Victory X) or out of the game, gives toughness its tough status card and resolves the new card's When
 > Revealed (log `villainReplaced { reason: "advance" }`); used from a forced interrupt to the defeat, it leaves the
 > dial above zero, so the defeat does not apply. **Victory X on a villain:** `defeatVillainStage` puts a defeated last
@@ -727,12 +727,12 @@ Lies, Shatter the Illusion (`tt` God of Lies); Thunderbolt Backup's "swapping it
 >   `"encounter"` for the King side's "encounter cards", `"upgrade"` for Robert Kelly), read by
 >   `attachmentHostCandidates` (so both encounter "attach to" and playing an upgrade) and by the `attach` effect.
 > - **`RuleSpec leavingPlayLoses { target }`**: `leavePlay` ends the game as **`GameOutcome { result: "loss", reason:
-"cardAbility" }`** (new) when a matching card leaves play.
+>   "cardAbility" }`** (new) when a matching card leaves play.
 > - "When Odin leaves play, remove him from the game" needs nothing: Odin is double-sided, and RRG 1.8 "Double-Sided
 >   Card" (p. 17) already sends him out of the game (`leavePlay`), which also stops Med Lab (ruling Dec 17, 2025 (4) #2).
 >   `leavePlay` now counts a card with `otherFaceId` as double-sided too, so the campaign's Cosmo is removed the same way.
 > - The rest composes: "The first player gains control of Odin" is `controlledByFirstPlayer` with `while: not(isAttached
-self)`; "does not count against ally limit" is `excludedFromAllyLimit`; flipping to his King side is `flipCard`.
+>   self)`; "does not count against ally limit" is `excludedFromAllyLimit`; flipping to his King side is `flipCard`.
 >
 > **Composes with:** Robert Kelly (`mut_gen` 32063, 32065a: detached, taken control of, "cannot have upgrades attached",
 > "If Robert Kelly leaves play, the players lose"), Hope Summers (`next_evol` 40130). **Not built:** a general "when X
@@ -764,7 +764,7 @@ Mind (`sm` 27171, "except for traits"), Possessed (`storm` 36038), Malice (`next
 > read-at-query-time rule would need the ability registry in `categoriesOf`/`isMinion`, which take none, so the
 > ruling's "essentially a status change" is kept as state instead: **`CardInstance.treatedAs`** (optional; `kind`,
 > `traits`, `keepPrintedTraits`, `schFromThw`, `source`, `controllerBefore`), set and cleared by `treat-as.ts
-syncTreatedAs`, which `relocateCard` calls whenever a card moves onto or off a host, from the host's attachments'
+> syncTreatedAs`, which `relocateCard` calls whenever a card moves onto or off a host, from the host's attachments'
 > **`RuleSpec treatHostAsMinion {traits, keepPrintedTraits?, schFromThw?}`**. It is set the moment the attachment
 > lands, so the same ability's "Attached ally engages its controller" engages a minion. Readers: `categoriesOf`,
 > `isMinion`, printed traits, blank abilities and keywords, `printedProfile` (a minion profile from the ally's printed
@@ -942,7 +942,7 @@ card in your play area". **Plan:** verify where `putIntoPlay` places an environm
 >
 > **DSL:** `exhaustEachCost({ avenger: query(["identity", "ally"], { trait: AVENGER }), guardian: … })`
 > (`dsl/abilities.ts`); "the combined ATK of those characters" is `sum(statOf(chosen("avenger"), "atk"),
-statOf(chosen("guardian"), "atk"))`. No builder for the keyword itself: it is card data.
+> statOf(chosen("guardian"), "atk"))`. No builder for the keyword itself: it is card data.
 >
 > **Checked against every raw card printing "Alliance."** (14; `grep -il alliance packages/content/raw/marvelcdb/*.json`):
 > resource costs only (Cosmic Alliance, Joining Forces, Team Investigation, Strength in Diversity, Joys of Life,
@@ -952,7 +952,7 @@ statOf(chosen("guardian"), "atk"))`. No builder for the keyword itself: it is ca
 > `exhaustCardsCost` per branch, the branch read from var `cost.branch`. Effects that act "as a group" (Joining Forces'
 > "the players put a total of 1 [Avenger] ally and 1 [Guardian] ally into play from their hand(s)"; Mutant Mayhem's
 > "those players play those allies") are effects, not costs, and belong to the scripting pass (`zone("hand",
-eachPlayer, …)` with `chooseCards`/`putIntoPlay` to be confirmed there).
+> eachPlayer, …)` with `chooseCards`/`putIntoPlay` to be confirmed there).
 >
 > **Composes with:** Everyday Hero (`28019`, "After you spend this card for a player"), now reachable across players;
 > the Milano's "for any player" resource (`gmw`), unchanged; any "Exhaust an X character and a Y character" cost
@@ -1071,7 +1071,7 @@ cannot be readied by player card effects." **Plan:** a `RuleSpec readyCost` and 
 > `packages/cards/src/dsl/wave4-hero-primitives.test.ts` (2 tests under §3.20).
 >
 > `damagePrevented` was only a log line (`reason: "tough" | "cancelled" | "effect" | "cannotTakeDamage" |
-"reduced"`), naming no card and heard by nothing.
+> "reduced"`), naming no card and heard by nothing.
 >
 > - **`RuleSpec preventAllDamage { target, while? }`** (`damagePreventerOf`, `rules.ts`): "Prevent all damage to Ebony
 >   Maw" is damage dealt and prevented (RRG 1.8 "Prevent", p. 34) by the card with the constant. Checked in
@@ -1124,7 +1124,7 @@ the amount.
 > - **DSL:** `retargetAttack(character)`; `enemyAttack(enemies, { targetCharacter })`, the wave 1 field that packs
 >   had wrapped locally (`enemyAttackCharacter` in `wave1/hlk`, `wave1/gob`).
 > - **Speed Demon** is `forcedInterrupt({ on: "attack", selfIs: "target" }, enemyAttack(self, { targetCharacter:
-eventSource }))`: pushed from the interrupt window, it resolves before the player's attack ("Resolve Speed Demon's
+>   eventSource }))`: pushed from the interrupt window, it resolves before the player's attack ("Resolve Speed Demon's
 >   attack first"). If Speed Demon's attack defeats the attacker, the attacker's attack ends (§4 Q20, user decision).
 > - **Crossfire** ties on "fewest remaining hit points" break with `bindTargets` + `chooseTarget` (first player), as any
 >   superlative does.
@@ -1250,7 +1250,7 @@ Grapnel Launcher, Just Passing Through, …) and is the existing `ignoreCrisis` 
 > crisis icon; a character the rule does not match is not exempt) and in a real game in
 > `packages/cards/src/wave4/nebu/nebula-kit.test.ts` (Nebula against Rhino, Hydra Mercenary engaged and Crowd Control
 > in play). **What landed:** **`RuleSpec characterIgnores {target, ignores: ("guard" | "patrol" | "crisis")[],
-while?}`**, read by `select.ts characterIgnores`: `canAttack` lets a matching attacker past guard; `threatRemovalBlocked`
+> while?}`**, read by `select.ts characterIgnores`: `canAttack` lets a matching attacker past guard; `threatRemovalBlocked`
 > (now told the thwart's character) skips patrol for a matching thwarter and the crisis icon for a matching thwarter
 > or removal source; the basic-thwart command's own crisis and patrol checks use the thwarting character. **DSL:**
 > `constant(ignores(query, what, when?))`. **Scripted:** `22005.evasive-maneuvering-constant`, off `KNOWN_SKIPPED`.
@@ -1345,12 +1345,12 @@ printed SCH and it takes 1 (Karma: 2) consequential damage after it thwarts or a
 > kind **`ally`** (`traits`, `thwFromSch`, `consequential`, `source`, `controller`, `engagedBefore`) comes from
 > **`RuleSpec treatHostAsAlly {traits, thwFromSch?, consequential}`** on an attachment (the attachment's controller
 > takes control; `syncTreatedAs` as for §3.9) or from **`EffectSpec treatAsAlly {target, traits, thwFromSch?,
-consequential}`** (source = the effect's card; `leavePlay` calls `releaseTreatedBy`). Readers: `categoriesOf`
+> consequential}`** (source = the effect's card; `leavePlay` calls `releaseTreatedBy`). Readers: `categoriesOf`
 > (`ally`, `character`), `isMinion` false, traits, blank abilities and keywords, `printedProfile` (an ally profile from
 > printed ATK, SCH-as-THW and hit points), `pushConsequentialDamage` (its own amount; an ally treated as a minion takes
 > none). The `isAlly` play-area readers from §3.9 pick it up as an attacker, thwarter and defender, and it counts
 > toward the ally limit (none of the three cards says otherwise). **DSL:** `constant(treatAttachedMinionAsAlly(traits,
-n))`, `treatAsAlly(target, traits, n)`. **Not covered:** Reluctant Foe (`aos` 50171: a hero from the collection
+> n))`, `treatAsAlly(target, traits, n)`. **Not covered:** Reluctant Foe (`aos` 50171: a hero from the collection
 > treated as an [Elite] minion with a replaced text box).
 
 ### 3.30 A resource ability's own effects
@@ -1423,7 +1423,7 @@ Strike (`mut_gen` 32038), Sunfire (`wolv` 35014), Electromagnetic Blast (`magnet
 > attachments carrying the named timing words and not a Forced Response; a blanked text box has none; each trigger
 > shape maps to its printed timing word) and in a real game in `packages/cards/src/wave4/vision/vision-kit.test.ts`
 > (Rhino with Lethal Weapon attached: Phase Disruption confuses him and discards it). **What landed:** **`TargetQuery
-abilityTiming: AbilityTimingWord[]`** ("heroAction", "heroResponse", "forcedInterrupt", …) matched against the card's
+> abilityTiming: AbilityTimingWord[]`** ("heroAction", "heroResponse", "forcedInterrupt", …) matched against the card's
 > live abilities through `select.ts timingWordOf` (trigger kind + form label + forced), exclusion `noSuchAbility`
 > with a client label. The printed word is read from the script's trigger shape, which the ability DSL already makes
 > match the printed label (`heroAction`, `heroResponse`, …). **Scripted:** `26011.phase-disruption-action`, off
@@ -1470,7 +1470,7 @@ Spider-Ham, Absorbing Man (`tt`), Cosmo; all but Machine Man and Absorbing Man a
 events and already use `on.attacksOrThwarts`.
 
 > **Status: landed (2026-09-24),** tested in `packages/engine/src/event-is-list.test.ts` (1 test: `{ power: ["attack",
-"thwart"] }` matches an attack or a thwart and not a defense) and in a real game in
+> "thwart"] }` matches an attack or a thwart and not a defense) and in a real game in
 > `packages/cards/src/wave4/vision/vision-pack-cards.test.ts` (Machine Man thwarts, the player spends two cards, and
 > he removes his THW plus the resources spent, to a maximum of 3). **What landed:** **`EventPattern.eventIs` values
 > may be lists** (any one matches). DSL `on.basicPowerUsing(who, { power: [...] })`. **Engine fix found on the way:**
@@ -1536,7 +1536,7 @@ keyword, which the existing attack-keyword grants cover).
 > Shield; Rhino takes the retaliate damage, and with a retaliate 0 grant he does not). **What landed:**
 > **`EffectSpec grantKeywordUntil {keyword, target?, affects?, until}`**, a lasting `keywordGrant` read by
 > `grantedKeywords` beside constant grants, expiring like the other lasting effects. **DSL:** `gainKeywordUntil(keyword,
-target, until)`. **Scripted:** `21009.pulsar-shield-interrupt`, off `KNOWN_SKIPPED`.
+> target, until)`. **Scripted:** `21009.pulsar-shield-interrupt`, off `KNOWN_SKIPPED`.
 
 ### 3.40 Scenario rules with no card behind them
 
@@ -1572,7 +1572,7 @@ Exodus's "his total ATK" is one card. "Share a trait with your hero" is the exis
 > over every card the ref names; without it, the first card) and in a real game in
 > `packages/cards/src/wave4/mts/spectrum-pack-cards.test.ts` (Spectrum exhausts Blue Marvel, Kaluu and Blade for Mass
 > Attack; Rhino takes their ATK plus hers). **What landed:** **`ValueSpec stat.total`**. **DSL:** `totalStatOf(ref,
-stat)`. **Scripted:** `21016.mass-attack-action` (`exhaustCardsCost` of 3 allies sharing a trait with your identity,
+> stat)`. **Scripted:** `21016.mass-attack-action` (`exhaustCardsCost` of 3 allies sharing a trait with your identity,
 > bound to `allies`), off `KNOWN_SKIPPED`.
 
 ### 3.42 A deck-discard cost sized by the triggering event
@@ -1666,9 +1666,9 @@ way"): the same snapshot-and-compare shape.
 > other; this test fails with the old "you"). **What landed:** **`EffectSpec setVar {name, value}`** (a snapshot for a
 > later comparison in the same ability; `varOf(name)` reads it) and **`resolveSpecials.player`** (the resolving
 > player for a Special on a card with no controller). **DSL:** `setVar(name, value)`, `resolveSpecialsOf(ref,
-player?)`. **Scripted:** `24005b.when-revealed` is now complete (forEachPlayer: `setVar("dealtBefore",
-dealtEncounterCount(thatPlayer))`, that player's Foul Play, `ifThen(valueAtMost(dealtEncounterCount(thatPlayer),
-varOf("dealtBefore")), placeThreat(2, self))`). Every "each player must resolve Foul Play" in `hood.ts` (Promised
+> player?)`. **Scripted:** `24005b.when-revealed` is now complete (forEachPlayer: `setVar("dealtBefore",
+> dealtEncounterCount(thatPlayer))`, that player's Foul Play, `ifThen(valueAtMost(dealtEncounterCount(thatPlayer),
+> varOf("dealtBefore")), placeThreat(2, self))`). Every "each player must resolve Foul Play" in `hood.ts` (Promised
 > Prosperity, Crime State 24006a/b, Unbridled Ambition) now passes `thatPlayer`.
 
 ### 3.47 A product of values; Hela's scaling and expert villain
@@ -1685,7 +1685,7 @@ scenario's `expertVillains` (21137a) added to the data.
 > expert games reading 21137a from the data), and Odin on his King side, defeated defending Hela's attack, ends in
 > `removedFromGame` without the game being lost. **What landed:** **`ValueSpec product {values}`**; DSL
 > `product(...)`. **Scripted:** `21136a.hela-constant`, `21137a.hela-constant` (`gets("hp", product(perHero(N),
-victoryDisplayCount(sideScheme)), self)` beside the SCH/ATK grants); `21139b.odin-forced-interrupt` is
+> victoryDisplayCount(sideScheme)), self)` beside the SCH/ATK grants); `21139b.odin-forced-interrupt` is
 > `coveredByEngineRule()` (the double-sided `leavePlay` rule, §3.8), all off `KNOWN_SKIPPED`. **Data:**
 > `curation/mts.ts` gives `hela` `expertVillains: { villainCardCode: "21137a" }`; mts re-emitted offline (one line in
 > `src/data/mts/scenarios.ts`); the hand-built expert configs in `hela.test.ts` / `hela-e2e.test.ts` are gone, and
@@ -1722,7 +1722,7 @@ per-player `separateDeckShuffle` only.
 > discarded stone returns to the Infinity Stone deck, which is shuffled) and in a real game in
 > `packages/cards/src/wave4/mts/loki.test.ts` (with two stones in the Infinity Stone discard pile, Infinite Mischief
 > leaves it empty, the stones are back in the deck or revealed into play). **What landed:** **`CardDestination
-"scenarioDeckShuffle"`**: a card whose home is a scenario deck goes back into it, and each deck touched is shuffled
+> "scenarioDeckShuffle"`**: a card whose home is a scenario deck goes back into it, and each deck touched is shuffled
 > (`deckShuffled` with the scenario deck's zone); any other card is left where it is. **Scripted:**
 > `21175.when-revealed` (`moveCards(scenarioDeck(STONE_DECK, { zones: ["discard"] }), "scenarioDeckShuffle")`, then
 > reveal the top card), off `KNOWN_SKIPPED`.
@@ -1771,7 +1771,7 @@ Fanaticism, Warbringer, Sandman) modify the attack in progress and are right as 
 > keyword spills nothing, replay deep-equal) and in real games in `standard-expert-ii.test.ts` (Total Annihilation's
 > attack of 3 against Black Cat at 1 remaining deals Spider-Man the excess 2; as a boost card, "if the villain is
 > attacking, this attack gains overkill" spills 1). **What landed:** **`EffectSpec enemyAttack.keywords?:
-AttackKeyword[]`**, carried on each activation the effect initiates as the same vars `modifyAttack` sets (so
+> AttackKeyword[]`**, carried on each activation the effect initiates as the same vars `modifyAttack` sets (so
 > `attackKeywordsOf` reads them), scoped exactly like `atkBonus`. **DSL:** `enemyAttack(enemies, { keywords })`.
 > **Re-scripted:** `24054.when-revealed-hero`, `21120.when-revealed-hero`, `24034.when-revealed`.
 
@@ -1811,7 +1811,7 @@ counters on Juggernaut").
 > re-entrancy guard in `keywords.ts`, so an X that asks about keywords cannot loop). Mandrill's "confused" counts a
 > confused status card (`TargetQuery.hasStatus`), not the steady-aware reading §3.52 gives predicates: a steady
 > character with one confused card still counts (no card composes the two yet). **DSL:** `gainsKeywordX(name, value,
-target)`. **Scripted:** `24016.mandrill-constant`.
+> target)`. **Scripted:** `24016.mandrill-constant`.
 
 ### 3.54 "Repeat this effect"; a card's own damage reports the defeat it caused
 
@@ -1862,7 +1862,7 @@ the following triggered ability: 'When Revealed: …'".
 > **`resolveSpecials.trigger?: "special" | "whenRevealed"`** and **`resolveSpecials.bind`** (`<bind>.count`).
 > **Changed 2026-09-25 (§4 Q23, user decision):** `"whenRevealed"` resolves the printed When Revealed abilities only
 > (the controller orders several), and only they count toward `<bind>.count`. **`resolveSpecials.includeKeywords?:
-boolean`** (default off) also resolves each card's incite (placeThreat on the main scheme, sourced by that card) and
+> boolean`** (default off) also resolves each card's incite (placeThreat on the main scheme, sourced by that card) and
 > surge (reveal the top card), in a reveal's own order: incite, the printed abilities, surge, each counting as one; no
 > card uses it yet. A card's "this card gains surge" has no reveal of its own to change when resolved this way.
 > **DSL:** `resolveWhenRevealedOf(ref, { bind, includeKeywords })`. **Scripted:** `24059.when-revealed`, `24059.boost`,
@@ -1979,11 +1979,11 @@ Each is implemented the way stated, or not at all, and named here rather than de
    traced by a `scenarioSetupInstructionResolved` event. A game without instructions has no new field, step or event.
    Placed damage does not raise the damage-taken event the Stronghold side's forced response is scripted on; that is
    outcome-neutral here (at most 3[per_hero] against its 9[per_hero]). Tests: `engine/src/scenario-setup-
-instructions.test.ts`, `cards/src/wave4/mts/tower-defense-setup-damage.test.ts`. **Client follow-up built (game-
+   instructions.test.ts`, `cards/src/wave4/mts/tower-defense-setup-damage.test.ts`. **Client follow-up built (game-
    client-engineer, 2026-09-25):** Table setup (`scenes/table-setup.ts`) shows a toggle, "Black Order's initial
    attack", only for Tower Defense (and only outside skirmish mode, which the client has no picker for yet), off by
    default, labeled with the mode-specific amount ("place N damage per hero on Avengers Tower"). `view/setup-
-draft.ts`'s `SetupDraft.towerDefenseSetupDamage` carries the choice through `toSessionConfig` to
+   draft.ts`'s `SetupDraft.towerDefenseSetupDamage` carries the choice through `toSessionConfig` to
    `SessionConfig.setupOptions`, threaded to the scenario builder by `engine/session-core.ts`'s `scenarioFor`.
    Tests: `view/setup-draft.test.ts`, `engine/session-core.test.ts`.
 5. **Standard II / Expert II** replace or join Standard / Expert? **Settled (2026-09-25) from The Hood insert, p. 2,
@@ -2038,7 +2038,7 @@ draft.ts`'s `SetupDraft.towerDefenseSetupDamage` carries the choice through `toS
     prompt**, not a netcode request: this build has no multiplayer-netcode layer yet (`engine/host.ts`'s own doc
     comment — a `WorkerEngineHost` off the main thread, not a network host), every seat plays on the one local
     session, and the board's perspective already follows whoever must act (`engine/acting-player.ts`). `view/
-payment-model.ts`'s `allianceHelpersOf` reads, from a `PaymentState`'s current picks, every other seat whose
+    payment-model.ts`'s `allianceHelpersOf` reads, from a `PaymentState`'s current picks, every other seat whose
     hand card or resource ability would be spent (grouped by owner via `controllerOf`, seat order, never the
     payer). `scenes/board/controller.ts`'s `commitPayment` checks this before dispatching: if it's non-empty, a
     new `Selection` (`confirmingAllianceHelp`) walks the helpers one at a time — a same-device, pass-the-
@@ -2108,7 +2108,7 @@ payment-model.ts`'s `allianceHelpersOf` reads, from a `PaymentState`'s current p
     advances is the same character, still in play, so its attack continues with the new stage's ATK at damage time.
     **Implemented** generically in the engine (§3.21): `applyPlayerAttack` checks that the attacker is still in play
     before dealing damage, and logs `playerAttackEnded { attackerInstanceId, targetInstanceId, reason:
-"attackerLeftPlay" }` instead; no `characterAttacked` follows (so no retaliate or "after … attacks"). Damage still
+    "attackerLeftPlay" }` instead; no `characterAttacked` follows (so no retaliate or "after … attacks"). Damage still
     on the stack for a card no longer in play is not dealt at all (`applyDamage`, RRG 1.8 "In Play and Out of Play",
     p. 23), which is what stops the defeated ally's consequential damage from landing on it in the discard pile (before
     this, the discarded card was left with 1 damage on it). Effects printed after the attack in the same ability still

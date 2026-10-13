@@ -665,7 +665,7 @@ mode, use each villain's side A. To play the scenario in expert or heroic mode, 
   choice and never indexes a card by it.
 - **`Scenario.multipleVillains`** exists (`schema/sets.ts`): `villains` the four (each `encounterSetIds: []`),
   `encounterDecks: "shared"`, `activation: "activeVillainOnly"`, `winCondition: "allVillainsDefeated"`, `atSetup:
-"setAside"` (the 1A Setup puts them into play in a random order, as Sinister Synchronization 1A does for the Sinister
+  "setAside"` (the 1A Setup puts them into play in a random order, as Sinister Synchronization 1A does for the Sinister
   Six). The row order is game state, not data (§3.7).
 - Death prints two traits (Aerial, Horsemen); the others one. All four are unique.
 - Every ATK prints a star (raw `attack_star: true`): the reminder for the [star] Forced Response.
@@ -1045,7 +1045,7 @@ One `SupportCard` with a `flipSide` (`PlayerCardCommon.flipSide`, the wave 2 sha
 title and a first sentence and differ in trait and Action.
 
 - Classification basic and campaign ("BASIC / CAMPAIGN"), one [wild] resource icon, **no cost box**: `cost: 0,
-specialCost: "dash"` (gap 9). RRG "Dash (Value)" (p. 15): "that card cannot be played and can only enter play through
+  specialCost: "dash"` (gap 9). RRG "Dash (Value)" (p. 15): "that card cannot be played and can only enter play through
   other means". It is never in a deck or a hand: a campaign instruction puts it into play (§2.12).
 - a face, trait [MISSION]: "Mission Team cannot be discarded and the first player gains control of it. Action: Exhaust
   Mission Team → choose: • Reduce the cost of the next ally played to the mission this phase by 2. • Make a mission
@@ -1927,7 +1927,7 @@ Expert set is unchanged. The setup screen offers it wherever §4.2 Q10 says.
 
 > **Status: extend.** In the engine: `Scenario.multipleVillains`, `GameState.activeVillainId`, `setActiveVillain`
 > (logged `activeVillainChanged`), `addVillain` for set-aside villains, `moveActiveCounter { to:
-"nextInActivationOrder" }` and `nextVillainInActivationOrder` (`query.ts`; The Sinister Six, wave 5 §3.1), which
+> "nextInActivationOrder" }` and `nextVillainInActivationOrder` (`query.ts`; The Sinister Six, wave 5 §3.1), which
 > orders by a printed "Activation Order X". The Horsemen print none: their order is where they sit.
 
 **Cards.** The Horsemen of Apocalypse 45085a ("reveal them in a row from left to right. Place the active counter on
@@ -2111,7 +2111,7 @@ ally the revealing player controls; none controlled, nothing happens.
 > **Status: extend.** The lasting `EffectSpec blankTextBox { target, until: LastingUntil }` exists (Edison's Giant
 > Robot), and the identity semantics exist on the constant form (`RuleSpec blankTextBox` on an identity, wave 7 §3.19,
 > §4.1 Q12 = A: the blank is on the card, both faces, traits kept). `LastingUntil` is `endOfPhase | endOfRound |
-endOfAttack | endOfTurn`: none ends where a phase **begins**.
+> endOfAttack | endOfTurn`: none ends where a phase **begins**.
 
 **Cards.** Pestilence 45083a/b: "treat your identity's text box as if it were blank (except for [TRAITS]) until the
 next villain phase begins." Plague and Pestilence 45088: "The player who defeated this scheme treats their identity's
@@ -2175,7 +2175,7 @@ encounter deck, the deck shuffled once. 4 players: all four in play.
 
 > **Status: exists (verify).** `EffectSpec changeForm` ("It never uses the once-per-round form change"; nine earlier
 > cards change a player to hero form, Claustrophobia `storm` 36030); `RuleSpec firstRevealGainsSurge {
-cards, each: "phase" }`; `dealAsEncounterCard` for a named card taken from the deck or discard pile (wave 7 §3.38).
+> cards, each: "phase" }`; `dealAsEncounterCard` for a named card taken from the deck or discard pile (wave 7 §3.38).
 
 **Cards.** Hound 45098 ("Guard. When Revealed: If you are in hero form, Hound attacks you. Otherwise, change your
 identity to hero form."); Release the Hounds 45100 ("The first copy of Hound revealed each phase gains surge. When
@@ -2969,7 +2969,7 @@ which the rulebook overrides for this match (§0.2); "Resource" (p. 37).
 knows no "mission". It needs one new effect:
 
 - **`EffectSpec pairCards { cards: TargetRef, with: TargetQuery, chooser: PlayerRef, match: "resourceIcon", wild:
-"either", limit?: PairLimit, bind }`.** The chooser pairs each card of the slot with a different card `with`
+  "either", limit?: PairLimit, bind }`.** The chooser pairs each card of the slot with a different card `with`
   matches (a pending choice with every pairing laid out; a card may be left unpaired, and must be when the limit
   forbids it). A pair **matches** when the two share a resource type, where `wild: "either"` lets a [wild] on either
   side stand for any type. The icons of the card in play are its printed ones plus any it "is considered to have"
@@ -3154,7 +3154,7 @@ thwarted is not a valid target for a thwart-labeled ability").
 - **The b face:** "remove each card in the mission area from the game", then its bullet. The [FINISHED] face itself
   is a card in the mission area: §4.2 Q20 (default A: it goes last, after its bullet resolves).
 - **"Was defeated" for Victory** is the `schemeDefeated` event the When Defeated belongs to: `CampaignGameQuery
-cardsDefeated { name }` reads it though the card flipped and no card of that name is left in play
+  cardsDefeated { name }` reads it though the card flipped and no card of that name is left in play
   (`campaign.ts`'s own note on Find the Norn Stones).
 - Sabotage the Sea Wall's b face is §3.1's `find`: "find … and reveal it" (not defeated) reveals North American Sea
   Wall from wherever it was, with hinder and surge; "find … remove it from the game" (defeated) takes it out of play
@@ -3183,7 +3183,7 @@ cardsDefeated { name }` reads it though the card flipped and no card of that nam
 ### 3.41 Minions in the area: dashed stats, never engaged, shielded by another minion
 
 > **Status: exists (verify)**, on §3.33. `PrintedStat` `null` (a dash: Hulk's THW); `RuleSpec cannotTakeDamage {
-target, while }` (Ultron, core 01136); victory (wave 3); `chooseOne` on a When Revealed with an activation as one
+> target, while }` (Ultron, core 01136); victory (wave 3); `chooseOne` on a When Revealed with an activation as one
 > option (wave 7 §3.11); `extraBoostCards` (§3.12). Not run: a minion in play engaged with no player and in no
 > villain's area; "add [this card] to [an area]" as a When Revealed option.
 
@@ -4368,7 +4368,7 @@ X, Surprise Move, _"Freeze!"_.
 ### 3.65 Damage an identity would take from an enemy attack placed on a support
 
 > **Status: exists (verify).** A forced interrupt on `when.damage(…)` that resolves `instead(placeDamage(eventAmount,
-self))` and then discards itself at `damagedAtLeast(self, n)` is Armored Rhino Suit (Core 01098) and Stinger Tail
+> self))` and then discards itself at `damagedAtLeast(self, n)` is Armored Rhino Suit (Core 01098) and Stinger Tail
 > (`mojo` 39028), on an attachment protecting its host. Not run: a
 > **support** as the card that holds the damage; any player's identity as the protected card; "would take" (after
 > defense) rather than "would be dealt"; damage narrowed to an enemy's attack; the attacking enemy named after the card

@@ -37,12 +37,12 @@
     "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
-    "lint-staged": "^17.5.1",
-    "oxfmt": "^0.70.0",
-    "oxlint": "^1.85.0",
-    "playwright": "^1.63.0",
+    "lint-staged": "^17.6.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
+    "playwright": "^1.64.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.4"
   },
   "lint-staged": {
     "*.{ts,mts,cts,js,mjs,cjs}": [

@@ -30,8 +30,8 @@ find these two):
   `<id>.bait-and-switch-action` ref, satisfying `wave4/reprints.ts`'s own "same slug and count" shape check.
 - **Nova's own "Chase Them Down" (`nova` 28011, event)** vs. **Core's own "Chase Them Down" (`01052`/reprints,
   already a reprint chain through wave 3's `gmw` and `thor`)** — confirmed directly: `mergeRegistries(WAVE4_ABILITIES,
-NOVA_ABILITIES)` alone (no `sm` involved at all) throws `ability 28011.chase-them-down-response is defined
-twice`, so this is not limited to the `sm`/Ghost-Spider pair — it hits Nova's own pack too.
+  NOVA_ABILITIES)` alone (no `sm` involved at all) throws `ability 28011.chase-them-down-response is defined
+  twice`, so this is not limited to the `sm`/Ghost-Spider pair — it hits Nova's own pack too.
 
 `wave4/reprints.ts`'s own docblock already documents exactly this class of hazard ("the pool this file actually
 loops over … carries cards it shouldn't") and its own fix for it (`PACK_OWN_ABILITIES`, "a pack whose own module
@@ -113,7 +113,7 @@ not do.
 1. **`packages/cards/src/wave5/nova/e2e.test.ts`, "Rhino (expert), solo: Nova"** — the wave definition of done's
    own "one expert game… to an outcome, replay deep-equal" requirement (this pack had a 2-player standard game and
    a solo standard game, but no expert game, before this pass). `novaScenario("rhino", { seed: SEED, difficulty:
-"expert" })`, played to a real outcome by the card-name-agnostic greedy driver (`playToOutcome`), replayed and
+   "expert" })`, played to a real outcome by the card-name-agnostic greedy driver (`playToOutcome`), replayed and
    asserted `deep-equal` against the live session state — `wave4/hood/e2e.test.ts`'s own `"(expert)"` test is the
    direct precedent for the shape. Confirmed passing (diagnostic harness) before the §0 blocker made re-running it
    against real `WAVE5_DEPS` impossible mid-pass.

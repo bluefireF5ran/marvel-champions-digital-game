@@ -61,7 +61,7 @@ No wording drift found between any scanned card and its `text.printed` in this s
   the printed formula exactly. 2A's When Revealed correctly reads "If no villain was put into play this way **or**
   this is expert mode, deal the first player 1 facedown encounter card" as an _or_, not an _and_ (`anyOf`) — checked
   against the scan (27101a.png): the printed sentence is unambiguous, and the script's `anyOf(not(varAtLeast(...)),
-inMode("expert"))` reads it correctly.
+  inMode("expert"))` reads it correctly.
 - **Light at the End (27102a/27102b)**: the Trap!/Chase! pair correctly uses `on.schemeDefeated("self")` rather than
   the ordinary side-scheme-completion path, because RRG 1.8 "Permanent" (p. 32) means the card cannot actually leave
   play via the normal defeat pipeline — `applySchemeDefeated`'s leave step no-ops for it, but the event that opens

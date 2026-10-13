@@ -38,7 +38,7 @@ word, cost vs. effect, keyword):
 - **Ant-Man kit**, all three identity faces + kit (12001a/b/c, 12002–12010, 12020, `ant/kit.ts`) — every form-change
   and Giant/Tiny-gated ability matches printed text exactly.
 - **Wasp kit** (13001a/b/c, 13002–13006, `wsp/kit.ts`) — same, including the divided-power (`Wasp Sting`/`Giant
-Help`) and interrupt-timed form-change (`Rapid Growth`) cards.
+  Help`) and interrupt-timed form-change (`Rapid Growth`) cards.
 - **Crossbones' Assault** (04070) and **Hydra Jet-Trooper** (04146) — see Findings below; both audited to the
   point of a minimal, causally-confirmed repro, not just a text read.
 - **Marked for Death** (04028) — audited against its own errata (RRG 1.8 p. 66) and the ruling below; both halves
@@ -51,7 +51,7 @@ Help`) and interrupt-timed form-change (`Rapid Growth`) cards.
   redirect something, the timing gap (interrupt-vs-response priority) would matter then, in a way it doesn't for
   this card today.
 - **Kang's stage structure and villain uniqueness across game areas** (`toafk/kang.ts`, `packages/engine/src/
-unique.ts`, `packages/engine/src/resolve/game-areas.ts`) — deep dive (see Finding 3 / "not checked" below): Kang
+  unique.ts`, `packages/engine/src/resolve/game-areas.ts`) — deep dive (see Finding 3 / "not checked" below): Kang
   (I) (11001) and Kang (III) (11006) print the identical unique title "Kang (The Conqueror)". Re-checked against
   the Jan 26, 2026 ruling ("Kang Titles") and RRG 1.8's own "Unique Icon" text (transcribed verbatim in `unique.ts`):
   the RRG's "cannot enter play" clause enumerates only player cards and non-villain encounter cards, so villains are

@@ -49,9 +49,9 @@ Core page and "Added with NeXt Evolution" comes back. The page title draws `NEW 
 capital X; cosmetic).
 
 - Wrong information, **the cite** (`actionsOtherTurns`, `b-entry-actionsOtherTurns-d.png`) reads `RRG 1.8 PP. 6, 34 · OWNER
-DECISION, NEXT EVOLUTION SPEC 4.1 (2026-10-05) (CARD TEXT)`. A player cannot look up "spec 4.1", and `(card text)` is appended to
+  DECISION, NEXT EVOLUTION SPEC 4.1 (2026-10-05) (CARD TEXT)`. A player cannot look up "spec 4.1", and `(card text)` is appended to
   every `card` source, so `NeXt Evolution rulebook p. 5 (card text)` is wrong too. Suggested: `RRG 1.8 pp. 6, 34 · Ruling for this
-game, Oct 5, 2026`, and `(card text)` only where the source names a card. Owner: `view/rules-reference.ts` line 172 and
+  game, Oct 5, 2026`, and `(card text)` only where the source names a card. Owner: `view/rules-reference.ts` line 172 and
   `content/src/schema/glossary.ts`. Pinned: fixme.
 
 ## C. Jukebox and music: pass

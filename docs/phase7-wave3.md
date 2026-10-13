@@ -110,7 +110,7 @@ The ask was "`VillainStage.flipSide`, or whatever shape the rules call for". The
 > **Status: landed (`card-data-pipeline`, 2026-09-22).** `parseKeyword` (`parse-text.ts`) now matches
 > `Hinder N[per_hero]` → `{ name: "hinder", value: 0, perPlayer: N }`, `Uses (N[per_hero] type counters)` →
 > `{ count: 0, countPerPlayer: N, counterType }`, and `Uses (N type counter, plus M[per_hero] additional type
-counters)` → `{ count: N, countPerPlayer: M, counterType }`, exactly the shapes above. `stld` 17025 (Budding
+> counters)` → `{ count: N, countPerPlayer: M, counterType }`, exactly the shapes above. `stld` 17025 (Budding
 > Crime Syndicate) re-emitted with the keyword and no `-constant` ref; `trors` 04064 (Crossbones' Machine Gun)
 > re-emitted with the keyword, and its now-dead `04064.crossbones-machine-gun-constant` registry entry (an empty
 > `coveredByEngineRule()`, referenced by no card) removed from `packages/cards/src/wave2/trors/crossbones.ts` —

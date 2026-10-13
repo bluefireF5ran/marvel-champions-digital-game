@@ -315,7 +315,8 @@ export interface CampaignNode {
 
 /** Named rather than inlined, so a client can switch on it without restating the union. */
 export type CampaignScenarioRef =
-  { readonly kind: "fixed"; readonly scenarioId: ScenarioId } | { readonly kind: "composed" };
+  | { readonly kind: "fixed"; readonly scenarioId: ScenarioId }
+  | { readonly kind: "composed" };
 ```
 
 ### 4.2 Log field schema, declared by the box
@@ -1454,7 +1455,7 @@ real driven game), not a second time here.
 skipped tests in `packages/cards/src/campaigns/gmw.qa.test.ts` and are closed in `@mc/engine`. Neither names a box:
 
 1. **"The main scheme is on stage 1B"** (MC16 p. 8 and p. 14). `gmw.ts` read it as `cardsInPlay({printedId:
-cardId("16061b")})`, but no card record has that id. A main scheme is one record with a `stages` array, and the
+   cardId("16061b")})`, but no card record has that id. A main scheme is one record with a `stages` array, and the
    stage in play is `GameState.mainScheme.stageIndex`. The B side is not state: a main scheme in play is always on
    its B side, because advancing resolves the A side and then flips to B (RRG 1.8 "Main Scheme", p. 27). So "stage
    1B" is stage 1. `CampaignGameQuery` gained `mainSchemeStageNumber`, the between-games twin of the in-game

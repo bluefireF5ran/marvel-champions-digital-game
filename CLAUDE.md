@@ -83,7 +83,7 @@ section current so any session can resume from GitHub alone.
 ## Working conventions
 
 - **Commit authorship (decided 2026-09-27):** every commit is authored and committed as the user, `Quin Carter
-<quin.carter@gmail.com>` (GitHub `quincarter`) — set `git config user.name` / `user.email` to that before the first
+  <quin.carter@gmail.com>` (GitHub `quincarter`) — set `git config user.name` / `user.email` to that before the first
   commit in a fresh clone or cloud session. No `Co-Authored-By: Claude …` trailer, no `Claude-Session:` line, no
   "Generated with Claude Code" line or any other attribution to Claude in commit messages or PR descriptions.
 - **No Claude attribution anywhere (user, 2026-10-01, strict):** nothing committed to this repo or posted to GitHub

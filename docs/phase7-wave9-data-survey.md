@@ -26,7 +26,7 @@ nothing and changed nothing. No other git command was run except the final `git 
 ## 0. Corrections to the brief
 
 1. **`evidence_*` types are not unhandled.** `normalize/encounter-cards.ts` already has a `case "evidence_means" |
-"evidence_motive" | "evidence_opportunity"` that builds `EvidenceCard` (spec: `phase7-wave2.md` §6.4). The survey
+   "evidence_motive" | "evidence_opportunity"` that builds `EvidenceCard` (spec: `phase7-wave2.md` §6.4). The survey
    reports no "unhandled type" line for `aos`, and all nine records normalize. What is missing is data, not a type
    (section 4.3).
 2. **`player_side_scheme` is also handled.** `bp` (51016, 51017, 51026) and `silk` (52005) emit as
@@ -85,9 +85,9 @@ Notes:
   those hunks; keep the committed extension behavior.
 - **Parser drift (the regen is the newer parser, and the better data):**
   - 52028 Silk Sense Overload: committed `[52028.obligation]`, regen `[silk-sense-overload-constant,
-silk-sense-overload-forced-interrupt]` (the obligation text has a Forced Interrupt).
+    silk-sense-overload-forced-interrupt]` (the obligation text has a Forced Interrupt).
   - 53029 Harlem's Protector: committed `[53029.obligation]`, regen `[harlems-protector-constant,
-harlems-protector-action]`, and the regen **adds `schemeIcons: ["hazard"]`** (raw `scheme_hazard: 1`). The
+    harlems-protector-action]`, and the regen **adds `schemeIcons: ["hazard"]`** (raw `scheme_hazard: 1`). The
     committed file has no hazard icon on it. That is a real data fix; verify the icon on the scan at emit
     (unchecked).
   - 53011 Draw Their Fire and 53019 Strength in Diversity: regen adds `costPerPlayer: true` (raw `cost_per_hero`).
@@ -451,7 +451,7 @@ two-sided `VillainCard` (A = the Avatar, B = Fading Figment).
 - **Linked allies** 55063 to 55066, `Linked (<minion title> minion)`, trait Defiant, faction basic, `Victory 0`, "does
   not count against your ally limit"; parse as `linked` with `cardTitle`. The title form is "Absorbing Man minion",
   not a bare card title (`Linked (Show of Empathy)` was the only precedent). Whether `cardTitle: "Absorbing Man
-minion"` resolves to a card (the minion 55056) is **unchecked**; likely needs a parser rule that strips " minion".
+  minion"` resolves to a card (the minion 55056) is **unchecked**; likely needs a parser rule that strips " minion".
 - **Per-hero HP on villains,** the Avatars, and Loki all scale per hero. In Epic mode the `[per_group]` icon on Loki's HP
   counts total players across all groups (insert p. 11), per hero in Single Group.
 - The two cards 55041 The Mangog and 55046 Door Between Worlds say "Any player in your pod can attack/thwart ... as
@@ -662,7 +662,7 @@ Steps touching different files can run in parallel, at most three agents.
 4. **`aos` scenarios (five), starter decks (Maria Hill, Nick Fury, after question 2), hand-authored `campaign.ts`,**
    then emit.
 5. **`curation/tt.ts`:** cycle `cycle9`, pack name "Trickster Takeover", release date `2025-08-15`, `exportPrefix
-"TT"`; attachment hosts, 55035 typo, 55036 host, the God of Lies shape (S1 to S3); two scenarios (Enchantress with
+   "TT"`; attachment hosts, 55035 typo, 55036 host, the God of Lies shape (S1 to S3); two scenarios (Enchantress with
    villain stages `[1,2]` / `[2,3]`; God of Lies) with `Scenario.id` `enchantress` and `god-of-lies`; register; emit.
 6. **Hero pack precons** for `bp`, `silk`, `falcon`, `winter` from the printed lists in section 6.2 (one pack per agent,
    or two), each `verified: true`, with each obligation (31, 28, 29, 27) and nemesis codes.

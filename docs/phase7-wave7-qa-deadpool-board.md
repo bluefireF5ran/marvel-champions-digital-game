@@ -31,6 +31,6 @@ profile fact, and Plot Convenience used by a second player). Break Time's minute
 - Not audited (no unusual prompt beyond the generic sheets already covered): Break the Fourth Wall's deck search
   (44001b) and the card-face picker for Bob's and Negasonic's simple choices.
 - Fixtures: `dev-qa-deadpool-game.ts` takes `blackout | ticTacToe | gitGud | plotConvenience | rockPaperScissors |
-armedToTheTeeth | merc`; `dev-qa-deadpool-game.test.ts` proves each reaches its state. The first stacked card is a
+  armedToTheTeeth | merc`; `dev-qa-deadpool-game.test.ts` proves each reaches its state. The first stacked card is a
   44017 so the hand-limit discard (first card, answered with its minimum) takes the filler, not the card under test.
 - Run: `E2E_PORT=5324 pnpm exec playwright test e2e/wave7-deadpool-cards.spec.ts --workers=1` from `packages/client`.
