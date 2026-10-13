@@ -20,8 +20,11 @@
  * - **Hecate 59042 prints "When Revealed/Defeated:"** (scan 59042.png; scan check): one ability with two timings. The
  *   parser (`parse-text.ts`, trigger "When Revealed/Defeated") emits it as `59042.when-revealed` and
  *   `59042.when-defeated` over the same text, because an ability definition has one trigger kind. Text unchanged.
- * - **Starter deck: none.** No source exists for the printed decklist (survey section 10.1); the owner has been asked
- *   for the printed decklist card, so `starterDecks` stays empty rather than inventing a list.
+ * - **Starter deck: Hercules / Leadership** from the printed decklist card ("Hercules Deck", (c) 2026 FFG; the owner's
+ *   photo, docs/decklists/hercules-deck-card.png). The card lists collector numbers 2-40 in order, so the codes are
+ *   590NN directly. 40 cards (15 hero + 13 Leadership + 12 basic); every printed copy count is within the record's
+ *   `quantity` (59026 Ancient Rivalry has quantity 2, one printed in the deck). The Labor and Gift decks (2-7) are the
+ *   separate decks below, not part of the 40.
  */
 import type { PackCuration } from "./types.ts";
 
@@ -85,7 +88,53 @@ export const HERCULES_CURATION: PackCuration = {
   cardNotes: {},
 
   scenarios: [],
-  starterDecks: [],
+  starterDecks: [
+    {
+      id: "hercules-leadership",
+      name: "Hercules / Leadership",
+      identityCode: "59001a",
+      aspect: "leadership",
+      cards: {
+        // Hercules's 15 hero cards
+        "59008": 1, // Amadeus Cho
+        "59009": 3, // The Gift of Battle
+        "59010": 2, // Son of Zeus
+        "59011": 2, // Wisdom of Athena
+        "59012": 1, // Olympus
+        "59013": 1, // Gauntlets of Hercules
+        "59014": 1, // Golden Mace
+        "59015": 1, // Herc's Helm
+        "59016": 2, // Lion of Olympus
+        "59017": 1, // Prince of Power
+        // 13 Leadership
+        "59018": 1, // Deathcry
+        "59019": 1, // Namora
+        "59020": 1, // Thor
+        "59021": 3, // Teamwork
+        "59022": 1, // Call for Backup
+        "59023": 3, // Recruitment Drive
+        "59024": 3, // "Avenge Me!"
+        // 12 basic
+        "59025": 1, // Gilgamesh
+        "59026": 1, // Ancient Rivalry
+        "59027": 3, // Limitless Stamina
+        "59028": 1, // Evaluate Threat
+        "59029": 1, // Energy
+        "59030": 1, // Genius
+        "59031": 1, // Strength
+        "59032": 1, // Avengers Compound
+        "59033": 1, // Helicarrier
+        "59034": 1, // Quincarrier
+      },
+      obligationCode: "59035",
+      nemesisCodes: ["59036", "59037", "59038", "59039", "59040"],
+      verified: true,
+      sources: [
+        'Printed decklist card "Hercules Deck" (c) 2026 FFG, photographed by the owner (docs/decklists/hercules-deck-card.png), read 2026-10-12: Hero Cards (15), Leadership Aspect Cards (13), Basic Cards (12), Obligation 35, Nemesis Set 36-40; Labor Deck 2-4 and Gift Deck 5-7 are separate decks.',
+      ],
+      note: "40 cards: 15 Hercules, 13 Leadership, 12 basic. The card lists collector numbers, which are the MarvelCDB codes 590NN. Every copy count is within the record's quantity.",
+    },
+  ],
 
   // Spec H1.1. Both decks are facedown, keep no discard pile and stay empty. The Labor cards are encounter-shaped
   // (`separateDeck: "Labor"`, no encounter set); the Gift cards are player cards (`deckLimit: 0`).

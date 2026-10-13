@@ -769,7 +769,6 @@ export * from "./hercules/index.js";
 
 import { HERCULES_CARDS } from "./hercules/cards.js";
 import { HERCULES_ENCOUNTER_SETS } from "./hercules/encounterSets.js";
-import { HERCULES_STARTER_DECKS } from "./hercules/starterDecks.js";
 export * from "./wonder_man/index.js";
 
 import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
@@ -789,12 +788,13 @@ export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [
 /** Every wave 10 scenario: Civil War's four (one per leader). */
 export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS];
 
-/** Every wave 10 starter deck: Tigra and Hulkling (`cw`); `wonder_man` and `hercules` have none yet (no source for the printed decklists). */
-export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [
-  ...CW_STARTER_DECKS,
-  ...WONDER_MAN_STARTER_DECKS,
-  ...HERCULES_STARTER_DECKS,
-];
+/**
+ * Every wave 10 starter deck the playable pool carries: Tigra and Hulkling (`cw`). `wonder_man` has none (no source for
+ * its printed decklist). Hercules / Leadership (`HERCULES_STARTER_DECKS`) is deliberately not here: this list feeds the
+ * playable and client pools, and his pack is out of both until his Team-Up art exists. Add `...HERCULES_STARTER_DECKS`
+ * when `hercules` joins `PLAYABLE_CARDS`.
+ */
+export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [...CW_STARTER_DECKS, ...WONDER_MAN_STARTER_DECKS];
 
 /**
  * Every playable card: Core, the eight wave 1 packs, the six cycle 1 packs, the six cycle 2 packs, the six cycle

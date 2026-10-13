@@ -11,6 +11,7 @@ import {
   herculesCivilWarGame,
   herculesGame,
   herculesHeroGame,
+  herculesPrintedSeat,
   wonderManCivilWarGame,
   wonderManGame,
   wonderManHeroGame,
@@ -46,6 +47,28 @@ describe("heroPackSeat", () => {
     const own = seat.deck.filter((id) => packIds.includes(id as string));
     expect(own.length).toBeGreaterThan(15);
     // Gift and Labor cards are built by setup, never listed in the player deck.
+    for (const id of ["59002", "59003", "59004", "59005", "59006", "59007"]) expect(seat.deck).not.toContain(id);
+  });
+});
+
+describe("herculesPrintedSeat", () => {
+  it("seats the printed 40-card Hercules / Leadership deck, legal and without the Gift and Labor cards", () => {
+    const seat = herculesPrintedSeat();
+    expect(seat.identityCardId).toBe("59001a");
+    expect(seat.aspects).toEqual(["leadership"]);
+    expect(seat.deck).toHaveLength(40);
+    const counts = new Map<string, number>();
+    for (const id of seat.deck) counts.set(id as string, (counts.get(id as string) ?? 0) + 1);
+    expect(
+      validateDeck(
+        {
+          identityCardId: seat.identityCardId,
+          aspects: seat.aspects ?? [],
+          cards: [...counts].map(([id, quantity]) => ({ cardId: cardId(id), quantity })),
+        },
+        HERO_PACK_CARDS,
+      ),
+    ).toEqual({ ok: true });
     for (const id of ["59002", "59003", "59004", "59005", "59006", "59007"]) expect(seat.deck).not.toContain(id);
   });
 });

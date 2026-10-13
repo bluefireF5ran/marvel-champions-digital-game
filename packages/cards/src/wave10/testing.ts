@@ -1,4 +1,12 @@
-import { CORE_CARDS, HERCULES_CARDS, cardId, type AnyCard, type CoreAspect, type HeroIdentityCard } from "@mc/content";
+import {
+  CORE_CARDS,
+  HERCULES_CARDS,
+  HERCULES_STARTER_DECKS,
+  cardId,
+  type AnyCard,
+  type CoreAspect,
+  type HeroIdentityCard,
+} from "@mc/content";
 import {
   DECK_MIN_CARDS,
   activeEncounterDeckId,
@@ -219,6 +227,19 @@ export const civilWarHeroGame = (
  */
 export const WONDER_MAN_DECK = "wonder-man-justice";
 export const HERCULES_DECK = "hercules-leadership";
+/**
+ * Hercules's printed starter deck (the decklist card in the pack: `HERCULES_STARTER_DECKS`, 15 hero, 13 Leadership and
+ * 12 basic cards) as a seat. `HERCULES_DECK` above is still the hand-built deck most Hercules tests were written
+ * against; they have not been moved onto this one.
+ */
+export const herculesPrintedSeat = (): PlayerSetup => {
+  const starter = HERCULES_STARTER_DECKS[0]!;
+  return {
+    identityCardId: starter.identityCardId,
+    aspects: starter.aspects,
+    deck: starter.cards.flatMap(({ cardId: id, quantity }) => Array.from({ length: quantity }, () => id)),
+  };
+};
 
 /** Core, the Civil War box, Wonder Man and Hercules: the pool a Wonder Man or Hercules test game is created from. */
 export const HERO_PACK_CARDS: readonly AnyCard[] = [...WAVE10_CARDS, ...HERCULES_CARDS];

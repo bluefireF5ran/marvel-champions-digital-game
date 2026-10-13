@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { validateCard } from "../schema/index.js";
+import { validateCard, validateStarterDeck } from "../schema/index.js";
 import type { AnyCard, AttachmentCard, HeroIdentityCard, ObligationCard } from "../schema/index.js";
 import { HERCULES_CARDS } from "./hercules/cards.js";
 import { HERCULES_ENCOUNTER_SETS } from "./hercules/encounterSets.js";
@@ -110,8 +110,27 @@ describe("hercules: the pack", () => {
     ]);
   });
 
-  it("has no starter deck: no source exists for the printed decklist (survey section 10.1)", () => {
-    expect(HERCULES_STARTER_DECKS).toEqual([]);
+  it("has one starter deck, Hercules / Leadership: 40 cards (15 hero, 13 Leadership, 12 basic), the printed list, legal", () => {
+    expect(
+      HERCULES_STARTER_DECKS.map((d) => [d.id as string, d.packCode as string, d.identityCardId as string]),
+    ).toEqual([["hercules-leadership", "hercules", "59001a"]]);
+    const deck = HERCULES_STARTER_DECKS[0]!;
+    expect(deck.aspects).toEqual(["leadership"]);
+    expect(deck.provenance.verified).toBe(true);
+    expect(validateStarterDeck(deck).errors).toEqual([]);
+    expect(deck.cards.reduce((n, e) => n + e.quantity, 0)).toBe(40);
+    const split = { hero: 0, aspect: 0, basic: 0 };
+    for (const e of deck.cards) {
+      const card = get(e.cardId as string);
+      expect(e.quantity, e.cardId as string).toBeLessThanOrEqual(card.quantityInSet);
+      const a = aspectOf(card);
+      split[a === "basic" ? "basic" : a?.startsWith("hero") ? "hero" : "aspect"] += e.quantity;
+    }
+    expect(split).toEqual({ hero: 15, aspect: 13, basic: 12 });
+    // The Labor and Gift decks (59002-59007), the obligation and the nemesis set are not in the 40.
+    const ids = new Set(deck.cards.map((e) => e.cardId as string));
+    for (const code of ["59002", "59003", "59004", "59005", "59006", "59007", "59035", "59036", "59040"])
+      expect(ids.has(code), code).toBe(false);
   });
 });
 
