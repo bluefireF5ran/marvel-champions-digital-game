@@ -42,6 +42,40 @@ export function getProjectVersion() {
 }
 
 /**
+ * Release asset names say which OS, architecture and kind of installer each file is, so a player picks the right
+ * download from the release page: `MarvelChampions-<version>-<OS>-<architecture>[-<kind>].<ext>`, e.g.
+ * `MarvelChampions-0.21.0-macOS-AppleSilicon-arm64.dmg`. Hyphens, not spaces: GitHub turns a space in an asset name
+ * into a dot. Both the CI release job (stage-release-assets.mjs) and local builds name files here, and the in-app
+ * update notice matches these names (packages/client/src/platform/update-check.ts).
+ */
+export const ASSET_PREFIX = "MarvelChampions";
+
+export function androidApkName(version) {
+  return `${ASSET_PREFIX}-${version}-Android.apk`;
+}
+
+const DESKTOP_EXTENSIONS = [".app.tar.gz", ".dmg", ".msi", ".exe", ".deb", ".rpm", ".AppImage"];
+
+/**
+ * The release name of one Tauri bundle, from its file name and path (the target triple when built with `--target`,
+ * else the name's own arch, else this machine's). Null for anything that isn't an installer.
+ */
+export function desktopAssetName(fileName, fullPath, version) {
+  const ext = DESKTOP_EXTENSIONS.find((e) => fileName.endsWith(e));
+  if (ext === undefined) return null;
+  const arm = /aarch64|arm64/i.test(fullPath) || (!/x86_64|x64|amd64/i.test(fullPath) && process.arch === "arm64");
+  const arch = arm ? "arm64" : "x64";
+  let variant;
+  if (ext === ".dmg" || ext === ".app.tar.gz") variant = arm ? "macOS-AppleSilicon-arm64" : "macOS-Intel-x64";
+  // The NSIS setup.exe installs for the current user and needs no admin rights: what most players want. The .msi
+  // installs for every user of the machine, under Program Files.
+  else if (ext === ".exe") variant = `Windows-${arch}-Setup`;
+  else if (ext === ".msi") variant = `Windows-${arch}-AllUsers`;
+  else variant = `Linux-${arch}`;
+  return `${ASSET_PREFIX}-${version}-${variant}${ext}`;
+}
+
+/**
  * Computes sha256 of a file.
  */
 export function computeSha256(filePath) {
@@ -101,8 +135,9 @@ export function collectDesktopBundles(releaseDir = defaultReleaseDir) {
 
   const installerFiles = findFilesRec(tauriTargetDir, isBundleInstaller);
 
+  const version = getProjectVersion();
   for (const src of installerFiles) {
-    const fileName = path.basename(src);
+    const fileName = desktopAssetName(path.basename(src), src, version) ?? path.basename(src);
     const dest = path.join(releaseDir, fileName);
     fs.copyFileSync(src, dest);
     const stat = fs.statSync(dest);
@@ -130,7 +165,7 @@ export function collectAndroidApk(versionName, releaseDir = defaultReleaseDir) {
     return null;
   }
 
-  const destName = `marvel-champions-${versionName || getProjectVersion()}.apk`;
+  const destName = androidApkName(versionName || getProjectVersion());
   const destPath = path.join(releaseDir, destName);
   fs.copyFileSync(signedApk, destPath);
 

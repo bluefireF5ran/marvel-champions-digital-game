@@ -52,7 +52,10 @@ export interface AvailableUpdate {
   readonly notesUrl: string;
 }
 
-/** Any installer for each platform, as the release workflow names them (release-on-merge.yml). */
+/**
+ * Any installer for each platform, as the release workflow names them (scripts/lib/release-collector.mjs),
+ * e.g. `MarvelChampions-0.21.0-Windows-x64-Setup.exe`).
+ */
 const OS_INSTALLERS: Record<InstallOs, RegExp> = {
   android: /\.apk$/i,
   windows: /(-setup\.exe|\.msi)$/i,
@@ -64,8 +67,10 @@ const KIND_INSTALLER: Record<InstallerKind, { readonly os: InstallOs; readonly f
   apk: { os: "android", file: /\.apk$/i },
   nsis: { os: "windows", file: /-setup\.exe$/i },
   msi: { os: "windows", file: /\.msi$/i },
-  "dmg-aarch64": { os: "macos", file: /_aarch64\.dmg$/i },
-  "dmg-x64": { os: "macos", file: /_x64\.dmg$/i },
+  // `-macOS-AppleSilicon-arm64.dmg` / `-macOS-Intel-x64.dmg` since release asset names spell out their OS and
+  // architecture; Tauri's own `_aarch64.dmg` / `_x64.dmg` from earlier releases still match.
+  "dmg-aarch64": { os: "macos", file: /(-AppleSilicon-arm64|_aarch64)\.dmg$/i },
+  "dmg-x64": { os: "macos", file: /(-Intel-x64|_x64)\.dmg$/i },
   appimage: { os: "linux", file: /\.AppImage$/i },
   deb: { os: "linux", file: /\.deb$/i },
   rpm: { os: "linux", file: /\.rpm$/i },

@@ -14,19 +14,36 @@ import {
 const REPO = "https://github.com/quincarter/marvel-champions-digital-game";
 const download = (name: string) => ({ name, browser_download_url: `${REPO}/releases/download/v0.20.0/${name}` });
 
-/** The asset names release-on-merge.yml publishes (v0.19.1's, renumbered). */
+/** The asset names release-on-merge.yml publishes (scripts/lib/release-collector.mjs). */
+const DOWNLOADS = {
+  apk: "MarvelChampions-0.20.0-Android.apk",
+  nsis: "MarvelChampions-0.20.0-Windows-x64-Setup.exe",
+  msi: "MarvelChampions-0.20.0-Windows-x64-AllUsers.msi",
+  "dmg-aarch64": "MarvelChampions-0.20.0-macOS-AppleSilicon-arm64.dmg",
+  "dmg-x64": "MarvelChampions-0.20.0-macOS-Intel-x64.dmg",
+  appimage: "MarvelChampions-0.20.0-Linux-x64.AppImage",
+  deb: "MarvelChampions-0.20.0-Linux-x64.deb",
+  rpm: "MarvelChampions-0.20.0-Linux-x64.rpm",
+} as const satisfies Record<InstallerKind, string>;
+
 const ALL_ASSETS = [
-  "marvel-champions-0.20.0.apk",
-  "Marvel.Champions-0.20.0-1.x86_64.rpm",
-  "Marvel.Champions_0.20.0_aarch64.dmg",
-  "Marvel.Champions_0.20.0_amd64.AppImage",
-  "Marvel.Champions_0.20.0_amd64.deb",
-  "Marvel.Champions_0.20.0_x64-setup.exe",
-  "Marvel.Champions_0.20.0_x64.dmg",
-  "Marvel.Champions_0.20.0_x64_en-US.msi",
-  "Marvel.Champions_aarch64.app.tar.gz",
+  ...Object.values(DOWNLOADS),
+  "MarvelChampions-0.20.0-macOS-AppleSilicon-arm64.app.tar.gz",
+  "MarvelChampions-0.20.0-macOS-Intel-x64.app.tar.gz",
   "SHA256SUMS.txt",
 ];
+
+/** Tauri's own names, which releases up to v0.20.0 published. */
+const LEGACY_DOWNLOADS = {
+  apk: "marvel-champions-0.20.0.apk",
+  nsis: "Marvel.Champions_0.20.0_x64-setup.exe",
+  msi: "Marvel.Champions_0.20.0_x64_en-US.msi",
+  "dmg-aarch64": "Marvel.Champions_0.20.0_aarch64.dmg",
+  "dmg-x64": "Marvel.Champions_0.20.0_x64.dmg",
+  appimage: "Marvel.Champions_0.20.0_amd64.AppImage",
+  deb: "Marvel.Champions_0.20.0_amd64.deb",
+  rpm: "Marvel.Champions-0.20.0-1.x86_64.rpm",
+} as const satisfies Record<InstallerKind, string>;
 
 const githubJson = (assets: readonly string[], extra: object = {}) => ({
   tag_name: "v0.20.0",
@@ -80,12 +97,15 @@ describe("version comparison", () => {
 
 describe("parseLatestRelease", () => {
   it("reads the version, page and assets", () => {
-    const parsed = parseLatestRelease(githubJson(["marvel-champions-0.20.0.apk"]));
+    const parsed = parseLatestRelease(githubJson(["MarvelChampions-0.20.0-Android.apk"]));
     expect(parsed).toEqual({
       version: "0.20.0",
       url: `${REPO}/releases/tag/v0.20.0`,
       assets: [
-        { name: "marvel-champions-0.20.0.apk", url: `${REPO}/releases/download/v0.20.0/marvel-champions-0.20.0.apk` },
+        {
+          name: "MarvelChampions-0.20.0-Android.apk",
+          url: `${REPO}/releases/download/v0.20.0/MarvelChampions-0.20.0-Android.apk`,
+        },
       ],
     });
   });
@@ -135,27 +155,23 @@ describe("updateFor", () => {
     expect(updateFor(release(ALL_ASSETS), "0.21.0", { os: "android", kind: "apk" })).toBeNull();
   });
 
-  it("links the changelog and the installer this install came from", () => {
-    const downloads = {
-      apk: "marvel-champions-0.20.0.apk",
-      nsis: "Marvel.Champions_0.20.0_x64-setup.exe",
-      msi: "Marvel.Champions_0.20.0_x64_en-US.msi",
-      "dmg-aarch64": "Marvel.Champions_0.20.0_aarch64.dmg",
-      "dmg-x64": "Marvel.Champions_0.20.0_x64.dmg",
-      appimage: "Marvel.Champions_0.20.0_amd64.AppImage",
-      deb: "Marvel.Champions_0.20.0_amd64.deb",
-      rpm: "Marvel.Champions-0.20.0-1.x86_64.rpm",
-    } as const;
-    const osOf = { apk: "android", nsis: "windows", msi: "windows", appimage: "linux", deb: "linux", rpm: "linux" };
-    for (const [kind, name] of Object.entries(downloads) as [InstallerKind, string][]) {
-      const os = (osOf as Record<string, InstallOs>)[kind] ?? "macos";
-      expect(updateFor(release(ALL_ASSETS), "0.19.1", { os, kind })).toEqual({
-        version: "0.20.0",
-        downloadUrl: file(name),
-        notesUrl: page,
-      });
-    }
-  });
+  const osOf = { apk: "android", nsis: "windows", msi: "windows", appimage: "linux", deb: "linux", rpm: "linux" };
+  for (const [naming, downloads] of [
+    ["OS- and architecture-named", DOWNLOADS],
+    ["Tauri-named", LEGACY_DOWNLOADS],
+  ] as const) {
+    it(`links the changelog and the installer this install came from (${naming} assets)`, () => {
+      const assets = [...Object.values(downloads), "SHA256SUMS.txt"];
+      for (const [kind, name] of Object.entries(downloads) as [InstallerKind, string][]) {
+        const os = (osOf as Record<string, InstallOs>)[kind] ?? "macos";
+        expect(updateFor(release(assets), "0.19.1", { os, kind })).toEqual({
+          version: "0.20.0",
+          downloadUrl: file(name),
+          notesUrl: page,
+        });
+      }
+    });
+  }
 
   it("links only the release page when the installer isn't known", () => {
     expect(updateFor(release(ALL_ASSETS), "0.19.1", { os: "linux", kind: null })).toEqual({
@@ -170,7 +186,7 @@ describe("updateFor", () => {
     expect(updateFor(desktopOnly, "0.19.1", { os: "android", kind: "apk" })).toBeNull();
     expect(updateFor(desktopOnly, "0.19.1", { os: "windows", kind: "nsis" })).not.toBeNull();
 
-    const androidOnly = release(["marvel-champions-0.20.0.apk", "SHA256SUMS.txt"]);
+    const androidOnly = release([DOWNLOADS.apk, "SHA256SUMS.txt"]);
     expect(updateFor(androidOnly, "0.19.1", { os: "android", kind: "apk" })).not.toBeNull();
     expect(updateFor(androidOnly, "0.19.1", { os: "windows", kind: "msi" })).toBeNull();
     expect(updateFor(androidOnly, "0.19.1", { os: "macos", kind: "dmg-x64" })).toBeNull();
@@ -178,7 +194,7 @@ describe("updateFor", () => {
   });
 
   it("falls back to the release page when the platform has installers but not this install's own", () => {
-    const msiOnly = release(["Marvel.Champions_0.20.0_x64_en-US.msi"]);
+    const msiOnly = release([DOWNLOADS.msi]);
     expect(updateFor(msiOnly, "0.19.1", { os: "windows", kind: "nsis" })).toEqual({
       version: "0.20.0",
       downloadUrl: null,
