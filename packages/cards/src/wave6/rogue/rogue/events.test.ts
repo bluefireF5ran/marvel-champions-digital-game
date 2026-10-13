@@ -1,5 +1,6 @@
 import { cardId } from "@mc/content";
 import {
+  activeEncounterDeck,
   replay,
   sessionApply,
   startSession,
@@ -593,6 +594,25 @@ describe("Rogue's last events (38015, 38016, 38020)", () => {
       expect(taken(used)).toEqual([]);
       expect(threatRemoved(used)).toBe(2);
       expect(playerOf(used.state, P1).discard).toContain(used.given.ids[0]);
+    });
+
+    it("damage a tough status card prevents is dealt but not taken (RRG 'Tough', p. 44): the threat still comes off", () => {
+      // Under Fire (3 icons, no boost ability): with +2 DEF Rhino still deals 1, which Rogue's tough status card prevents.
+      const base = rogue();
+      const top = activeEncounterDeck(base).deck[0]!;
+      const staged = withThreat(patchInstance(base, top, { cardId: cardId("01193") }), 3);
+      const tough = patchInstance(staged, rogueId(staged), {
+        statuses: { ...inst(staged, rogueId(staged)).statuses, tough: 1 },
+      });
+      const used = villainPhase(tough, "38016", NOT_TODAY, true, true);
+      // The attack's 1 damage was prevented by the tough card (a later encounter card's damage is not this attack's).
+      const attack = ofType(used.events, "attackResolved")[0]!;
+      expect(attack.damageDealt).toBe(1);
+      expect(used.events.some((e) => e.type === "damagePrevented" && e.reason === "tough")).toBe(true);
+      expect(ofType(used.events, "damageDealt").filter((e) => e.sourceInstanceId === villainOf(used.state))).toEqual(
+        [],
+      );
+      expect(ofType(used.events, "threatRemoved").reduce((n, e) => n + e.amount, 0)).toBe(2);
     });
   });
 

@@ -15,7 +15,7 @@ import {
   dealDamageCost,
   draw,
   each,
-  eventDealt,
+  eventDamageTaken,
   exists,
   find,
   gainTraitsOfUntil,
@@ -41,6 +41,7 @@ import {
   thwart,
   when,
   YOUR_HERO,
+  YOUR_IDENTITY,
   yourIdentity,
   you,
   youHaveTrait,
@@ -74,7 +75,9 @@ const TOUCHED_HOST = each(query("character", hasAttachment(TOUCHED)));
  * - **Preemptive Strike (38015)** reprints `msm` 05014 verbatim and **Beauty and the Thief (38020)** is the same title
  *   and text as Gambit's 37019 (Team-Up (Gambit and Rogue) is data): both alias the original script.
  * - **Not Today! (38016)**: "If you take no damage from that attack" is read when the attack ends, from the attack's
- *   own damage (`atEndOfAttack`, the Never Back Down / Desperate Defense shape); the threat removal is not a thwart.
+ *   own damage TAKEN by your identity (`atEndOfAttack` + `eventDamageTaken`, the Never Back Down / Desperate Defense
+ *   shape); damage a tough status card prevents is dealt but not taken (RRG 1.8 "Tough", p. 44), so it does not block
+ *   the reward. The threat removal is not a thwart.
  * - **Superpower Adaptation (38009)**: "friendly" is an identity or ally; the search reads the host owner's discard
  *   pile and the card goes to your hand but stays its owner's (§4 Q29). The arrow's search is an effect here:
  *   `chooseCardCost` reads only the payer's own zone, so another player's discard pile is out of its reach (reported).
@@ -137,7 +140,7 @@ export const ROGUE_EVENTS = defineAbilities({
     when.defends(YOUR_HERO),
     { label: "defense" },
     modifyStat("def", 2, yourIdentity, "endOfAttack"),
-    atEndOfAttack(ifThen(not(eventDealt("damage")), removeThreatFromAScheme(2))),
+    atEndOfAttack(ifThen(not(eventDamageTaken(each(YOUR_IDENTITY))), removeThreatFromAScheme(2))),
   ),
 
   "38020.beauty-and-the-thief-constant": GAMBIT_EVENTS["37019.beauty-and-the-thief-constant"]!,

@@ -40,6 +40,8 @@ const ADVANCE = "01186";
 /** 2 boost icons, no boost ability (Rhino's own encounter set) — matches `wave1/cap/expert-defense.test.ts`'s use
  * for the identical "prove a DEF bonus actually reduced a defense's damage" shape. */
 const CROWD_CONTROL = "01108";
+/** 3 boost icons, no boost ability. */
+const UNDER_FIRE = "01193";
 
 const basicAttack = (attacker: InstanceId, target: InstanceId): Command => ({
   type: "basicAttack",
@@ -135,6 +137,33 @@ describe("Doctor Strange pack cards", () => {
     expect(playerOf(after, P1).discard).toContain(desperate);
     // "If you take no damage from that attack, ready your hero" — the deferred `atEndOfAttack` effect (proven by
     // Rhino's Charge) fires once the attack (and its deferred `defended` response window, RRG 1.8 p. 16) is done.
+    expect(inst(after, identity).exhausted).toBe(false);
+  });
+
+  it("Desperate Defense: damage a tough status card prevents is dealt but not taken (RRG 'Tough', p. 44): the hero still readies", () => {
+    // Under Fire (3 boost icons, no boost ability): 2 + 3 - (2 + 2) leaves 1 damage past Desperate Defense's DEF,
+    // which the tough status card prevents.
+    const start = drsVsRhino();
+    const given = moveToHand(start, P1, "09015");
+    const [desperate] = given.ids as [InstanceId];
+    const hero = runDrs(given.state, toHero());
+    const identity = identityOf(hero);
+    const toughHero = patchInstance(hero, identity, { statuses: { ...inst(hero, identity).statuses, tough: 1 } });
+    // Surgery: the top encounter card (the boost card) becomes the 3-icon card.
+    const top = activeEncounterDeck(toughHero).deck[0]!;
+    const staged = patchInstance(toughHero, top, { cardId: cardId(UNDER_FIRE) });
+    const atDeclare = settleUntil(runDrs(staged, endTurn()), "declareDefender", firstLegal, DRS_DEPS);
+    const declared = answer(atDeclare, [identity], DRS_DEPS);
+    const option = `${desperate}:09015.desperate-defense-interrupt`;
+    const played = answer(declared, [option], DRS_DEPS);
+    const after = settle(
+      played,
+      (s) => (s.pendingChoice?.prompt.kind === "payForCard" ? [s.pendingChoice!.options[0]!.optionId] : firstLegal(s)),
+      (s) => activeEncounterDeck(s).discard.includes(top),
+      DRS_DEPS,
+    );
+    expect(inst(after, identity).damage).toBe(0);
+    expect(inst(after, identity).statuses.tough).toBe(0); // the damage was dealt, and the tough card absorbed it
     expect(inst(after, identity).exhausted).toBe(false);
   });
 

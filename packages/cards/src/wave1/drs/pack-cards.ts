@@ -15,7 +15,8 @@ import {
   dealDamage,
   defineAbilities,
   draw,
-  eventDealt,
+  each,
+  eventDamageTaken,
   eventTarget,
   exhaustThis,
   gets,
@@ -116,13 +117,13 @@ export const DRS_PACK_CARDS = defineAbilities({
   // `isAnnouncement` (`packages/engine/src/trigger-events.ts`) let an Interrupt fire on `defended` at all (see the
   // module doc comment above). The "if you take no damage" half needs the attack's own final result, not knowable
   // at interrupt time (before damage) — `atEndOfAttack` (proven by Rhino's Charge) defers the `ready` down to when
-  // the activation finishes, by when its `event.results.damage` reads whether the attack that was defended actually
-  // dealt any.
+  // the activation finishes, by when it reads whether your identity took damage from the attack (`eventDamageTaken`,
+  // not `eventDealt`: damage a tough status card prevents is dealt but not taken, RRG 1.8 "Tough", p. 44).
   "09015.desperate-defense-interrupt": heroInterrupt(
     when.defends(YOUR_HERO),
     { label: "defense" },
     modifyStat("def", 2, yourIdentity, "endOfAttack"),
-    atEndOfAttack(ifThen(not(eventDealt("damage")), ready(yourIdentity))),
+    atEndOfAttack(ifThen(not(eventDamageTaken(each(YOUR_IDENTITY))), ready(yourIdentity))),
   ),
 
   // Momentum Shift — Hero Action (attack): Heal 2 damage from your hero → deal 2 damage to an enemy.
