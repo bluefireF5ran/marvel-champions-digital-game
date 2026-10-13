@@ -342,7 +342,7 @@ Each entry was read this session. Lines are the heading lines unless noted.
 
 - `packages/content/src/data/wonder_man/`: seven generated files (`cards.ts`, `encounterSets.ts`, `index.ts`,
   `packs.ts`, `provenance.ts`, `scenarios.ts`, `starterDecks.ts`). Regenerate with `pnpm --filter @mc/content ingest
--- --pack wonder_man [--offline]`. `provenance.ts` records corrections for `58002` (lines 20–22) and `58031`
+  -- --pack wonder_man [--offline]`. `provenance.ts` records corrections for `58002` (lines 20–22) and `58031`
   (lines 88–90), and two duplicate-of-core mappings (`58017`, `58023`; lines 38–56).
 - **No `src/data/cw`, `src/data/hercules` or `src/data/synthezoid`** (checked by glob). Those three are raw-only.
 - The raw `58002` still has the arrow (checked). Whether the emitted `wonder_man` data carries the errata is

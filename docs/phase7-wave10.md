@@ -388,7 +388,7 @@ existing primitive needs one more case); **new**. Searches that found nothing ar
 - **Text.** MC56 p. 5, "Random Scenario Creation" (§2.6).
 - **Exists.** `randomPicks` in `modular-pool.ts` (a seeded shuffle and slice). No random leader or stage pick.
 - **Shape.** A pure function in the cards package, `randomCivilWarScenario(seed, { side?, leaderId?, modularCount? })
-→ { scenarioId, mainSchemeStageIds, modularSetIds }`, drawing with the engine's own RNG (`createRng`, `shuffle`) in
+  → { scenarioId, mainSchemeStageIds, modularSetIds }`, drawing with the engine's own RNG (`createRng`, `shuffle`) in
   a fixed order: side, leader, stage 1, stage 2, modular sets. It only draws from scripted, playable sets
   (`UNSCRIPTED_ENCOUNTER_SET_IDS`). Its result is ordinary options for `wave10Scenario`, so a random game replays
   from its options alone and the engine learns nothing new. How many modular sets it draws is question 9.
@@ -556,7 +556,7 @@ existing primitive needs one more case); **new**. Searches that found nothing ar
   counted. MC56 p. 9's example: Falcon engages Emily while Spider-Man (Avenger) is engaged with Jason, so Falcon
   activates against Emily.
 - **Exists.** Wave 6 §3.1: the keyword in `content/src/schema/keywords.ts`, the engine-internal `EffectSpec
-resolveTeamwork`, resolved in `reveal.ts` once the reveal's steps are done (the `keywords` stage): after the minion's
+  resolveTeamwork`, resolved in `reveal.ts` once the reveal's steps are done (the `keywords` stage): after the minion's
   When Revealed, with quickstrike, the first player choosing which goes first when a minion has both (§4.0, 30B, 34B).
 - **To prove here.** The trait may be gained (Drafted 56080 gives Avenger to any minion); the keyword may be gained
   (Earth's Mightiest Heroes 56077, §3.12, and then only matters for a minion entering play afterwards); the minion
@@ -573,7 +573,7 @@ resolveTeamwork`, resolved in `reveal.ts` once the reveal's steps are done (the 
   up at the enemy's next activation, in addition to the one it is dealt; "When Defeated Abilities" (p. 48): "A
   defeated card leaves play after its 'When Defeated' ability is resolved."
 - **Exists.** `giveBoostCard(theVillain, { card })` (wave 6 §3.16), but "only a card out of play is given"; `EffectSpec
-setDefeatDestination` and `replaceLeaveDestination` send a leaving card somewhere else.
+  setDefeatDestination` and `replaceLeaveDestination` send a leaving card somewhere else.
 - **Missing.** The destination "an enemy's boost cards".
 - **Shape.** A leave destination `{ kind: "boostCardOf", enemy: TargetRef }` for `setDefeatDestination` /
   `replaceLeaveDestination`: the card leaves play as defeated (its attachments are discarded, "after … is defeated"
@@ -661,7 +661,7 @@ setDefeatDestination` and `replaceLeaveDestination` send a leaving card somewher
   under it. Forced Response: After an ally is defeated by an enemy attack, place that ally facedown under this
   scheme."
 - **Exists.** `tuckCards` and `tuckedCount` (wave 9 §3.20, an ally tucked under a scheme), `SchemeValueName
-targetThreat` modifiers, `characterDefeated` with the attack as its cause, `replaceLeaveDestination`.
+  targetThreat` modifiers, `characterDefeated` with the attack as its cause, `replaceLeaveDestination`.
 - **To prove.** The ally is tucked instead of discarded although the trigger says "after"; the scheme completes at
   once when the lowered target meets the threat on it (a state check, not only when threat is placed); the tucked
   cards leave with the stage.
@@ -678,7 +678,7 @@ targetThreat` modifiers, `characterDefeated` with the attack as its cause, `repl
   of those heroes."; Cape-Killer 56105 "+2 ATK" against an Unregistered identity; Bring Them In 56107 "Exhaust each
   Unregistered identity. Otherwise, …"; "at random if you have the Unregistered trait" (56115, 56117, 56119).
 - **Exists.** An obligation that stays in play in a player's area (Paparazzi, wave 6); `gainsTrait(t, target, {
-while })`; `youHaveTrait`; `discardAtRandom`; the identity-specific card selector (`spec.ts`, "Identity-Specific
+  while })`; `youHaveTrait`; `discardAtRandom`; the identity-specific card selector (`spec.ts`, "Identity-Specific
   Card", RRG p. 23); `cardRevealed`.
 - **Missing.** The trigger "a card is revealed that gives heroes a trait": nothing lets one card ask what another
   card's text grants.
@@ -702,7 +702,7 @@ while })`; `youHaveTrait`; `discardAtRandom`; the identity-specific card selecto
   value. Searches that found nothing: `usedAtk`, `attackStat`, `usesAtk`.
 - **Shape.** An attack in progress records `usedStat: "atk" | null`: set for a basic attack and for an attack whose
   damage value read the attacker's ATK (the DSL marks it when an attack's amount is built from `statOf(attacker,
-"atk")`), and for every enemy attack. `Predicate attackUsedAtk`. The trigger is "damage from an attack with
+  "atk")`), and for every enemy attack. `Predicate attackUsedAtk`. The trigger is "damage from an attack with
   `usedStat: atk` was dealt to the attached character", target or overkill.
 - **Tests.** Hero basic attack (2 ATK) on Captain America with the Shield and no tough card: 2 damage, retaliate 1
   hits the hero, the Shield moves to the hero. A 4-damage flat attack event: the Shield stays. An event dealing

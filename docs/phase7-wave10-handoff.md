@@ -119,6 +119,6 @@ Civil War". Files go to `music/scenarios/_pending/<scenario id>/` until the scen
   Passes 1b (`docs/phase7-wave10-box-heroes.md`, sections prefixed B) and 2 (`docs/phase7-wave10-hero-packs.md`,
   prefixed H) are separate files so two agents can write side by side; their questions get the next free numbers.
 - **Owner's answers, 2026-10-11:** `2A 3B 4A 5A 6A 7A 9A 10B 11A 12A 13A 14A 15B 16A 17A 18A 19A 20A 21B 22A 23A 24A
-25A 26A 27C`, all provisional; the four B rules answers were to be held until checked against primary text. Checked
+  25A 26A 27C`, all provisional; the four B rules answers were to be held until checked against primary text. Checked
   the same day (spec §4.0): 3B, 15B and 21B are built; 10B has no supporting text, so 10A stays built and 10B is a
   question for FFG. New questions start at 28.

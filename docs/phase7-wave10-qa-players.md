@@ -51,7 +51,7 @@ costs except where noted; one finding is engine-wide and reaches these cards (F1
 - Proof: four `it.fails` (Feline Senses, Impersonation, Precinct HQ, For Justice!). Each also asserts the control
   (playable with 1 threat on the main scheme), which passes.
 - Owner: `game-rules-architect` (the valid-target set of a threat-removal effect; the scripts' own `ifThen(threat >= 1,
-...)` guard then becomes unreachable and is harmless). Severity "wrong result": a card can be played for no effect.
+  ...)` guard then becomes unreachable and is harmless). Severity "wrong result": a card can be played for no effect.
 
 ### F2. 56012 Air Cover: the player may take nothing from a search that found a Tactic upgrade
 

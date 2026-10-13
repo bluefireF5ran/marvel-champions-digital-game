@@ -8,7 +8,7 @@ only) and `hercules` (MC59 hero pack, curated but not registered). Companion doc
 Commands used. All counts in this file are by script, not by eye.
 
 - `node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/marvelcdb/survey.ts --pack cw --pack
-wonder_man --pack hercules --json <scratch>` (the survey's own dry run; it writes only the scratch JSON).
+  wonder_man --pack hercules --json <scratch>` (the survey's own dry run; it writes only the scratch JSON).
 - `scripts/ingest-marvelcdb.ts --pack <p> --offline --dry-run` for each pack (nothing written).
 - Node scripts over `raw/marvelcdb/{cw,wonder_man,hercules}.json` (the top level is
   `{ source, fetchedAt, pack, cards: [...] }`, not a bare array; a b face is nested under a record's `linked_card`).
@@ -73,7 +73,7 @@ as text). **Not checked:** every other card face, and every stat on a card face.
   says it is "NOT registered for emission" because of the Labor Deck. `scripts/ingest-marvelcdb.ts` lines 161 to 163
   repeat that. It has **no** `separateDecks` entry, so the Labor and Gift decks are not curated (gap G5).
 - `src/data/index.ts` today: `DATA_ONLY_CARDS = [...WONDER_MAN_CARDS]`, `DATA_ONLY_ENCOUNTER_SETS =
-[...WONDER_MAN_ENCOUNTER_SETS]`; `WAVE9_*` is the last playable block. `data-only.test.ts` `PACKS` has one entry
+  [...WONDER_MAN_ENCOUNTER_SETS]`; `WAVE9_*` is the last playable block. `data-only.test.ts` `PACKS` has one entry
   (`wonder_man`) and asserts `cycleOf("wonder_man") === "cycle10"`.
 - `fne.ts` also declares `cycle10` / "Cycle 10" (a Wave 2 placeholder). RRG 1.8 Appendix VI (p. 71) puts Civil War,
   Wonder Man and Hercules together in Limited Environment cycle 10, so Fear No Evil probably belongs to cycle 11. That
@@ -390,7 +390,7 @@ Standard set is Core's `standard` (`standard_pvp` in competitive mode).
   "Cape-Killers" in the footnote; the raw set is `cape_killer`/"Cape-Killer". p. 8's Captain America deck has a main
   scheme named "Secret Avengers" and a modular set of the same name.
 - All four modular sets per scenario "can be removed ... and/or added to other scenarios", which `Scenario.recommended
-ModularSetIds` already expresses; the custom-builder rules (any 3 or 4 sets of the chosen side, rulebook p. 4) are a
+  ModularSetIds` already expresses; the custom-builder rules (any 3 or 4 sets of the chosen side, rulebook p. 4) are a
   scenario-builder feature, not card data. Mixing sides is refused (p. 4); other products' modular sets are allowed in
   cooperative play only (p. 5).
 - **Not expressible today:** a scenario that names a stage 1 and a stage 2 main scheme out of eight (gap G1).
@@ -451,11 +451,11 @@ Other things the scratch output shows:
   a question for scripting.
 - **Leader attachments:** "Attach to Iron Man." (56065), "Permanent. Attach to Captain America." (56143) resolve to
   `attachesTo: { kind: "villain" }` (the named leader is a villain-kind host); 56118 resolves to `ifAble { preferred:
-namedCard Paladin, otherwise leader enemy }`; 56181 Tangled Up to `ifAble { preferred leader yours, otherwise your
-identity hero }`. These were designed in Wave 2 (`attachment-host.ts`) and need no change.
+  namedCard Paladin, otherwise leader enemy }`; 56181 Tangled Up to `ifAble { preferred leader yours, otherwise your
+  identity hero }`. These were designed in Wave 2 (`attachment-host.ts`) and need no change.
 - **Competitive-only player cards:** the 16 leader basics emit with `specificTo` (section 3.2).
 - **Teamwork** parses: six minions (56074, 56150, 56151, 56152, 56155, 56156) emit `teamwork` with `sharedTrait
-"AVENGER"` (rulebook p. 9; the keyword and its parser rule exist).
+  "AVENGER"` (rulebook p. 9; the keyword and its parser rule exist).
 - **Keyword inventory in the scratch output:** steady 9 stages, uses 3, villainous 2, quickstrike 4, restricted 1,
   toughness 4, teamwork(AVENGER) 6, retaliate 1 and 2, hinder 14 (the `[per_hero]` form), guard 2, permanent 5, stalwart
   1. No new keyword, and no "unclassified" parse for the pack. Text that mentions piercing (7), ranged (3), overkill
@@ -521,7 +521,7 @@ three packs (script over every face), so the Wave 9 per-group gap (S4) does not 
   in play, reveal the top card of the labor deck."
 - **Labor deck (3):** 59002 Defeat the Hydra (attachment), 59003 Embody Pathos (attachment), 59004 Protect Humanity
   (typed **obligation**, "Uses (3 labor counters)"). All three: `faction_code: "hero"`, `card_set_type_name_code:
-"hero_special"`, "Victory 0", trait Labor, no cost, a When Revealed that finds its own target and attaches itself
+  "hero_special"`, "Victory 0", trait Labor, no cost, a When Revealed that finds its own target and attaches itself
   (59002, 59003) or finds Amadeus Cho (59004). **Gift deck (3):** 59005 Nemean Lion Skin, 59006 Shield of Perseus,
   59007 Sword of Peleus: Permanent upgrades, trait Gift, no cost ("Response: After this card enters play, draw 4
   cards"). The Hercules insert (**checked**): "he begins each game with two special 3-card decks ... shuffle the three

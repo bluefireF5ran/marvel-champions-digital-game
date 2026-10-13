@@ -279,7 +279,7 @@ needed. Every name was searched for in `packages/engine/src` and `packages/cards
 
 > **Status: needs extension.** `IdentitySeparateDeck` with `cardFamily: "encounter"`, `discardPile: "none"` and
 > `whenEmpty: "stayEmpty"` validates (`identity.ts`, `validation.ts`), and `PlayerState.separateDecks`, `ZoneId
-separateDeck`, `CardHome separateDeck` and the setup loop that builds a deck's instances exist (`setup.ts`).
+> separateDeck`, `CardHome separateDeck` and the setup loop that builds a deck's instances exist (`setup.ts`).
 > `unbuildableSeparateDeck` (`deck.ts`) refuses any deck that is not a `"player"` deck, so `createGame` and
 > `validateDeck` answer `unsupported_identity` for Hercules.
 
@@ -417,7 +417,7 @@ Found by Embody Pathos: 2 + 2 + 6 additional = 10. A side scheme built in the te
 ### H3.6 Threat only one character's thwarts can remove
 
 > **Status: needs extension.** `onlyCharacterRemovesThreat(target, character)` (`dsl/abilities.ts`; `RuleSpec
-threatCannotBeRemoved` with `exceptBy`; wave 7 §3.51, Technovirus Purge). It bars characters other than the named
+> threatCannotBeRemoved` with `exceptBy`; wave 7 §3.51, Technovirus Purge). It bars characters other than the named
 > one and lets a support's unlabeled ability or an encounter effect remove threat (wave 7 §4.1 Q29).
 
 **Cards.** Embody Pathos 59003 (scan): "Threat cannot be removed from attached scheme except by Hercules's thwarts."
@@ -1020,7 +1020,7 @@ its own; the verify rows of H3 are proven by the scripting agent's tests.
 1. **Ionic Physiology 58002:** `text.current` to the RRG p. 70 wording, through the curation's `errata` (H1.4).
 2. **Simon Williams 58001b:** `deckbuilding.offAspectAllowance` (H1.5), after HT12 lands the field.
 3. **Hercules's `separateDecks`** on 59001a (H1.1); the Labor cards emitted as encounter cards with `separateDeck:
-"Labor"` and no encounter set; a legal attachment record with no attach rule for 59002 and 59003 (survey gap G6).
+   "Labor"` and no encounter set; a legal attachment record with no attach rule for 59002 and 59003 (survey gap G6).
 4. **59004 is not the identity's obligation:** only 59035 is shuffled into the encounter deck for Hercules.
 5. **Register and emit `hercules`**; move `wonder_man` from `DATA_ONLY_*` to the wave's playable block once scripted.
 6. **Counter types** `labor` and `rebirth` (H1.2); the keyword and icon rows of H1.3 checked on the emitted records.

@@ -214,7 +214,7 @@ target.
 
 > **Status: needs extension** (small). The `cardDiscardedFromDeck` trigger exists, with `on.youDiscardFromYourDeck()`
 > and `on.thisDiscardedFromYourDeck()` over it; both fix the player to the card's controller. `tuckCards { cards,
-under, facedown }` exists (Stolen Memories, Lost Visor). Missing: a pattern for any player's deck on an encounter
+> under, facedown }` exists (Stolen Memories, Lost Visor). Missing: a pattern for any player's deck on an encounter
 > card, and a decision on what the discarding ability still reads (open question Q14).
 
 **Card.** Skrull Business 56056: "**Forced Response**: After any number of cards are discarded from the top of a
@@ -371,7 +371,7 @@ retaliate deals it 1.
 ### B3.10 "When an enemy would attack you, it schemes instead" as a standing Forced Interrupt
 
 > **Status: reusable, verify.** The replacement is wave 9 §3.52's: `interrupt(on.enemyAttacks(query("enemy"), {
-againstYou: true }), { would: true }, instead(enemyScheme(eventSource)))` (Invisibility Gear 51019, an optional
+> againstYou: true }), { would: true }, instead(enemyScheme(eventSource)))` (Invisibility Gear 51019, an optional
 > ability that discards itself). Not run: the forced form that stays in play and answers every attack.
 
 **Card.** Imitation Shape 56035: "**Forced Interrupt**: When an enemy would attack you, it schemes instead."
@@ -395,7 +395,7 @@ discarded from.
 ### B3.11 Armored Defense: damage back by DEF, and a tough card after the attack
 
 > **Status: reusable, verify.** `heroInterrupt` with the `defense` label on `on.enemyAttacks`, `dealDamage(statOf(
-yourIdentity, "def"), attackingEnemy)`, `atEndOfAttack(giveTough(yourIdentity))`; the defense label's claim of the
+> yourIdentity, "def"), attackingEnemy)`, `atEndOfAttack(giveTough(yourIdentity))`; the defense label's claim of the
 > defender is `defense-claim.ts`. Not run: `atEndOfAttack` after the attacker has left play.
 
 **Card.** Armored Defense 56038: "**Hero Interrupt** _(defense)_: When an enemy attacks, deal damage to it equal to
