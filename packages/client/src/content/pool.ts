@@ -258,7 +258,7 @@ export const POOL_STARTER_DECKS: readonly StarterDeck[] = [
   ...WAVE8_STARTER_DECKS,
   // Maria Hill, Nick Fury, Black Panther, Silk, Falcon, Winter Soldier.
   ...WAVE9_STARTER_DECKS,
-  // Tigra and Hulkling (the Wonder Man and Hercules packs ship none yet: Wonder Man is built in the deck builder).
+  // Tigra, Hulkling and Wonder Man (the Hercules pack's precon stays out until his pack is playable).
   ...WAVE10_STARTER_DECKS,
 ];
 

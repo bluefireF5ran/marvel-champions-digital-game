@@ -12,6 +12,7 @@ import {
   herculesGame,
   herculesHeroGame,
   herculesPrintedSeat,
+  wonderManPrintedSeat,
   wonderManCivilWarGame,
   wonderManGame,
   wonderManHeroGame,
@@ -70,6 +71,28 @@ describe("herculesPrintedSeat", () => {
       ),
     ).toEqual({ ok: true });
     for (const id of ["59002", "59003", "59004", "59005", "59006", "59007"]) expect(seat.deck).not.toContain(id);
+  });
+});
+
+describe("wonderManPrintedSeat", () => {
+  it("seats the stand-in Wonder Man / Justice precon, legal, with Ionic Physiology in the list", () => {
+    const seat = wonderManPrintedSeat();
+    expect(seat.identityCardId).toBe("58001a");
+    expect(seat.aspects).toEqual(["justice"]);
+    expect(seat.deck).toHaveLength(41);
+    expect(seat.deck).toContain("58002");
+    const counts = new Map<string, number>();
+    for (const id of seat.deck) counts.set(id as string, (counts.get(id as string) ?? 0) + 1);
+    expect(
+      validateDeck(
+        {
+          identityCardId: seat.identityCardId,
+          aspects: seat.aspects ?? [],
+          cards: [...counts].map(([id, quantity]) => ({ cardId: cardId(id), quantity })),
+        },
+        HERO_PACK_CARDS,
+      ),
+    ).toEqual({ ok: true });
   });
 });
 

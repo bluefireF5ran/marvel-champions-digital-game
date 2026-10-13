@@ -789,8 +789,8 @@ export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [
 export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS];
 
 /**
- * Every wave 10 starter deck the playable pool carries: Tigra and Hulkling (`cw`). `wonder_man` has none (no source for
- * its printed decklist). Hercules / Leadership (`HERCULES_STARTER_DECKS`) is deliberately not here: this list feeds the
+ * Every wave 10 starter deck the playable pool carries: Tigra and Hulkling (`cw`) and Wonder Man / Justice (from the
+ * owner's stand-in listing, not the printed card; `verified: false`). Hercules / Leadership (`HERCULES_STARTER_DECKS`) is deliberately not here: this list feeds the
  * playable and client pools, and his pack is out of both until his Team-Up art exists. Add `...HERCULES_STARTER_DECKS`
  * when `hercules` joins `PLAYABLE_CARDS`.
  */

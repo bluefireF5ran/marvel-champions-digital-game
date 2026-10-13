@@ -7,7 +7,14 @@
  *   `deck_options: [{ resource: ["energy"], type: ["event"] }]`.) Curated as `identityDeckbuilding["58001a"]`, an
  *   `offAspectAllowance` by card type and printed resource with no `maxCards` (docs/phase7-wave10-hero-packs.md
  *   H1.5, H3.15). Keyed on 58001a, the hero record's own code, as `gam` and `cyclops` key theirs.
- * - **Starter deck: none.** No source exists for the printed decklist (survey section 10.1); `starterDecks` stays empty.
+ * - **Starter deck: Wonder Man / Justice, from a stand-in source.** The printed decklist card could not be found, so
+ *   the owner supplied a screenshot of the precon as listed on a card database ("Wonder Man - precon deck", docs/
+ *   decklists/wonder-man-precon-deck.png, 2026-10-12) and said to treat it as his decklist card. It is NOT a scan of
+ *   the insert, so `verified` is false. The listing's 40 cards plus Ionic Physiology 58002 (the Permanent hero card,
+ *   listed apart from the 40) make 41 entries: the hero-kit rule lists every kit card at its full quantity. The three
+ *   off-aspect energy events (Bombs Away 58017, Stronger Together 58019, Unified Strike 58020) are covered by his
+ *   own `offAspectAllowance` (`offAspectAllowanceCodes`). The data records 58020 as Leadership and 58019 as
+ *   Protection; the screenshot shows the two with the same icon colour, which is not a conflict for the deck.
  *
  * - **Ionic Physiology (58002, upgrade) and Cameo (58031, support): dash cost, confirmed.** Ionic Physiology is
  *   Permanent, entering play by its own text; Cameo is a `Setup:` search-and-attach support, never played for a
@@ -78,5 +85,49 @@ export const WONDER_MAN_CURATION: PackCuration = {
   },
 
   scenarios: [],
-  starterDecks: [],
+  starterDecks: [
+    {
+      id: "wonder-man-justice",
+      name: "Wonder Man / Justice",
+      identityCode: "58001a",
+      aspect: "justice",
+      offAspectAllowanceCodes: ["58017", "58019", "58020"],
+      cards: {
+        // His hero cards: 15 in the 40 plus Ionic Physiology (Permanent)
+        "58002": 1, // Ionic Physiology
+        "58003": 3, // Active Altruism
+        "58004": 2, // Ionic Blast
+        "58005": 3, // Starstruck
+        "58006": 2, // Energy Siphon
+        "58007": 1, // Wonder Fans
+        "58008": 1, // Jet Belt
+        "58009": 1, // Mr. Hollywood
+        "58010": 1, // Signature Sunglasses
+        "58011": 1, // "What Are You?"
+        // 13 Justice
+        "58012": 1, // Firebird
+        "58013": 1, // Hawkeye
+        "58014": 1, // Scarlet Witch
+        "58015": 1, // Sentry
+        "58016": 3, // Battlefield Benevolence
+        "58018": 3, // Everywhere All at Once
+        "58021": 3, // Heroic Conditioning
+        // 3 basic
+        "58022": 1, // Swordsman
+        "58023": 1, // Energy
+        "58024": 1, // Jarvis
+        // 9 off-aspect energy events
+        "58017": 3, // Bombs Away (Aggression)
+        "58019": 3, // Stronger Together
+        "58020": 3, // Unified Strike
+      },
+      obligationCode: "58025",
+      nemesisCodes: ["58026", "58027", "58028", "58029"],
+      verified: false,
+      sources: [
+        'Owner-supplied stand-in for the printed decklist card (the owner could not locate a hard copy): a screenshot of the precon as listed on a card database, "Wonder Man - precon deck" (Wonder Man (Simon Williams), Justice, 40 cards), saved as docs/decklists/wonder-man-precon-deck.png, 2026-10-12. Not a scan of the insert, not checked against the printed card.',
+      ],
+      note: "40 cards in the listing plus the Permanent Ionic Physiology (58002), so 41 entries. Names were matched to this pack's own codes 580NN; every copy count is within the record's quantity.",
+    },
+  ],
 };

@@ -73,9 +73,6 @@ const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set();
  */
 const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set(["hercules"]);
 
-/** Playable heroes whose pack ships no starter deck yet (no printed decklist): Wonder Man is built in the deck builder. */
-const NO_PRECON_PACKS: ReadonlySet<string> = new Set(["wonder_man"]);
-
 /** Every pack whose precons are legal but cannot be seated yet. */
 const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
   ...UNSCRIPTED_WAVE6_PACKS,
@@ -104,8 +101,7 @@ describe("every playable precon, against the whole playable pool", () => {
     const identities = (PLAYABLE_CARDS.filter((card) => card.type === "hero_identity") as HeroIdentityCard[]).filter(
       (card) =>
         (card.progressingIdentity === undefined || card.progressingIdentity.versions[0] === card.id) &&
-        !UNSCRIPTED_PACKS.has(card.setCode as string) &&
-        !NO_PRECON_PACKS.has(card.setCode as string),
+        !UNSCRIPTED_PACKS.has(card.setCode as string),
     );
     const withoutPrecon = identities.filter((card) => !PRECONS.some((deck) => deck.identityCardId === card.id));
     expect(withoutPrecon.map((card) => `${card.id} ${card.name}`)).toEqual([]);

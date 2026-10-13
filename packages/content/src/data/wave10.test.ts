@@ -111,10 +111,13 @@ describe("wave 10 data: encounter sets, scenarios and starter decks", () => {
     }
   });
 
-  it("two playable starter decks (Tigra and Hulkling); Wonder Man has none; Hercules's stays out of the pool until his pack is playable", () => {
-    expect(WAVE10_STARTER_DECKS).toEqual(CW_STARTER_DECKS);
-    expect(WAVE10_STARTER_DECKS.map((d) => d.id as string)).toEqual(["tigra-aggression", "hulkling-protection"]);
-    expect(WONDER_MAN_STARTER_DECKS).toEqual([]);
+  it("three playable starter decks (Tigra, Hulkling, Wonder Man); Hercules's stays out of the pool until his pack is playable", () => {
+    expect(WAVE10_STARTER_DECKS).toEqual([...CW_STARTER_DECKS, ...WONDER_MAN_STARTER_DECKS]);
+    expect(WAVE10_STARTER_DECKS.map((d) => d.id as string)).toEqual([
+      "tigra-aggression",
+      "hulkling-protection",
+      "wonder-man-justice",
+    ]);
     expect(HERCULES_STARTER_DECKS.map((d) => d.id as string)).toEqual(["hercules-leadership"]);
   });
 

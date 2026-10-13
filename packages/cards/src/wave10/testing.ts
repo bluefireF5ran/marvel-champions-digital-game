@@ -2,6 +2,7 @@ import {
   CORE_CARDS,
   HERCULES_CARDS,
   HERCULES_STARTER_DECKS,
+  WONDER_MAN_STARTER_DECKS,
   cardId,
   type AnyCard,
   type CoreAspect,
@@ -227,6 +228,19 @@ export const civilWarHeroGame = (
  */
 export const WONDER_MAN_DECK = "wonder-man-justice";
 export const HERCULES_DECK = "hercules-leadership";
+/**
+ * Wonder Man's starter deck (the owner's stand-in listing, 41 entries with the Permanent Ionic Physiology; `verified:
+ * false`) as a seat. `WONDER_MAN_DECK` above is still the hand-built deck the Wonder Man tests were written against.
+ */
+export const wonderManPrintedSeat = (): PlayerSetup => {
+  const starter = WONDER_MAN_STARTER_DECKS[0]!;
+  return {
+    identityCardId: starter.identityCardId,
+    aspects: starter.aspects,
+    deck: starter.cards.flatMap(({ cardId: id, quantity }) => Array.from({ length: quantity }, () => id)),
+  };
+};
+
 /**
  * Hercules's printed starter deck (the decklist card in the pack: `HERCULES_STARTER_DECKS`, 15 hero, 13 Leadership and
  * 12 basic cards) as a seat. `HERCULES_DECK` above is still the hand-built deck most Hercules tests were written

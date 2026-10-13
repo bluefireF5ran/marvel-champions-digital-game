@@ -115,7 +115,11 @@ describe("POOL_STARTER_DECKS", () => {
         WAVE9_STARTER_DECKS.length +
         WAVE10_STARTER_DECKS.length,
     );
-    expect(WAVE10_STARTER_DECKS.map((d) => d.id)).toEqual(["tigra-aggression", "hulkling-protection"]);
+    expect(WAVE10_STARTER_DECKS.map((d) => d.id)).toEqual([
+      "tigra-aggression",
+      "hulkling-protection",
+      "wonder-man-justice",
+    ]);
   });
 });
 
@@ -255,9 +259,11 @@ describe("the Civil War box in the pool", () => {
     expect(ids.has("all_versus_all")).toBe(false);
   });
 
-  test("the Wonder Man pack is in the pool as a hero with no starter deck: shelved in the Civil War cycle", () => {
+  test("the Wonder Man pack is in the pool as a hero with his precon: shelved in the Civil War cycle", () => {
     expect(POOL_CARDS.some((card) => card.id === "58001a")).toBe(true);
-    expect(POOL_STARTER_DECKS.some((deck) => deck.identityCardId === "58001a")).toBe(false);
+    expect(POOL_STARTER_DECKS.filter((deck) => deck.identityCardId === "58001a").map((d) => d.id)).toEqual([
+      "wonder-man-justice",
+    ]);
     expect(POOL_HERO_SHELF_PACKS.some((pack) => pack.code === "wonder_man" && pack.cycleId === "cycle10")).toBe(true);
     expect(POOL_CARDS.some((card) => card.id === "59001a")).toBe(false);
   });

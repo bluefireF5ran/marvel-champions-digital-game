@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { validateCard } from "../schema/index.js";
+import { validateCard, validateStarterDeck } from "../schema/index.js";
 import type { AnyCard, HeroIdentityCard, UpgradeCard } from "../schema/index.js";
 import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
 import { WONDER_MAN_ENCOUNTER_SETS } from "./wonder_man/encounterSets.js";
@@ -99,8 +99,30 @@ describe("wonder_man: the pack", () => {
     expect(identity.nemesisEncounterSetId as string).toBe("wonder_man_nemesis");
   });
 
-  it("has no starter deck: no source exists for the printed decklist (survey section 10.1)", () => {
-    expect(WONDER_MAN_STARTER_DECKS).toEqual([]);
+  it("has one starter deck, Wonder Man / Justice, from the owner's stand-in listing: unverified, legal, 41 entries", () => {
+    expect(
+      WONDER_MAN_STARTER_DECKS.map((d) => [d.id as string, d.packCode as string, d.identityCardId as string]),
+    ).toEqual([["wonder-man-justice", "wonder_man", "58001a"]]);
+    const deck = WONDER_MAN_STARTER_DECKS[0]!;
+    expect(deck.aspects).toEqual(["justice"]);
+    // Not a scan of the insert: the owner's stand-in, a database listing (2026-10-12).
+    expect(deck.provenance.verified).toBe(false);
+    expect(deck.provenance.sources.join(" ")).toMatch(/stand-in/);
+    expect(validateStarterDeck(deck).errors).toEqual([]);
+    // 40 listed cards plus the Permanent Ionic Physiology (58002), which the listing shows apart from the 40.
+    expect(deck.cards.reduce((n, e) => n + e.quantity, 0)).toBe(41);
+    const qty = new Map(deck.cards.map((e) => [e.cardId as string, e.quantity]));
+    expect(qty.get("58002")).toBe(1);
+    const split = { hero: 0, aspect: 0, basic: 0, offAspect: 0 };
+    for (const e of deck.cards) {
+      const card = get(e.cardId as string);
+      expect(e.quantity, e.cardId as string).toBeLessThanOrEqual(card.quantityInSet);
+      const a = (card as { aspect?: string }).aspect;
+      if (e.cardId === "58002") continue;
+      if (["58017", "58019", "58020"].includes(e.cardId as string)) split.offAspect += e.quantity;
+      else split[a === "basic" ? "basic" : a?.startsWith("hero") ? "hero" : "aspect"] += e.quantity;
+    }
+    expect(split).toEqual({ hero: 15, aspect: 13, basic: 3, offAspect: 9 });
   });
 
   it("has no separate decks (the Setup puts Ionic Physiology into play)", () => {

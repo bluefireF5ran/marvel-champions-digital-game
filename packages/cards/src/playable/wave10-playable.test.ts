@@ -38,11 +38,13 @@ describe("the Civil War box is joined to the playable pool", () => {
     }
   });
 
-  it("joins the Wonder Man pack: his nemesis set is playable and he has no starter deck to seat", () => {
+  it("joins the Wonder Man pack: his nemesis set is playable and his precon is seatable", () => {
     expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has("wonder_man_nemesis")).toBe(false);
     expect(PLAYABLE_ENCOUNTER_SETS.some((set) => set.id === "wonder_man_nemesis")).toBe(true);
     expect(Object.keys(PLAYABLE_ABILITIES).some((id) => id.startsWith("58"))).toBe(true);
-    expect(() => playableStarterDeckSetup("wonder_man-leadership")).toThrow("no playable starter deck");
+    expect(playableStarterDeckSetup("wonder-man-justice").deck).toHaveLength(41);
+    const config = playableScenario(IRON_MAN, { players: [{ starterDeckId: "wonder-man-justice" }], seed: 1 });
+    expect(createGame(config, PLAYABLE_DEPS).ok).toBe(true);
   });
 
   it("keeps the Hercules pack out: his sets are gated and he cannot be seated", () => {
