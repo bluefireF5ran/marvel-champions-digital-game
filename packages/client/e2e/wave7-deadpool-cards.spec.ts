@@ -431,6 +431,10 @@ test("Git Gud (44028): with no previous-game fact it costs 2 less (free), and th
   await shot(page, "git-gud-prompt");
   expect(await boardHas(page, /^2→0$/), "the hand card shows 2 → 0").toBe(true);
   await boardPress(page, /^play it$/i);
+  // The play lands a moment after the press; read the hand once it has, not on the same tick.
+  await waitFor(async () => ((await inHand(page, card)) ? null : true), "Git Gud leaves the hand", 10000).catch(
+    () => {},
+  );
   expect(await inHand(page, card), "Git Gud is played for free").toBe(false);
 });
 
