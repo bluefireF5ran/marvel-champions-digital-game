@@ -40,6 +40,7 @@ import {
   tryReducedPlay,
   type CostReductionOption,
 } from "./cost-reduction-model.js";
+import { costHelpLines } from "./cost-help-model.js";
 import { faceUpName } from "./names.js";
 
 export interface PaymentState {
@@ -181,7 +182,8 @@ export interface PaymentView {
   readonly overpaidNote: string | null;
   /**
    * One line per other player whose hand cards the picks spend toward an alliance card: "Helped by Ana: 1 energy",
-   * from the picked sources' own pools. Empty for an ordinary payment.
+   * from the picked sources' own pools, then one per other player who pays a part of the cost in the user's place
+   * ("Helped by Ana: the damage"; `cost-help-model.ts`). Empty for an ordinary payment.
    */
   readonly helperLines: readonly string[];
   /**
@@ -372,7 +374,8 @@ export function paymentView(
     subjectInHand: subject !== null && locateCard(state, subject)?.kind === "hand",
     overpaid,
     overpaidNote: overpaid > 0 ? `Overpaid by ${overpaid}` : null,
-    helperLines: helperLinesOf(sources),
+    // A helper's cards, then the parts of the cost a helper pays in the user's place (`costSelection.paidBy`).
+    helperLines: [...helperLinesOf(sources), ...costHelpLines(state, playerId, payment.costSelection)],
     command: attempt.ok ? attempt.command : null,
     blockedBy: attempt.ok ? null : attempt.message,
     costReductionOptions,

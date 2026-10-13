@@ -605,6 +605,17 @@ export function tuckedSpender(
 }
 
 /**
+ * "While paying costs on attached card, any player may help pay those costs" (`RuleSpec costsPayableByAnyPlayer`,
+ * docs/phase7-wave10-hero-packs.md H3.19): whether a rule in force names `id`, a card in play, so the costs of the
+ * abilities printed on it are paid as a group.
+ */
+export const costsPayableByAnyPlayer = (state: GameState, deps: EngineDeps, id: InstanceId): boolean => {
+  const rules = activeRules(state, deps, "costsPayableByAnyPlayer");
+  if (rules.length === 0 || !cardsInPlay(state).includes(id)) return false;
+  return rules.some(({ rule, context }) => matchesQuery(state, id, rule.card, context));
+};
+
+/**
  * "Attached identity cannot … recover" (`RuleSpec cannotRecover`, docs/phase7-wave6.md §3.14): this player cannot make
  * a basic recovery.
  */

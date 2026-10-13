@@ -3,6 +3,7 @@ import type { CampaignCardFace, CampaignWindow, LogWrite } from "./campaign.js";
 import type { RulesCardType } from "./card-types.js";
 import type { ChoiceId, EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
 import type { CardPosition, ChoiceBehalf, PendingChoice } from "./choices.js";
+import type { DelegableCostPart } from "./commands.js";
 import type { GroupId } from "./ids.js";
 import type { SharedEvent, SharedPodState, SharedResult } from "./pod.js";
 import type {
@@ -209,6 +210,19 @@ export type GameEvent =
       readonly playerId: PlayerId;
       readonly instanceId: InstanceId;
       readonly hostInstanceId: InstanceId;
+    }
+  /**
+   * `helperId` pays the `part` part of a cost of `playerId`'s in their place (`CostSelection.paidBy`; `RuleSpec
+   * costsPayableByAnyPlayer`, docs/phase7-wave10-hero-packs.md H3.19): the cost is printed on `sourceInstanceId`.
+   * Logged as the cost is paid, before what the part does (the helper's damage, their deck's discard). A helper's
+   * resources and cards are not logged here: each card's own event names the hand or the play area it left.
+   */
+  | {
+      readonly type: "costPartPaidBy";
+      readonly playerId: PlayerId;
+      readonly helperId: PlayerId;
+      readonly sourceInstanceId: InstanceId;
+      readonly part: DelegableCostPart;
     }
   | {
       readonly type: "cardPlayed";

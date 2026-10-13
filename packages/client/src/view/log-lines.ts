@@ -1416,6 +1416,20 @@ function describe(
         text: `${who(event.playerId)} ${verb(event.playerId, "spend", "spends")} ${card(event.instanceId)} from under ${card(event.hostInstanceId)}.`,
         voice: "player",
       };
+    // Hero packs H3.19: another player pays a part of a cost in the user's place (Coordinated Effort).
+    case "costPartPaidBy": {
+      const parts = {
+        damageSelf: "the damage",
+        indirectDamage: "the indirect damage",
+        discardFromDeck: "the discard from the deck",
+        discardRandomFromHand: "the random discard from hand",
+        dealEncounterCards: "the encounter card dealt",
+      } as const;
+      return {
+        text: `${who(event.helperId)} ${verb(event.helperId, "help", "helps")} pay for ${card(event.sourceInstanceId)}: ${parts[event.part]}.`,
+        voice: "player",
+      };
+    }
     // §3.41: a reveal replaced by other reveals (each logs its own `encounterCardRevealed`).
     case "revealReplaced":
       return {

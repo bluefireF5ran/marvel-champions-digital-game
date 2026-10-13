@@ -107,7 +107,39 @@ export interface CostSelection {
    * Absent: the payer is asked as the cost is paid. A fixed-amount cost ignores it.
    */
   readonly discardFromEncounterDeck?: number;
+  /**
+   * Another player paying a part of this cost in the user's place (`RuleSpec costsPayableByAnyPlayer`, "While paying
+   * costs on attached card, any player may help pay those costs"; docs/phase7-wave10-hero-packs.md H3.19, owner answer
+   * 21B): the player who pays each part named, whole. A part left out, or given the user's own id, is paid by the
+   * user. Refused unless such a rule names the card the cost is printed on, the player is still in the game and the
+   * cost holds that part; then everything the part asks is checked against, and taken from, that player (their
+   * identity takes the damage, their deck or hand is discarded from).
+   *
+   * Only the parts a cost words as "you" without naming a card are listed (`DelegableCostPart`). A part paid with a
+   * card needs no entry: resources (`payment`), a discard from hand and a card in play (`costChoices`) name the cards,
+   * and a helper's card is a helper paying. A part that names the user's own card ("exhaust your hero", "exhaust this
+   * card") stays with the user and has no entry.
+   */
+  readonly paidBy?: CostPartPayers;
 }
+
+/**
+ * The parts of a cost `CostSelection.paidBy` may hand to another player, named as their `AbilityCost` fields: "take N
+ * damage" (`damageSelf`), "take N indirect damage" (`indirectDamage`), "discard the top N cards of your deck"
+ * (`discardFromDeck`), "discard N cards at random from your hand" (`discardRandomFromHand`) and "deal yourself N
+ * encounter cards" (`dealEncounterCards`).
+ */
+export const DELEGABLE_COST_PARTS = [
+  "damageSelf",
+  "indirectDamage",
+  "discardFromDeck",
+  "discardRandomFromHand",
+  "dealEncounterCards",
+] as const;
+export type DelegableCostPart = (typeof DELEGABLE_COST_PARTS)[number];
+
+/** Who pays which delegable part of a cost (`CostSelection.paidBy`). */
+export type CostPartPayers = Readonly<Partial<Record<DelegableCostPart, PlayerId>>>;
 
 /**
  * Every command names the player issuing it so authority can be checked here

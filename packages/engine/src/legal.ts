@@ -53,7 +53,15 @@ import {
 } from "./actions.js";
 import { chosenSizePayments } from "./payable.js";
 import type { PendingChoice } from "./choices.js";
-import type { Command, CostChoices, CostSelection, Payment } from "./commands.js";
+import {
+  type Command,
+  type CostChoices,
+  type CostPartPayers,
+  type CostSelection,
+  DELEGABLE_COST_PARTS,
+  type DelegableCostPart,
+  type Payment,
+} from "./commands.js";
 import { createCtx } from "./ctx.js";
 import { areaCostReductionFor } from "./effects.js";
 import { applyCommand } from "./engine.js";
@@ -82,7 +90,13 @@ import { attachmentHostCandidates } from "./resolve/index.js";
 import { addPools, combineRequirements, poolTotal, requirementTotal, type ResolvedRequirement } from "./resources.js";
 import { basicPowerCostNeeds } from "./basic-power-uses.js";
 import { dealToCostChoices } from "./deal-to-cost.js";
-import { attachmentReachOf, formChangeCostsFor, playDestinationsOf, type FormChangeCost } from "./rules.js";
+import {
+  attachmentReachOf,
+  costsPayableByAnyPlayer,
+  formChangeCostsFor,
+  playDestinationsOf,
+  type FormChangeCost,
+} from "./rules.js";
 import { formChangeCostSources } from "./form-change-cost.js";
 import {
   activeAbilityRefs,
@@ -206,6 +220,21 @@ export interface LegalAction {
    * pays it, and `paymentFor` / `tryPayment` take the action as they take a play. Absent for a free change.
    */
   readonly formChangeCost?: { readonly sourceInstanceIds: readonly InstanceId[] };
+  /**
+   * An ability whose cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`; docs/phase7-wave10-hero-packs.md
+   * H3.19) and that holds a part another player can take over whole (`DelegableCostPart`: "take 2 damage", "discard
+   * the top card of your deck"): for each such part, the players who can pay it right now, the user first when they
+   * can. The client asks who pays and sends a player other than the user as `costSelection.paidBy`; `example` has the
+   * user pay every part they can, and names a helper only for a part the user cannot pay. Absent for every other cost.
+   * A helper's resources and cards need no entry here: they are payment sources and cost picks like the user's own.
+   */
+  readonly costHelp?: readonly CostHelp[];
+}
+
+/** Who can pay one delegable part of a cost right now (`LegalAction.costHelp`). */
+export interface CostHelp {
+  readonly part: DelegableCostPart;
+  readonly payers: readonly PlayerId[];
 }
 
 export interface IllegalAction {
@@ -258,6 +287,8 @@ interface Variant {
   readonly controllerId?: PlayerId;
   /** The either/or cost branch this variant pays (`costSelection.branch`), when the cost has one. */
   readonly branch?: number;
+  /** Who pays each delegable part of the cost in this variant, the user included (`LegalAction.costHelp`). */
+  readonly partPayers?: CostPartPayers;
   readonly build: (payment: readonly Payment[]) => Command;
 }
 
@@ -297,8 +328,45 @@ function encounterDiscardRange(
   return range ? { ...range, inDeck: activeEncounterDeck(state).deck.length } : undefined;
 }
 
-const withBranch = (branch: number | undefined): { readonly costSelection?: CostSelection } =>
-  branch === undefined ? {} : { costSelection: { branch } };
+const withBranch = (branch: number | undefined, paidBy?: CostPartPayers): { readonly costSelection?: CostSelection } =>
+  branch === undefined && !paidBy
+    ? {}
+    : { costSelection: { ...(branch === undefined ? {} : { branch }), ...(paidBy ? { paidBy } : {}) } };
+
+/** The delegable parts (`DelegableCostPart`) a cost holds, in its own components or in the branch chosen. */
+const delegableParts = (cost: AbilityCost | undefined, branch: number | undefined): readonly DelegableCostPart[] => {
+  const paid = branch === undefined ? cost : { ...cost, ...cost?.either?.[branch] };
+  return DELEGABLE_COST_PARTS.filter((part) => paid?.[part] !== undefined);
+};
+
+/**
+ * Who could pay each delegable part of a cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`): the user
+ * paying everything first, then every other split, the helpers in player order. One entry, `undefined`, for a cost
+ * nobody else may pay or with no such part, which keeps every other command exactly as it was.
+ */
+function partPayerSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  parts: readonly DelegableCostPart[],
+): readonly (CostPartPayers | undefined)[] {
+  if (parts.length === 0 || !costsPayableByAnyPlayer(state, deps, source)) return [undefined];
+  const players = [playerId, ...playerOrder(state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))];
+  // Nobody to help (a solo game): the command and what is listed stay exactly as without the rule.
+  if (players.length < 2) return [undefined];
+  let sets: CostPartPayers[] = [{}];
+  for (const part of parts) sets = players.flatMap((payer) => sets.map((set) => ({ ...set, [part]: payer })));
+  // The fewest helpers first, so the first working variant has the user pay everything they can.
+  const helped = (set: CostPartPayers): number => Object.values(set).filter((payer) => payer !== playerId).length;
+  return [...sets].sort((a, b) => helped(a) - helped(b));
+}
+
+/** The `paidBy` a command carries for a variant's part payers: only the parts a player other than the user pays. */
+function paidByOf(playerId: PlayerId, partPayers: CostPartPayers | undefined): CostPartPayers | undefined {
+  const helped = Object.entries(partPayers ?? {}).filter(([, payer]) => payer !== playerId);
+  return helped.length > 0 ? (Object.fromEntries(helped) as CostPartPayers) : undefined;
+}
 
 type Evaluated = { readonly legal: LegalAction } | { readonly illegal: IllegalAction };
 
@@ -624,9 +692,16 @@ function discardPicks(
   if (min === 0 && !combined) return [];
   const filter = cost?.discardFromHand?.filter;
   const context: EffectContext = { selfInstanceId: source, controllerId: playerId, event: null, bindings: {}, deps };
-  const hand = (getPlayer(state, playerId)?.hand ?? [])
-    .filter((id) => id !== source)
-    .filter((id) => !filter || matchesQuery(state, id, filter, context));
+  // A cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, hero-packs H3.19): the user's own cards
+  // first, then the other players' in player order, so a helper's card is picked only when the user's run out.
+  const hands = costsPayableByAnyPlayer(state, deps, source)
+    ? [playerId, ...playerOrder(state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
+    : [playerId];
+  const matching = (owner: PlayerId): InstanceId[] =>
+    (getPlayer(state, owner)?.hand ?? [])
+      .filter((id) => id !== source)
+      .filter((id) => !filter || matchesQuery(state, id, filter, context));
+  const hand = hands.flatMap(matching);
   if (combined) {
     // "… with a combined resource cost of 3 or more" (`DiscardCombined`): the fewest cards that reach it, largest
     // share first. A hand whose matching cards can't reach it yields all of them, which the engine refuses — so
@@ -643,8 +718,11 @@ function discardPicks(
     }
     return picks;
   }
-  const cheapest = [...hand].sort(
-    (a, b) => resourceCount(state, a) - resourceCount(state, b) || isResourceCard(state, a) - isResourceCard(state, b),
+  const cheapest = hands.flatMap((owner) =>
+    matching(owner).sort(
+      (a, b) =>
+        resourceCount(state, a) - resourceCount(state, b) || isResourceCard(state, a) - isResourceCard(state, b),
+    ),
   );
   return cheapest.slice(0, min);
 }
@@ -899,6 +977,12 @@ function evaluate(
         (a, b) => a - b,
       )
     : undefined;
+  // Who can pay each delegable part (`LegalAction.costHelp`), from the variants that work, in the order tried.
+  const helpParts = DELEGABLE_COST_PARTS.filter((part) => variants.some((v) => v.partPayers?.[part] !== undefined));
+  const costHelp: readonly CostHelp[] = helpParts.map((part) => ({
+    part,
+    payers: [...new Set(working.flatMap((t) => t.variant.partPayers?.[part] ?? []))],
+  }));
   return {
     legal: {
       action,
@@ -908,6 +992,7 @@ function evaluate(
       ...(controllers ? { controllers } : {}),
       needsPayment: payment.length > 0,
       ...(costBranches ? { costBranches } : {}),
+      ...(costHelp.length > 0 ? { costHelp } : {}),
     },
   };
 }
@@ -1164,24 +1249,30 @@ function evaluateAbility(
   const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
   const picks = discardPicks(state, deps, playerId, instanceId, cost);
   const reserved = new Set(picks);
-  const spend = spendOrder(state, deps, playerId, reserved, null);
+  // A cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, hero-packs H3.19) is paid for its card, which
+  // is what makes the other players' hand cards and resource abilities sources (`paymentOptions`).
+  const payingFor = costsPayableByAnyPlayer(state, deps, instanceId) ? instanceId : null;
+  const spend = spendOrder(state, deps, playerId, reserved, payingFor);
   const chosenSize = resourcesChoiceOf(cost);
   const variants: Variant[] = costChoiceSets(state, deps, playerId, instanceId, cost, picks).flatMap(
     ({ costChoices, target }) =>
-      branchSelections(cost).map((branch) => ({
-        target,
-        ...(branch === undefined ? {} : { branch }),
-        build: (payment: readonly Payment[]): Command => ({
-          type: "useAbility",
-          playerId,
-          cardInstanceId: instanceId,
-          abilityId,
-          // A hand card a `chooseCard` cost picks cannot also pay (RRG 1.8 "Cost", p. 13: one card, one cost).
-          payment: cost?.chooseCard ? payment.filter((p) => !("fromHand" in p && p.fromHand === target)) : payment,
-          ...(costChoices ? { costChoices } : {}),
-          ...withBranch(branch),
-        }),
-      })),
+      branchSelections(cost).flatMap((branch) =>
+        partPayerSets(state, deps, playerId, instanceId, delegableParts(cost, branch)).map((partPayers) => ({
+          target,
+          ...(branch === undefined ? {} : { branch }),
+          ...(partPayers ? { partPayers } : {}),
+          build: (payment: readonly Payment[]): Command => ({
+            type: "useAbility",
+            playerId,
+            cardInstanceId: instanceId,
+            abilityId,
+            // A hand card a `chooseCard` cost picks cannot also pay (RRG 1.8 "Cost", p. 13: one card, one cost).
+            payment: cost?.chooseCard ? payment.filter((p) => !("fromHand" in p && p.fromHand === target)) : payment,
+            ...(costChoices ? { costChoices } : {}),
+            ...withBranch(branch, paidByOf(playerId, partPayers)),
+          }),
+        })),
+      ),
   );
   const evaluated = evaluate(
     state,
@@ -1195,7 +1286,7 @@ function evaluateAbility(
       leavingCardsToDiscard(
         [
           ...chosenSizeWallets(state, deps, playerId, spend, chosenSize, instanceId),
-          ...walletsWithWhenSpent(state, deps, playerId, reserved, null, spend),
+          ...walletsWithWhenSpent(state, deps, playerId, reserved, payingFor, spend),
         ],
         cost,
       ),
@@ -1910,4 +2001,43 @@ export function tryPayment(
   if (!command) return { ok: false, reason: "no_valid_target", message: "this action needs a target" };
   const result = applyCommand(state, command, deps);
   return result.ok ? { ok: true, command } : { ok: false, reason: result.error.code, message: result.error.message };
+}
+
+/** Whether `helperId` can pay one delegable part of a cost for another player, and the engine's reason when not. */
+export type CostHelpAnswer =
+  | { readonly part: DelegableCostPart; readonly ok: true }
+  | {
+      readonly part: DelegableCostPart;
+      readonly ok: false;
+      readonly reason: EngineErrorCode;
+      readonly message: string;
+    };
+
+/**
+ * "Why can't I help pay that?", asked for the helper: for each delegable part (`DelegableCostPart`) of the cost of
+ * `playerId`'s ability `action`, whether `helperId` could pay it in their place right now (`CostSelection.paidBy`),
+ * with the engine's own reason when they cannot: no rule lets another player pay ("only the player using this ability
+ * can pay its costs"), or the part cannot be taken from them (their identity holds a tough status card, their deck is
+ * short). Each part is judged alone, so the answer does not depend on what else the user can or cannot pay. Empty for a
+ * cost with no such part, and for anything but a `useAbility`. The parts that name the user's own card are never
+ * listed: no player can take those over (RRG 1.8 "Cost", p. 14; owner answer 21B).
+ */
+export function costHelpFor(
+  state: GameState,
+  playerId: PlayerId,
+  action: ActionRef,
+  helperId: PlayerId,
+  options: Pick<PaymentContext, "costSelection"> = {},
+  deps: EngineDeps = DEFAULT_DEPS,
+): readonly CostHelpAnswer[] {
+  if (action.kind !== "useAbility" || !getPlayer(state, playerId)) return [];
+  const { instanceId, abilityId } = action;
+  const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
+  return delegableParts(cost, options.costSelection?.branch).map((part): CostHelpAnswer => {
+    const paid = { ...cost, ...cost?.either?.[options.costSelection?.branch ?? -1] };
+    const { branch: _branch, ...amounts } = options.costSelection ?? {};
+    const selection: CostSelection = { ...amounts, paidBy: { [part]: helperId } };
+    const plan = planCost(state, deps, instanceId, playerId, { [part]: paid[part] }, {}, NO_RESERVED, selection);
+    return "requirement" in plan ? { part, ok: true } : { part, ok: false, reason: plan.code, message: plan.message };
+  });
 }

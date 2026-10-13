@@ -51,9 +51,9 @@ vi.setConfig({ testTimeout: 120_000 });
  * Wave 10 `wonder_man/other-aspects` (docs/phase7-wave10-hero-packs.md H8.4, HS6): the reprint 58017 Bombs Away and the
  * scripted 58019 Stronger Together, 58020 Unified Strike, 58030 Caught in the Crossfire and 58033 Disarming Defense,
  * played from real Wonder Man games against Core's Rhino, and 58031 Cameo resolved at setup step 16 of such a game.
- * 58032 Coordinated Effort (HT16) stays in the skip map. Cameo's rulings: March 19, 2026 - Ruling 6 (the unique rule),
- * January 26, 2026 - Ruling 2 and June 2, 2026 - Ruling 1 (the ally is any copy of its card). No ruling in
- * marvel-champions-rulings-post-rrg-1-7.md names the other scripted cards.
+ * 58032 Coordinated Effort is played in `coordinated-effort.test.ts` (two players). Cameo's rulings: March 19, 2026 -
+ * Ruling 6 (the unique rule), January 26, 2026 - Ruling 2 and June 2, 2026 - Ruling 1 (the ally is any copy of its
+ * card). No ruling in marvel-champions-rulings-post-rrg-1-7.md names the other scripted cards.
  */
 const BOMBS_AWAY = "58017.bombs-away-action";
 const TOGETHER = "58019.stronger-together-interrupt";
@@ -62,7 +62,7 @@ const CROSSFIRE = "58030.caught-in-the-crossfire-interrupt";
 const DISARMING = "58033.disarming-defense-interrupt";
 const CAMEO = "58031.setup";
 const EFFORT = "58032.coordinated-effort-constant";
-const SCRIPTED = [TOGETHER, STRIKE, CROSSFIRE, CAMEO, DISARMING];
+const SCRIPTED = [TOGETHER, STRIKE, CROSSFIRE, CAMEO, EFFORT, DISARMING];
 
 const FIREBIRD = "58012"; // Avenger like Wonder Man; 2 hp, consequential damage 2 on an attack
 const HAWKEYE = "58013"; // Avenger; 3 hp, ATK 1, THW 1, consequential damage 1
@@ -139,22 +139,24 @@ const heroDefends: Picker = (s) => {
 const holding = (state: GameState, code: string): GameState => moveToHand(state, P1, code).state;
 
 describe("registry", () => {
-  it("scripts the five cards and the reprint, each validating, and skips only Coordinated Effort", () => {
+  it("scripts the six cards and the reprint, each validating, and skips none", () => {
     expect(Object.keys(REGISTRY).sort()).toEqual([BOMBS_AWAY, ...SCRIPTED].sort());
     for (const id of Object.keys(REGISTRY)) expect(validateDefinition(REGISTRY[id]!), id).toEqual([]);
-    expect(Object.keys(SKIPPED)).toEqual([EFFORT]);
-    for (const id of SCRIPTED) expect(Object.keys(SKIPPED)).not.toContain(id);
+    expect(Object.keys(SKIPPED)).toEqual([]);
   });
 
   it("every ref the module's seven cards print is scripted or skipped, and nothing else", () => {
     const printed = ["58017", "58019", "58020", "58030", "58031", "58032", "58033"].flatMap((c) =>
       dataOf(c).abilities.map((a) => a.id),
     );
-    expect(printed.sort()).toEqual([BOMBS_AWAY, ...SCRIPTED, EFFORT].sort());
+    expect(printed.sort()).toEqual([BOMBS_AWAY, ...SCRIPTED].sort());
   });
 
-  it("the skipped ref names its engine task and spec section", () => {
-    expect(SKIPPED[EFFORT]).toMatch(/^waits on engine task HT16 .*H3\.19/);
+  it("Coordinated Effort is a constant naming the attached card (H3.19, engine task HT16)", () => {
+    expect(REGISTRY[EFFORT]!.trigger).toEqual({
+      kind: "constant",
+      rules: [{ kind: "costsPayableByAnyPlayer", card: { hostOfSelf: true } }],
+    });
   });
 
   it("prints the timings: three Hero Interrupts and a plain Interrupt on the upgrade", () => {

@@ -94,9 +94,27 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkCompetitiveOnly(definition.effects, false, problems);
   checkCost(definition, problems);
   checkAttackCostRules(definition, problems);
+  checkSharedCostRules(definition, problems);
   checkScaled(definition, "definition", problems);
   checkBindings(definition, problems);
   return problems;
+}
+
+/**
+ * `RuleSpec costsPayableByAnyPlayer` (docs/phase7-wave10-hero-packs.md H3.19): the rule names the cards whose
+ * abilities' costs any player may help pay. A query with no clause matches every card in play, which would open every cost on
+ * the table to every player; no card prints that, so the slip (`costsPayableByAnyPlayer({})`) is rejected.
+ */
+function checkSharedCostRules(definition: AbilityDefinition, problems: string[]): void {
+  const trigger = definition.trigger;
+  if (trigger.kind !== "constant") return;
+  for (const rule of trigger.rules ?? []) {
+    if (rule.kind !== "costsPayableByAnyPlayer") continue;
+    if (Object.keys(rule.card).length === 0)
+      problems.push(
+        "costsPayableByAnyPlayer: the rule names the card whose costs are shared (default: the attached card); an empty query names every card in play",
+      );
+  }
 }
 
 /**

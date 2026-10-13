@@ -1010,6 +1010,20 @@ export const spendableFromTucked = (
     ...(opts.while ? { while: opts.while } : {}),
   });
 /**
+ * "While paying costs on attached card, any player may help pay those costs." (Coordinated Effort, `wonder_man` 58032;
+ * docs/phase7-wave10-hero-packs.md H3.19, owner answer 21B) → `constant(costsPayableByAnyPlayer())`. While the
+ * constant is active, the cost of an ability printed on the card (default: the card this one is attached to) is paid as a
+ * group, the way an alliance card's is: every player's hand cards and resource abilities are payment sources, a
+ * discard from hand or a card in play the cost picks may be another player's, and a part worded "you" with no card
+ * named ("take 2 damage", "discard the top card of your deck") may be handed whole to another player
+ * (`costSelection.paidBy`). A part that names the user's own card ("exhaust your hero", "exhaust this card") stays
+ * with the player using the ability, and who may trigger the ability is unchanged. It names cards in play only.
+ */
+export const costsPayableByAnyPlayer = (
+  card: TargetQuery = { hostOfSelf: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "costsPayableByAnyPlayer", card, ...(opts.while ? { while: opts.while } : {}) });
+/**
  * "Falcon does not exhaust to defend until the end of the phase." (Draw Their Fire, `falcon` 53011;
  * docs/phase7-wave9.md §3.47): the rule itself, for `applyRuleUntil(doesNotExhaustToDefend(YOUR_HERO), "endOfPhase")`
  * in an ability's effects. `character` is who it covers, read with the ability's controller as "you". While it lasts

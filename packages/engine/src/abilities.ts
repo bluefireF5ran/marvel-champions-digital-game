@@ -992,6 +992,32 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "While paying costs on attached card, any player may help pay those costs." (docs/phase7-wave10-hero-packs.md
+   * H3.19; owner answer 21B, an interpretation: no ruling names the card.) While the rule is in force, the cost of an
+   * ability printed on a card in play that `card` matches is paid as a group, the way an alliance card's is (RRG 1.8
+   * "Alliance", p. 6: "any player may contribute to paying those costs"; neither text limits "costs" to resources):
+   *
+   * - **Still one payment, by the player using the ability** (RRG 1.8 "Cost", p. 13). Who may trigger the ability is
+   *   untouched (an obligation's holder, an attachment's host's controller, RRG 1.8 pp. 8, 30); the rule opens the
+   *   paying only. Types, overpayment and every "paid with" reader see the whole payment; each helper's spending is
+   *   announced as theirs (`resourcesSpent`, one per player).
+   * - **Resources**: every player's hand cards and resource abilities are sources, each read from its own player's
+   *   point of view (their form, limit and discard pile), exactly as for an alliance card (`paidAsGroup`).
+   * - **A part paid with a card** may take another player's card: a discard from hand (`discardFromHand`) from any
+   *   hand, a card in play to exhaust, discard, return or damage (`InPlayCostPick`) under any player's control.
+   * - **A part worded "you" with no card named** ("take 2 damage", "discard the top card of your deck"; the
+   *   `DelegableCostPart` list) may be handed whole to one other player in the command (`CostSelection.paidBy`).
+   * - **A part that names the user's own card stays with the user**: "exhaust your hero" (`exhaustIdentity`), counters
+   *   on or healing of their identity, and everything the ability's own card does to itself ("exhaust this card",
+   *   "discard this card"). No command can hand those over.
+   *
+   * Only a card in play is named, so nothing played from a hand is paid for under this rule. A constant like any
+   * other: off while its `while` is false, under a blank text box and once its card has left play.
+   *
+   * Read by `costsPayableByAnyPlayer` (`rules.ts`), which `paidAsGroup` and `planCost` consult.
+   */
+  | { readonly kind: "costsPayableByAnyPlayer"; readonly card: TargetQuery; readonly while?: Predicate }
+  /**
    * "You take the first turn during the player phase. (When your turn is done, play proceeds in player order, starting
    * with the first player. You do not take another turn.)" (Field Commander, `cyclops` 33004; docs/phase7-wave6.md
    * §3.27). Read once, as the player phase begins (§4.1 Q16): `player` (resolved like `cannotRecover`'s) takes the

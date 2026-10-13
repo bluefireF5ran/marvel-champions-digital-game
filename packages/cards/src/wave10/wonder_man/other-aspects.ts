@@ -9,6 +9,8 @@ import {
   cards,
   chooseTarget,
   chosen,
+  constant,
+  costsPayableByAnyPlayer,
   dealDamage,
   defineAbilities,
   discard,
@@ -96,7 +98,15 @@ import { ANGEL_PACK_CARDS } from "../../wave7/angel/pack-cards.js";
  * Cameo Jubilee functions "identically") treat the ally as any copy of its card: it is an ordinary instance of the
  * card, with that card's own scripts.
  *
- * **Left unscripted**: 58032 Coordinated Effort (needs the payment rule of H3.19, engine task HT16); see the skip map.
+ * **58032.coordinated-effort-constant**: "While paying costs on attached card, any player may help pay those costs."
+ * (`costsPayableByAnyPlayer`, H3.19; owner answer 21B, an interpretation: no ruling names the card.) The words are the
+ * Rules Reference's for Alliance (RRG 1.8 p. 6: "any player may contribute to paying those costs") and neither limits
+ * costs to resources: while it is attached, the cost of an ability printed on the attached encounter card may take any
+ * player's hand cards and resource abilities, a discard from any player's hand, a card in play any player controls,
+ * and a part worded "you" with no card named (damage taken, a discard from the top of a deck) may be handed whole to
+ * another player. A part that names the user's own card ("exhaust your hero", "exhaust Hercules") stays with the
+ * player using the ability, and who may trigger the ability is unchanged (an obligation's holder, RRG 1.8 p. 30). The
+ * attach line and Max 1 per encounter card are card data. With one player it changes nothing.
  *
  * No ruling in marvel-champions-rulings-post-rrg-1-7.md (December 17, 2025 to August 13, 2026) names 58019, 58020, 58030
  * or 58033.
@@ -131,6 +141,8 @@ export const WONDER_MAN_OTHER_ASPECTS: AbilityRegistry = defineAbilities({
     moveCards(cards(self), "removedFromGame"),
   ),
 
+  "58032.coordinated-effort-constant": constant(costsPayableByAnyPlayer()),
+
   "58033.disarming-defense-interrupt": heroInterrupt(
     when.defends(YOUR_HERO),
     { label: "defense" },
@@ -148,7 +160,4 @@ export const WONDER_MAN_OTHER_ASPECTS: AbilityRegistry = defineAbilities({
 });
 
 /** Refs of this module's cards deliberately left unscripted, each with its written reason. Delete a line as its ref is scripted. */
-export const WONDER_MAN_OTHER_ASPECTS_SKIPPED: Readonly<Record<string, string>> = {
-  "58032.coordinated-effort-constant":
-    "waits on engine task HT16 (docs/phase7-wave10-hero-packs.md H3.19): no RuleSpec lets any player help pay the costs of an ability printed on the attached card (costsPayableByAnyPlayer)",
-};
+export const WONDER_MAN_OTHER_ASPECTS_SKIPPED: Readonly<Record<string, string>> = {};

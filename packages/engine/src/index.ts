@@ -122,8 +122,11 @@ export type {
   PaymentContext,
   PaymentQuery,
   PaymentSource,
+  CostHelp,
+  CostHelpAnswer,
 } from "./legal.js";
 export {
+  costHelpFor,
   forcedActionOptionId,
   legalActions,
   outstandingForcedActions,
@@ -289,7 +292,8 @@ export { tuckLimitOf, tuckRoom } from "./tuck-limit.js";
 export { printedResources } from "./resources.js";
 export { pairOfOptionId, pairOptionId, pairSelectionFault, resourceIconsMatch } from "./resolve/pair-cards.js";
 export { characterTitledAs, identityCardTitledAs } from "./titles.js";
-export type { CostChoices, CostSelection } from "./commands.js";
+export type { CostChoices, CostPartPayers, CostSelection, DelegableCostPart } from "./commands.js";
+export { DELEGABLE_COST_PARTS } from "./commands.js";
 export type { DeferredEffects, ReportTarget, Vars } from "./stack.js";
 export { attackPreventedVars, currentActivationFrameId, PAID_CARDS_SLOT } from "./stack.js";
 export {
