@@ -350,7 +350,11 @@ export function settingsFocusOrder(rowIds: readonly string[]): readonly string[]
  * still take focus so their reason reads with `I`, the same rule
  * `titleFocusOrder` already applies to a blocked hero seat.
  */
-export function titleMenuFocusOrder(input: { readonly continuable: boolean }): readonly string[] {
+export function titleMenuFocusOrder(input: {
+  readonly continuable: boolean;
+  /** The update banner's buttons, when it is drawn; last, so the menu's own first stop stays first. */
+  readonly updateActions?: readonly string[];
+}): readonly string[] {
   return [
     ...(input.continuable ? ["continue"] : []),
     "new-game",
@@ -360,6 +364,7 @@ export function titleMenuFocusOrder(input: { readonly continuable: boolean }): r
     "how-to-play",
     "settings",
     "release-notes",
+    ...(input.updateActions ?? []),
   ];
 }
 

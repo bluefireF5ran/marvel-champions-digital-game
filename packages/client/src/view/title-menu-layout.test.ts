@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { rectsOverlap } from "./layout.js";
-import { titleMenuLayout, titleMenuLayoutRects } from "./title-menu-layout.js";
+import { titleMenuLayout, titleMenuLayoutRects, updateBannerParts } from "./title-menu-layout.js";
 
 const SIZES: readonly { readonly width: number; readonly height: number }[] = [
   { width: 440, height: 900 },
@@ -55,5 +55,66 @@ describe("titleMenuLayout", () => {
     expect(without.continueRow).toBeNull();
     expect(withContinue.continueRow).not.toBeNull();
     expect(withContinue.newGame.y).toBeGreaterThan(without.newGame.y);
+  });
+
+  test("no update, no banner, and the menu is where it always was", () => {
+    const plain = titleMenuLayout({ width: 1280, height: 1000, continuable: true });
+    expect(plain.updateBanner).toBeNull();
+    expect(titleMenuLayout({ width: 1280, height: 1000, continuable: true, update: false })).toEqual(plain);
+  });
+
+  test("on a split screen the update banner sits in the art panel and moves nothing", () => {
+    const plain = titleMenuLayout({ width: 1280, height: 1000, continuable: true });
+    const offered = titleMenuLayout({ width: 1280, height: 1000, continuable: true, update: true });
+    const banner = offered.updateBanner!;
+    expect(banner.x).toBeGreaterThanOrEqual(0);
+    expect(banner.x + banner.width).toBeLessThanOrEqual(offered.artPanel!.width);
+    expect({ ...offered, updateBanner: null }).toEqual(plain);
+  });
+
+  test("on a phone the update banner heads the column, above everything else, with no overlap", () => {
+    for (const continuable of [false, true]) {
+      const plain = titleMenuLayout({ width: 390, height: 844, continuable });
+      const offered = titleMenuLayout({ width: 390, height: 844, continuable, update: true });
+      const banner = offered.updateBanner!;
+      expect(banner.x).toBe(offered.left);
+      expect(banner.width).toBe(offered.column);
+      expect(banner.y + banner.height).toBeLessThanOrEqual(offered.eyebrow.y);
+      expect(offered.newGame.y).toBeGreaterThan(plain.newGame.y);
+      expect(offered.footer.y + 20).toBeLessThanOrEqual(844);
+      const rects = titleMenuLayoutRects(offered);
+      for (let i = 0; i < rects.length; i++) {
+        for (let j = i + 1; j < rects.length; j++) expect(rectsOverlap(rects[i]!, rects[j]!)).toBe(false);
+      }
+    }
+  });
+
+  test("the banner's buttons are touch-sized, inside it, and leave the text its room", () => {
+    // 390 and 1280 fit one row; a 360 phone and a portrait tablet's art panel stack the buttons under the text.
+    for (const [width, height] of [
+      [390, 844],
+      [360, 780],
+      [768, 1024],
+      [1024, 768],
+      [1280, 1000],
+    ] as const) {
+      const banner = titleMenuLayout({ width, height, continuable: false, update: true }).updateBanner!;
+      for (const actions of [1, 2]) {
+        const parts = updateBannerParts(banner, actions);
+        expect(parts.buttons).toHaveLength(actions);
+        for (const button of parts.buttons) {
+          expect(button.height).toBeGreaterThanOrEqual(44);
+          expect(button.x).toBeGreaterThanOrEqual(banner.x);
+          expect(button.x + button.width).toBeLessThanOrEqual(banner.x + banner.width);
+          expect(button.y + button.height).toBeLessThanOrEqual(banner.y + banner.height);
+        }
+        if (actions === 2) expect(rectsOverlap(parts.buttons[0]!, parts.buttons[1]!)).toBe(false);
+        // The two lines of text (32px tall, 116 wide at most) clear every button.
+        const text = { x: parts.text.x, y: parts.text.y, width: 116, height: 32 };
+        expect(parts.textWidth).toBeGreaterThanOrEqual(text.width);
+        expect(text.x + text.width).toBeLessThanOrEqual(banner.x + banner.width);
+        for (const button of parts.buttons) expect(rectsOverlap(text, button)).toBe(false);
+      }
+    }
   });
 });

@@ -71,7 +71,9 @@ import {
   defendChoiceLayout,
   defendMatchupLayout,
   defendOptionPicture,
+  defendOptionFit,
   defendOptionSlots,
+  DEFEND_OPTION_HEIGHT,
 } from "../view/defend-choice-layout.js";
 import {
   canConfirmChoice,
@@ -1415,12 +1417,9 @@ export class ChoiceOverlay extends Phaser.Scene {
    * otherwise draw an oversized card with a large dead-looking blank lower half, which the design canvases never show.
    */
   #drawDefendOption(fullSlot: Rect, option: DefendOptionView): void {
-    const slot: Rect = { ...fullSlot, height: Math.min(fullSlot.height, 190) };
-    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: option.optionId }), slot);
-    if (option.defenderInstanceId !== null) this.#guideOptionRects.set(option.defenderInstanceId, slot);
-
+    // Painted once the text is measured: the card is as tall as its text needs (`defendOptionFit`).
     const g = this.add.graphics();
-    paintPanel(g, slot, "card", option.selected ? "selected" : "rest");
+    const usual: Rect = { ...fullSlot, height: Math.min(fullSlot.height, DEFEND_OPTION_HEIGHT) };
 
     // The guide's own `GUIDE PICK` stamp (guided mode G5c), when this option's defender is the one it named —
     // drawn fresh every rebuild rather than kept as a persistent widget, since `#rebuild` already tears down and
@@ -1430,17 +1429,17 @@ export class ChoiceOverlay extends Phaser.Scene {
     // the stamp's bottom half landed right on top of "Black Cat defends" when both used the same 8px top pad.
     const isGuidePick = option.defenderInstanceId !== null && option.defenderInstanceId === this.#guidePickInstanceId;
     if (isGuidePick) {
-      new McGuideTag(this, "guidePick").update(slot);
+      new McGuideTag(this, "guidePick").update(usual);
     }
 
     // The card the option is about: the defender who would exhaust, or for "No defense" the character left to take it.
-    const picture = defendOptionPicture(slot);
+    const picture = defendOptionPicture(usual);
     const game = appSession().store.state.game;
     if (picture && game) this.#drawScan(game, option.pictureInstanceId, picture);
-    const textX = picture ? picture.x + picture.width + 10 : slot.x + 10;
-    const textWidth = slot.x + slot.width - 10 - textX;
+    const textX = picture ? picture.x + picture.width + 10 : usual.x + 10;
+    const textWidth = usual.x + usual.width - 10 - textX;
 
-    let y = isGuidePick ? slot.y + guideTag.height / 2 + 6 : slot.y + 8;
+    let y = isGuidePick ? usual.y + guideTag.height / 2 + 6 : usual.y + 8;
     const title = this.add.text(textX, y, option.title, textStyle(typeRole.rowTitle, surface.ink.hex));
     fitText(title, textWidth, typeRole.rowTitle.size);
     y += title.height + 4;
@@ -1459,10 +1458,25 @@ export class ChoiceOverlay extends Phaser.Scene {
     });
     y += damage.height + 4;
 
-    if (option.hpAfter) {
-      const hp = this.add.text(textX, y, option.hpAfter, textStyle(typeRole.label, surface.ink.hex, ink.secondary));
-      y += hp.height + 4;
+    const hp = option.hpAfter
+      ? this.add.text(textX, y, option.hpAfter, textStyle(typeRole.label, surface.ink.hex, ink.secondary))
+      : null;
+    if (hp) y += hp.height + 4;
+
+    // The four lines above are the option; the card holds all of them (issue #125), and the consequences take what
+    // room is left under them.
+    const fit = defendOptionFit(fullSlot.height, y + 4 - usual.y);
+    const slot: Rect = { ...fullSlot, height: fit.height };
+    if (fit.scale < 1) {
+      cost.setWordWrapWidth(textWidth / fit.scale);
+      for (const line of [title, cost, damage, hp]) {
+        line?.setScale(fit.scale).setY(slot.y + (line.y - slot.y) * fit.scale);
+      }
+      y = slot.y + slot.height;
     }
+    paintPanel(g, slot, "card", option.selected ? "selected" : "rest");
+    this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: option.optionId }), slot);
+    if (option.defenderInstanceId !== null) this.#guideOptionRects.set(option.defenderInstanceId, slot);
 
     if (option.consequences.length > 0 && y < slot.y + slot.height - 12) {
       this.add

@@ -16,7 +16,7 @@
  */
 
 import Phaser from "phaser";
-import { accent, dotGrid, hit, ink, surface, typeRole } from "../tokens.js";
+import { accent, dotGrid, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import type { Rect } from "../view/layout.js";
 import { cssOf, textStyle } from "../ui/theme.js";
 import { McButton, paintDotGrid } from "../ui/widgets.js";
@@ -31,15 +31,16 @@ import {
   POOL_VERSION,
 } from "../content/pool.js";
 import { cardPoolCoverageOf, cardPoolCoverageText } from "../view/card-pool-coverage.js";
-import { appVersionText, buildCommit, releaseNotesUrl } from "../view/app-version.js";
+import { appVersionText, buildCommit, releaseNotesUrl, updateActions } from "../view/app-version.js";
 import { CLIENT_VERSION } from "../version.js";
 import { detectPlatform, openExternal } from "../platform/platform.js";
+import { checkForUpdate, type AvailableUpdate } from "../platform/update-check.js";
 import { preconDecks } from "../view/deck-list-model.js";
 import { cardDisplayName } from "../view/hero-names.js";
 import { initialSetupDraft, withSeatOne } from "../view/setup-draft.js";
 import { rollSeed } from "../view/seed.js";
 import { titleMenuFocusOrder } from "../view/screen-focus.js";
-import { titleMenuLayout } from "../view/title-menu-layout.js";
+import { titleMenuLayout, updateBannerParts } from "../view/title-menu-layout.js";
 import type { SaveMeta } from "../engine/game-storage.js";
 import { appSession } from "../session.js";
 import { guidePrefs, setGuideRunLevelOverride } from "../guide/guide-store.js";
@@ -90,6 +91,8 @@ export class TitleScene extends Phaser.Scene {
   #starting = false;
   /** The game in progress when this screen opened, if any — looked up asynchronously; the screen draws without it first. */
   #continuable: SaveMeta | null = null;
+  /** A newer release with an installer for this platform (native apps only), once GitHub has answered. */
+  #update: AvailableUpdate | null = null;
   /** This visit's picture (`art/title-art.ts`), chosen once per `create` so a resize redraws the same one. */
   #art: TitleArt | null = null;
   #artPanel: { x: number; y: number; width: number; height: number } | null = null;
@@ -134,6 +137,11 @@ export class TitleScene extends Phaser.Scene {
         this.#continuable = save;
         this.#rebuild();
       });
+    void checkForUpdate().then((update) => {
+      if (!update || !this.sys.isActive()) return;
+      this.#update = update;
+      this.#rebuild();
+    });
   }
 
   #rebuild(): void {
@@ -147,6 +155,7 @@ export class TitleScene extends Phaser.Scene {
       width,
       height,
       continuable: this.#continuable !== null,
+      update: this.#update !== null,
     });
 
     // Ground: split desktop/tablet (ink art panel left, red rule, paper menu panel right); one ink ground on phone.
@@ -364,8 +373,48 @@ export class TitleScene extends Phaser.Scene {
       .text(layout.left, layout.footer.y - 24, "", textStyle(typeRole.body, textColor))
       .setWordWrapWidth(layout.column);
 
-    this.#route?.set(titleMenuFocusOrder({ continuable: this.#continuable !== null }), this.#stops);
+    const bannerStops = this.#drawUpdateBanner(layout.updateBanner);
+    this.#route?.set(
+      titleMenuFocusOrder({ continuable: this.#continuable !== null, updateActions: bannerStops }),
+      this.#stops,
+    );
     this.#drawArt();
+  }
+
+  /**
+   * The update banner (native apps, `platform/update-check.ts`): caution yellow, the advisory color, with the new
+   * version and a button per action: the changelog and this install's own installer. Returns its focus stops.
+   */
+  #drawUpdateBanner(banner: Rect | null): readonly string[] {
+    const update = this.#update;
+    if (!update || !banner) return [];
+    const actions = updateActions(update);
+    const parts = updateBannerParts(banner, actions.length);
+    this.add
+      .rectangle(banner.x, banner.y, banner.width, banner.height, signal.caution.hex)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, surface.ink.hex);
+    this.add
+      .text(parts.text.x, parts.text.y, "UPDATE AVAILABLE", textStyle(typeRole.label, surface.ink.hex))
+      .setLetterSpacing(1);
+    this.add
+      .text(parts.text.x, parts.text.y + 16, `Version ${update.version}`, textStyle(typeRole.rowTitle, surface.ink.hex))
+      .setWordWrapWidth(parts.textWidth);
+    actions.forEach((action, index) => {
+      const rect = parts.buttons[index]!;
+      const open = (): void => openExternal(action.url);
+      this.#buttons.push(
+        new McButton(this, {
+          kind: action.id === "update-download" ? "primary" : "secondary",
+          label: action.label,
+          type: typeRole.rowTitle,
+          rect,
+          onClick: open,
+        }),
+      );
+      this.#stops.set(action.id, { rect, activate: open });
+    });
+    return actions.map((action) => action.id);
   }
 
   /** Draws this visit's picture if its texture is ready, otherwise loads it once and draws on arrival. */

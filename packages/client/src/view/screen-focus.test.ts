@@ -547,6 +547,21 @@ describe("screen focus routes", () => {
     expect(scenarioSelectFocusOrder({ scenarioIds: ["a"] })).not.toContain("customize");
   });
 
+  test("the Title's update banner buttons come last, so the menu's first stop is still the first", () => {
+    expect(titleMenuFocusOrder({ continuable: true, updateActions: ["update-notes", "update-download"] })).toEqual([
+      "continue",
+      "new-game",
+      "decks",
+      "campaign",
+      "extras",
+      "how-to-play",
+      "settings",
+      "release-notes",
+      "update-notes",
+      "update-download",
+    ]);
+  });
+
   test("Scenario select: Back, search, chips, rows (or Clear), then next", () => {
     expect(scenarioSelectFocusOrder({ scenarioIds: ["rhino", "klaw"] })).toEqual([
       "back",

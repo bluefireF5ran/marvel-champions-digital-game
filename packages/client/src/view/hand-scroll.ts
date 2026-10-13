@@ -57,8 +57,12 @@ export class HandScroll {
     onDragEnd: (velocityPxPerMs) => this.#momentum.start(-velocityPxPerMs),
   };
 
-  constructor(redraw: () => void) {
+  /** With `wheelWithinX`, a wheel gesture only scrolls the row while the pointer is between its left and right edges too. */
+  readonly #wheelWithinX: boolean;
+
+  constructor(redraw: () => void, options: { readonly wheelWithinX?: boolean } = {}) {
     this.#redraw = redraw;
+    this.#wheelWithinX = options.wheelWithinX ?? false;
   }
 
   get scrollX(): number {
@@ -112,10 +116,18 @@ export class HandScroll {
    * horizontally. The tabbed board is the only layout that ever needs
    * scrolling, so this is a no-op everywhere else.
    */
-  onWheel(pointer: { readonly y: number }, _objects: unknown, deltaX: number, deltaY: number): void {
+  onWheel(
+    pointer: { readonly x?: number; readonly y: number },
+    _objects: unknown,
+    deltaX: number,
+    deltaY: number,
+  ): void {
     const rect = this.#contentRect;
     if (!rect || this.#maxScroll <= 0) return;
     if (pointer.y < rect.y || pointer.y > rect.y + rect.height) return;
+    // A row with other zones beside it (the play area, between the identity and the other heroes).
+    if (this.#wheelWithinX && (pointer.x === undefined || pointer.x < rect.x || pointer.x > rect.x + rect.width))
+      return;
     this.#momentum.stop();
     // A vertical mouse wheel is still "scroll the hand" here — there is
     // nothing in this rect to scroll vertically, and a trackpad's horizontal
@@ -137,5 +149,20 @@ export class HandScroll {
     const right = rect.x + rect.width;
     if (drawn.x < left) this.scrollBy(drawn.x - left);
     else if (drawn.x + drawn.width > right && drawn.width <= rect.width) this.scrollBy(drawn.x + drawn.width - right);
+  }
+
+  /**
+   * During a draw, after `measure` and before `attach`: moves the scroll just far enough that `slot` (as laid out,
+   * no scroll subtracted) sits wholly inside the row. Nothing is redrawn: the draw in progress reads `scrollX` next.
+   */
+  reveal(slot: Rect): void {
+    const rect = this.#contentRect;
+    if (!rect || this.#maxScroll <= 0) return;
+    const left = slot.x - this.#scrollX;
+    const right = left + slot.width;
+    let next = this.#scrollX;
+    if (left < rect.x) next += left - rect.x;
+    else if (right > rect.x + rect.width && slot.width <= rect.width) next += right - (rect.x + rect.width);
+    this.#scrollX = Math.min(this.#maxScroll, Math.max(0, next));
   }
 }

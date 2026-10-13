@@ -3,6 +3,7 @@ import { rectsOverlap } from "./layout.js";
 import {
   defendChoiceLayout,
   defendMatchupLayout,
+  defendOptionFit,
   defendOptionPicture,
   defendOptionSlots,
   type DefendChoiceLayout,
@@ -207,5 +208,22 @@ describe("defendOptionSlots weights", () => {
     expect(slots[2]!.height).toBeCloseTo(slots[0]!.height * 2);
     const last = slots[2]!;
     expect(last.y + last.height).toBeCloseTo(area.y + area.height);
+  });
+});
+
+describe("defendOptionFit (issue #125)", () => {
+  test("a card whose text fits is drawn at its usual height, or its cell's when that is shorter", () => {
+    expect(defendOptionFit(400, 150)).toEqual({ height: 190, scale: 1 });
+    expect(defendOptionFit(120, 100)).toEqual({ height: 120, scale: 1 });
+  });
+
+  test("a card grows past its usual height to hold all of its text, while its cell has the room", () => {
+    expect(defendOptionFit(400, 212)).toEqual({ height: 212, scale: 1 });
+  });
+
+  test("in a cell too short for the text, the text steps down to end exactly at the card's foot", () => {
+    const fit = defendOptionFit(190, 212);
+    expect(fit.height).toBe(190);
+    expect(212 * fit.scale).toBeCloseTo(190);
   });
 });

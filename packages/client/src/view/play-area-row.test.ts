@@ -1,0 +1,144 @@
+/**
+ * The play area's row (issue #119): cards keep a readable size and the row scrolls, where it used to shrink thirteen
+ * cards to slivers their own ability strips covered.
+ */
+
+import { describe, expect, test, vi } from "vitest";
+import type { InstanceId } from "@mc/engine";
+import { CARD_ASPECT, type Rect } from "./layout.js";
+import { PLAY_AREA_GAP, PlayAreaScroll, playAreaRow, sliceWithin } from "./play-area-row.js";
+
+/** Roughly the long table's play area at 1920×1280 with one player. */
+const AREA: Rect = { x: 500, y: 700, width: 1000, height: 240 };
+const ids = (count: number): InstanceId[] => Array.from({ length: count }, (_unused, at) => `card-${at}` as InstanceId);
+
+describe("playAreaRow", () => {
+  test("a few cards sit at the zone's full height, centered, and nothing scrolls", () => {
+    const row = playAreaRow(AREA, 3);
+    expect(row.scrolls).toBe(false);
+    expect(row.slots.every((slot) => slot.height === AREA.height)).toBe(true);
+    const rowWidth = row.slots.at(-1)!.x + row.slots.at(-1)!.width - row.slots[0]!.x;
+    expect(row.slots[0]!.x - AREA.x).toBeCloseTo((AREA.width - rowWidth) / 2);
+  });
+
+  test("a row that is getting full shrinks its cards a little before it scrolls", () => {
+    const row = playAreaRow(AREA, 7);
+    expect(row.scrolls).toBe(false);
+    expect(row.slots[0]!.height).toBeLessThan(AREA.height);
+    expect(row.slots[0]!.height).toBeGreaterThanOrEqual(AREA.height * 0.7);
+  });
+
+  test("thirteen cards keep 70% of the zone's height, never overlap, and the row scrolls", () => {
+    const row = playAreaRow(AREA, 13);
+    expect(row.scrolls).toBe(true);
+    expect(row.slots).toHaveLength(13);
+    for (const slot of row.slots) {
+      expect(slot.height).toBeCloseTo(AREA.height * 0.7);
+      expect(slot.width).toBeCloseTo(AREA.height * 0.7 * CARD_ASPECT);
+    }
+    expect(row.slots[0]!.x).toBe(AREA.x);
+    for (let at = 1; at < row.slots.length; at++) {
+      expect(row.slots[at]!.x - row.slots[at - 1]!.x).toBeCloseTo(row.slots[0]!.width + PLAY_AREA_GAP);
+    }
+    expect(row.slots.at(-1)!.x + row.slots.at(-1)!.width).toBeGreaterThan(AREA.x + AREA.width);
+  });
+
+  test("a short zone keeps its cards at least 120px tall, or its own height when it has less", () => {
+    expect(playAreaRow({ ...AREA, height: 150 }, 20).slots[0]!.height).toBe(120);
+    expect(playAreaRow({ ...AREA, height: 90 }, 20).slots[0]!.height).toBe(90);
+  });
+
+  test("no cards, no slots", () => {
+    expect(playAreaRow(AREA, 0)).toEqual({ slots: [], scrolls: false });
+  });
+});
+
+describe("sliceWithin", () => {
+  test("a card cut by the zone's edge keeps only the part inside, and one wholly outside has none", () => {
+    expect(sliceWithin({ x: 480, y: 0, width: 100, height: 10 }, AREA)).toEqual({
+      x: 500,
+      y: 0,
+      width: 80,
+      height: 10,
+    });
+    expect(sliceWithin({ x: 1450, y: 0, width: 100, height: 10 }, AREA)).toEqual({
+      x: 1450,
+      y: 0,
+      width: 50,
+      height: 10,
+    });
+    expect(sliceWithin({ x: 300, y: 0, width: 100, height: 10 }, AREA)).toBeNull();
+    expect(sliceWithin({ x: 1500, y: 0, width: 100, height: 10 }, AREA)).toBeNull();
+  });
+});
+
+describe("PlayAreaScroll", () => {
+  const settle = (
+    scroll: PlayAreaScroll,
+    count: number,
+    focused: InstanceId | null = null,
+    targets: readonly InstanceId[] | null = null,
+  ) => {
+    const row = playAreaRow(AREA, count);
+    scroll.settle(AREA, ids(count), row.slots, focused, targets);
+    return row;
+  };
+
+  test("a resumed game opens at the start of the row, and a row that fits cannot scroll", () => {
+    const scroll = new PlayAreaScroll(() => {});
+    settle(scroll, 13);
+    expect(scroll.row.canScroll).toBe(true);
+    expect(scroll.row.scrollX).toBe(0);
+    settle(scroll, 3);
+    expect(scroll.row.canScroll).toBe(false);
+    expect(scroll.row.scrollX).toBe(0);
+  });
+
+  test("a card that just entered play off the right edge is brought into view, without a redraw of its own", () => {
+    const redraw = vi.fn();
+    const scroll = new PlayAreaScroll(redraw);
+    settle(scroll, 12);
+    const row = settle(scroll, 13);
+    const last = row.slots.at(-1)!;
+    expect(last.x + last.width - scroll.row.scrollX).toBeCloseTo(AREA.x + AREA.width);
+    expect(redraw).not.toHaveBeenCalled();
+  });
+
+  test("a wheel scroll is kept by the next redraw of the same cards", () => {
+    const scroll = new PlayAreaScroll(() => {});
+    settle(scroll, 13);
+    scroll.row.scrollBy(200);
+    settle(scroll, 13);
+    expect(scroll.row.scrollX).toBe(200);
+  });
+
+  test("keyboard focus moving onto a card off screen scrolls to it", () => {
+    const scroll = new PlayAreaScroll(() => {});
+    const row = settle(scroll, 13);
+    settle(scroll, 13, ids(13)[12]!);
+    expect(scroll.row.scrollX).toBeCloseTo(row.slots[12]!.x + row.slots[12]!.width - (AREA.x + AREA.width));
+    // Back to the first card.
+    settle(scroll, 13, ids(13)[0]!);
+    expect(scroll.row.scrollX).toBe(0);
+  });
+
+  test("a target prompt scrolls to its first target only when none of them is on screen", () => {
+    const scroll = new PlayAreaScroll(() => {});
+    settle(scroll, 13, null, [ids(13)[1]!, ids(13)[12]!]);
+    expect(scroll.row.scrollX).toBe(0);
+    settle(scroll, 13, null, null);
+    settle(scroll, 13, null, [ids(13)[11]!, ids(13)[12]!]);
+    expect(scroll.row.scrollX).toBeGreaterThan(0);
+  });
+
+  test("the wheel scrolls the row only while the pointer is over it", () => {
+    const scroll = new PlayAreaScroll(() => {});
+    settle(scroll, 13);
+    scroll.row.onWheel({ x: 100, y: 800 }, [], 0, 120); // over the identity panel, left of the play area
+    expect(scroll.row.scrollX).toBe(0);
+    scroll.row.onWheel({ x: 900, y: 100 }, [], 0, 120); // above it
+    expect(scroll.row.scrollX).toBe(0);
+    scroll.row.onWheel({ x: 900, y: 800 }, [], 0, 120);
+    expect(scroll.row.scrollX).toBe(120);
+  });
+});

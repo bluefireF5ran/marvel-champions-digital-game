@@ -293,6 +293,20 @@ export function defendMatchupLayout(summary: Rect, formFactor: FormFactor): Defe
   return { attacker, middle, target, attackerCaption, targetCaption, notes };
 }
 
+/** An option card's usual height: it is drawn top-aligned in its cell, no taller than this unless its text needs more. */
+export const DEFEND_OPTION_HEIGHT = 190;
+
+/**
+ * How tall an option card is drawn in a cell `cellHeight` tall, given the height its text stack needs (pads
+ * included), and the scale that stack is drawn at. The card grows past its usual height to hold the stack, up to
+ * the whole cell; only when the cell itself is too short does the text step down. The card never ends above its
+ * own last line (issue #125: "2-5 of 10 HP" ran out of the bottom of the card).
+ */
+export function defendOptionFit(cellHeight: number, contentHeight: number): { height: number; scale: number } {
+  const height = Math.min(cellHeight, Math.max(DEFEND_OPTION_HEIGHT, contentHeight));
+  return { height, scale: contentHeight > height ? height / contentHeight : 1 };
+}
+
 /** Where an option card's scan goes, or null when the card is too narrow to hold one beside its text. */
 export function defendOptionPicture(slot: Rect): Rect | null {
   const height = Math.min(slot.height - 16, 160);
