@@ -38,9 +38,12 @@ campaign box; the box's own cast joins at once, and every other hero's precon is
 
 Civil War (MC56) opens after the Agents of S.H.I.E.L.D. campaign (owner, question 25 = A) and has no campaign of its own
 (MC56 p. 3). Its four leader scenarios (Iron Man, Captain Marvel, Captain America, Spider-Woman) open with the box. The
-Wonder Man and Hercules packs, the cycle's other two heroes, are not playable yet and are in no reward: the provisional
-pairing is Wonder Man for registration-iron-man and Hercules for resistance-captain-america, for the owner to confirm,
-and each hero joins `heroRewards` when its pack gets a starter deck.
+Wonder Man pack is in the pool (his cards, his nemesis set and his scripts) but ships no starter deck yet, so he is
+offered in the deck builder and seated only with a deck the player builds; a built deck is never hero-locked, and
+`UNLOCK_HEROES` is made from starter decks, so he is in no reward. The Hercules pack is not in the pool yet (his Team-Up
+art is missing). The provisional pairing is Wonder Man for registration-iron-man and Hercules for
+resistance-captain-america, for the owner to confirm, and each hero joins `heroRewards` when its pack gets a starter
+deck.
 
 Trickster Takeover (Enchantress; Loki, God of Lies; the Trickster Magic modular set) has no row of its own: it
 opens with the Agents of S.H.I.E.L.D. wave. The pack prints no unlock requirement, so this is a progression policy

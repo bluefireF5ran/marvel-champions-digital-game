@@ -38,6 +38,7 @@ import {
   POOL_CARDS,
   POOL_DEPS,
   POOL_ENCOUNTER_SETS,
+  POOL_HERO_SHELF_PACKS,
   POOL_PACKS,
   POOL_SCENARIOS,
   POOL_STARTER_DECKS,
@@ -140,9 +141,10 @@ describe("packNameOf", () => {
   });
 
   test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 to cycle 10 pack (Civil War), with no duplicate codes", () => {
-    expect(POOL_PACKS.length).toBe(57);
-    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(57);
+    expect(POOL_PACKS.length).toBe(58);
+    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(58);
     expect(packNameOf("cw")).toBe("Civil War");
+    expect(packNameOf("wonder_man")).toBe("Wonder Man");
   });
 });
 
@@ -245,13 +247,19 @@ describe("buildScenario", () => {
 });
 
 describe("the Civil War box in the pool", () => {
-  test("its sets are in the pool's encounter sets; the Wonder Man and Hercules packs' are not", () => {
+  test("its sets are in the pool's encounter sets, with Wonder Man's nemesis set; the Hercules pack's are not", () => {
     const ids = new Set(POOL_ENCOUNTER_SETS.map((set) => set.id as string));
     for (const set of WAVE10_ENCOUNTER_SETS.filter((candidate) => candidate.id !== "all_versus_all")) {
-      const heroPack = set.id === "wonder_man_nemesis" || set.id === "hercules_nemesis";
-      expect(ids.has(set.id as string), set.id as string).toBe(!heroPack);
+      expect(ids.has(set.id as string), set.id as string).toBe(set.id !== "hercules_nemesis");
     }
     expect(ids.has("all_versus_all")).toBe(false);
+  });
+
+  test("the Wonder Man pack is in the pool as a hero with no starter deck: shelved in the Civil War cycle", () => {
+    expect(POOL_CARDS.some((card) => card.id === "58001a")).toBe(true);
+    expect(POOL_STARTER_DECKS.some((deck) => deck.identityCardId === "58001a")).toBe(false);
+    expect(POOL_HERO_SHELF_PACKS.some((pack) => pack.code === "wonder_man" && pack.cycleId === "cycle10")).toBe(true);
+    expect(POOL_CARDS.some((card) => card.id === "59001a")).toBe(false);
   });
 
   test("its four leaders are scenarios of the pack Civil War, and the two precons start a game at one", async () => {

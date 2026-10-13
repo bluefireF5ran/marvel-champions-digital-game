@@ -137,7 +137,7 @@ describe("the unlock path", () => {
       hint: "Complete the Agents of S.H.I.E.L.D. campaign",
     });
     expect(wave.campaignId).toBeUndefined();
-    // Wonder Man (58001a) and Hercules (59001a) are not in the pool, so no reward can name them yet.
+    // Wonder Man (58001a) is in the pool without a starter deck and Hercules (59001a) is not, so no reward can name them yet.
     expect(wave.heroRewards).toEqual([]);
     expect(wave.starterHeroIds).toEqual(["56001a", "56029a"]);
 

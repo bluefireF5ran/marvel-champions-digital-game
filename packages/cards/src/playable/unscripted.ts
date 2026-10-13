@@ -14,9 +14,8 @@
 import type { Scenario } from "@mc/content";
 
 export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([
-  // The Wonder Man and Hercules packs (cycle 10) are not playable yet: their kits are mostly unscripted. Their nemesis
-  // sets are gated with them, and so is All Versus All (see `GATED_THOUGH_SCRIPTED`).
-  "wonder_man_nemesis",
+  // The Hercules pack (cycle 10) is not playable yet (its Team-Up art is missing), so its nemesis set is gated with it,
+  // and so is All Versus All (see `GATED_THOUGH_SCRIPTED`). Wonder Man's pack is playable and so is its nemesis set.
   "hercules_nemesis",
   "all_versus_all",
 ]);

@@ -11,7 +11,7 @@ import { civilWarGameModes, civilWarSidesOffer, playableScenarioOffer } from "./
 /**
  * docs/phase7-wave10.md §3.1b: `playableScenario` routes a Civil War leader to `wave10Scenario`, and
  * `playableScenarioOffer` carries what the client's scenario builder draws (docs/phase7-wave10-client.md section 2.7),
- * and the wave is in the playable pool (C10), minus the Wonder Man and Hercules packs.
+ * and the wave is in the playable pool (C10), plus the Wonder Man pack, minus the Hercules pack.
  */
 
 const SPIDER_MAN = { starterDeckId: "core-spider-man-justice" } as const;
@@ -38,8 +38,15 @@ describe("the Civil War box is joined to the playable pool", () => {
     }
   });
 
-  it("keeps the hero packs out: their sets are gated and neither hero can be seated", () => {
-    for (const id of ["wonder_man_nemesis", "hercules_nemesis", "all_versus_all"]) {
+  it("joins the Wonder Man pack: his nemesis set is playable and he has no starter deck to seat", () => {
+    expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has("wonder_man_nemesis")).toBe(false);
+    expect(PLAYABLE_ENCOUNTER_SETS.some((set) => set.id === "wonder_man_nemesis")).toBe(true);
+    expect(Object.keys(PLAYABLE_ABILITIES).some((id) => id.startsWith("58"))).toBe(true);
+    expect(() => playableStarterDeckSetup("wonder_man-leadership")).toThrow("no playable starter deck");
+  });
+
+  it("keeps the Hercules pack out: his sets are gated and he cannot be seated", () => {
+    for (const id of ["hercules_nemesis", "all_versus_all"]) {
       expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has(id), id).toBe(true);
       expect(
         PLAYABLE_ENCOUNTER_SETS.some((set) => set.id === id),
@@ -51,7 +58,6 @@ describe("the Civil War box is joined to the playable pool", () => {
         id,
       ).toThrow();
     }
-    expect(() => playableStarterDeckSetup("wonder_man-leadership")).toThrow("no playable starter deck");
     expect(() => playableStarterDeckSetup("hercules-protection")).toThrow("no playable starter deck");
   });
 
