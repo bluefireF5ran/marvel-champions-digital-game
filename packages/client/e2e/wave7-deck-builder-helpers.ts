@@ -44,7 +44,7 @@ export async function scrollTo(page: Page, scene: string, key: string): Promise<
     );
     const { x, y, width, height } = stop.rect;
     const cy = y + height / 2;
-    if (!/^(card:|identity:|deck:|new-deck|pool-card:)/.test(key)) {
+    if (!/^(card:|identity:|deck:|pool-card:)/.test(key)) {
       // A fixed control (Save, a filter chip): on a phone the whole column scrolls, so wheel the column until it is in view.
       const limit = size.width < 1000 && scene === "DeckBuilder" && key !== "filter-text" ? 420 : size.height - 20; // the phone builder's top region scrolls above a fixed search field and pool list
       if (

@@ -133,6 +133,7 @@ describe("screen focus routes", () => {
     };
     expect(decksFocusOrder(base)).toEqual([
       "back",
+      "new-deck",
       "deck-search",
       "filters-toggle",
       "deck-chip:aspect:justice",
@@ -140,7 +141,6 @@ describe("screen focus routes", () => {
       "deck:p1",
       "deck:s1",
       "deck:s2",
-      "new-deck",
       "ie-paste-toggle",
       "ie-marvelcdb-toggle",
       "ie-export",
@@ -215,10 +215,10 @@ describe("screen focus routes", () => {
     expect(decksFocusOrder({ ...base, activeTab: "decks" })).toEqual([
       "back",
       ...tabs,
+      "new-deck",
       "deck-search",
       "filters-toggle",
       "deck:p1",
-      "new-deck",
       "ie-paste-toggle",
       "ie-marvelcdb-toggle",
       "ie-export",
