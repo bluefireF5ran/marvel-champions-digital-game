@@ -35,10 +35,69 @@ const TITLE_BLOCK_RATIO = 1.35;
 const DIVIDER_WIDTH = 4;
 const ART_PANEL_SHARE = 0.45;
 
+/**
+ * The update banner. Wide enough, it is one row: two lines of text on the left, the buttons on the right. On a narrow
+ * column (a small phone, a portrait tablet's art panel) the buttons would cover the text, so they drop to a row of
+ * their own under it.
+ */
+const UPDATE_BANNER_PAD = 8;
+const UPDATE_BANNER_MAX_WIDTH = 520;
+const UPDATE_BUTTON_WIDTH = 104;
+const UPDATE_TEXT_INSET = UPDATE_BANNER_PAD + 4;
+/** Room for "UPDATE AVAILABLE" over "Version 0.00.0". */
+const UPDATE_TEXT_WIDTH = 116;
+const UPDATE_TEXT_HEIGHT = 32;
+const UPDATE_BANNER_INLINE_WIDTH =
+  UPDATE_TEXT_INSET + UPDATE_TEXT_WIDTH + (UPDATE_BANNER_PAD + UPDATE_BUTTON_WIDTH) * 2 + UPDATE_BANNER_PAD;
+const UPDATE_BANNER_HEIGHT = hit.target + UPDATE_BANNER_PAD * 2;
+const UPDATE_BANNER_STACKED_HEIGHT = UPDATE_BANNER_HEIGHT + UPDATE_TEXT_HEIGHT + UPDATE_BANNER_PAD;
+
+const updateBannerHeight = (width: number): number =>
+  width >= UPDATE_BANNER_INLINE_WIDTH ? UPDATE_BANNER_HEIGHT : UPDATE_BANNER_STACKED_HEIGHT;
+
+export interface UpdateBannerParts {
+  /** Where the banner's two lines of text start; they run up to `textWidth`. */
+  readonly text: { readonly x: number; readonly y: number };
+  readonly textWidth: number;
+  /** One button per action, left to right. */
+  readonly buttons: readonly Rect[];
+}
+
+/** The inside of the update banner, for `actions` buttons (one or two). */
+export function updateBannerParts(banner: Rect, actions: number): UpdateBannerParts {
+  const textX = banner.x + UPDATE_TEXT_INSET;
+  const buttonY = banner.y + banner.height - UPDATE_BANNER_PAD - hit.target;
+  if (banner.height > UPDATE_BANNER_HEIGHT) {
+    // Stacked: the buttons share the full width of their own row.
+    const inner = banner.width - UPDATE_BANNER_PAD * 2;
+    const width = (inner - UPDATE_BANNER_PAD * (actions - 1)) / actions;
+    const buttons = Array.from({ length: actions }, (_, i) => ({
+      x: banner.x + UPDATE_BANNER_PAD + i * (width + UPDATE_BANNER_PAD),
+      y: buttonY,
+      width,
+      height: hit.target,
+    }));
+    return {
+      text: { x: textX, y: banner.y + UPDATE_BANNER_PAD + 2 },
+      textWidth: banner.width - UPDATE_TEXT_INSET * 2,
+      buttons,
+    };
+  }
+  const buttons: Rect[] = [];
+  let right = banner.x + banner.width - UPDATE_BANNER_PAD;
+  for (let i = 0; i < actions; i++) {
+    buttons.unshift({ x: right - UPDATE_BUTTON_WIDTH, y: buttonY, width: UPDATE_BUTTON_WIDTH, height: hit.target });
+    right -= UPDATE_BUTTON_WIDTH + UPDATE_BANNER_PAD;
+  }
+  return { text: { x: textX, y: banner.y + UPDATE_BANNER_PAD + 6 }, textWidth: right - textX, buttons };
+}
+
 export interface TitleMenuLayoutInput {
   readonly width: number;
   readonly height: number;
   readonly continuable: boolean;
+  /** True when a newer release is on offer (`platform/update-check.ts`): reserves the update banner. */
+  readonly update?: boolean;
 }
 
 export interface TitleMenuLayout {
@@ -52,6 +111,11 @@ export interface TitleMenuLayout {
   readonly left: number;
   readonly column: number;
   readonly titleSize: number;
+  /**
+   * The "update available" banner, or null with nothing to offer. Split screens draw it at the top of the art panel,
+   * where it costs the menu no room; a phone has no art panel, so it heads the column and the menu starts below it.
+   */
+  readonly updateBanner: Rect | null;
   readonly eyebrow: Rect;
   readonly rule: Rect;
   readonly continueRow: Rect | null;
@@ -67,6 +131,7 @@ export interface TitleMenuLayout {
 
 export function titleMenuLayoutRects(layout: TitleMenuLayout): readonly Rect[] {
   return [
+    ...(layout.updateBanner ? [layout.updateBanner] : []),
     ...(layout.continueRow ? [layout.continueRow] : []),
     layout.newGame,
     layout.decks,
@@ -96,7 +161,17 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
     ? 44
     : Math.min(72, Math.round(menuPanel.width / 7), Math.round(height * (short ? 0.075 : 0.1)));
 
+  let updateBanner: Rect | null = null;
   let y = pad + titleSize * 0.6;
+  if (input.update === true) {
+    if (split) {
+      const bannerWidth = Math.min(artPanel!.width - pad * 2, UPDATE_BANNER_MAX_WIDTH);
+      updateBanner = { x: pad, y: pad, width: bannerWidth, height: updateBannerHeight(bannerWidth) };
+    } else {
+      updateBanner = { x: left, y: pad, width: column, height: updateBannerHeight(column) };
+      y = pad + updateBanner.height + gap;
+    }
+  }
   const eyebrow: Rect = { x: left, y, width: column, height: 16 };
   y += 16 + 8;
   const titleBlockHeight = titleSize * TITLE_BLOCK_RATIO * 2;
@@ -135,6 +210,7 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
     left,
     column,
     titleSize,
+    updateBanner,
     eyebrow,
     rule,
     continueRow,

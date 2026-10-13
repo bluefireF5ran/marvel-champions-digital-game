@@ -20,3 +20,26 @@ export function buildCommit(): string {
 /** The GitHub release page for `version`: what the footer's "Release notes" link opens. */
 export const releaseNotesUrl = (version: string): string =>
   `https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v${version}`;
+
+/** One button of the Title's update banner. */
+export interface UpdateAction {
+  /** Also its focus stop on the Title menu. */
+  readonly id: "update-notes" | "update-download";
+  readonly label: string;
+  readonly url: string;
+}
+
+/**
+ * What the update banner offers (`platform/update-check.ts`): the changelog and this install's own installer. When
+ * the installer isn't known, one button to the release page, which has both.
+ */
+export function updateActions(update: {
+  readonly downloadUrl: string | null;
+  readonly notesUrl: string;
+}): readonly UpdateAction[] {
+  if (update.downloadUrl === null) return [{ id: "update-notes", label: "View release ↗", url: update.notesUrl }];
+  return [
+    { id: "update-notes", label: "What's new ↗", url: update.notesUrl },
+    { id: "update-download", label: "Download ↗", url: update.downloadUrl },
+  ];
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { appVersionText, buildCommit, releaseNotesUrl } from "./app-version.js";
+import { appVersionText, buildCommit, releaseNotesUrl, updateActions } from "./app-version.js";
 
 describe("appVersionText", () => {
   test("the web build carries its commit, since it runs ahead of the last release", () => {
@@ -23,5 +23,20 @@ describe("appVersionText", () => {
     expect(releaseNotesUrl("0.7.0")).toBe(
       "https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.7.0",
     );
+  });
+});
+
+describe("updateActions", () => {
+  test("the changelog, then this install's own installer", () => {
+    expect(updateActions({ downloadUrl: "https://x/app.apk", notesUrl: "https://x/notes" })).toEqual([
+      { id: "update-notes", label: "What's new ↗", url: "https://x/notes" },
+      { id: "update-download", label: "Download ↗", url: "https://x/app.apk" },
+    ]);
+  });
+
+  test("one button to the release page when the installer isn't known", () => {
+    expect(updateActions({ downloadUrl: null, notesUrl: "https://x/notes" })).toEqual([
+      { id: "update-notes", label: "View release ↗", url: "https://x/notes" },
+    ]);
   });
 });

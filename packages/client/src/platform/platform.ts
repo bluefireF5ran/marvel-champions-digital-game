@@ -56,9 +56,13 @@ export function applyViewportFit(doc: Document = document): void {
 
 /**
  * Opens `url` outside the game: a new browser tab on the web. Capacitor hands a navigation away from the app's own
- * origin to the system browser. Tauri has no opener plugin wired yet (a Phase 8 packaging item), so there this is
- * the webview's own `window.open`, which a desktop build may ignore.
+ * origin to the system browser. A Tauri webview ignores `window.open`, so there the opener plugin asks the OS for
+ * the default browser; `src-tauri/capabilities/default.json` lists the sites it may open.
  */
 export function openExternal(url: string): void {
+  if (detectPlatform() === "tauri") {
+    void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)).catch(() => {});
+    return;
+  }
   globalThis.open?.(url, "_blank", "noopener,noreferrer");
 }
