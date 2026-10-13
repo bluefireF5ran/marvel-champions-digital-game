@@ -104,7 +104,7 @@ function drawScrollingRows(
       }
     });
     hint?.(offset);
-    if (armed) ctx.onSchemeScroll();
+    if (armed) ctx.onRegionScroll();
   };
 
   const region = new McScrollRegion(scene, {

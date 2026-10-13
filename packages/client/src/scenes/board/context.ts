@@ -18,6 +18,7 @@ import type { BoardController } from "./controller.js";
 import type { HandScroll } from "./hand.js";
 import type { SchemeScrollState } from "./schemes.js";
 import type { RowDrag } from "../../view/hand-scroll.js";
+import type { PlayAreaScroll } from "../../view/play-area-row.js";
 import type { BoardMotion } from "./motion.js";
 import type { TeamUpRole } from "../../view/team-up-model.js";
 import type { TeamUpRings } from "./team-up-badge.js";
@@ -92,8 +93,10 @@ export interface BoardDrawContext {
   readonly schemeScroll: SchemeScrollState;
   /** The card keyboard/pad focus is on, when the board holds it: a scheme scrolled off is brought into view. */
   readonly focusedCard: InstanceId | null;
-  /** Called when the schemes column scrolls without a redraw, so rings that follow its rows move with them. */
-  readonly onSchemeScroll: () => void;
+  /** The play area row's scroll, kept across draws like the hand's (`view/play-area-row.ts`). */
+  readonly playAreaScroll: PlayAreaScroll;
+  /** Called when the schemes column or the play area row scrolls without a redraw, so rings that follow its cards move with them. */
+  readonly onRegionScroll: () => void;
   readonly frame: BoardFrame;
   /** Timed motions still live from the most recently landed state — status stamps, an exhaust turn, an HP/threat count, the defeat flash. */
   readonly motion: BoardMotion;
