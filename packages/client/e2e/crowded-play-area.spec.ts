@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
-import { activeScenes, settle, zoneRect } from "./helpers.js";
+import { activeScenes, settle, waitFor, zoneRect } from "./helpers.js";
 import { installWave6Helpers, skipVillainPhase, visibleTexts } from "./wave6-helpers-a.js";
-import { hook, type Rect } from "./wave6-helpers-b.js";
+import { declineMulligans, hook, type Rect } from "./wave6-helpers-b.js";
 import {
   answerPreferDecline,
   choiceRects,
@@ -86,6 +86,54 @@ test("issue #119: a crowded play area keeps its cards readable and scrolls sidew
   await page.mouse.click(zone.x + 22, zone.y + zone.height / 2 + 8);
   await settle(page);
   expect((await scrollOf(page)).scrollX).toBeLessThan(end.maxScroll);
+});
+
+test("issue #119: Doctor Strange's Invocation deck keeps its column beside a crowded, scrolling play area", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await installWave6Helpers(page);
+  await page.goto("/?screen=board&scenario=rhino&deck=drs-protection&seed=3");
+  await waitFor(async () => ((await activeScenes(page)).includes("Board") ? true : null), "Board is up", 60_000);
+  await declineMulligans(page);
+  await settle(page, { quietMs: 1000, maxMs: 6000 });
+  await board(page, "setBoardPad", { playArea: 13 });
+  await settle(page);
+
+  const zone = (await zoneRect(page, "playArea"))!;
+  const piles = ((await board<[string, Rect][]>(page, "allPileRects")) ?? []).filter(([key]) =>
+    key.startsWith("separate"),
+  );
+  expect(piles.length, "the Invocation deck and its discard are drawn").toBe(2);
+  const columnLeft = Math.min(...piles.map(([, rect]) => rect.x));
+  for (const [, rect] of piles) expect(rect.x + rect.width).toBeLessThanOrEqual(zone.x + zone.width);
+
+  const clearOfColumn = async (): Promise<void> => {
+    const rects = await padRects(page);
+    expect(rects.size).toBeGreaterThan(0);
+    for (const rect of rects.values()) {
+      expect(rect.x).toBeGreaterThanOrEqual(zone.x);
+      expect(rect.x + rect.width, "no card reaches under the Invocation deck").toBeLessThanOrEqual(columnLeft);
+    }
+  };
+  expect((await scrollOf(page)).maxScroll).toBeGreaterThan(0);
+  await clearOfColumn();
+  await shot(page, "play-area-strange-start");
+
+  // The wheel over the Invocation deck leaves the row alone; over the row it scrolls to the last card.
+  const [, deck] = piles[0]!;
+  await page.mouse.move(deck.x + deck.width / 2, deck.y + deck.height / 2);
+  await page.mouse.wheel(0, 400);
+  await settle(page);
+  expect((await scrollOf(page)).scrollX).toBe(0);
+  await page.mouse.move(zone.x + (columnLeft - zone.x) / 2, zone.y + zone.height / 2);
+  await page.mouse.wheel(0, 5000);
+  await settle(page);
+  const end = await scrollOf(page);
+  expect(end.scrollX).toBe(end.maxScroll);
+  expect((await padRects(page)).has(12), "the last card is on screen").toBe(true);
+  await clearOfColumn();
+  await shot(page, "play-area-strange-end");
 });
 
 /** Every text that starts inside an option card must end inside it. */
