@@ -769,6 +769,7 @@ export * from "./hercules/index.js";
 
 import { HERCULES_CARDS } from "./hercules/cards.js";
 import { HERCULES_ENCOUNTER_SETS } from "./hercules/encounterSets.js";
+import { HERCULES_STARTER_DECKS } from "./hercules/starterDecks.js";
 export * from "./wonder_man/index.js";
 
 import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
@@ -789,12 +790,14 @@ export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [
 export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS];
 
 /**
- * Every wave 10 starter deck the playable pool carries: Tigra and Hulkling (`cw`) and Wonder Man / Justice (from the
- * owner's stand-in listing, not the printed card; `verified: false`). Hercules / Leadership (`HERCULES_STARTER_DECKS`) is deliberately not here: this list feeds the
- * playable and client pools, and his pack is out of both until his Team-Up art exists. Add `...HERCULES_STARTER_DECKS`
- * when `hercules` joins `PLAYABLE_CARDS`.
+ * Every wave 10 starter deck the playable pool carries: Tigra and Hulkling (`cw`), Wonder Man / Justice (from the
+ * owner's stand-in listing, not the printed card; `verified: false`) and Hercules / Leadership (his printed decklist).
  */
-export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [...CW_STARTER_DECKS, ...WONDER_MAN_STARTER_DECKS];
+export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [
+  ...CW_STARTER_DECKS,
+  ...WONDER_MAN_STARTER_DECKS,
+  ...HERCULES_STARTER_DECKS,
+];
 
 /**
  * Every playable card: Core, the eight wave 1 packs, the six cycle 1 packs, the six cycle 2 packs, the six cycle
@@ -817,11 +820,7 @@ export const PLAYABLE_CARDS: readonly AnyCard[] = [
   ...WAVE7_CARDS.slice(CORE_CARDS.length),
   ...WAVE8_CARDS.slice(CORE_CARDS.length),
   ...WAVE9_CARDS.slice(CORE_CARDS.length),
-  // Wave 10 without `hercules` for now: its Ancient Rivalry 59026 makes Hercules and Thor a Team-Up pair, and the client
-  // requires a splash and a badge for every pair in the pool (`packages/client/e2e/teamup.spec.ts`). The pack joins when
-  // `art/teamups/hercules-thor/` has its pictures; until then it is reachable only through `WAVE10_CARDS`.
-  ...CW_CARDS,
-  ...WONDER_MAN_CARDS,
+  ...WAVE10_CARDS.slice(CORE_CARDS.length),
 ];
 
 /**

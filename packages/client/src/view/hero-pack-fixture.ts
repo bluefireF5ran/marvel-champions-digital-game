@@ -5,7 +5,7 @@
  * chosen aspect and of the basic aspect, up to forty), with the cards package's data passed to the engine explicitly.
  */
 
-import { CORE_CARDS, HERCULES_CARDS, cardId, type AnyCard, type CoreAspect, type HeroIdentityCard } from "@mc/content";
+import { CORE_CARDS, cardId, type AnyCard, type CoreAspect, type HeroIdentityCard } from "@mc/content";
 import { WAVE10_CARDS, WAVE10_DEPS, coreScenario } from "@mc/cards";
 import {
   DECK_MIN_CARDS,
@@ -19,7 +19,7 @@ import {
   type PlayerSetup,
 } from "@mc/engine";
 
-export const HERO_PACK_POOL: readonly AnyCard[] = [...WAVE10_CARDS, ...HERCULES_CARDS];
+export const HERO_PACK_POOL: readonly AnyCard[] = WAVE10_CARDS;
 
 const SEATS = {
   wonderMan: { identityId: "58001a", aspect: "justice" as CoreAspect },

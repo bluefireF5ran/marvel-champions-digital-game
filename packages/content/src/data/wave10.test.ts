@@ -51,12 +51,10 @@ describe("wave 10 data: pool wiring", () => {
     expect(DATA_ONLY_ENCOUNTER_SETS).toEqual([]);
   });
 
-  it("PLAYABLE_CARDS carries cw and wonder_man exactly once, after the wave 9 cards, in pack order; hercules waits for its Team-Up art", () => {
+  it("PLAYABLE_CARDS carries every wave 10 card exactly once, after the wave 9 cards, in pack order", () => {
     const ids = PLAYABLE_CARDS.map((c) => c.id as string);
     expect(new Set(ids).size).toBe(ids.length);
-    // Hercules joins when art/teamups/hercules-thor/ has a splash and a badge (the client requires them of every pair).
-    const wave10 = [...CW_CARDS, ...WONDER_MAN_CARDS];
-    for (const c of HERCULES_CARDS) expect(ids, c.id as string).not.toContain(c.id as string);
+    const wave10 = [...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS];
     for (const c of wave10)
       expect(
         ids.filter((id) => id === (c.id as string)),
@@ -111,14 +109,14 @@ describe("wave 10 data: encounter sets, scenarios and starter decks", () => {
     }
   });
 
-  it("three playable starter decks (Tigra, Hulkling, Wonder Man); Hercules's stays out of the pool until his pack is playable", () => {
-    expect(WAVE10_STARTER_DECKS).toEqual([...CW_STARTER_DECKS, ...WONDER_MAN_STARTER_DECKS]);
+  it("four playable starter decks (Tigra, Hulkling, Wonder Man, Hercules)", () => {
+    expect(WAVE10_STARTER_DECKS).toEqual([...CW_STARTER_DECKS, ...WONDER_MAN_STARTER_DECKS, ...HERCULES_STARTER_DECKS]);
     expect(WAVE10_STARTER_DECKS.map((d) => d.id as string)).toEqual([
       "tigra-aggression",
       "hulkling-protection",
       "wonder-man-justice",
+      "hercules-leadership",
     ]);
-    expect(HERCULES_STARTER_DECKS.map((d) => d.id as string)).toEqual(["hercules-leadership"]);
   });
 
   it("every wave 10 hero's nemesis set has exactly one nemesis minion, the set's own minion", () => {

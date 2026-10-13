@@ -1,5 +1,5 @@
 /**
- * The one card pool this app runs: Core, wave 1 and cycles 1 to 10's shipped-so-far packs (cycle 10: the Civil War box and the Wonder Man pack)
+ * The one card pool this app runs: Core, wave 1 and cycles 1 to 10's shipped-so-far packs (cycle 10: the Civil War box and the Wonder Man and Hercules packs)
  * (PLAN.md Phase 7). Every scene, the deck screens and the engine worker read the app's pool from here
  * — never from `@mc/content`'s `CORE_*` exports or `@mc/cards`' `CORE_DEPS`
  * directly — so the client can only ever run one pool at a time and adding a
@@ -161,6 +161,8 @@ import {
   CW_PACK,
   WONDER_MAN_CYCLE,
   WONDER_MAN_PACK,
+  HERCULES_CYCLE,
+  HERCULES_PACK,
   WAVE9_ENCOUNTER_SETS,
   WAVE9_SCENARIOS,
   WAVE9_STARTER_DECKS,
@@ -198,7 +200,7 @@ export const POOL_ENCOUNTER_SETS: readonly EncounterSet[] = [
   ...WAVE8_ENCOUNTER_SETS,
   // Cycle 9 minus the sets `@mc/cards` has not scripted yet (`playable/unscripted.ts`: Trickster Magic, Techno, Whiteout, and the two Trickster Takeover villains' sets).
   ...WAVE9_ENCOUNTER_SETS.filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string)),
-  // Cycle 10 minus the Hercules pack's sets (his nemesis set, All Versus All): Civil War's sixteen modular sets, four leaders' sets and difficulty sets, and Wonder Man's nemesis set.
+  // Cycle 10: Civil War's sixteen modular sets, four leaders' sets and difficulty sets, both hero packs' nemesis sets and All Versus All.
   ...WAVE10_ENCOUNTER_SETS.filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string)),
 ];
 
@@ -258,7 +260,7 @@ export const POOL_STARTER_DECKS: readonly StarterDeck[] = [
   ...WAVE8_STARTER_DECKS,
   // Maria Hill, Nick Fury, Black Panther, Silk, Falcon, Winter Soldier.
   ...WAVE9_STARTER_DECKS,
-  // Tigra, Hulkling and Wonder Man (the Hercules pack's precon stays out until his pack is playable).
+  // Tigra, Hulkling, Wonder Man and Hercules.
   ...WAVE10_STARTER_DECKS,
 ];
 
@@ -337,6 +339,7 @@ export const POOL_PACKS: readonly Pack[] = [
   TT_PACK,
   CW_PACK,
   WONDER_MAN_PACK,
+  HERCULES_PACK,
 ];
 
 /** A pack's own display name ("The Wrecking Crew") by its code ("twc"), falling back to the code itself if the pool ever names one this list doesn't have. */
@@ -408,6 +411,7 @@ const POOL_PACK_CYCLES: readonly (readonly [Pack, Cycle])[] = [
   [TT_PACK, TT_CYCLE],
   [CW_PACK, CW_CYCLE],
   [WONDER_MAN_PACK, WONDER_MAN_CYCLE],
+  [HERCULES_PACK, HERCULES_CYCLE],
 ];
 
 /**

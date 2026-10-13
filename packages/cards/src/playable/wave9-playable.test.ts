@@ -113,9 +113,9 @@ describe("wave 9 in the playable pool", () => {
 
 describe("wave 9 modular sets", () => {
   it("no wave 9 set is gated any more: every wave 9 encounter set is a playable one", () => {
-    // The only gated sets are the Hercules pack's (cycle 10, `playable/unscripted.ts`).
-    expect([...UNSCRIPTED_ENCOUNTER_SET_IDS].sort()).toEqual(["all_versus_all", "hercules_nemesis"]);
-    expect(Object.keys(GATED_THOUGH_SCRIPTED)).toEqual(["all_versus_all"]);
+    // Nothing is gated at all now (`playable/unscripted.ts`).
+    expect([...UNSCRIPTED_ENCOUNTER_SET_IDS]).toEqual([]);
+    expect(Object.keys(GATED_THOUGH_SCRIPTED)).toEqual([]);
     for (const set of WAVE9_ENCOUNTER_SETS)
       expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string), set.id).toBe(false);
     const playable = new Set(PLAYABLE_ENCOUNTER_SETS.map((s) => s.id as string));

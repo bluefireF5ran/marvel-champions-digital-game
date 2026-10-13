@@ -127,7 +127,7 @@ describe("the unlock path", () => {
     expect(skull.heroLock(heroNamed("Venom"))).toBe("Beat Nebula to unlock Venom");
   });
 
-  it("opens the Civil War box after the Agents of S.H.I.E.L.D. campaign, with Tigra and Hulkling, no campaign and no rewards yet", () => {
+  it("opens the Civil War box after the Agents of S.H.I.E.L.D. campaign, with Tigra and Hulkling, no campaign and Wonder Man and Hercules as leader rewards", () => {
     expect(hasUnlockWave("cycle10")).toBe(true);
     const wave = UNLOCK_WAVES.find((w) => w.cycleId === "cycle10")!;
     expect(wave.name).toBe("Civil War");
@@ -137,8 +137,10 @@ describe("the unlock path", () => {
       hint: "Complete the Agents of S.H.I.E.L.D. campaign",
     });
     expect(wave.campaignId).toBeUndefined();
-    // Wonder Man (58001a) is in the pool without a starter deck and Hercules (59001a) is not, so no reward can name them yet.
-    expect(wave.heroRewards).toEqual([]);
+    expect(wave.heroRewards).toEqual([
+      { scenarioId: "registration-iron-man", identityCardId: "58001a" },
+      { scenarioId: "resistance-captain-america", identityCardId: "59001a" },
+    ]);
     expect(wave.starterHeroIds).toEqual(["56001a", "56029a"]);
 
     const fresh = make(NO_PROGRESS);
@@ -153,6 +155,16 @@ describe("the unlock path", () => {
     expect(finished.scenarioLock(scenario("resistance-captain-america"))).toBeNull();
     expect(finished.heroLock(heroNamed("Tigra"))).toBeNull();
     expect(finished.heroLock(heroNamed("Hulkling"))).toBeNull();
+    // The two hero-pack heroes stay locked until their leader is beaten.
+    expect(finished.heroLock(heroNamed("Wonder Man"))).toBe(
+      "Beat Iron Man (Registration: Iron Man) to unlock Wonder Man",
+    );
+    expect(finished.heroLock(heroNamed("Hercules"))).toBe(
+      "Beat Captain America (Resistance: Captain America) to unlock Hercules",
+    );
+    const beaten = make(won(["registration-iron-man"], ["aos"]));
+    expect(beaten.heroLock(heroNamed("Wonder Man"))).toBeNull();
+    expect(beaten.heroLock(heroNamed("Hercules"))).not.toBeNull();
   });
 
   it("names a villain by its scenario when they differ", () => {

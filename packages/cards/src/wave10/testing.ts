@@ -1,6 +1,5 @@
 import {
   CORE_CARDS,
-  HERCULES_CARDS,
   HERCULES_STARTER_DECKS,
   WONDER_MAN_STARTER_DECKS,
   cardId,
@@ -256,7 +255,7 @@ export const herculesPrintedSeat = (): PlayerSetup => {
 };
 
 /** Core, the Civil War box, Wonder Man and Hercules: the pool a Wonder Man or Hercules test game is created from. */
-export const HERO_PACK_CARDS: readonly AnyCard[] = [...WAVE10_CARDS, ...HERCULES_CARDS];
+export const HERO_PACK_CARDS: readonly AnyCard[] = WAVE10_CARDS;
 
 const HERO_PACKS: Readonly<Record<string, { identityId: string; aspect: CoreAspect }>> = {
   [WONDER_MAN_DECK]: { identityId: "58001a", aspect: "justice" },

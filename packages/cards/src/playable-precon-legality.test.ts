@@ -68,10 +68,10 @@ const UNSCRIPTED_WAVE8_PACKS: ReadonlySet<string> = new Set();
 const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set();
 
 /**
- * Wave 10 packs in the pool whose kits are not scripted yet (docs/phase7-wave10.md): the Hercules hero pack
- * (Civil War and Wonder Man are scripted and joined the playable pool).
+ * Wave 10 packs in the pool whose kits are not scripted yet (docs/phase7-wave10.md): none (Civil War, Wonder Man
+ * and Hercules are scripted and joined the playable pool).
  */
-const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set(["hercules"]);
+const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set();
 
 /** Every pack whose precons are legal but cannot be seated yet. */
 const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([

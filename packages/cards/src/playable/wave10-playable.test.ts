@@ -11,7 +11,7 @@ import { civilWarGameModes, civilWarSidesOffer, playableScenarioOffer } from "./
 /**
  * docs/phase7-wave10.md §3.1b: `playableScenario` routes a Civil War leader to `wave10Scenario`, and
  * `playableScenarioOffer` carries what the client's scenario builder draws (docs/phase7-wave10-client.md section 2.7),
- * and the wave is in the playable pool (C10), plus the Wonder Man pack, minus the Hercules pack.
+ * and the wave is in the playable pool (C10), plus the Wonder Man and Hercules packs.
  */
 
 const SPIDER_MAN = { starterDeckId: "core-spider-man-justice" } as const;
@@ -47,20 +47,24 @@ describe("the Civil War box is joined to the playable pool", () => {
     expect(createGame(config, PLAYABLE_DEPS).ok).toBe(true);
   });
 
-  it("keeps the Hercules pack out: his sets are gated and he cannot be seated", () => {
+  it("joins the Hercules pack: his nemesis set and All Versus All are playable and his precon is seatable", () => {
     for (const id of ["hercules_nemesis", "all_versus_all"]) {
-      expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has(id), id).toBe(true);
+      expect(UNSCRIPTED_ENCOUNTER_SET_IDS.has(id), id).toBe(false);
       expect(
         PLAYABLE_ENCOUNTER_SETS.some((set) => set.id === id),
         id,
-      ).toBe(false);
-      expect(
-        () =>
-          playableScenario(IRON_MAN, { players: [SPIDER_MAN], seed: 1, modularSetIds: [id, "paladin", "cape_killer"] }),
-        id,
-      ).toThrow();
+      ).toBe(true);
     }
-    expect(() => playableStarterDeckSetup("hercules-protection")).toThrow("no playable starter deck");
+    expect(Object.keys(PLAYABLE_ABILITIES).some((id) => id.startsWith("59"))).toBe(true);
+    expect(playableStarterDeckSetup("hercules-leadership").deck).toHaveLength(40);
+    const config = playableScenario(IRON_MAN, { players: [{ starterDeckId: "hercules-leadership" }], seed: 1 });
+    expect(createGame(config, PLAYABLE_DEPS).ok).toBe(true);
+    const withSet = playableScenario(IRON_MAN, {
+      players: [{ starterDeckId: "hercules-leadership" }],
+      seed: 1,
+      modularSetIds: ["all_versus_all", "paladin", "cape_killer"],
+    });
+    expect(createGame(withSet, PLAYABLE_DEPS).ok).toBe(true);
   });
 
   it("refuses the competitive-only sets as a modular pick", () => {

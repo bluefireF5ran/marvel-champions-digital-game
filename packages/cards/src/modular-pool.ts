@@ -63,7 +63,7 @@ export const PLAYABLE_ENCOUNTER_SETS: readonly EncounterSet[] = [
       ...WAVE8_ENCOUNTER_SETS,
       // Wave 9 (cycle 9) minus the sets not scripted yet (`playable/unscripted.ts`).
       ...WAVE9_ENCOUNTER_SETS,
-      // Wave 10 (cycle 10): Civil War's sets; the hero packs' own sets are gated (`playable/unscripted.ts`).
+      // Wave 10 (cycle 10): Civil War's sets and the Wonder Man and Hercules packs' own (nemesis sets, All Versus All).
       ...WAVE10_ENCOUNTER_SETS,
     ]
       .filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id))

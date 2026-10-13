@@ -223,16 +223,17 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   },
   {
     // The gate is Agents of S.H.I.E.L.D.'s (owner, question 25 = A). Civil War ships no campaign (MC56 p. 3), so the row
-    // names none. Tigra and Hulkling are MC56's own cast. Wonder Man (58001a) is in the pool but has no starter deck, and
-    // `UNLOCK_HEROES` is built from starter decks (a built deck is never hero-locked, `deckLock`), so no reward can name
-    // him yet: the provisional pairing for the owner to confirm is registration-iron-man for Wonder Man and
-    // resistance-captain-america for Hercules (not in the pool: his Team-Up art is missing). Both join `heroRewards`
-    // the day their packs get starter decks (`unlocks.test.ts` requires every named hero to exist).
+    // names none. Tigra and Hulkling are MC56's own cast. Wonder Man and Hercules unlock by beating the box's leaders
+    // (owner, question 25A): Wonder Man for Registration Iron Man, Hercules for Resistance Captain America. Captain
+    // Marvel and Spider-Woman pay no hero.
     cycleId: "cycle10",
     name: "Civil War",
     gate: { kind: "campaignWin", campaignId: "aos", hint: "Complete the Agents of S.H.I.E.L.D. campaign" },
     starterHeroIds: ["56001a", "56029a"], // Tigra, Hulkling: MC56's own cast
-    heroRewards: [],
+    heroRewards: [
+      { scenarioId: "registration-iron-man", identityCardId: "58001a" }, // Wonder Man
+      { scenarioId: "resistance-captain-america", identityCardId: "59001a" }, // Hercules
+    ],
   },
 ];
 

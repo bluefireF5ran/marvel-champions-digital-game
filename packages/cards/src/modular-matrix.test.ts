@@ -169,6 +169,7 @@ describe("the lists, derived from content data", () => {
         "secret_avengers",
         "spider_man_modular",
         "the_initiative",
+        "all_versus_all",
       ]
     `);
   });
@@ -292,6 +293,8 @@ describe("the lists, derived from content data", () => {
           "winter_soldier_nemesis",
           "hulkling_nemesis",
           "tigra_nemesis",
+          "wonder_man_nemesis",
+          "hercules_nemesis",
         ],
         "scenario-specific": [
           "klaw",
@@ -577,22 +580,22 @@ describe("modular set x scenario: every pairing builds", () => {
     }
     expect({ sets: MODULAR_SETS.length, scenarios: PLAYABLE_SCENARIOS.length, ...kinds }).toMatchInlineSnapshot(`
       {
-        "build": 5821,
+        "build": 5868,
         "required": 28,
-        "restricted": 723,
+        "restricted": 729,
         "scenarios": 53,
-        "sets": 124,
+        "sets": 125,
       }
     `);
     expect(restrictedBy).toMatchInlineSnapshot(`
       {
-        "breakout": 124,
+        "breakout": 125,
         "four-horsemen": 1,
-        "mojo": 118,
-        "sinister-six": 123,
-        "spiral": 118,
-        "the-hood": 124,
-        "thunderbolts": 114,
+        "mojo": 119,
+        "sinister-six": 124,
+        "spiral": 119,
+        "the-hood": 125,
+        "thunderbolts": 115,
         "tower-defense": 1,
       }
     `);

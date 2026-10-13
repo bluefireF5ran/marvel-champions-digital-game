@@ -34,16 +34,14 @@ campaign box; the box's own cast joins at once, and every other hero's precon is
 | NeXt Evolution           | Complete the Mutant Genesis campaign         | Cable and Domino at once (MC40's cast); Psylocke (Morlock Siege), Angel (On the Run), X-23 (Juggernaut), Deadpool (Mister Sinister)                                          |
 | Age of Apocalypse        | Complete the NeXt Evolution campaign         | Bishop and Magik at once (MC45's cast); Iceman (Unus), Jubilee (Four Horsemen), Nightcrawler (Apocalypse), Magneto (Dark Beast)                                              |
 | Agents of S.H.I.E.L.D.   | Complete the Age of Apocalypse campaign      | Maria Hill and Nick Fury at once (MC50's cast); Black Panther (Shuri) (Black Widow), Silk (Batroc), Falcon (M.O.D.O.K.), Winter Soldier (Thunderbolts)                       |
-| Civil War                | Complete the Agents of S.H.I.E.L.D. campaign | Tigra and Hulkling at once (MC56's cast); no hero rewards yet (see below)                                                                                                    |
+| Civil War                | Complete the Agents of S.H.I.E.L.D. campaign | Tigra and Hulkling at once (MC56's cast); Wonder Man (Registration Iron Man), Hercules (Resistance Captain America)                                                          |
 
 Civil War (MC56) opens after the Agents of S.H.I.E.L.D. campaign (owner, question 25 = A) and has no campaign of its own
 (MC56 p. 3). Its four leader scenarios (Iron Man, Captain Marvel, Captain America, Spider-Woman) open with the box. The
-Wonder Man pack is in the pool (his cards, his nemesis set and his scripts) but ships no starter deck yet, so he is
-offered in the deck builder and seated only with a deck the player builds; a built deck is never hero-locked, and
-`UNLOCK_HEROES` is made from starter decks, so he is in no reward. The Hercules pack is not in the pool yet (his Team-Up
-art is missing). The provisional pairing is Wonder Man for registration-iron-man and Hercules for
-resistance-captain-america, for the owner to confirm, and each hero joins `heroRewards` when its pack gets a starter
-deck.
+Wonder Man and Hercules, the cycle's two hero-pack heroes, unlock by beating its leaders (owner, question 25A): Wonder Man
+for Registration Iron Man and Hercules for Resistance Captain America. Both packs are in the pool with a starter deck
+(`wonder-man-justice`, `hercules-leadership`), which is what `UNLOCK_HEROES` is built from. Captain Marvel and
+Spider-Woman pay no hero. Hercules' nemesis set and the All Versus All modular set come with his pack.
 
 Trickster Takeover (Enchantress; Loki, God of Lies; the Trickster Magic modular set) has no row of its own: it
 opens with the Agents of S.H.I.E.L.D. wave. The pack prints no unlock requirement, so this is a progression policy
