@@ -32,7 +32,9 @@ export type MechanicTryItId =
   | "silk"
   | "falcon"
   | "blackPanther"
-  | "zemo";
+  | "zemo"
+  | "wonderMan"
+  | "hercules";
 
 export interface MechanicTryIt {
   readonly id: MechanicTryItId;
@@ -177,6 +179,18 @@ export const MECHANIC_TRYITS: readonly MechanicTryIt[] = [
     box: "cycle9",
     title: "Baron Zemo: the accusation",
     tagline: "Gain evidence, read the grid, then name the mole.",
+  },
+  {
+    id: "wonderMan",
+    box: "cycle10",
+    title: "Wonder Man: Ionic Physiology",
+    tagline: "Overpay for Starstruck, tuck it, then attack with the bonus.",
+  },
+  {
+    id: "hercules",
+    box: "cycle10",
+    title: "Hercules: Labor and Gift",
+    tagline: "Finish a Labor card, earn a Gift, then play a card it discounts.",
   },
 ];
 

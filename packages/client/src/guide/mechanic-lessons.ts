@@ -2109,6 +2109,264 @@ const ZEMO_TRYIT: Lesson = {
   ],
 };
 
+const STARSTRUCK = cardId("58005");
+const WONDER_MAN_ENERGY = cardId("58023");
+const IONIC_PHYSIOLOGY_CODE = "58002";
+
+/** The tucked cards under Wonder Man's Ionic Physiology, read from the engine's own list (empty if it is not in play). */
+function ionicTucked(observation: LessonObservation): number {
+  const ionic = Object.values(observation.game.instances).find((i) => i.cardId === IONIC_PHYSIOLOGY_CODE);
+  return ionic?.tucked.length ?? 0;
+}
+
+/**
+ * Wonder Man: overpay, tuck, then attack. The opening is Simon Williams with Ionic Physiology already attached and a
+ * stacked hand (`mechanic-tryit-config.ts`). Starstruck costs 1 and Energy makes 2 [energy], so paying with Energy
+ * alone overpays by 1 [energy], which stuns the enemy (`wave10/wonder_man/wonder-man/events.ts`). Ionic Physiology's
+ * Response then tucks the played event (`identity.ts`), for +1 ATK, and a basic attack lands with that bonus before
+ * the Forced Response discards the tucked card. The steps read the upgrade's own `tucked` list, never a count of
+ * the client's.
+ */
+const WONDER_MAN_TRYIT: Lesson = {
+  id: "mechanic-tryit-wonderMan",
+  title: "Wonder Man: Ionic Physiology",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Wonder Man tucks his energy events",
+        body:
+          "[[ionicPhysiology|Ionic Physiology]] is already attached to Wonder Man. After you play an event with a " +
+          "printed [energy] resource, it can tuck that event under itself, up to 3. Each tucked card is +1 ATK, " +
+          "until he makes a basic attack and they are discarded. Some of his events also do more when " +
+          "[[overpaying|overpaid]].",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to Wonder Man",
+        body: "His events are hero actions, so [[flip|flip]] from Simon Williams to Wonder Man first.",
+        doThis: "Flip to Wonder Man",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "starstruck",
+      anchor: { kind: "card", code: STARSTRUCK },
+      copy: {
+        title: "Overpay for Starstruck",
+        body:
+          "Starstruck [[cost|costs]] 1, and Energy makes 2 [energy]. The extra [energy] is overpaid, and Starstruck " +
+          "stuns the enemy when you overpay it with [energy]. Pay with Energy alone, then choose Rhino.",
+        tip: "Resources beyond the cost are overpaid, not wasted.",
+        short: "Play Starstruck, paying with Energy.",
+        doThis: "Play Starstruck, paying with Energy",
+        doThisTabbed: "Tap Starstruck, then Play",
+        payWith: [{ kind: "handCard", code: WONDER_MAN_ENERGY, doThis: "Tap Energy, then Pay" }],
+      },
+      mode: "await",
+      completes: cardPlayed(STARSTRUCK),
+      gate: FULL_GATE,
+    },
+    {
+      id: "tuck",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Tuck Starstruck",
+        body:
+          "Starstruck has a printed [energy] resource, so Ionic Physiology offers to tuck it from your discard pile " +
+          "and heal 1 damage from you. Accept it: Starstruck now sits under Ionic Physiology, and Wonder Man has " +
+          "+1 ATK.",
+        tip: "Accept Ionic Physiology when it is offered.",
+        short: "Accept Ionic Physiology to tuck Starstruck.",
+        doThis: "Accept Ionic Physiology",
+      },
+      mode: "await",
+      completes: (observation) => ionicTucked(observation) >= 1 && observation.game.pendingChoice === null,
+      gate: FULL_GATE,
+    },
+    {
+      id: "attack",
+      anchor: { kind: "action", id: "attack" },
+      copy: {
+        title: "Attack with the bonus",
+        body:
+          "Make a basic attack on Rhino. It uses Wonder Man's ATK with the +1 from the tucked card. After the attack, " +
+          "every card tucked under Ionic Physiology is discarded, so the bonus lasts for one attack.",
+        tip: "An event's attack does not discard the tucked cards, only a basic attack does.",
+        short: "Attack Rhino with a basic attack.",
+        doThis: "Attack Rhino",
+      },
+      mode: "await",
+      completes: (observation) =>
+        Object.values(observation.game.instances).some((i) => i.cardId === IONIC_PHYSIOLOGY_CODE) &&
+        ionicTucked(observation) === 0 &&
+        eventSeen("damageDealt")(observation) &&
+        observation.game.pendingChoice === null,
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "Tucked, spent, and played again",
+        body:
+          "The attack hit harder with the tucked card, which is now discarded. Fill Ionic Physiology to 3 before a " +
+          "basic attack for the biggest hit. Mr. Hollywood only overpays, so pair it with an event that pays out for " +
+          "[energy] beyond its cost.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
+const GIFT_OF_BATTLE = cardId("59009");
+const HERCULES_PAYER = cardId("59023");
+const WISDOM_PAYER = cardId("59024");
+const EMBODY_PATHOS_CODE = "59003";
+const GIFT_CODES: readonly string[] = ["59005", "59006", "59007"];
+
+/** True once the Labor card Embody Pathos is attached to a scheme and nothing is left open (its find prompt is answered). */
+const laborAttached: LessonPredicate = ({ game }) =>
+  game.pendingChoice === null &&
+  Object.values(game.instances).some((i) => i.cardId === EMBODY_PATHOS_CODE && i.attachedTo !== null);
+
+/** True once the Labor card sits in the victory display, the state's own list: the Labor is finished. */
+const laborFinished: LessonPredicate = ({ game }) =>
+  game.victoryDisplay.some((id) => game.instances[id]?.cardId === EMBODY_PATHOS_CODE);
+
+/** True once a Gift card is attached (in play) and the Response's follow-up choices are answered. */
+const giftEntered: LessonPredicate = ({ game }) =>
+  game.pendingChoice === null &&
+  Object.values(game.instances).some((i) => GIFT_CODES.includes(i.cardId) && i.attachedTo !== null);
+
+/**
+ * Hercules: a Labor card to a Gift card. The opening is Hercules in alter-ego form. This seed puts Embody Pathos on top
+ * of the Labor deck and Nemean Lion Skin on top of the Gift deck (`mechanic-tryit-config.ts`). New Labors of Hercules
+ * (an alter-ego action) reveals the Labor and attaches it to a side scheme; only his thwarts can remove its threat
+ * (`wave10/hercules/hercules/gift-labor.ts`). Finishing it puts it in the victory display, which Atonement answers
+ * with the top Gift card, and The Gift of Battle then costs 1 less for the Gift he controls. Every step reads the
+ * state's own victory display, attachments and played-card events.
+ */
+const HERCULES_TRYIT: Lesson = {
+  id: "mechanic-tryit-hercules",
+  title: "Hercules: Labor and Gift",
+  steps: [
+    {
+      id: "intro",
+      copy: {
+        title: "Two decks beside Hercules",
+        body:
+          "Hercules brings a facedown Labor deck and a facedown Gift deck ([[laborGiftDecks|Labor and Gift decks]]). " +
+          "A Labor card is an obstacle you reveal and must finish. Finishing one earns the top Gift card, a permanent " +
+          "upgrade, and some of his cards get cheaper or stronger for each Gift card you control.",
+      },
+      mode: "acknowledge",
+    },
+    {
+      id: "new-labors",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Reveal a Labor card",
+        body:
+          "New Labors of Hercules is an alter-ego action that reveals the top Labor card when none is in play. This " +
+          "one is Embody Pathos, which attaches to a side scheme you choose: pick Bomb Scare. Only Hercules's own " +
+          "thwarts can remove threat from that scheme.",
+        tip: "Allies and other heroes cannot thwart a scheme with Embody Pathos.",
+        short: "Use New Labors of Hercules, then pick Bomb Scare.",
+        doThis: "Tap Hercules, then New Labors of Hercules",
+      },
+      mode: "await",
+      completes: laborAttached,
+      gate: FULL_GATE,
+    },
+    {
+      id: "flip",
+      anchor: { kind: "action", id: "flip" },
+      copy: {
+        title: "Flip to hero form",
+        body:
+          "Atonement, which earns the Gift, is printed on his hero side, so [[flip|flip]] to hero form before you " +
+          "finish the Labor. Finishing it as an alter ego earns nothing.",
+        doThis: "Flip to Hercules",
+      },
+      mode: "await",
+      completes: formIs("hero"),
+      gate: FULL_GATE,
+    },
+    {
+      id: "finish-labor",
+      anchor: { kind: "action", id: "thwart" },
+      copy: {
+        title: "Finish the Labor",
+        body:
+          "Remove all the threat from the side scheme. The scheme has [[assault|assault]], so his basic thwart uses " +
+          "his ATK of 3. Wisdom of Athena removes 4 more, and three of your other cards pay for it. It may take " +
+          "two turns: end your turn if you must.",
+        tip: "A finished Labor goes to the victory display.",
+        short: "Thwart Bomb Scare until it is gone.",
+        doThis: "Thwart the side scheme until it is gone",
+        payWith: [{ kind: "handCard", code: WISDOM_PAYER, doThis: "Tap each Avenge Me! to pay for Wisdom of Athena" }],
+      },
+      mode: "await",
+      completes: laborFinished,
+      gate: FULL_GATE,
+    },
+    {
+      id: "atonement",
+      anchor: { kind: "zone", id: "identity" },
+      copy: {
+        title: "Atonement earns a Gift",
+        body:
+          "After a Labor card is added to the victory display, Atonement puts the top Gift card into play, readies " +
+          "Hercules, and lets you flip. Accept it, and stay in hero form when it asks. Nemean Lion Skin is a " +
+          "permanent upgrade that also draws 4 cards.",
+        tip: "Atonement can happen once each phase.",
+        short: "Accept Atonement and do not flip.",
+        doThis: "Accept Atonement, then choose Do not flip",
+      },
+      mode: "await",
+      completes: giftEntered,
+      gate: FULL_GATE,
+    },
+    {
+      id: "gift-of-battle",
+      anchor: { kind: "card", code: GIFT_OF_BATTLE },
+      copy: {
+        title: "A Gift cuts the cost",
+        body:
+          "The Gift of Battle costs 3, reduced by 1 for each Gift card you control. With one Gift in play it costs " +
+          "2. Pay with two cards and choose Rhino for 5 damage.",
+        tip: "Gauntlets of Hercules, Golden Mace and Olympus also read your Gift cards.",
+        short: "Play The Gift of Battle for 2.",
+        doThis: "Play The Gift of Battle for 2",
+        doThisTabbed: "Tap The Gift of Battle, then Play",
+        payWith: [
+          { kind: "handCard", code: HERCULES_PAYER, doThis: "Tap Recruitment Drive to pay" },
+          { kind: "handCard", code: HERCULES_PAYER, doThis: "Tap a second Recruitment Drive, then Pay" },
+        ],
+      },
+      mode: "await",
+      completes: (observation) => cardPlayed(GIFT_OF_BATTLE)(observation) && observation.game.pendingChoice === null,
+      gate: FULL_GATE,
+    },
+    {
+      id: "result",
+      copy: {
+        title: "One Labor, one Gift",
+        body:
+          "Each Labor you finish adds a Gift, and a Labor that fails to find a target goes back to the bottom of its " +
+          "deck. The more Gifts you hold, the cheaper and stronger the cards that read them.",
+      },
+      mode: "acknowledge",
+    },
+  ],
+};
+
 /** One `Lesson` per mechanic with a "Try it" game, keyed like `guide/mechanic-tryit-config.ts`'s own record. */
 export const MECHANIC_TRYIT_LESSONS: Readonly<Record<MechanicTryItId, Lesson>> = {
   storm: STORM_TRYIT,
@@ -2133,4 +2391,6 @@ export const MECHANIC_TRYIT_LESSONS: Readonly<Record<MechanicTryItId, Lesson>> =
   falcon: FALCON_TRYIT,
   blackPanther: BLACK_PANTHER_TRYIT,
   zemo: ZEMO_TRYIT,
+  wonderMan: WONDER_MAN_TRYIT,
+  hercules: HERCULES_TRYIT,
 };
