@@ -170,7 +170,7 @@ the other villains aside. Put the Light at the End side scheme into play, [Trap!
 - **New `MultipleVillains.atSetup?: "setAside"`**: every villain starts set aside and the main scheme's Setup puts
   them into play (§3.1). Absent is today's behavior (all in play).
 - The six villains are six one-stage `VillainCard`s with `activationOrder` 1–6 (wave 2 §6.7), `encounterDecks:
-"shared"`, `activation: "activeVillainOnly"`.
+  "shared"`, `activation: "activeVillainOnly"`.
 - **Data only until §3.1.**
 
 ### 1.6 SP//dr's separated identity
@@ -377,14 +377,14 @@ against `pnpm dsl` (379 builders), the engine's `EffectSpec` / `RuleSpec` / `Tri
 > **What landed.** A set-aside villain is a `VillainState` marked `defeated` (out of play) whose instance is in
 > `encounterSetAside`, so an active counter left on it keeps `activeVillainId` valid and makes "the villain" nobody (the
 > Kang precedent). **`GameSetupConfig.villainsStartSetAside`** (with `villains`; the builder maps `MultipleVillains.atSetup:
-"setAside"`): every villain starts so, and setup skips their toughness, Setup and When Revealed.
+> "setAside"`): every villain starts so, and setup skips their toughness, Setup and When Revealed.
 > **`GameSetupConfig.activeCounter: "nextInActivationOrder"`** → `ScenarioRules.activeCounter`: a defeated or set-aside
 > active villain passes the counter to the next in activation order, or to nobody (`passActiveCounter`, used by the
 > defeat, `removeVillain` and `setVillainAside` paths), and at step 2 a villain in play takes it by the p. 62 FAQ
 > (`activeVillainChanged { reason: "noActiveVillain" }`). **`addVillain`** now re-admits a set-aside villain as a new
 > copy (its `villains` entry replaced in place) and takes **`bind`** ("If no villain was put into play this way").
 > **`EffectSpec setVillainAside { villain }`** (log `villainSetAside`), **`EffectSpec moveActiveCounter { to:
-"nextInActivationOrder" }`** (reason `activationOrder`), **`ValueSpec activationOrder { of }`**. Win by card ability
+> "nextInActivationOrder" }`** (reason `activationOrder`), **`ValueSpec activationOrder { of }`**. Win by card ability
 > is the existing `victory: "cardAbility"` (the builder maps `MultipleVillains.winCondition: "cardAbility"` to it). Step
 > 2 with no villain in play already skips the villain's activation (§4 Q2). **DSL:** `setVillainAside`,
 > `moveActiveCounterToNextVillain`, `activationOrderOf`, `addVillain(…, { bind })`. **Not here:** the "When a villain
@@ -413,7 +413,7 @@ lone villain keeps it.
   reference to "the villain" with none in play resolves to nothing (effects fizzle, "the villain attacks you" makes no
   attack, "If no attack was made this way" reads true).
 - **`EffectSpec putVillainIntoPlay { villains: "randomSetAside" | query; count?: ValueSpec; activeCounter?: "onIt" |
-"lowestActivationOrder" | "keep" }`**: the set-aside villain(s) enter play with full hit points and their
+  "lowestActivationOrder" | "keep" }`**: the set-aside villain(s) enter play with full hit points and their
   keywords (toughness), `villainEnteredPlay` logged. Covers the 1A Setup, "Ambush!", Sinister Beatdown 2A ("even if
   another villain has the counter") and "Put the set-aside Hobgoblin and Vulture into play". A villain already in play
   is not put in again, and the effect reports how many entered (`eventResult`) for "If no villain was put into play
@@ -436,7 +436,7 @@ lone villain keeps it.
 > to "that minion"; a status card replaces the activation first, so the interrupt never sees it; with no villain in
 > play the activation is announced with no enemy, the interrupt puts one in and its activation continues, replay
 > deep-equal). DSL: `wave5-primitives.test.ts`. **What landed:** **`TriggerEvent enemyActivating { enemyInstanceId |
-null, activation, playerId }`**, interrupt window, pushed by `activateEnemy` after the status check and only when an
+> null, activation, playerId }`**, interrupt window, pushed by `activateEnemy` after the status check and only when an
 > ability listens; its apply step (`continueActivation`) initiates the attack or scheme, and a `cancelTriggeringEvent`
 > means it never happens (§4 Q3: "after it activates" does not follow). At step 2 with no villain in play the villain's
 > activation is announced with `enemyInstanceId: null` and, after the interrupt, activates whoever is "the villain" now.
@@ -460,7 +460,7 @@ continues against the active villain if one now exists. **DSL:** `on.enemyActiva
 > scheme; in the villain phase each main scheme gains its own acceleration and the villain schemes on the glider's;
 > moving the counter moves "the main scheme"; a completed stage flips to its environment, revealed, no loss, replay
 > deep-equal). DSL: `wave5-primitives.test.ts`. **What landed:** **`RuleSpec focusedMainScheme.encounterCards:
-"focused"`** (`gliderMainSchemeId`): encounter cards' "the main scheme", a villain's scheme threat when it has no main
+> "focused"`** (`gliderMainSchemeId`): encounter cards' "the main scheme", a villain's scheme threat when it has no main
 > scheme of its own, every acceleration token placed "on the main scheme" (`addAccelerationToken` with no target,
 > including the empty-deck reset) and the crisis/patrol checks (`isProtectedMainScheme`, in `threatRemovalBlocked` and
 > the basic thwart) name the focused scheme alone. A player card's "the main scheme" is unchanged (the wave 4 choice).
@@ -506,7 +506,7 @@ choice of main scheme). What is new:
 > **What landed:** `addAccelerationToken` on a card that is not a main scheme gives it an `acceleration` counter
 > (`ACCELERATION_COUNTER`); step one adds every such token in play to "the main scheme" (the glider's, else the central
 > one; `offSchemeAccelerationTokens`), and the villain-phase audit expects it. **`TriggerEvent accelerationTokenPlaced {
-instanceId }`** (response only, pushed only when an ability listens). `moveCounters` with `counterType` absent or
+> instanceId }`** (response only, pushed only when an ability listens). `moveCounters` with `counterType` absent or
 > `"acceleration"` moves tokens between a main scheme's `accelerationTokens` and any card's counter. The audit's token
 > shadow now ignores tokens added to a non-central stage (it read them as the central count). **DSL:**
 > `on.accelerationTokenPlaced(who)`; `addAccelerationToken(target)` unchanged.
@@ -538,7 +538,7 @@ included.
 > discard pile (`GameState.pendingEncounterFromDeck`), and the flow announces them between frames, after the whole draw,
 > oldest first, only when an ability listens. The interrupt sees the card already in the hand or discard pile, and its
 > own `dealAsEncounterCard` moves it on. **`TriggerEvent boostCardResolved { enemyInstanceId, boostInstanceId,
-playerId }`** (response only): after a boost card's ability and icon count and before the discard, only when an
+> playerId }`** (response only): after a boost card's ability and icon count and before the discard, only when an
 > ability listens; a card a response moved is not discarded. **DSL:** `moveCardsInto(from, to, player)`,
 > `on.encounterCardFromPlayerDeck(how?)`, `on.boostCardResolved(during)`. Also fixed: §3.4's
 > `accelerationTokenPlaced` had been classed as an interrupt event; it is response only. **Not here:** the game-end
@@ -631,7 +631,7 @@ then decreases). Applies per damage event, as "reduce … from each attack" does
 > matches a "[Symbiote] environment" query, has the trait, and still matches "side scheme"; with a printed Symbiote
 > environment in play it does not count, so there is one Symbiote environment, not two; a query read with printed
 > characteristics only never sees it). DSL: `wave5-primitives.test.ts`. **What landed:** **`RuleSpec countsAs { target,
-categories, traits?, while? }`**, collected by `countsAsExtras` (cached per state, like the constant blanks) and read
+> categories, traits?, while? }`**, collected by `countsAsExtras` (cached per state, like the constant blanks) and read
 > by `explainQuery`'s category clause and `traitsOf`; nothing else (`categoriesOf` and where the card lives are
 > unchanged). The rule's `while` and `target` are read with printed characteristics only, so "no other [Symbiote]
 > environments" never asks itself. **DSL:** `countsAs(target, categories, { traits?, while? })`, a `constant` part.
@@ -813,7 +813,7 @@ counting it (it is in hand).
 > **Status: landed (2026-09-26),** tested in `packages/engine/src/unlimited-tough.test.ts` (3 tests: the villain holds
 > three tough cards, and three damage events each spend one, replay deep-equal; piercing discards all three; a villain
 > without the rule holds one). DSL: `wave5-primitives.test.ts`. **What landed:** **`RuleSpec statusLimit { target,
-status: "tough", max: "unlimited" }`**, read by `statusCapacity` (so `giveStatus` and the status clean-up allow any
+> status: "tough", max: "unlimited" }`**, read by `statusCapacity` (so `giveStatus` and the status clean-up allow any
 > number). The damage path already spent one tough card per event and piercing already cleared them all. **DSL:**
 > `anyNumberOfToughStatusCards(target)`, a `constant` part. **Not changed:** `removeStatus` ("remove a tough status
 > card") still removes every card of that status, as it did for a steady character's two.
@@ -906,7 +906,7 @@ the identity eliminates the player as always (the set-aside versions need nothin
 > `wave5-precon-legality.test.ts` checks SP//dr in full. Schema: optional `SeparatedIdentitySide.resourceIcons`.
 > Decisions: ready state follows the physical card (Q37), statuses stay on the identity (Q39); counters/attachments on
 > the other card move to the identity (Q38, not built yet). **Data:** `curation/spdr.ts` needs `resourceIcons: { wild: 1
-}` on `alterEgoCardOtherSide` (read from Hall of Heroes `s2.jpg`). **Scripting:** `31002.psychogenetic-compatibility`,
+> }` on `alterEgoCardOtherSide` (read from Hall of Heroes `s2.jpg`). **Scripting:** `31002.psychogenetic-compatibility`,
 > `31001b.return-to-base`, `31002b.suit-up` are `coveredByEngineRule()`.
 
 SP//dr insert, "New Rule: Separated Identity Card": "One card represents the human pilot, Peni Parker, while the other
@@ -935,7 +935,7 @@ player's, not the card's. Remove the `createGame` refusal and `validateDeck`'s `
 > `payingFor`; `EventPattern.playerIn` ("the engaged player"); `repeatable` resource abilities (a fixed counter cost
 > only; one payment option per use, `ability:<id>:<abilityId>:<n>`, capped at 20). **DSL:**
 > `on.resourcesGenerated({ by?: "you" | "engaged" })`, `countersAsResource(counterType, generates = 1)`, `resource(...,
-{ repeatable })`. **User decisions that change it (§4.1):** Q5 (toon counters are not "generated") and Q25 (one
+> { repeatable })`. **User decisions that change it (§4.1):** Q5 (toon counters are not "generated") and Q25 (one
 > timing window with the spend responses) are not built yet.
 
 M.O.R.B.I.U.S. (errata): "After the engaged player generates any number of resources, deal an equal amount of damage
@@ -988,7 +988,7 @@ missing op goes here.
 > only P1 sees the top card in a 2-player game, the second card stays hidden, replay deep-equal; it lasts through P2's
 > turn and ends with the round), `packages/cards/src/dsl/wave5-3-28.test.ts` and
 > `packages/client/src/view/inspect-encounter-top.test.ts` (2). **What landed:** `RuleSpec mayLookAtTopOfEncounterDeck
-{ player, while? }`; `faceVisible` takes an optional `ViewerContext { viewer, deps }` (exported), and the active
+> { player, while? }`; `faceVisible` takes an optional `ViewerContext { viewer, deps }` (exported), and the active
 > encounter deck's top card is face-visible only to a viewer the rule covers (RRG 1.8 "Look", p. 27). Callers with no
 > viewer (log names, `preview()`) keep it hidden. **DSL:** `mayLookAtTopOfEncounterDeckUntil(until, player = you)`.
 > **Client:** Inspect passes the seat's viewer; the board's pile image still shows the back.
@@ -1037,7 +1037,7 @@ cannot leave play). Verify what `leavePlay` does today with a permanent attachme
 > **Status: landed (2026-09-26, 1d84412c),** tested in `packages/engine/src/unblankable-text-box.test.ts` (4 tests) and
 > `packages/cards/src/dsl/wave5-3-31.test.ts`. **What landed:** an ability, not data (the ingested text already gives
 > both faces a slot: `31001b.sp-dr-suit-constant`, `31002b.sp-dr-constant`): `RuleSpec { kind: "textBoxCannotBeBlanked"
-}`, read from the current face before any blank applies, protecting only that face against lasting (Panic in the
+> }`, read from the current face before any blank applies, protecting only that face against lasting (Panic in the
 > Streets, Vivian) and constant (Tech Theft) blanks. Facedown cards and cards treated as another type still have no
 > abilities (not "treated as blank"). `activeAbilityRefs` now layers the blank check over a private
 > `unblankedAbilityRefs(state, id)`; §3.24's face logic goes there. **DSL:** `constant(textBoxCannotBeBlanked())`. The

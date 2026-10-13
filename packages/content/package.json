@@ -19,6 +19,6 @@
     "catalog": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/generate-catalog.ts"
   },
   "devDependencies": {
-    "@types/node": "^22.20.2"
+    "@types/node": "^24.19.2"
   }
 }

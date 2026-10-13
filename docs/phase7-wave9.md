@@ -525,7 +525,7 @@ scenario.
 
 1. **`AOS_CAMPAIGN`**, hand-authored in `packages/content/src/data/aos/campaign.ts` as `aoa/campaign.ts` is (there is no
    MarvelCDB record of a campaign), and registered in `CAMPAIGNS`: `id: campaignId("aos")`, `name: "Agents of
-S.H.I.E.L.D."`, `boxCode: "MC50"`, `packCode: setCode("aos")`, `scenarioIds` in the order of MC50 p. 4
+   S.H.I.E.L.D."`, `boxCode: "MC50"`, `packCode: setCode("aos")`, `scenarioIds` in the order of MC50 p. 4
    (`black-widow`, `batroc`, `modok`, `thunderbolts`, `baron-zemo`), `logSheetReference` the sheet of §0.3.
    **`campaignSetIds` is empty**: a set listed there is barred from standalone play, and neither
    `s.h.i.e.l.d._executive_board` (a modular set, MC50 p. 6) nor `executive_board_evidence` (dealt in a standalone Baron
@@ -1894,7 +1894,7 @@ not that the card's behavior was run; the scripting agent's tests prove each.
 ### 3.36 Specials resolved by count and by choice; a Special that discards its own card; Specials on allies
 
 > **Status: not started (exists, verify).** `special` (DSL) and `EffectSpec resolveSpecials { cards | of, player,
-abilities, bind }` (`spec.ts`; its doc cites Wakanda Forever!), the "(attack)" and "(thwart)" labels on a Special
+> abilities, bind }` (`spec.ts`; its doc cites Wakanda Forever!), the "(attack)" and "(thwart)" labels on a Special
 > (Core's Black Panther upgrades, wave 1), `chooseCards` feeding `of`, `basicPowerUsed`, `discardThis`,
 > `thatAttackGainsKeywords`, `attack { moveDamageFrom }`. Not run: one Special chosen out of several, "up to 4", a
 > Special printed on an ally, a Special whose card leaves play as it resolves.
@@ -1945,7 +1945,7 @@ Special; with no other Dora Milaje ally: nothing. T'Challa thwarts while Shuri i
 ### 3.37 A card searched for in the deck and played at a reduced cost
 
 > **Status: not started (exists, verify).** `EffectSpec playFromHand { from: "hand" | "setAside" | "deck" | …, filter,
-costReduction, ignoreCost }` (`spec.ts`). The DSL has `playFromHandReducingCost` and `playFromDeckIgnoringCost`
+> costReduction, ignoreCost }` (`spec.ts`). The DSL has `playFromHandReducingCost` and `playFromDeckIgnoringCost`
 > (Fetch Quest) and no builder that sets `from: "deck"` with a reduction: one DSL builder, no engine change expected.
 
 **Cards.** Shuri 51001b (scan): "Inventor — Action: Exhaust Shuri → search your deck for a Black Panther or Tech
@@ -3404,9 +3404,9 @@ names a page of §2.9.
 ### 3.74 A `cardState` log field: written by a record, read inside a game
 
 > **Status: not started (extend).** `LogFieldType cardState { cardIds }` and `LogValue cardState { cards: Record<string,
-{ counters, face? }> }` exist. Nothing can write one: `campaign/result.ts` throws "a record instruction cannot yet
+> { counters, face? }> }` exist. Nothing can write one: `campaign/result.ts` throws "a record instruction cannot yet
 > write" it, and `campaign/log.ts` and `campaign/ops.ts` throw the same for the between-games vocabulary. `ValueSpec
-campaignLog` and `Predicate campaignLog` read numbers, lists and flags only.
+> campaignLog` and `Predicate campaignLog` read numbers, lists and flags only.
 
 **Cards.** 50181a/b, 50182a/b, 50183a/b.
 
@@ -3464,7 +3464,7 @@ kept out of every view, and shown as a sealed envelope with a card count.
 2. `CampaignLogView` gains `hidden`, apart from `shared`. A hidden field an instruction reads goes there and nowhere
    else.
 3. `EffectSpec seedHiddenPiles { piles: Record<string, { campaignLogField }>; revealed: { campaignLogField }; rest: {
-set: EncounterSetId; to: string } }` fills §3.29's `hiddenPiles` and `revealedPileCards` from the log: `aim` from
+   set: EncounterSetId; to: string } }` fills §3.29's `hiddenPiles` and `revealedPileCards` from the log: `aim` from
    `aimEnvelope`, the revealed cards from `evidence`, and the other cards of the set, shuffled with the game's RNG, as
    `shield`. Logged as `hiddenPilesDealt` with sizes only, as the standalone deal is.
 4. `Predicate inCampaign`: true when `GameState.campaign` is present. Zemo's Manipulations uses it three times: 1A deals

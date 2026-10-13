@@ -71,7 +71,7 @@ pin in this pass's scope.
 ## 4. Test/commit record
 
 - Added 2 tests (expert-mode playthrough with replay deep-equal) in `packages/cards/src/wave5/sm/sinister-six/
-scenario.test.ts` and `packages/cards/src/wave5/sm/venom-goblin/scenario.test.ts`.
+  scenario.test.ts` and `packages/cards/src/wave5/sm/venom-goblin/scenario.test.ts`.
 - Full suite for the scope this pass touched, run in isolation
   (`pnpm exec vitest run packages/cards/src/wave5/sm/{sinister-six,venom-goblin,modulars}`): 17 files, 206 tests
   passing before this pass's additions (all pre-existing coverage, unmodified); 208 passing after (22/22 in the

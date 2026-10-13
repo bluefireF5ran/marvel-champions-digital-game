@@ -55,7 +55,7 @@ highest-risk interaction points before this pass started:
 - **Cartoon Physics' (30009) "prevent all but 1" floor is already exercised at both the normal and the
   interrupt-not-taken edges** — `support-upgrades.test.ts`'s own two tests ("discards the card and prevents all but
   1 of that damage" / "declining leaves the full damage to land") prove `preventDamage(scaled(eventAmount, { plus:
--1 }))` reduces a real 2-damage Rhino attack to exactly 1, not to 0 and not to the full 2 — the shape a naive
+  -1 }))` reduces a real 2-damage Rhino attack to exactly 1, not to 0 and not to the full 2 — the shape a naive
   "prevent 1" (rather than "prevent all-but-1") misreading would fail differently on.
 - **Huge Wooden Hammer's (30010) player-attack overkill spill is exercised through a real `basicAttack`, not
   asserted on the modifier alone** — `support-upgrades.test.ts`'s own "accepted…" test defeats a 1-HP-remaining
@@ -92,7 +92,7 @@ All of the following were already covered before this pass; verified by reading 
   found.
 - **"I Really Want a Hot Dog!" (30024) with zero toon counters**: the exhaust option is unavailable and the reveal
   falls to the stun branch (`obligation-nemesis.test.ts`) — proves the `allOf(exists(ready alter-ego), hasToonCounter
-())` gate is a real AND, not offered when only one half holds.
+  ())` gate is a real AND, not offered when only one half holds.
 - **The Green Gobbler (30026) forced response in 2-player**: discards every counter type from every card the
   engaged player controls while a different player's own counters (also "toon") are untouched
   (`obligation-nemesis.test.ts`) — the highest-risk case for the new `removeAllCountersFrom` engine primitive (wrong

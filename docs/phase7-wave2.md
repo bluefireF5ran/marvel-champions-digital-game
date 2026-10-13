@@ -2771,7 +2771,7 @@ a rule's `target`, do the general change on purpose, with its own tests, rather 
 Nothing in `packages/cards` was touched here (`KNOWN_SKIPPED` included). To close 11049:
 
 1. Script `11049.fear-of-kang-constant` as `constant(rule({ kind: "cannotAttack", target: query("villain", { name:
-cardName("11001") }), player: you }))` — the `rule` builder passes a `RuleSpec` straight through, so no DSL change
+   cardName("11001") }), player: you }))` — the `rule` builder passes a `RuleSpec` straight through, so no DSL change
    is needed — and add it to `KANG_ENCOUNTER_SET`.
 2. Drop it from `KNOWN_SKIPPED` in `wave2/coverage.test.ts`.
 3. `wave2/toafk/fear-of-kang-constant.test.ts` is still worth keeping, but its second half now asserts the _fixed_

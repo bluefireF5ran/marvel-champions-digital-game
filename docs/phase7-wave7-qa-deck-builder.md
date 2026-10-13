@@ -20,7 +20,7 @@ Screenshots: `/private/tmp/claude-501/-Users-quincarter-Documents-Dev-marvel-cha
    deck may only use its chosen aspect and basic cards." The picker replaces rather than adds, so "two aspects" cannot be built.
    No UI/validator disagreement. Finding F4.
 4. **Illegal states (pass).** Identity card removed: `"Yoo-Hoo!" has 1 copy, but Deadpool (Wade Wilson)'s identity set has exactly 2
-copies, and a deck must include exactly that many.`; Montage 0: "Montage is missing: a deck for Deadpool (Wade Wilson) must include
+   copies, and a deck must include exactly that many.`; Montage 0: "Montage is missing: a deck for Deadpool (Wade Wilson) must include
    every card in that identity's set, and this one needs 1 copy." 39 and 51 cards: "The deck has N cards; a deck must have between
    40 and 50 (the identity and permanent cards do not count)." Not findable at all (search shows "No cards match this filter."):
    other heroes' kits, NeXt Evolution campaign cards, the Dreadpool set. Linked Specialist: findable (F2), then "Combat Specialist

@@ -239,7 +239,7 @@ Reference; FFG rulings clarify both):
      versus RRG: no conflict found". That ruling measures excess on damage **dealt**; RRG 1.8 "Overkill" (p. 31)
      says an ability that counts excess damage "counts the same value … calculated when resolving the overkill
      keyword", and the user decided for the RRG on 2026-09-25 (`excessDamageOf`, `packages/engine/src/resolve/
-event.ts`: "Prince of Power heals 2, not 3"). August 3, 2026 - Ruling 6, issued after RRG 1.8, again speaks of
+     event.ts`: "Prince of Power heals 2, not 3"). August 3, 2026 - Ruling 6, issued after RRG 1.8, again speaks of
      excess "dealt to overcome the reduction"; no cycle 7 card prints "exactly defeat", so nothing here reads it.
    - (pass 1b) Its §6 item 8 says the loss is "checked after any ally defeat". The card says "leaves play": any way of
      leaving (defeat, discard, return to hand, removal).
@@ -447,7 +447,7 @@ since the core set. `victory` stays the default (`finalVillainStage`) for all th
 | Stryfe          | 40166 (1), 40167 (2)                                         | Scan 40166b read: starting 0, acceleration "0★", target **9 per player**. Both stages print "If this stage is completed, the players lose the game": `completionLoses: true` on 40166.  |
 
 - **Sinister Intent 1B (40139b)** prints no threat values: `dashedThreatFields: ["startingThreat", "targetThreat",
-"acceleration"]` (the `mut_gen` 32125b precedent; the data survey §4.8 asks for the scan check). A dashed target
+  "acceleration"]` (the `mut_gen` 32125b precedent; the data survey §4.8 asks for the scan check). A dashed target
   never completes (`checkOneMainScheme`, `packages/engine/src/resolve/defeat.ts`); the stage leaves by its own When
   Revealed.
 - **No new stage field for "random".** Which stage 2 is removed and the order of the other two are game state
@@ -884,7 +884,7 @@ order; "choose" is the block every scenario prints, described under the table.
   not precedes (campaign setup is after scenario setup); and Stryfe's recalculated attack (§2.8). None is specific to
   campaign mode, and none conflicts with the Campaign Instructions.
 - **The definition** is `packages/cards/src/campaigns/next_evol.ts`, the `mut_gen.ts` shape: `graph: { kind:
-"linear" }`, `loss: { retry: "byInstruction", retryBaseline: "nodeStart" }` with scenario 5's expert `defeat`
+  "linear" }`, `loss: { retry: "byInstruction", retryBaseline: "nodeStart" }` with scenario 5's expert `defeat`
   instruction (`endCampaign lost`, as `mut_gen.ts`'s last node), `elimination` as `mut_gen.ts`'s.
 
 ---
@@ -995,7 +995,7 @@ section is one agent, one commit.
 > player as controller and places `scale(startingThreat, startingPlayerCount)`; `select.ts` gives it the categories
 > `sideScheme` and `scheme`; `resolve/event.ts` defeats it at 0 threat through `schemeDefeated` (interrupts first, then
 > When Defeated, then leaving play); Victory X sends it to the victory display (`docs/phase7-wave3.md` line 305, `discardFromPlay
-{ defeated: true }`); `unique.ts` treats it as entering play; `reveal.ts` refuses to reveal one; `legal.ts` and
+> { defeated: true }`); `unique.ts` treats it as entering play; `reveal.ts` refuses to reveal one; `legal.ts` and
 > `actions.ts` accept it as a basic thwart target. Gaps below.
 
 **Cards.** `next_evol` 40006, 40018, 40019, 40020, 40027, 40054, 40059; `psylocke` 41016; `angel` 42017; `x23` 43018,
@@ -1078,7 +1078,7 @@ assault." MC40 p. 4 agrees.
 **Gaps.**
 
 1. **A divided basic thwart** (`command.divide`, `RuleSpec divideBasicPower`): the code sets `assault = !command.divide
-&& …`, so a divided thwart that includes an assault scheme uses THW. The RRG has no carve-out. §4.2 Q3.
+   && …`, so a divided thwart that includes an assault scheme uses THW. The RRG has no carve-out. §4.2 Q3.
 2. **Untested:** an ally's consequential damage under assault (the ATK number), "+N to your next basic thwart"
    bonuses (`nextBasicPower`, wave 6 §3.39) applying to the ATK used, THW-only modifiers not applying, a confused
    thwarter (the status card still replaces it), "after you use a basic power"/`basicPowerUsed` reporting a thwart.
@@ -1274,7 +1274,7 @@ Hope's Captor is an advance, not a completion, so it does not lose.
 > (`packages/content/src/schema/cards/attachment-host.ts`, resolved in `packages/engine/src/resolve/reveal.ts`):
 > **`{ kind: "superlative"; among; order; measure } & HostQualifiers`** with `among: "enemy"` (`SuperlativeHostPool`),
 > `measure: "atk"` or `"remainingHp"` (`HostMeasure`) and `order: "highest" | "lowest"`; **`ifAble { preferred,
-otherwise }`** for "Otherwise, attach to …"; **`anyOf`** for "Greycrow or Harpoon" (`namedCard` each). The parser
+> otherwise }`** for "Otherwise, attach to …"; **`anyOf`** for "Greycrow or Harpoon" (`namedCard` each). The parser
 > emits them, and since commit 02c645f5 a leading trait word ("the [MARAUDER] enemy with the lowest ATK") becomes the
 > superlative host's `trait` qualifier. No new host kind and no `superlativeEnemy` / `firstOf`.
 
@@ -1401,7 +1401,7 @@ attacks ends the game there.
 > **Status: exists (verify).** `EffectSpec flipCard` on a `flipSide` encounter card (`spec.ts`: "A double-sided
 > encounter card turns to its other face"; `rules.ts` reads the showing face), same card type so everything on it
 > stays (RRG "Flip", p. 20); `Predicate exists` over `named` matches the showing face's title; `increaseDamageTaken {
-fromSource: { printedResource: "mental" } }` is the Troll's rule word for word (wave 6 §3.68); same-type resource
+> fromSource: { printedResource: "mental" } }` is the Troll's rule word for word (wave 6 §3.68); same-type resource
 > costs (wave 3 §3.43); `attackKeywords` and constant keyword grants.
 
 **To verify.** Each face's constants apply only while it shows (stalwart and overkill on the a face; the extra damage
@@ -1483,7 +1483,7 @@ threat as well. The DSL gets `on.statusPlaced(target, { status? })`.
 
 > **Status: partial.** Found: stages that share a `stageNumber` are a group of alternatives (`nextMainSchemeStage`
 > returns `"alternatives"`; `advanceMainScheme { to: { stageNumber, name } }`, wave 2 §3.4); `GameState
-.spentMainSchemeStages`; `EffectSpec shuffleMainSchemeStages { fromStageIndex }` and `MainSchemeState.stageOrder`,
+> .spentMainSchemeStages`; `EffectSpec shuffleMainSchemeStages { fromStageIndex }` and `MainSchemeState.stageOrder`,
 > which the default advance walks (wave 6 §3.18); `removeMainSchemeStage` (a separate game area's stage only: "The
 > central stage cannot be removed"). Not found: removing a stage of the **central** scheme's deck that is not the
 > current one, picking it at random, and shuffling only one stage number's group (`shuffleMainSchemeStages` shuffles
@@ -1495,7 +1495,7 @@ threat as well. The DSL gets `on.statusPlaced(target, { status? })`.
 
 - **`EffectSpec removeMainSchemeStages { stageNumber, random: ValueSpec, bind? }`**: that many unspent stages with the
   number, not the current one, chosen with the seeded RNG, are marked spent and logged `mainSchemeStageRemoved {
-stageIndex }`. The A sides are faceup in a physical main scheme deck, so which stage went is public.
+  stageIndex }`. The A sides are faceup in a physical main scheme deck, so which stage went is public.
 - **`shuffleMainSchemeStages` gains `stageNumber?`**: only that group is ordered; later stages keep their place
   behind it. The stored order leaves out spent stages.
 - **1B's script:** remove 1 random stage 2, shuffle the stage 2 group, `advanceMainScheme` (the default walk). The
@@ -1549,7 +1549,7 @@ set-aside area (Q20 = B, built 2026-10-07), and the scenario's builder names the
    the [TINY] trait." `reduceDamageTaken` gains the same `exceptAttacker`.
 3. **Aerial Bombardment** (40152): "[star] Attached villain gets +1 ATK and ignores the retaliate keyword while
    attacking a non-[AERIAL] character." `characterIgnores.ignores` gains `"retaliate"` with **`against?:
-TargetQuery`** (the attacked character); the +1 ATK is a stat modifier `while` the same condition holds. RRG
+   TargetQuery`** (the attacked character); the +1 ATK is a stat modifier `while` the same condition holds. RRG
    "Ignore" (p. 23).
 
 **Thumbelina and excess damage.** Excess is measured on damage taken (`excessDamageOf`, `resolve/event.ts`; RRG
@@ -1662,7 +1662,7 @@ allow. No engine code names the card; Old Grudge and Fallen Warrior (true When R
 **Gaps.**
 
 1. **Mind Trap** (40171): "Your allies, upgrades, and supports enter play exhausted." **`RuleSpec entersPlayExhausted
-{ target, while? }`**, read where `entersExhausted` is (`resolve/play-card.ts`) and by `putIntoPlay`: placed
+   { target, while? }`**, read where `entersExhausted` is (`resolve/play-card.ts`) and by `putIntoPlay`: placed
    exhausted, not exhausted by an effect, so no "when exhausted" ability sees it. A card changing controller is not
    entering play.
 2. **Psychic Inertia** (40173): "Hero Action: If your hero attacked and thwarted this phase → discard this card."
@@ -1806,7 +1806,7 @@ villain, along with each other villain, from the game."
    set-aside villain and the minion sharing its title from the game; attach Hope's Captor. Standalone play is
    unchanged in outcome.
 3. The campaign instruction is `inGame`, window `beforeScenarioSetup`: move `campaignLogCards("maraudersDefeated", {
-byName: true, filter: villain })` from the set-aside area to `removedFromGame` (`moveCards`, both existing).
+   byName: true, filter: villain })` from the set-aside area to `removedFromGame` (`moveCards`, both existing).
    `byName` matters: scenario 1 recorded one mode's face of each title and scenario 2 may be played in the other mode.
 4. Test: with three titles recorded, 200 seeds never start one of them, and their three minions are still in the
    encounter deck unless the drawn villain shares the title.
@@ -1847,9 +1847,9 @@ by Technovirus Purge put into play by Technovirus Resurgence (MC40 p. 21; pass 2
 ### 3.44 A minion that stays in play attached to an ally it treats as a minion
 
 > **Status: partial.** The host's half exists and is shipped for four cards: `RuleSpec treatHostAsMinion { traits,
-keepPrintedTraits?, schFromThw? }` (`packages/engine/src/abilities.ts`; `treat-as.ts syncTreatedAs`;
+> keepPrintedTraits?, schFromThw? }` (`packages/engine/src/abilities.ts`; `treat-as.ts syncTreatedAs`;
 > `CardInstance.treatedAs`; wave 4 §3.9, `treat-as-minion.test.ts`; DSL `constant(treatAttachedAllyAsMinion(traits, {
-keepPrintedTraits }))`, used by Fallen Warrior, Beguiled, Manipulated Mind and Possessed). Its doc comment already
+> keepPrintedTraits }))`, used by Fallen Warrior, Beguiled, Manipulated Mind and Possessed). Its doc comment already
 > names Malice and 'Pool-ized. **'Pool-ized composes today** (below). Malice's other half does not exist: the card
 > doing the attaching is a **minion**, attached by its own When Defeated, that stays in play as a minion.
 
@@ -2159,7 +2159,7 @@ count" for the effect that discarded it.
 
 > **Status: partial.** Counting exists: `moveCards(…, bind)` reports `<bind>.physical`, `.mental`, `.energy`,
 > `.wild` (`resolve/apply-effect.ts`, the `milled` helper in `wave1/drs/kit.ts`); `ValueSpec totalPrintedResources {
-cards, types? }` reads whatever a ref names, including the slot `discardTopOfDeckCost(n, slot)` binds. Nothing
+> cards, types? }` reads whatever a ref names, including the slot `discardTopOfDeckCost(n, slot)` binds. Nothing
 > changes how many times an icon counts.
 
 **Cards.** Domino (40037a): "When counting resources on cards discarded from the top of your deck, count each printed
@@ -2221,7 +2221,7 @@ in progress. Plasma Rifle, Domino's Pistol and Sidearm grant ranged through `att
 > **Status: exists (verify).** `cancelTriggeringEvent` on `cardBeingPlayed` sets the play frame's `effectsCancelled`
 > (`resolve/apply-effect.ts`, `stack.ts`; Counterspell, `drs`): "the card is still considered played, and it is
 > discarded". Villainous is `resolve/enemy-activation.ts`. `threatCannotBeRemoved.player` and `cannotTakeDamage {
-target, fromSource }` exist.
+> target, fromSource }` exist.
 
 - **Stryfe (40032)**, villainous: "Forced Interrupt: When a player plays a PSIONIC event, cancel the effects of that
   event and deal 1 damage to Stryfe." A forced interrupt on an encounter card hearing any player's play, trait read
@@ -2232,7 +2232,7 @@ target, fromSource }` exist.
   `cannotTakeDamage` on enemies not engaged with the Cable player, and on minions engaged with them, with
   `fromSource` naming that player's cards (`controlledBy`, or `extensionOf` plus their allies). **Verify** that
   `fromSource` can express "any card of this player" for an event already out of play; if not, add `fromPlayer?:
-PlayerRef`, the mirror of `threatCannotBeRemoved.player`. RRG "Engage" (p. 18) defines engagement for minions only, and the engine's
+  PlayerRef`, the mirror of `threatCannotBeRemoved.player`. RRG "Engage" (p. 18) defines engagement for minions only, and the engine's
   `engagedWith` is null for a villain (`select.ts`): whether the Cable player can damage the villain is §4.2 Q36.
 
 ### 3.61 Reusable as is, pass 2a (checked against the engine unions)
@@ -2582,7 +2582,7 @@ August 3, 2026 - Ruling 4, answer 3: not even a campaign reward puts one in a de
   hero performs a basic attack / defense / thwart, exhaust this card → draw 1 card" (`on.basicPowerUsed` with the
   power). Front Line Specialist (43036, erratum RRG p. 69, already in the data's `current` text): "Your **identity**
   gets +4 hit points", so the bonus holds in alter-ego form, and its Response reads `on.damage(yourIdentity, {
-fromAttack: enemy })`.
+  fromAttack: enemy })`.
 
 Needs §3.1 and §3.2 for the scheme itself.
 
@@ -2638,7 +2638,7 @@ in §7.3.
 
 - `ValueSpec iconsInPlay { icons?: readonly CardIcon[] }`: the sum of `iconsInPlay` over the listed icon types (all
   four when absent), amplify included. DSL `encounterIconsInPlay()`; "I Got This" is four `ifThen(valueAtLeast(
-encounterIconsInPlay(["crisis"]), 1), …)` lines in printed order, each resolved if able.
+  encounterIconsInPlay(["crisis"]), 1), …)` lines in printed order, each resolved if able.
 - Acceleration **tokens** are never counted (§3.76). A blanked or facedown card shows none (`iconsBlankedOn`,
   existing, which reads a blank text box as hiding the card's icons): a 'Pool ally under 'Pool-ized, "a minion with a
   blank text box", stops showing its icon.
@@ -2683,7 +2683,7 @@ Cannot change form: §4.2 Q45.
 
 > **Status: missing.** `AbilityCost.damageSelf` is `number | ValueSpec` (`packages/engine/src/abilities.ts`, settled
 > in `cost-damage.ts`), read "with the picks above bound"; nothing lets the payer pick the amount. `EffectSpec
-chooseNumber` (wave 6 §3.69) and its `chooseNumber` choice kind exist for effects.
+> chooseNumber` (wave 6 §3.69) and its `chooseNumber` choice kind exist for effects.
 
 **Cards.** Maximum Effort (44004): "Hero Action (attack): Take any amount of damage up to your remaining hit points
 → deal an equal amount of damage to an enemy." "Yoo-Hoo!" (44006): the same, as a thwart: "remove an equal amount of
@@ -2708,7 +2708,7 @@ p. 14). Involuntary Procedures gains its threat from this damage.
 ### 3.80 A resource card whose yield is computed
 
 > **Status: partial.** A resource card's yield is its data (`producesIcons`), multiplied by `ResourceMultiplierSpec
-{ factor: number, forThisCard: true, resource? }` (`abilities.ts`, read in `actions.ts` `multiplyPool`; Lightspeed
+> { factor: number, forThisCard: true, resource? }` (`abilities.ts`, read in `actions.ts` `multiplyPool`; Lightspeed
 > Flight, `nova`). The factor is a constant and there is no additive form.
 
 **Cards.** Montage (44007, [wild]): "This card generates 1 additional [wild] resource for each acceleration token
@@ -2720,7 +2720,7 @@ less than 5 damage (triple the resources instead if you have sustained no damage
 spent:
 
 - `factor: number | ValueSpec`. The three Self cards: `ifElse(valueEquals(damageOn(yourIdentity), 0), 3,
-ifElse(valueAtMost(damageOn(yourIdentity), 4), 2, 1))`. "Sustained" is the damage on the identity now.
+  ifElse(valueAtMost(damageOn(yourIdentity), 4), 2, 1))`. "Sustained" is the damage on the identity now.
 - `additional?: { resource: ResourceType; amount: ValueSpec }`, added before any multiplier applies. Montage:
   `min(accelerationTokensOn(theMainScheme), 3)` wilds (§3.76).
 
@@ -2808,7 +2808,7 @@ stands in for the unobservable fact (§4.2 Q48, Q49, Q50); the engine's part is 
   stored in the state, read by `Predicate outsideFact("wonPreviousGame")`. Absent means false, which is the insert's
   ruling for a forgotten or a first game. Git Gud's reduction is a `costModifiers` entry with `activeIn: "hand"`
   (`abilities.ts`: "read from the card being played while it is in hand", Hercules) and `while:
-not(outsideFact("wonPreviousGame"))`.
+  not(outsideFact("wonPreviousGame"))`.
 - **Known only when the card resolves:** `EffectSpec reportFact { fact: "minutesAway" | "talkedThisPhase"; bind }`
   opens a choice of kind `reportFact` addressed to one player; the client answers with a number or yes/no however it
   obtains it (a timer, a prompt) and the answer is an ordinary command in the log. `<bind>.amount` is the number.
@@ -3793,7 +3793,7 @@ Swords fills both restricted slots by itself (§3.82), and Plot Convenience is a
   is part of the Action (`triggerableBy`).
 - Ambush 44051 ("Max 1 per side scheme.") and The Direct Approach 43020 ("Limit 1 per side scheme."): not parsed
   (the Overwatch gap of §7.1, here with "Limit" as a second wording), so neither has `playRestrictions.maxPerHost:
-1` and each carries a stray constant ref.
+  1` and each carries a stray constant ref.
 - `dreadpool` (`deadpool/encounterSets.ts`): needs `autoIncluded` (§3.74); until then nothing marks it as
   conditional, and a scenario could list it as a modular set.
 - Correct as emitted, noted so nobody "fixes" them: Deadpool 44001a's THW 2, ATK 2, DEF 1 (the scan's "200\*" is the

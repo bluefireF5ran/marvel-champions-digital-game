@@ -93,8 +93,8 @@ do the same (`starterDeckId: "rocket-raccoon-aggression"`) until Brotherhood of 
   counters live on Groot's identity, not on the upgrade carrying the ability. Every one of the three abilities was
   _unconditionally unplayable_ (the cost could never be paid, so the interrupt was never even offered) until this
   landed. Fixed generically: `AbilityCost.spendCounters.target?: "self" | "identity"` (`packages/engine/src/
-abilities.ts`), read in both `planCost`'s payability check and `payCost`'s payment (`packages/engine/src/
-actions.ts`), with its own engine test (`packages/engine/src/abilities.test.ts`, "useAbility can pay a counter
+  abilities.ts`), read in both `planCost`'s payability check and `payCost`'s payment (`packages/engine/src/
+  actions.ts`), with its own engine test (`packages/engine/src/abilities.test.ts`, "useAbility can pay a counter
   cost off the paying player's identity"). DSL: `removeCounter(counterType, n, { fromIdentity: true })`
   (`packages/cards/src/dsl/abilities.ts`). **This is the load-bearing lesson of this whole checkpoint: an
   untested registered ability reads as done in the coverage report while being silently unplayable.**
@@ -154,7 +154,7 @@ actions.ts`), with its own engine test (`packages/engine/src/abilities.test.ts`,
   docs/phase7-wave3.md §3.10, never wired to a DSL builder). "Remove that many growth counters (up to what's
   there)" is `min(eventAmount, countersOn(self, "growth"))`.
 - **`addCounters`'s `opts.upTo`/`opts.bind`** (`dsl/effects.ts`): the builder only exposed `(counterType, n,
-target)`; the engine's `EffectSpec addCounters` already carried `upTo`/`bind` (§3.10) with no way to reach them.
+  target)`; the engine's `EffectSpec addCounters` already carried `upTo`/`bind` (§3.10) with no way to reach them.
 - **`on.thwarts`'s `basic` option** (`dsl/abilities.ts`): `on.attacks` already had it; `on.thwarts` didn't. Both
   read the same `attackKind: "basic"` `EventPattern` field, which the engine's matcher already accepts for both
   `"attack"` and `"thwart"` event kinds (`packages/engine/src/resolve/triggers.ts`) — no engine change needed.
@@ -302,7 +302,7 @@ scripted (kit, obligation, nemesis, e2e — see §7's table):
   test by setting `home` to a location kind it can't express — `CardHome`'s own type will refuse it, correctly.
 - **A minion put into play via `putIntoPlay` (a "[star] Boost: put X into play engaged with you" body) does emit
   `minionEngaged`**, through the same effect's own `entering` branch (`resolve/apply-effect.ts`'s `case
-"putIntoPlay"`) — a minion's own Forced Response to "engages you" fires correctly whichever way it enters play,
+  "putIntoPlay"`) — a minion's own Forced Response to "engages you" fires correctly whichever way it enters play,
   reveal or boost. No gap here; recorded only because it was worth checking rather than assuming.
 - **A card drawn as a filler ahead of a staged reveal can itself have Surge, or a scenario's villain can deal more
   than one boost card for one activation** — `stackEncounterDeck(state, "01186", "<code>")`'s usual one-filler
@@ -717,7 +717,7 @@ Rhino to a real outcome. Two genuine gaps, both flagged for `game-rules-architec
 - **`19032.regroup-interrupt`** ("Interrupt: When an ally is defeated by an enemy attack, return it to its owner's
   hand instead of discarding it.") — needs a defeat-destination redirect to _hand_, conditioned on the defeat
   coming from an enemy's attack. The one precedent, `RuleSpec defeatedIntoEncounterDeck` (Time Portal, `wave2/
-toafk/kang-encounter-set.ts` 11033), is narrowly built for a side scheme going to the encounter deck,
+  toafk/kang-encounter-set.ts` 11033), is narrowly built for a side scheme going to the encounter deck,
   unconditionally — no "to hand" destination, no "only if defeated by an attack" condition.
 
 `19013.moondragon-action` was scripted on 2026-09-23 by `game-rules-architect` with the primitive, per
@@ -760,7 +760,7 @@ window, named by id in each test's own title; `e2e.test.ts` plays Venom's own ha
   shared shape, so it needed the flip-choice half on its own.
 - **docs/phase7-wave3.md §4 Q8 answered**: all 4 printed copies of Enraged Symbiote start set aside, and this turns
   out to already be the engine's own general rule for every hero's nemesis-set cards (`packages/engine/src/
-setup.ts`: only a hero's own obligation is shuffled into the encounter deck at setup; every other nemesis-set card
+  setup.ts`: only a hero's own obligation is shuffled into the encounter deck at setup; every other nemesis-set card
   is pushed onto that player's `PlayerState.setAside` and stays there) — not something this pack had to build.
   Corroborated by the Venom insert's own FAQ and an official FFG ruling (Hall of Heroes "Latest FFG Rulings
   (post-RRG 1.5)", May 18, 2023); full citations in `venom-obligation-nemesis.ts`'s own module docblock. Caught a
