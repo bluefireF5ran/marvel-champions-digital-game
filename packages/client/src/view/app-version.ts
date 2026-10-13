@@ -20,3 +20,6 @@ export function buildCommit(): string {
 /** The GitHub release page for `version`: what the footer's "Release notes" link opens. */
 export const releaseNotesUrl = (version: string): string =>
   `https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v${version}`;
+
+/** The footer link's label once a newer release is out for this platform (`platform/update-check.ts`). */
+export const updateLinkText = (version: string): string => `Update to v${version} ↗`;

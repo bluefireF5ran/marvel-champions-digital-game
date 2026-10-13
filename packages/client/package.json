@@ -37,6 +37,7 @@
     "@mc/engine": "workspace:*",
     "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-http": "^2.8.2",
+    "@tauri-apps/plugin-opener": "^2.7.1",
     "phaser": "^4.2.1",
     "phaser4-rex-plugins": "^4.2.0"
   },

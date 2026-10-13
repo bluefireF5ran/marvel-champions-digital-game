@@ -31,9 +31,10 @@ import {
   POOL_VERSION,
 } from "../content/pool.js";
 import { cardPoolCoverageOf, cardPoolCoverageText } from "../view/card-pool-coverage.js";
-import { appVersionText, buildCommit, releaseNotesUrl } from "../view/app-version.js";
+import { appVersionText, buildCommit, releaseNotesUrl, updateLinkText } from "../view/app-version.js";
 import { CLIENT_VERSION } from "../version.js";
 import { detectPlatform, openExternal } from "../platform/platform.js";
+import { checkForUpdate, type AvailableUpdate } from "../platform/update-check.js";
 import { preconDecks } from "../view/deck-list-model.js";
 import { cardDisplayName } from "../view/hero-names.js";
 import { initialSetupDraft, withSeatOne } from "../view/setup-draft.js";
@@ -89,6 +90,8 @@ export class TitleScene extends Phaser.Scene {
   #starting = false;
   /** The game in progress when this screen opened, if any — looked up asynchronously; the screen draws without it first. */
   #continuable: SaveMeta | null = null;
+  /** A newer release with an installer for this platform (native apps only), once GitHub has answered. */
+  #update: AvailableUpdate | null = null;
   /** This visit's picture (`art/title-art.ts`), chosen once per `create` so a resize redraws the same one. */
   #art: TitleArt | null = null;
   #artPanel: { x: number; y: number; width: number; height: number } | null = null;
@@ -133,6 +136,11 @@ export class TitleScene extends Phaser.Scene {
         this.#continuable = save;
         this.#rebuild();
       });
+    void checkForUpdate().then((update) => {
+      if (!update || !this.sys.isActive()) return;
+      this.#update = update;
+      this.#rebuild();
+    });
   }
 
   #rebuild(): void {
@@ -337,13 +345,21 @@ export class TitleScene extends Phaser.Scene {
     versionText.setX(layout.footer.x + layout.footer.width - versionText.width);
 
     // The release this build is on, on GitHub: its notes and downloads. Underlined in the footer's own ink rather
-    // than red, which is the screen's one forward action.
-    const releaseNotes = (): void => openExternal(releaseNotesUrl(CLIENT_VERSION));
-    const linkText = this.add.text(0, layout.footer.y, "Release notes ↗", textStyle(typeRole.label, textColor));
+    // than red, which is the screen's one forward action. When a newer release has an installer for this platform
+    // (`platform/update-check.ts`), the link becomes that download, and red: it is then a forward action too.
+    const update = this.#update;
+    const releaseNotes = (): void => openExternal(update?.url ?? releaseNotesUrl(CLIENT_VERSION));
+    const linkColor = update ? accent.heroRed.hex : textColor;
+    const linkText = this.add.text(
+      0,
+      layout.footer.y,
+      update ? updateLinkText(update.version) : "Release notes ↗",
+      textStyle(typeRole.label, linkColor),
+    );
     linkText.setX(versionText.x - 16 - linkText.width);
     this.add
       .graphics()
-      .fillStyle(textColor, 0.6)
+      .fillStyle(linkColor, update ? 1 : 0.6)
       .fillRect(linkText.x, linkText.y + linkText.height, linkText.width, 1);
     // A touch-sized target around the small label.
     const linkRect: Rect = {

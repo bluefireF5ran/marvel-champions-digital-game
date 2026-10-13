@@ -7,6 +7,10 @@ pub fn run(context: tauri::Context<tauri::Wry>) {
     // Native HTTP for MarvelCDB deck import, which the page can't make
     // cross-origin; scoped in capabilities/default.json.
     .plugin(tauri_plugin_http::init())
+    // Opens links (release notes, an update's download, MarvelCDB) in the
+    // default browser: the webview ignores `window.open`. Also scoped in
+    // capabilities/default.json.
+    .plugin(tauri_plugin_opener::init())
     // No card-art code here on purpose: the scans are bundled into `dist/` at
     // build time (vite-card-art.ts) and load as ordinary same-origin files.
     .setup(|app| {
