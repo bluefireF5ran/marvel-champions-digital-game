@@ -10,10 +10,10 @@
  * grid of bordered keyword/status cards for what's on the table right now
  * (`view/rules-reference.ts`'s own glossary, capped at a few rows by
  * `view/pause-keyword-grid.ts`), then "Jump to a moment" over the most
- * recent log lines (`view/pause-log-window.ts`) — not clickable yet
- * (docs/phase4-screen-gaps.md S7's read-only replay board hasn't landed), so
- * its own footer label says that plainly rather than promising a jump this
- * build doesn't do. "Full game log" swaps that same footprint for the fuller
+ * recent log lines (`view/pause-log-window.ts`). A line Undo could get back
+ * to this turn is marked ↶ and a tap rewinds there, as pressing Undo that many
+ * times would (`view/undo.ts`'s `undoTargetsOf`); nothing else is a jump
+ * target. "Full game log" swaps that same footprint for the fuller
  * retained log instead — there is no separate full-log screen to open, so
  * this is what "open the log" means here (`view/pause-layout.ts`'s own doc
  * comment).
@@ -23,7 +23,8 @@
  * reference" chevron rows, the "Table" toggle rows (`scenes/settings.ts`'s
  * own shared row list — P16 draws Table inline, unlike D13, which sends it
  * to the standalone Settings screen instead), and a footer of Resume over
- * Save & quit / Concede side by side.
+ * Save & quit / Concede side by side. The "Game log" Quick reference row
+ * swaps the Table/Guide group for the same recent-log box wide draws.
  *
  * Launched over the Board by its own MENU/≡ chrome button, or by Escape when
  * nothing else (a target/payment mode, the choice sheet, Inspect, the villain
@@ -40,7 +41,7 @@ import Phaser from "phaser";
 import { addPressShield } from "../ui/press-shield.js";
 import { playableScenarioOffer } from "@mc/cards";
 import { POOL_DEPS, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
-import { accent, ink, signal, status, surface, typeRole, type TypeSpec } from "../tokens.js";
+import { accent, hit, ink, signal, status, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { caseOf, setTextResolution, textStyle } from "../ui/theme.js";
 import {
   McButton,
@@ -53,6 +54,7 @@ import {
   paintPanel,
 } from "../ui/widgets.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
+import { onTap } from "../ui/tap.js";
 import {
   pauseLayout,
   type PausePhoneLowerContent,
@@ -114,9 +116,11 @@ export class PauseOverlay extends Phaser.Scene {
   #query = "";
   #route: FocusRoute | null = null;
   #confirmingConcede = false;
-  /** Wide only: "Full game log" swaps the right panel's header/grid/jump-box group for the fuller retained log (`view/pause-layout.ts`'s own `rightContent`). */
+  /** Wide: "Full game log" swaps the right panel's header/grid/jump-box group for the fuller retained log (`view/pause-layout.ts`'s own `rightContent`). Phone: the "Game log" row swaps the Table/Guide group for the same log box. */
   #logExpanded = false;
   #motion = new OverlayMotion();
+  /** The log moments drawn this pass that a tap rewinds to (`BoardScene.undoMoments`), by line id, in draw order. */
+  #momentIds: string[] = [];
   /** Phone only — the Guide group's own scroll region (docs/guided-mode.md §4 G2b); `null` on a wide layout, which has no inline Guide group. */
   #lowerRegion: McScrollRegion | null = null;
   #lowerScroll = new VariableListScroll();
@@ -273,9 +277,9 @@ export class PauseOverlay extends Phaser.Scene {
       },
       {
         id: "jumpLog",
-        title: "Jump into the log",
-        detail: "Undo back to an earlier command.",
-        unavailable: "Replay isn't built yet.",
+        title: "Game log",
+        detail: this.#logExpanded ? "Showing below, newest first. Tap again for Table." : "What has happened so far.",
+        open: () => this.#toggleFullGameLog(),
       },
     );
     return rows;
@@ -289,6 +293,7 @@ export class PauseOverlay extends Phaser.Scene {
     this.#buttons = [];
     this.#lowerRegion?.destroy();
     this.#lowerRegion = null;
+    this.#momentIds = [];
 
     const { store, settings } = appSession();
     const { game, perspectiveId, config } = store.state;
@@ -300,6 +305,8 @@ export class PauseOverlay extends Phaser.Scene {
     const guideRows = guideRowInfoOf(guidePrefs());
     const guideAfterLevel = guideRows.filter(isGuideNonLevelRow);
     const guidedRunActive = this.#guidedRunActive();
+    // Phone: the log takes the Table/Guide group's place, so neither group's rows are on screen to focus.
+    const phoneLogShown = this.#logExpanded;
 
     const blindLines = game && perspectiveId ? this.#blindSheet(game, perspectiveId, config) : [];
     const layout = pauseLayout(
@@ -343,6 +350,7 @@ export class PauseOverlay extends Phaser.Scene {
         pauseFocusOrder({
           kind: "wide",
           keywordIds: keywordEntries.slice(0, layout.keywordGrid.shown).map((entry) => entry.id),
+          momentIds: this.#momentIds,
           confirmingConcede: this.#confirmingConcede,
           guidedRunActive,
         }),
@@ -363,10 +371,11 @@ export class PauseOverlay extends Phaser.Scene {
         pauseFocusOrder({
           kind: "phone",
           quickReferenceIds: quickReferenceRows.map((row) => row.id),
-          tableRowIds: tableRows.map((row) => row.id),
+          momentIds: this.#momentIds,
+          tableRowIds: phoneLogShown ? [] : tableRows.map((row) => row.id),
           guideRowIds,
           confirmingConcede: this.#confirmingConcede,
-          guidedRunActive,
+          guidedRunActive: guidedRunActive && !phoneLogShown,
         }),
         stops,
       );
@@ -525,7 +534,7 @@ export class PauseOverlay extends Phaser.Scene {
     stops: Map<string, FocusStop>,
   ): void {
     if (this.#logExpanded) {
-      this.#drawExpandedLog(layout);
+      this.#drawExpandedLog(layout, stops);
       return;
     }
 
@@ -575,7 +584,7 @@ export class PauseOverlay extends Phaser.Scene {
         .forEach((entry, index) => this.#drawKeywordCard(layout.keywordGrid.cells[index]!, entry, stops));
     }
 
-    this.#drawLogSection(layout.jumpHeader, layout.logBox, "Jump to a moment");
+    this.#drawLogSection(layout.jumpHeader, layout.logBox, "Jump to a moment", stops);
   }
 
   /** One bordered keyword/status card — a status is a filled card in its own status color with paper text (colorblind-safe: the term is always the plain word, never color alone), a keyword a plain outlined card. Tapping either opens the full Rules reference overlay's Glossary tab, filtered to this term. */
@@ -627,12 +636,13 @@ export class PauseOverlay extends Phaser.Scene {
       .zone(rect.x, rect.y, rect.width, rect.height)
       .setOrigin(0, 0)
       .setInteractive({ useHandCursor: true });
-    zone.on("pointerup", activate);
+    // A tap, not any release: a finger swiping the sheet that lifts over a card is a scroll (`ui/tap.ts`).
+    onTap(zone, activate, `keyword:${entry.id}`);
     stops.set(`keyword:${entry.id}`, { rect, activate });
   }
 
-  /** The parchment box of recent log lines — shared by the normal "Jump to a moment" footprint and "Full game log"'s expanded one. Not clickable yet (docs/phase4-screen-gaps.md S7). */
-  #drawLogBox(boxRect: Rect): void {
+  /** The parchment box of recent log lines — shared by the normal "Jump to a moment" footprint and "Full game log"'s expanded one. Lines Undo could get back to are tap targets (`#drawUndoMoment`). */
+  #drawLogBox(boxRect: Rect, stops: Map<string, FocusStop>): void {
     const g = this.add.graphics();
     g.fillStyle(surface.parchment.hex, 1).fillRect(boxRect.x, boxRect.y, boxRect.width, boxRect.height);
     g.lineStyle(2, surface.ink.hex, 1).strokeRect(boxRect.x, boxRect.y, boxRect.width, boxRect.height);
@@ -642,7 +652,12 @@ export class PauseOverlay extends Phaser.Scene {
     const footerHeight = 16;
     const textWidth = Math.max(1, boxRect.width - padX * 2 - 46);
     const available = Math.max(0, boxRect.height - padY * 2 - footerHeight - 6);
-    const moments = recentLogMoments(appSession().gameLog.lines, available, textWidth);
+    // The moments Undo could get back to this turn: tapping one is pressing Undo that many times (`view/undo.ts`).
+    // Each is a full touch target tall, its words centred in it; the other lines stay at their text height.
+    const undoable = this.#boardScene()?.undoMoments() ?? new Map<string, number>();
+    const moments = recentLogMoments(appSession().gameLog.lines, available, textWidth, (line) =>
+      undoable.has(line.id) ? hit.target : 0,
+    );
 
     if (moments.length === 0) {
       this.add
@@ -656,13 +671,19 @@ export class PauseOverlay extends Phaser.Scene {
     } else {
       let y = boxRect.y + padY;
       for (const moment of moments) {
+        const target = undoable.get(moment.line.id);
+        let textY = y;
+        if (target !== undefined) {
+          this.#drawUndoMoment(moment.line.id, target, boxRect, y, moment.height, stops);
+          textY = y + (moment.height - moment.textHeight) / 2;
+        }
         this.add
-          .text(boxRect.x + padX, y, moment.line.ref, textStyle(typeRole.mono, surface.ink.hex, ink.meta))
+          .text(boxRect.x + padX, textY, moment.line.ref, textStyle(typeRole.mono, surface.ink.hex, ink.meta))
           .setFontSize(9);
         this.add
           .text(
             boxRect.x + padX + 46,
-            y,
+            textY,
             logLineWords(moment.line),
             textStyle(typeRole.body, surface.ink.hex, ink.body),
           )
@@ -675,7 +696,7 @@ export class PauseOverlay extends Phaser.Scene {
       this,
       boxRect.x + padX,
       boxRect.y + boxRect.height - padY - 6,
-      "REPLAY FROM A MOMENT ISN'T BUILT YET",
+      undoable.size > 0 ? "TAP A ↶ MOMENT TO UNDO BACK TO IT" : "ONLY YOUR OWN MOVES THIS TURN CAN BE UNDONE",
       typeRole.label,
       surface.ink.hex,
       ink.meta,
@@ -684,16 +705,50 @@ export class PauseOverlay extends Phaser.Scene {
       .setOrigin(0, 0.5);
   }
 
-  #drawLogSection(headerRect: Rect, boxRect: Rect, title: string): void {
+  /**
+   * One log moment Undo could get back to: outlined, marked ↶ at its right edge, and a tap target that rewinds there
+   * and returns to the table, where the Undo notice says what was taken back.
+   */
+  #drawUndoMoment(
+    lineId: string,
+    target: number,
+    boxRect: Rect,
+    y: number,
+    height: number,
+    stops: Map<string, FocusStop>,
+  ): void {
+    // The whole row is the target (`height` is at least `hit.target`, from `recentLogMoments`), less a 2 px seam so
+    // two undoable rows in a row read as two.
+    const rect: Rect = { x: boxRect.x + 4, y: y - 2, width: boxRect.width - 8, height: Math.max(1, height - 2) };
+    const g = this.add.graphics();
+    g.lineStyle(1, surface.ink.hex, 0.5).strokeRect(rect.x, rect.y, rect.width, rect.height);
+    label(this, rect.x + rect.width - 10, rect.y + rect.height / 2, "↶", typeRole.rowTitle, surface.ink.hex, 1)
+      .setOrigin(0.5)
+      .setFontSize(14);
+    const activate = (): void => void this.#undoTo(target);
+    const zone = this.add
+      .zone(rect.x, rect.y, rect.width, rect.height)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+    onTap(zone, activate, `moment:${lineId}`);
+    stops.set(`moment:${lineId}`, { rect, activate });
+    this.#momentIds.push(lineId);
+  }
+
+  async #undoTo(target: number): Promise<void> {
+    if (await this.#boardScene()?.undoTo(target)) this.#resume();
+  }
+
+  #drawLogSection(headerRect: Rect, boxRect: Rect, title: string, stops: Map<string, FocusStop>): void {
     this.add.text(headerRect.x, headerRect.y, caseOf(typeRole.barTitle, title), {
       ...textStyle(typeRole.barTitle, surface.ink.hex),
       fontSize: "18px",
     });
-    this.#drawLogBox(boxRect);
+    this.#drawLogBox(boxRect, stops);
   }
 
   /** "Full game log": there is no separate full-log screen to open (`view/pause-layout.ts`'s own doc comment), so this swaps the header/grid/jump-header/log-box group for one taller box over the same footprint instead. */
-  #drawExpandedLog(layout: PauseWideLayout): void {
+  #drawExpandedLog(layout: PauseWideLayout, stops: Map<string, FocusStop>): void {
     const rect = layout.rightContent;
     const titleText = this.add.text(rect.x, rect.y, caseOf(typeRole.barTitle, "Full game log"), {
       ...textStyle(typeRole.barTitle, surface.ink.hex),
@@ -709,7 +764,10 @@ export class PauseOverlay extends Phaser.Scene {
       .setFontSize(9)
       .setWordWrapWidth(rect.width);
     const boxTop = note.y + note.height + 8;
-    this.#drawLogBox({ x: rect.x, y: boxTop, width: rect.width, height: Math.max(60, rect.y + rect.height - boxTop) });
+    this.#drawLogBox(
+      { x: rect.x, y: boxTop, width: rect.width, height: Math.max(60, rect.y + rect.height - boxTop) },
+      stops,
+    );
   }
 
   // ------------------------------------------------------------------------------------------------------------
@@ -764,7 +822,9 @@ export class PauseOverlay extends Phaser.Scene {
       this.#drawQuickReferenceRow(layout.quickReferenceRows[index]!, row, stops),
     );
 
-    const guideStopIds = this.#drawLowerGroup(layout.lowerViewport, layout.lowerContent, tableRows, guideRows, stops);
+    let guideStopIds: readonly string[] = [];
+    if (this.#logExpanded) this.#drawLogBox(layout.lowerViewport, stops);
+    else guideStopIds = this.#drawLowerGroup(layout.lowerViewport, layout.lowerContent, tableRows, guideRows, stops);
 
     if (this.#confirmingConcede) this.#drawPhoneConcedeConfirm(layout, stops);
     else {
@@ -912,7 +972,8 @@ export class PauseOverlay extends Phaser.Scene {
     stops.set(`quick:${row.id}`, { rect, activate });
     const zone = this.add.zone(rect.x, rect.y, rect.width, rect.height).setOrigin(0, 0);
     if (enabled) {
-      zone.setInteractive({ useHandCursor: true }).on("pointerup", activate);
+      // A tap, not any release: a finger swiping the sheet that lifts over a row is a scroll (`ui/tap.ts`).
+      onTap(zone.setInteractive({ useHandCursor: true }), activate, `quick:${row.id}`);
     }
   }
 

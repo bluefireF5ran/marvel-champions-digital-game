@@ -4,9 +4,8 @@
  * in the box, newest first (a paused player is most likely looking for what
  * just happened, not the start of the round).
  *
- * The box has no scroll of its own — docs/phase4-screen-gaps.md S7's
- * read-only replay board hasn't landed, so a row here isn't clickable yet
- * either (`scenes/pause.ts` draws it plainly) — so this picks exactly as
+ * The box has no scroll of its own (only the lines Undo could get back to
+ * are tap targets, `scenes/pause.ts`'s `#drawUndoMoment`), so this picks exactly as
  * many lines as fit and stops there, the same "don't clip, don't overflow"
  * rule `view/layout.ts`'s `estimateWrappedLines` already serves for every
  * other wrapped-text row in this app.
@@ -32,6 +31,8 @@ export interface LogMoment {
   readonly line: LogLine;
   /** This line's own drawn height, including the gap that follows it — what the caller advances its cursor by. */
   readonly height: number;
+  /** The words' own height (their wrapped lines), for centring them in a row `minHeightOf` made taller. */
+  readonly textHeight: number;
 }
 
 /**
@@ -40,20 +41,25 @@ export interface LogMoment {
  * `textWidth` px wide. Always includes at least the newest line, even if it
  * alone doesn't fit — the same "still better shown than skipped" rule
  * `log-view.ts`'s own `windowEndingAt` states for the on-table log panel.
+ *
+ * `minHeightOf` lifts a line to a taller row: a line that is a tap target (an Undo moment) gets a full touch target's
+ * height rather than one line of 10 px text.
  */
 export function recentLogMoments(
   lines: readonly LogLine[],
   availableHeight: number,
   textWidth: number,
+  minHeightOf: (line: LogLine) => number = () => 0,
 ): readonly LogMoment[] {
   const newestFirst = [...lines].reverse();
   const moments: LogMoment[] = [];
   let used = 0;
   for (const line of newestFirst) {
     const wrapped = Math.max(1, estimateWrappedLines(logLineWords(line), textWidth, CHAR_WIDTH));
-    const height = wrapped * LINE_HEIGHT + LINE_GAP;
+    const textHeight = wrapped * LINE_HEIGHT;
+    const height = Math.max(textHeight + LINE_GAP, minHeightOf(line));
     if (moments.length > 0 && used + height > availableHeight) break;
-    moments.push({ line, height });
+    moments.push({ line, height, textHeight });
     used += height;
   }
   return moments;
