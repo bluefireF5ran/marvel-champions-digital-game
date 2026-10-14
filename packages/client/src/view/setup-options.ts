@@ -25,14 +25,22 @@ const NO_OFFER: PlayableScenarioOffer = {
   horsemanSides: null,
   easierStart: false,
   genePoolThreat: null,
+  modularSetCount: { min: 0, max: 0, problem: null },
+  sides: null,
+  mainSchemeStages: null,
+  modularSets: null,
+  gameModes: null,
 };
 
 /** The offer for the draft's scenario under its difficulty and modular picks; nothing is offered for an unknown id. */
-export function offerOf(draft: SetupDraft): PlayableScenarioOffer {
+export function offerOf(
+  draft: Pick<SetupDraft, "scenarioId" | "difficulty" | "modularSetIds" | "civilWar">,
+): PlayableScenarioOffer {
   try {
     return playableScenarioOffer(draft.scenarioId, {
       difficulty: draft.difficulty,
       ...(draft.modularSetIds ? { modularSetIds: draft.modularSetIds } : {}),
+      ...(draft.civilWar && draft.civilWar.stageIds.length > 0 ? { mainSchemeStageIds: draft.civilWar.stageIds } : {}),
     });
   } catch {
     return NO_OFFER;
@@ -70,13 +78,63 @@ export function reconcileWithOffer(draft: SetupDraft, offer: PlayableScenarioOff
       difficultySets = { ...(standard !== undefined ? { standard } : {}), ...(expert !== undefined ? { expert } : {}) };
   }
   const genePool = offer.genePoolThreat;
+  const civil = reconcileCivilWar(draft, offer);
   return {
     ...draft,
+    modularSetIds: civil.modularSetIds,
+    civilWar: civil.civilWar,
     difficultySets,
     genePoolThreatPerPlayer: genePool ? Math.min(Math.max(0, draft.genePoolThreatPerPlayer), genePool.max) : 0,
     horsemanSides: offer.horsemanSides ? draft.horsemanSides : null,
     easierStart: offer.easierStart ? draft.easierStart : false,
   };
+}
+
+/**
+ * The Civil War half of `reconcileWithOffer`: a draft off a Civil War leader holds no picks; otherwise each stage pick the
+ * offer does not list for its stage number (the other side's stage) goes back to the recommended one, and a modular set
+ * the offer marks unusable for this leader (the other side's) is dropped, leaving `null` (the recommendation) when none
+ * is left. A count outside 3 to 4 is not dropped: it is the builder's work in progress, and the offer states the problem.
+ */
+function reconcileCivilWar(
+  draft: SetupDraft,
+  offer: PlayableScenarioOffer,
+): Pick<SetupDraft, "civilWar" | "modularSetIds"> {
+  const stages = offer.mainSchemeStages;
+  if (!stages) return { civilWar: null, modularSetIds: draft.modularSetIds };
+  const stageIds = stages.stages.map((stage, index) => {
+    const picked = draft.civilWar?.stageIds[index];
+    return stage.options.some((option) => option.printedCardId === picked) ? picked! : stages.recommended[index]!;
+  });
+  let modularSetIds = draft.modularSetIds;
+  if (modularSetIds && offer.modularSets) {
+    const refused = new Set(offer.modularSets.filter((set) => !set.ok).map((set) => set.id));
+    const kept = modularSetIds.filter((id) => !refused.has(id));
+    if (kept.length !== modularSetIds.length) modularSetIds = kept.length > 0 ? kept : null;
+  }
+  return {
+    civilWar: {
+      stageIds,
+      blind: draft.civilWar?.blind ?? false,
+      ...(draft.civilWar?.random ? { random: true } : {}),
+    },
+    modularSetIds,
+  };
+}
+
+/**
+ * The offer's own words for every Civil War pick it refuses in `draft` (the stage pair, and each chosen set that is the
+ * other side's), for the builder to show beside a pick `reconcileWithOffer` is about to drop. Empty when all are fine.
+ */
+export function civilWarPickProblems(
+  draft: SetupDraft,
+  offer: PlayableScenarioOffer = offerOf(draft),
+): readonly string[] {
+  const problems: string[] = [];
+  if (offer.mainSchemeStages?.problem) problems.push(offer.mainSchemeStages.problem);
+  for (const set of offer.modularSets ?? [])
+    if (!set.ok && set.problem && draft.modularSetIds?.includes(set.id)) problems.push(set.problem);
+  return problems;
 }
 
 /** One button inside an option row. */

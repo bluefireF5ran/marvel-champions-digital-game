@@ -31,7 +31,8 @@ import {
   POOL_VERSION,
 } from "../content/pool.js";
 import { cardPoolCoverageOf, cardPoolCoverageText } from "../view/card-pool-coverage.js";
-import { appVersionText, buildCommit, releaseNotesUrl, updateActions } from "../view/app-version.js";
+import { UPDATE_DISMISS_ID, appVersionText, buildCommit, releaseNotesUrl, updateActions } from "../view/app-version.js";
+import { dismissUpdate, dismissedUpdateVersion, isUpdateDismissed } from "../platform/update-dismissal.js";
 import { CLIENT_VERSION } from "../version.js";
 import { detectPlatform, openExternal } from "../platform/platform.js";
 import { checkForUpdate, type AvailableUpdate } from "../platform/update-check.js";
@@ -45,6 +46,16 @@ import type { SaveMeta } from "../engine/game-storage.js";
 import { appSession } from "../session.js";
 import { guidePrefs, setGuideRunLevelOverride } from "../guide/guide-store.js";
 import { isFirstLaunch } from "../guide/guide-prefs.js";
+import { continueLabelOf } from "../view/continue-label.js";
+import {
+  CIVIL_WAR_CYCLE_ID,
+  CIVIL_WAR_TITLE_LABEL,
+  civilWarTitleEntryOf,
+  enterBuilder,
+  setBuilderOrigin,
+} from "../view/civil-war-entry.js";
+import { unlocks } from "../progression/progression.js";
+import type { CivilWarBuilderData } from "./civil-war-builder.js";
 import { tutorialResumeDecisionFor } from "../guide/tutorial-resume.js";
 import { TUTORIAL_LESSONS } from "../guide/tutorial-lessons.js";
 import { startTutorialGame } from "../guide/start-tutorial.js";
@@ -137,7 +148,8 @@ export class TitleScene extends Phaser.Scene {
         this.#rebuild();
       });
     void checkForUpdate().then((update) => {
-      if (!update || !this.sys.isActive()) return;
+      // A banner the player closed for this very release stays closed; a newer release brings it back.
+      if (!update || !this.sys.isActive() || isUpdateDismissed(update.version, dismissedUpdateVersion())) return;
       this.#update = update;
       this.#rebuild();
     });
@@ -150,11 +162,13 @@ export class TitleScene extends Phaser.Scene {
     destroyChildren(this);
 
     const { width, height } = this.scale.gameSize;
+    const civilWar = civilWarTitleEntryOf(unlocks().waveLock(CIVIL_WAR_CYCLE_ID), POOL_SCENARIOS);
     const layout = titleMenuLayout({
       width,
       height,
       continuable: this.#continuable !== null,
       update: this.#update !== null,
+      civilWar: civilWar !== null,
     });
 
     // Ground: split desktop/tablet (ink art panel left, red rule, paper menu panel right); one ink ground on phone.
@@ -223,6 +237,8 @@ export class TitleScene extends Phaser.Scene {
         new McButton(this, {
           kind: "primary",
           label: continueLabel(save),
+          // A built game's label names its stages and sets: wrapped onto a second line rather than cut.
+          wrap: true,
           type: typeRole.menuButton,
           rect,
           enabled: !this.#starting,
@@ -279,6 +295,29 @@ export class TitleScene extends Phaser.Scene {
       }),
     );
     this.#stops.set("campaign", { rect: layout.campaign, activate: openCampaign });
+
+    // "Civil War!": the box's own entry, once it is open. The last build, or the first leader as printed.
+    if (civilWar && layout.civilWar) {
+      const openCivilWar = (): void => {
+        const entry = enterBuilder("build", newGameDraft(), civilWar.scenarioId);
+        setBuilderOrigin("title");
+        this.scale.off("resize", this.#rebuild, this);
+        goToScreen(this, SCENES.civilWarBuilder, {
+          draft: entry.draft,
+          step: entry.step,
+        } satisfies CivilWarBuilderData);
+      };
+      this.#buttons.push(
+        new McButton(this, {
+          kind: menuKind,
+          label: CIVIL_WAR_TITLE_LABEL,
+          type: typeRole.menuButton,
+          rect: layout.civilWar,
+          onClick: openCivilWar,
+        }),
+      );
+      this.#stops.set("civil-war", { rect: layout.civilWar, activate: openCivilWar });
+    }
 
     const openExtras = (): void => {
       this.scale.off("resize", this.#rebuild, this);
@@ -357,7 +396,8 @@ export class TitleScene extends Phaser.Scene {
     // A touch-sized target around the small label.
     const linkRect: Rect = {
       x: linkText.x - 6,
-      y: linkText.y + linkText.height / 2 - hit.target / 2,
+      // Hung from the footer's own top edge, so a tight menu's Settings row (just above) is never under it.
+      y: layout.footer.y,
       width: linkText.width + 12,
       height: hit.target,
     };
@@ -374,7 +414,11 @@ export class TitleScene extends Phaser.Scene {
 
     const bannerStops = this.#drawUpdateBanner(layout.updateBanner);
     this.#route?.set(
-      titleMenuFocusOrder({ continuable: this.#continuable !== null, updateActions: bannerStops }),
+      titleMenuFocusOrder({
+        continuable: this.#continuable !== null,
+        civilWar: civilWar !== null,
+        updateActions: bannerStops,
+      }),
       this.#stops,
     );
     this.#drawArt();
@@ -413,6 +457,21 @@ export class TitleScene extends Phaser.Scene {
       );
       this.#stops.set(action.id, { rect, activate: open });
     });
+    const close = (): void => {
+      dismissUpdate(update.version);
+      this.#update = null;
+      this.#rebuild();
+    };
+    this.#buttons.push(
+      new McButton(this, {
+        kind: "secondary",
+        label: "×",
+        type: typeRole.rowTitle,
+        rect: parts.dismiss,
+        onClick: close,
+      }),
+    );
+    this.#stops.set(UPDATE_DISMISS_ID, { rect: parts.dismiss, activate: close });
     return actions.map((action) => action.id);
   }
 
@@ -551,22 +610,14 @@ const ART_SCRIM_DEPTH = -1;
 /** The picture the last Title visit showed, so the next visit shows a different one (`pickTitleArt`). */
 let lastTitleArtKey: string | null = null;
 
-/** "Continue — Rhino · Spider-Man · round 4". Names from content, never from the save's own text. */
+/** "Continue — Rhino · Spider-Man · round 4". See `view/continue-label.ts`. */
 function continueLabel(save: SaveMeta): string {
-  const scenario =
-    POOL_SCENARIOS.find((candidate) => (candidate.id as string) === save.config.scenarioId)?.name ??
-    save.config.scenarioId;
-  const heroes = save.config.players
-    .map((player) => {
-      if (!("starterDeckId" in player)) {
-        const identity = CARDS_BY_ID.get(player.identityCardId as string);
-        return identity ? cardDisplayName(identity) : player.identityCardId;
-      }
-      return (
-        POOL_STARTER_DECKS.find((deck) => (deck.id as string) === player.starterDeckId)?.name.split(" — ")[0] ??
-        player.starterDeckId
-      );
-    })
-    .join(", ");
-  return `Continue — ${scenario} · ${heroes} · round ${save.round}`;
+  return continueLabelOf(save, {
+    scenarioName: (id) => POOL_SCENARIOS.find((candidate) => (candidate.id as string) === id)?.name,
+    identityName: (id) => {
+      const identity = CARDS_BY_ID.get(id);
+      return identity ? cardDisplayName(identity) : undefined;
+    },
+    starterDeckName: (id) => POOL_STARTER_DECKS.find((deck) => (deck.id as string) === id)?.name,
+  });
 }

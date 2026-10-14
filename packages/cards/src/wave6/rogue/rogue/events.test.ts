@@ -1,5 +1,6 @@
 import { cardId } from "@mc/content";
 import {
+  activeEncounterDeck,
   replay,
   sessionApply,
   startSession,
@@ -467,7 +468,9 @@ describe("Rogue's events (38005-38009)", () => {
       const patched = patchInstance(ally.state, ally.id, { cardId: cardId(DAREDEVIL) });
       const taken = playEvent(touchOnto(patched, ally.id), ADAPTATION, 0, choosing([ids[FOR_JUSTICE]!]));
       expect(inst(taken.state, ids[FOR_JUSTICE]!).ownerId).toBe(P2);
-      const second = drive(taken.state, play(P1, ids[FOR_JUSTICE]!, payWith(taken.state, P1, 2, [ids[FOR_JUSTICE]!])));
+      // For Justice only removes threat: a scheme must hold some (RRG 1.8 "Target", p. 42).
+      const loaded = patchInstance(taken.state, taken.state.mainScheme.instanceId, { threat: 10 });
+      const second = drive(loaded, play(P1, ids[FOR_JUSTICE]!, payWith(loaded, P1, 2, [ids[FOR_JUSTICE]!])));
       expect(inst(second.state, ids[FOR_JUSTICE]!).ownerId).toBe(P2);
       expect(handOf(second.state)).not.toContain(ids[FOR_JUSTICE]);
     });
@@ -481,7 +484,9 @@ describe("Rogue's events (38005-38009)", () => {
       const touched = touchOnto(patched, ally.id);
       const taken = playEvent(touched, ADAPTATION, 0, choosing([ids[FOR_JUSTICE]!]));
       expect(handOf(taken.state)).toContain(ids[FOR_JUSTICE]);
-      const second = drive(taken.state, play(P1, ids[FOR_JUSTICE]!, payWith(taken.state, P1, 2, [ids[FOR_JUSTICE]!])));
+      // For Justice only removes threat: a scheme must hold some (RRG 1.8 "Target", p. 42).
+      const loaded = patchInstance(taken.state, taken.state.mainScheme.instanceId, { threat: 10 });
+      const second = drive(loaded, play(P1, ids[FOR_JUSTICE]!, payWith(loaded, P1, 2, [ids[FOR_JUSTICE]!])));
       expect(playerOf(second.state, P2).discard).toContain(ids[FOR_JUSTICE]);
       expect(playerOf(second.state, P1).discard).not.toContain(ids[FOR_JUSTICE]);
     });
@@ -589,6 +594,25 @@ describe("Rogue's last events (38015, 38016, 38020)", () => {
       expect(taken(used)).toEqual([]);
       expect(threatRemoved(used)).toBe(2);
       expect(playerOf(used.state, P1).discard).toContain(used.given.ids[0]);
+    });
+
+    it("damage a tough status card prevents is dealt but not taken (RRG 'Tough', p. 44): the threat still comes off", () => {
+      // Under Fire (3 icons, no boost ability): with +2 DEF Rhino still deals 1, which Rogue's tough status card prevents.
+      const base = rogue();
+      const top = activeEncounterDeck(base).deck[0]!;
+      const staged = withThreat(patchInstance(base, top, { cardId: cardId("01193") }), 3);
+      const tough = patchInstance(staged, rogueId(staged), {
+        statuses: { ...inst(staged, rogueId(staged)).statuses, tough: 1 },
+      });
+      const used = villainPhase(tough, "38016", NOT_TODAY, true, true);
+      // The attack's 1 damage was prevented by the tough card (a later encounter card's damage is not this attack's).
+      const attack = ofType(used.events, "attackResolved")[0]!;
+      expect(attack.damageDealt).toBe(1);
+      expect(used.events.some((e) => e.type === "damagePrevented" && e.reason === "tough")).toBe(true);
+      expect(ofType(used.events, "damageDealt").filter((e) => e.sourceInstanceId === villainOf(used.state))).toEqual(
+        [],
+      );
+      expect(ofType(used.events, "threatRemoved").reduce((n, e) => n + e.amount, 0)).toBe(2);
     });
   });
 

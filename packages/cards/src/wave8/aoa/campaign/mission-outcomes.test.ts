@@ -305,7 +305,11 @@ describe("§3.40 the five [FINISHED] faces", () => {
       if (choice?.prompt.kind === "chooseTriggers") return choice.options.slice(0, 1).map((o) => o.optionId);
       return firstLegal(state);
     };
-    const won = defeated("45169", { players: 2, setAside: CAMPAIGN_ALLIES }, accept);
+    // Destiny removes 2 threat from the main scheme, so it must hold some for her Response to have a valid target and
+    // be offered (RRG 1.8 "Target", p. 42).
+    const won = defeated("45169", { players: 2, setAside: CAMPAIGN_ALLIES }, accept, (game) =>
+      patchInstance(game, game.mainScheme.instanceId, { threat: 5 }),
+    );
     const gained = [P1, P2].map((seat) => hand(won.state, seat).filter((id) => !hand(won.before, seat).includes(id)));
     expect(gained.map((ids) => ids.length)).toEqual([1, 1]);
     const taken = gained.flatMap((ids) => codesIn(won.state, ids));

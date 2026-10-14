@@ -276,6 +276,15 @@ export function beingRevealed(state: GameState, id: InstanceId): boolean {
 export function dealChosenBoostCard(ctx: Ctx, holderId: InstanceId, cardId: InstanceId): void {
   updateInstance(ctx, cardId, (i) => ({ ...i, faceup: false }));
   moveCard(ctx, cardId, { kind: "boost", hostInstanceId: holderId });
+  boostCardGivenTo(ctx, holderId, cardId);
+}
+
+/**
+ * A named card is now a facedown boost card on `holderId`: logged, and recorded for its `boostCardGiven` announcement.
+ * The caller has moved it there: `dealChosenBoostCard` for a card out of play, a defeat for the defeated card itself
+ * ("give this card to the enemy leader as a facedown boost card", docs/phase7-wave10.md §3.10; `defeatFromPlay`).
+ */
+export function boostCardGivenTo(ctx: Ctx, holderId: InstanceId, cardId: InstanceId): void {
   emit(ctx, { type: "boostCardDealt", enemyInstanceId: holderId, instanceId: cardId, outsideActivation: true });
   recordBoostGiven(ctx, holderId, cardId);
 }
@@ -1177,9 +1186,11 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
             attackerInstanceId: frame.enemyInstanceId,
             targetInstanceId: frame.targetInstanceId,
             playerId: frame.attackedPlayerId,
-            ...(attackKeywordsOf(ctx.state, ctx.deps, { attackerInstanceId: frame.enemyInstanceId, vars }).includes(
-              "ranged",
-            )
+            ...(attackKeywordsOf(ctx.state, ctx.deps, {
+              attackerInstanceId: frame.enemyInstanceId,
+              vars,
+              targetInstanceId: frame.targetInstanceId,
+            }).includes("ranged")
               ? { ranged: true }
               : {}),
           },
@@ -1198,7 +1209,12 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       });
       // "The attack gains piercing/ranged" (Crossfire's boost, Crossfire's Rifle): a `modifyAttack` grant made during
       // this activation, folded in with the enemy's own keywords once and stamped on the events below.
-      const keywords = attackKeywordsOf(ctx.state, ctx.deps, { attackerInstanceId: frame.enemyInstanceId, vars });
+      // …less what attacks lose against the attacked character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18).
+      const keywords = attackKeywordsOf(ctx.state, ctx.deps, {
+        attackerInstanceId: frame.enemyInstanceId,
+        vars,
+        targetInstanceId: frame.targetInstanceId,
+      });
       // The redirected damage replaces step 5 whatever form it would have taken (indirect, divided). Per §4.1 Q18 it is
       // attack damage from the attacker, so a tough status card on the enemy absorbs it, but that enemy is not
       // attacked (`notAttacked`: no piercing, overkill or prevent budget; no `characterAttacked` for it, so no

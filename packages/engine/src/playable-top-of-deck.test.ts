@@ -377,7 +377,10 @@ function table(second: HeroIdentityCard = HERO): GameState {
     deps,
   );
   if (!result.ok) throw new Error(result.error.message);
-  return driveSession(startSession(result.state), deps).session.state;
+  const opened = driveSession(startSession(result.state), deps).session.state;
+  // Threat for Exorcism to remove: a scheme with none is no target for it (RRG 1.8 "Target", p. 42).
+  const main = opened.mainScheme!.instanceId;
+  return { ...opened, instances: { ...opened.instances, [main]: { ...opened.instances[main]!, threat: 6 } } };
 }
 
 /**

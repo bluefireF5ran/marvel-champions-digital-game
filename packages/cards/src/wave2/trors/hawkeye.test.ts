@@ -172,9 +172,11 @@ describe("Hawkeye kit", () => {
     const given = moveToHand(withBow.state, P1, "04008");
     const [cableArrow] = given.ids as [InstanceId];
     const scheme = given.state.mainScheme.instanceId;
-    const before = inst(given.state, scheme).threat;
+    // A scheme with no threat is not a valid thwart target (RRG 1.8 "Target" p. 42), so give it some.
+    const loaded = patchInstance(given.state, scheme, { threat: 6 });
+    const before = inst(loaded, scheme).threat;
     const after = settle(
-      runWave2(given.state, play(P1, cableArrow, payWith(given.state, P1, 1, [cableArrow, withBow.bow]))),
+      runWave2(loaded, play(P1, cableArrow, payWith(loaded, P1, 1, [cableArrow, withBow.bow]))),
       picking(scheme),
       undefined,
       WAVE2_DEPS,
@@ -438,8 +440,10 @@ describe("Hawkeye kit", () => {
     // Cable Arrow (04008, cost 1) is the only card in hand, so nothing but Marksman can pay for it.
     const arrowGiven = moveToHand(withMarksman, P1, "04008");
     const [cable] = arrowGiven.ids as [InstanceId];
+    // Cable Arrow needs a scheme holding threat to be playable (RRG 1.8 "Target" p. 42).
+    const threatened = patchInstance(arrowGiven.state, arrowGiven.state.mainScheme.instanceId, { threat: 6 });
     const onlyArrow: GameState = {
-      ...arrowGiven.state,
+      ...threatened,
       players: arrowGiven.state.players.map((p) =>
         p.playerId === P1 ? { ...p, hand: [cable], deck: [...p.deck, ...p.hand.filter((id) => id !== cable)] } : p,
       ),

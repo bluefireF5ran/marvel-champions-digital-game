@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
+import type { AnyCard, Scenario } from "@mc/content";
 import { createGame, mainSchemeValue, scale } from "@mc/engine";
+import { blindRevealOf } from "./civil-war-blind.js";
 import { encounterDeckPreviewOf } from "./encounter-preview.js";
 import {
+  blindWhatsInThereRows,
   compositionRowsOf,
   difficultyCardsFor,
   gameSummaryRowsOf,
@@ -71,6 +74,29 @@ describe("tableSetupPreviewOf", () => {
     expect(preview.obligationsCount).toBe(0); // Wrecking Crew: no obligations
     expect(preview.villainTotalHp).toBeGreaterThan(0);
   });
+
+  test("a leader scenario labels its row Leader; Rhino and Breakout keep Villain", () => {
+    const config = buildScenario("rhino", {
+      difficulty: "standard",
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 1,
+    });
+    const villain = CARDS_BY_ID.get(rhino.villainCardId as string)!;
+    const leader = { ...villain, id: "fixture-iron-man", printedType: "leader" } as unknown as AnyCard;
+    const cards = new Map<string, AnyCard>([...CARDS_BY_ID, ["fixture-iron-man", leader]]);
+    const scenario = { ...rhino, villainCardId: "fixture-iron-man" } as unknown as Scenario;
+    const asLeader = tableSetupPreviewOf(config, scenario, "standard", cards, POOL_ENCOUNTER_SETS);
+    expect(gameSummaryRowsOf(asLeader)[0]!.label).toBe("Leader");
+    const asVillain = tableSetupPreviewOf(config, rhino, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(gameSummaryRowsOf(asVillain)[0]!.label).toBe("Villain");
+    const crew = buildScenario("breakout", {
+      difficulty: "standard",
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 1,
+    });
+    const multi = tableSetupPreviewOf(crew, breakout, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(gameSummaryRowsOf(multi)[0]!.value).toContain("villains");
+  });
 });
 
 describe("Four Horsemen: the HP total follows the mode and each chosen side", () => {
@@ -126,6 +152,13 @@ describe("compositionRowsOf / whatsInThereRowsOf / nemesisStandbyOf", () => {
     const rows = whatsInThereRowsOf(preview.encounterDeck);
     expect(rows.map((r) => r.label)).toEqual(["Minions", "Side schemes", "Treacheries", "Attachments", "Surge cards"]);
     for (const row of rows) expect(row.count).toBeGreaterThanOrEqual(0);
+  });
+
+  test('a blind build prints "hidden" where the type mix would show, labels kept', () => {
+    const rows = blindWhatsInThereRows(whatsInThereRowsOf(preview.encounterDeck));
+    expect(rows.map((r) => r.label)).toEqual(["Minions", "Side schemes", "Treacheries", "Attachments", "Surge cards"]);
+    for (const row of rows) expect(row.shown).toBe("hidden");
+    for (const row of whatsInThereRowsOf(preview.encounterDeck)) expect(row.shown).toBeUndefined();
   });
 
   test("nemesis standby names the real hero and totals a positive card count", () => {
@@ -499,5 +532,34 @@ describe("Apocalypse's easier start in the preview", () => {
     const scheme = CARDS_BY_ID.get(rhino.mainSchemeCardId as string);
     if (scheme?.type !== "main_scheme") throw new Error("not a main scheme");
     expect(preview.mainSchemeThreat).toBe(scale(scheme.stages[0]!.targetThreat, 1));
+  });
+});
+
+describe("tableSetupPreviewOf for a Civil War game played blind", () => {
+  const ironMan = POOL_SCENARIOS.find((s) => (s.id as string) === "registration-iron-man")!;
+  const options = {
+    seed: 4,
+    players: [{ starterDeckId: "tigra-aggression" }],
+    modularSetIds: ["paladin", "cape_killer", "bomb_scare"],
+  };
+
+  test("the modular sets print under the hidden word with their counts; open play prints their names", () => {
+    const config = buildScenario("registration-iron-man", options);
+    const plain = tableSetupPreviewOf(config, ironMan, "standard", CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    const hidden = tableSetupPreviewOf(
+      config,
+      ironMan,
+      "standard",
+      CARDS_BY_ID,
+      POOL_ENCOUNTER_SETS,
+      POOL_DEPS,
+      blindRevealOf({ blind: true, modularSetIds: options.modularSetIds }, null),
+    );
+    const namesOf = (p: typeof plain) => p.encounterDeck.decks.flatMap((v) => v.bySet.map((row) => row.setName));
+    expect(namesOf(plain)).toContain("Paladin");
+    expect(namesOf(hidden)).not.toContain("Paladin");
+    expect(namesOf(hidden).filter((name) => name === "Hidden modular set")).toHaveLength(3);
+    // The counts are never masked.
+    expect(hidden.encounterDeckSize).toBe(plain.encounterDeckSize);
   });
 });

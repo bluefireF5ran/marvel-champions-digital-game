@@ -1,12 +1,24 @@
 import type { AbilityId, AbilityReference, AnyCard, CardId, HeroIdentityCard, Trait } from "@mc/content";
 import { podOf, resolveGroup } from "./pod.js";
 import {
+  enemyLeaderOf,
+  enemyTeamOf,
+  perPlayerCount,
+  teamInArea,
+  teamOf,
+  teamsOf,
+  type TeamState,
+  yourLeaderOf,
+} from "./team.js";
+import { gameModeOf } from "./game-mode.js";
+import {
   type AbilityDefinition,
   type AbilityTriggerSpec,
   type CardIcon,
   DEFAULT_DEPS,
   type EngineDeps,
   type RuleSpec,
+  type TraitGrantSpec,
 } from "./abilities.js";
 import { isRulesCardType, type RulesCardType } from "./card-types.js";
 import { countersOfType } from "./counter-types.js";
@@ -57,6 +69,7 @@ import {
   areaOfPlayer,
   maxHitPoints,
   nextClockwisePlayer,
+  perPlayerReading,
   playerOrder,
   printedHandSize,
   printedHpNumeral,
@@ -68,6 +81,8 @@ import {
   villainStageOf,
   isPlayerCardType,
   scenarioPlayAreaOf,
+  isOwnedEncounterCard,
+  playerCardOwnerOf,
 } from "./query.js";
 import type { LogValue } from "./campaign.js";
 import {
@@ -87,6 +102,7 @@ import {
   putIntoPlayHostCandidates,
   upgradeHostCandidates,
 } from "./attachment-hosts.js";
+import { attackCostBars } from "./attack-cost.js";
 import { canPaySpend } from "./payable.js";
 import { canUseBasicPower } from "./basic-power-uses.js";
 import { uniqueEntryBlocker } from "./unique.js";
@@ -94,8 +110,10 @@ import { threatRemovalBlocked } from "./resolve/event.js";
 import { accusationWrongGuesses, accusedWrong, isAccusationBoardMember } from "./accusation.js";
 import { hiddenPileSize } from "./hidden-pile-state.js";
 import {
+  attackUsesAtk,
   canHaveAttached,
   cannotEnterPlay,
+  damageUsedStat,
   maxPerPlayerReached,
   cannotFlip,
   canTakePlayerAttack,
@@ -668,28 +686,9 @@ function traitsOfGuarded(
       for (const ref of constantAbilityRefs(state, sourceId, deps)) {
         const definition = deps.abilities[ref.id];
         if (definition?.trigger.kind !== "constant" || !definition.trigger.traitGrants) continue;
-        // `DEFAULT_DEPS`: printed characteristics only, so neither the condition nor the target query can re-enter
-        // this function (a `while: hasTrait(...)`, a `target` that asks what a card may attack, …).
-        // "You" is the granting card's speaker, as for its rules and stat modifiers (`constantYouOf`).
-        const context: EffectContext = {
-          selfInstanceId: sourceId,
-          controllerId: constantYouOf(state, sourceId),
-          event: null,
-          bindings: {},
-          deps: DEFAULT_DEPS,
-          ...reachOf(definition),
-        };
+        const context = traitGrantContext(state, sourceId, definition);
         for (const grant of definition.trigger.traitGrants) {
-          if (grant.while && !evaluate(state, grant.while, context)) continue;
-          // Trait grants can't depend on traits being granted: every trait filter here only sees printed traits (reading
-          // granted traits would recurse back into this function).
-          const { trait: requiredTrait, withoutTrait, anyTrait, ...rest } = grant.target;
-          const printed = printedTraitsOf(state, id);
-          const traitsMatch =
-            (!requiredTrait || printed.includes(requiredTrait)) &&
-            (!withoutTrait || !printed.includes(withoutTrait)) &&
-            (!anyTrait || anyTrait.some((wanted) => printed.includes(wanted)));
-          if (matchesQuery(state, id, rest, context) && traitsMatch) {
+          if (traitGrantReaches(state, grant, id, context)) {
             if (grant.trait) traits.push(grant.trait);
             if (grant.traitsOf) {
               const query = grant.traitsOf;
@@ -704,6 +703,70 @@ function traitsOfGuarded(
     }
   }
   return traits;
+}
+
+/** The context a card's constant trait grants are read in (`traitsOfGuarded`, `traitGrantReach`). */
+function traitGrantContext(
+  state: GameState,
+  sourceId: InstanceId,
+  definition: AbilityDefinition | undefined,
+): EffectContext {
+  // `DEFAULT_DEPS`: printed characteristics only, so neither the condition nor the target query can re-enter
+  // `traitsOf` (a `while: hasTrait(...)`, a `target` that asks what a card may attack, …).
+  // "You" is the granting card's speaker, as for its rules and stat modifiers (`constantYouOf`).
+  return {
+    selfInstanceId: sourceId,
+    controllerId: constantYouOf(state, sourceId),
+    event: null,
+    bindings: {},
+    deps: DEFAULT_DEPS,
+    ...reachOf(definition),
+  };
+}
+
+/** Whether one constant trait grant, read in its card's `context`, reaches the card `id`. */
+function traitGrantReaches(state: GameState, grant: TraitGrantSpec, id: InstanceId, context: EffectContext): boolean {
+  if (grant.while && !evaluate(state, grant.while, context)) return false;
+  // Trait grants can't depend on traits being granted: every trait filter here only sees printed traits (reading
+  // granted traits would recurse back into `traitsOf`).
+  const { trait: requiredTrait, withoutTrait, anyTrait, ...rest } = grant.target;
+  const printed = printedTraitsOf(state, id);
+  const traitsMatch =
+    (!requiredTrait || printed.includes(requiredTrait)) &&
+    (!withoutTrait || !printed.includes(withoutTrait)) &&
+    (!anyTrait || anyTrait.some((wanted) => printed.includes(wanted)));
+  return traitsMatch && matchesQuery(state, id, rest, context);
+}
+
+/**
+ * What one card's text gives: for each trait a constant ability of `sourceId` grants by name (`TraitGrantSpec.trait`),
+ * the cards in play that grant reaches now, in play order (docs/phase7-wave10.md §3.16, `cardRevealed.grantedTo`). The
+ * same read `traitsOf` makes of every constant, asked of one source: the card must be one whose constants are read
+ * (`constantSources`: in play, its text box not blank), and each grant's `while` and `target` are read as `traitsOf`
+ * reads them. Whether a card already has the trait, printed or from another grant, is not asked. A grant that copies
+ * other cards' traits (`traitsOf`) names no trait and is not listed; a trait reaching no card is left out.
+ */
+export function traitGrantReach(
+  state: GameState,
+  deps: EngineDeps,
+  sourceId: InstanceId,
+): Readonly<Record<string, readonly InstanceId[]>> {
+  const reach: Record<string, InstanceId[]> = {};
+  if (!constantSources(state, deps).includes(sourceId)) return reach;
+  const inPlay = cardsInPlay(state);
+  for (const ref of constantAbilityRefs(state, sourceId, deps)) {
+    const definition = deps.abilities[ref.id];
+    if (definition?.trigger.kind !== "constant" || !definition.trigger.traitGrants) continue;
+    const context = traitGrantContext(state, sourceId, definition);
+    for (const grant of definition.trigger.traitGrants) {
+      if (grant.trait === undefined) continue;
+      const reached = inPlay.filter((id) => traitGrantReaches(state, grant, id, context));
+      if (reached.length === 0) continue;
+      const known = (reach[grant.trait] ??= []);
+      for (const id of reached) if (!known.includes(id)) known.push(id);
+    }
+  }
+  return reach;
 }
 
 /** Every card instance that is in play, in a stable order (RRG "In Play and Out of Play"). */
@@ -851,7 +914,8 @@ export function isPlayerCard(state: GameState, id: InstanceId | null): boolean {
   if (id === null) return false;
   const instance = getInstance(state, id);
   if (!instance) return false;
-  if (instance.ownerId !== null) return true;
+  // An encounter card a player owns (a Labor card, `isOwnedEncounterCard`) is not a player's card.
+  if (instance.ownerId !== null) return !isOwnedEncounterCard(state, id);
   const card = cardOf(state, id);
   return instance.controllerId !== null && card !== undefined && isPlayerCardType(card);
 }
@@ -1023,8 +1087,15 @@ function findDecks(
  * could be in its owner's deck and separate decks, since it goes back to its owner's out-of-play areas (RRG 1.8
  * "Ownership and Control", p. 31); an encounter card (no owner) in an encounter deck or a scenario deck. With `owners`
  * ("your Touched") the card is theirs. Without, it is read from the copies of the card this game has, wherever they
- * are now; a card with no copy in the game at all could be anywhere, so every deck is searched. An empty deck holds
- * nothing to look through and is not shuffled.
+ * are now; a card with no copy in the game at all could be in any player deck or encounter deck, so each of those is
+ * searched. An empty deck holds nothing to look through and is not shuffled.
+ *
+ * **A special deck** (an identity's separate deck, `PlayerState.separateDecks`; a scenario deck,
+ * `GameState.scenarioDecks`) is made of its own cards only, which every player knows, so the card "could be found"
+ * there only when the find can name one of that deck's own cards (`specialDeckCouldHold`): a find for an ally does not
+ * look through, or shuffle, a deck of encounter attachments or of Permanent upgrades (the owner's answer 54B,
+ * 2026-10-13, docs/phase7-wave10.md §4.0; RRG 1.8 "Find", p. 19: "each game area where that card could be found").
+ * A special deck the find does look through is shuffled like any other.
  */
 export function decksSearchedByFind(
   state: GameState,
@@ -1043,11 +1114,58 @@ export function decksSearchedByFind(
   const searched: ZoneId[] = [];
   for (const { zone, ids } of findDecks(state, context)) {
     const holds = found !== undefined && sameDeck(zone);
-    const couldHold = holders.size === 0 || holders.has("playerId" in zone ? zone.playerId : null);
+    const couldHold =
+      zone.kind === "separateDeck" || zone.kind === "scenarioDeck"
+        ? specialDeckCouldHold(state, zone, query, context, owners)
+        : holders.size === 0 || holders.has("playerId" in zone ? zone.playerId : null);
     if ((holds || couldHold) && ids.length > 0) searched.push(zone);
     if (holds) break;
   }
   return searched;
+}
+
+/**
+ * Whether a find for `query` could find its card in this special deck (answer 54B, see `decksSearchedByFind`): one of
+ * the deck's own cards matches the query (and is owned by one of `owners`, when the find names whose card it is).
+ *
+ * The deck's own cards, read from the game's instances and never from a card's name:
+ * - every card whose home is the deck (`CardInstance.home`: set when the deck is built, for an identity's separate
+ *   deck and for a scenario deck with its own discard pile or none), wherever it is now, since it is the only kind of
+ *   card that goes back there;
+ * - every card in the deck or in its own discard pile now (a scenario deck whose cards keep an encounter-deck home,
+ *   `ScenarioDeckState.discardPile: "encounter"`, and that deck's top card in play).
+ *
+ * Each is matched as it stands (`matchesQuery`), the same test the find itself applies to a card it turns over. So a
+ * query on a printed fact (name, type, trait, printed hit points) is decided by what the deck is made of.
+ */
+function specialDeckCouldHold(
+  state: GameState,
+  zone: Extract<ZoneId, { kind: "separateDeck" | "scenarioDeck" }>,
+  query: TargetQuery,
+  context: EffectContext,
+  owners: ReadonlySet<PlayerId> | null,
+): boolean {
+  const own = new Set<InstanceId>();
+  if (zone.kind === "separateDeck") {
+    const piles = getPlayer(state, zone.playerId)?.separateDecks[zone.name];
+    for (const id of [...(piles?.deck ?? []), ...(piles?.discard ?? [])]) own.add(id);
+  } else {
+    const piles = state.scenarioDecks[zone.name];
+    for (const id of [...(piles?.deck ?? []), ...(piles?.discard ?? [])]) own.add(id);
+    if (piles?.inPlayTopId !== undefined) own.add(piles.inPlayTopId);
+  }
+  for (const id of Object.keys(state.instances) as InstanceId[]) {
+    const instance = getInstance(state, id);
+    if (!instance || instance.home.kind !== zone.kind || instance.home.name !== zone.name) continue;
+    if (zone.kind === "separateDeck" && instance.ownerId !== zone.playerId) continue;
+    own.add(id);
+  }
+  for (const id of own) {
+    const owner = getInstance(state, id)?.ownerId ?? null;
+    if (owners !== null && (owner === null || !owners.has(owner))) continue;
+    if (matchesQuery(state, id, query, context)) return true;
+  }
+  return false;
 }
 
 /**
@@ -1316,7 +1434,7 @@ export function explainQuery(
     if (uniqueEntryBlocker(state, context.deps ?? DEFAULT_DEPS, id, forPlayer ?? null, context.selfInstanceId ?? null))
       return "cannotEnterPlay";
     // Nor a card a rule keeps out of play (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43).
-    if (!cardsInPlay(state).includes(id) && cannotEnterPlay(state, context.deps ?? DEFAULT_DEPS, id))
+    if (!cardsInPlay(state).includes(id) && cannotEnterPlay(state, context.deps ?? DEFAULT_DEPS, id, forPlayer ?? null))
       return "cannotEnterPlay";
     // Nor another copy of a "Max N per player" card that player already controls (RRG 1.8 "Max, Maximum", p. 28;
     // docs/phase7-wave9.md §4.1 Q37 = A), as the effect itself refuses it (`admitUnderPlayerMax`): an upgrade when the
@@ -1387,11 +1505,15 @@ export function explainQuery(
   if (query.maxPrintedHp !== undefined) {
     const card = cardOf(state, id);
     const hp =
-      card?.type === "minion" ? printedMinionHp(state, card) : card && "hp" in card ? (card.hp as number) : undefined;
+      card?.type === "minion"
+        ? printedMinionHp(state, card, id)
+        : card && "hp" in card
+          ? (card.hp as number)
+          : undefined;
     if (hp === undefined || hp > query.maxPrintedHp) return "printedHpTooHigh";
   }
   if (query.maxPrintedCost !== undefined) {
-    const cost = printedCostOf(state, cardOf(state, id));
+    const cost = printedCostOf(state, cardOf(state, id), id);
     const bound =
       typeof query.maxPrintedCost === "number"
         ? query.maxPrintedCost
@@ -1399,7 +1521,7 @@ export function explainQuery(
     if (cost > bound) return "printedCostTooHigh";
   }
   if (query.minPrintedCost !== undefined) {
-    const cost = printedCostOf(state, cardOf(state, id));
+    const cost = printedCostOf(state, cardOf(state, id), id);
     const bound =
       typeof query.minPrintedCost === "number"
         ? query.minPrintedCost
@@ -1657,6 +1779,64 @@ export function contextArea(state: GameState, context: EffectContext): GameAreaS
   }
   const player = context.scopedPlayerId ?? context.controllerId;
   return player ? areaOfPlayer(state, player) : null;
+}
+
+/**
+ * The team "your" and "the enemy" are read for in an effect (docs/competitive-mode-plan.md §3.3): the one team of a
+ * game that stores none; otherwise the team of the player resolving the effect ("you", then "that player"), and with
+ * no player the team that plays in the game area of the effect's card. Null when neither names a team: an area-neutral
+ * card resolving for no player, for which the words name nobody.
+ */
+export function contextTeam(state: GameState, context: EffectContext): TeamState | null {
+  if (!state.teams) return teamsOf(state)[0] ?? null;
+  const player = context.controllerId ?? context.scopedPlayerId;
+  if (player) return teamOf(state, player);
+  const area = contextArea(state, context);
+  return area ? teamInArea(state, area) : null;
+}
+
+/**
+ * Who makes a choice a card gives to "the enemy team" (docs/competitive-mode-plan.md §3.4, §4 task 7; `PlayerRef
+ * enemyTeamDecider`), or null when the effect is read for no team.
+ *
+ * With one team it is the first player. MC56 p. 6: cooperatively "'the enemy team' refers to the players", who
+ * "resolve these abilities using the grim rule: Imagine what an opponent would do if it were their choice"; the
+ * rulebook names no one player, and the owner's decision (2026-10-11, docs/phase7-wave10.md question 6, answer A) is
+ * the first player, who already decides what an encounter card leaves open (RRG 1.8 "First Player", p. 19). The
+ * choice follows the token as every first-player choice does.
+ *
+ * With two teams it is a player of the other team still in the game: the first of them in player order. Which of a
+ * team's players speaks for it is that team's to settle and is not built; one seat is named so the choice is parked
+ * with a player of the right team.
+ */
+export function enemyTeamDecider(state: GameState, context: EffectContext): PlayerId | null {
+  const mine = contextTeam(state, context);
+  if (!mine) return null;
+  const enemy = enemyTeamOf(state, mine.teamId);
+  if (enemy.teamId === mine.teamId) return state.firstPlayerId;
+  return playerOrder(state).find((player) => enemy.playerIds.includes(player.playerId))?.playerId ?? null;
+}
+
+/**
+ * "The enemy leader" (`of: "enemy"`) or "your leader" (`of: "yours"`) for an effect: the one definition behind
+ * `TargetRef leader` and `AttachmentHost leader`.
+ *
+ * A team with no game area of its own (every cooperative game) is fighting "the villain", which the caller reads its
+ * own way through `theVillain`: the active villain, narrowed to the effect's game area when the players are split
+ * (MC56 p. 6; ruling of July 9, 2026 (3) answer 2). With two teams it is the active villain of the team's area. "Your
+ * leader" is the enemy team's enemy leader, and no card with one team (`yourLeaderOf`).
+ */
+export function leaderFor(
+  state: GameState,
+  of: "yours" | "enemy",
+  context: EffectContext,
+  theVillain: () => readonly InstanceId[],
+): readonly InstanceId[] {
+  const team = contextTeam(state, context);
+  if (!team) return [];
+  if (of === "enemy" && team.areaId === null) return theVillain();
+  const leader = of === "yours" ? yourLeaderOf(state, team.teamId) : enemyLeaderOf(state, team.teamId);
+  return leader ? [leader] : [];
 }
 
 /** Whether a card can be affected from the effect's area: same area, or either side is in every area. */
@@ -2045,6 +2225,9 @@ export function canAttack(
   // one still can, and does apply to an enemy attacker — see `attackForbidden`).
   if (attackForbidden(state, attackerId, controller, targetId, deps, basic) !== null) return false;
   if (controller === null) return true;
+  // "As an additional cost to attack [this enemy] …" (`RuleSpec additionalAttackCost`, `attack-cost.ts`): an enemy
+  // the attacker's controller cannot pay for is one they cannot attack (RRG 1.8 "Cost", p. 14).
+  if (attackCostBars(state, deps, attackerId, targetId)) return false;
   if (!isVillain(state, targetId)) return true;
   if (hasKeyword(state, targetId, "guard", deps)) return true;
   if (characterIgnores(state, deps, attackerId, "guard")) return true;
@@ -2235,6 +2418,20 @@ export function resolvePlayers(state: GameState, ref: PlayerRef, context: Effect
         .map((p) => p.playerId)
         .filter((id) => !excluded.includes(id));
     }
+    case "team": {
+      // docs/competitive-mode-plan.md §3.3. A team with no area of its own is every player `each` names (MC56 p. 6).
+      const mine = contextTeam(state, context);
+      if (!mine) return [];
+      const team = ref.of === "yours" ? mine : enemyTeamOf(state, mine.teamId);
+      const area = team.areaId === null ? contextArea(state, context) : null;
+      return playerOrder(state)
+        .map((p) => p.playerId)
+        .filter((id) => team.playerIds.includes(id) && (!area || area.playerIds.includes(id)));
+    }
+    case "enemyTeamDecider": {
+      const decider = enemyTeamDecider(state, context);
+      return decider ? [decider] : [];
+    }
     case "nextAfter": {
       // RRG 1.8 "In Player Order" (p. 24): the next clockwise player still in the game; a player is not their own.
       const [of] = resolvePlayers(state, ref.of, context);
@@ -2394,6 +2591,8 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       const active = activeId ? villainOf(state, activeId) : undefined;
       return !active || active.defeated ? [] : [active.instanceId];
     }
+    case "leader":
+      return leaderFor(state, ref.of, context, () => resolveRefAnywhere(state, { kind: "villain" }, context));
     case "mainScheme": {
       // "The main scheme": this area's own stage, or the central one (`of: "central"`, "under stage 4A").
       if (ref.of === "central") return [state.mainScheme.instanceId];
@@ -2440,6 +2639,14 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       return ref.filter
         ? attached.filter((id) => matchesQuery(state, id, ref.filter as TargetQuery, context))
         : attached;
+    }
+    case "grantedTo": {
+      // "Each of those heroes" (docs/phase7-wave10.md §3.16): what the revealed card's grant reached, still in play.
+      const event = context.event;
+      if (event?.kind !== "cardRevealed") return [];
+      const inPlay = cardsInPlay(state);
+      const reached = (event.grantedTo?.[ref.trait] ?? []).filter((id) => inPlay.includes(id));
+      return ref.filter ? reached.filter((id) => matchesQuery(state, id, ref.filter as TargetQuery, context)) : reached;
     }
     case "tuckedUnder": {
       // "Each face down Kang's Dominion under this stage": tucked cards are out of play, so only a ref finds them.
@@ -2508,7 +2715,14 @@ export function resolveValue(
     case "const":
       return value.value;
     case "perPlayer":
-      return value.base + value.perPlayer * state.startingPlayerCount;
+      // The players on the team of the card whose text this is, or of the player resolving it (MC56 p. 20).
+      // A card being revealed with each of its per player icons treated as a number reads that number
+      // (`perPlayerReading`; docs/phase7-wave10-hero-packs.md H3.5).
+      return (
+        value.base +
+        value.perPlayer *
+          (perPlayerReading(state, context.selfInstanceId) ?? perPlayerCount(state, contextArea(state, context)))
+      );
     case "groupPlayerCount":
       // docs/phase7-wave9.md §3.67: this game holds one group's players, so another group's count is not known here.
       return resolveGroup(state, value.group, context.vars ?? {}) === podOf(state).groupId
@@ -2655,6 +2869,23 @@ export function resolveValue(
       const filter = value.filter;
       return filter ? hand.filter((id) => matchesQuery(state, id, filter, { ...context, deps })).length : hand.length;
     }
+    case "zoneCount": {
+      // The cards a `CardSelector zone` of the same zones, players and filter names (`resolve/cards.ts`).
+      const zones = typeof value.zone === "string" ? [value.zone] : value.zone;
+      const filter = value.filter;
+      let total = 0;
+      for (const playerId of resolvePlayers(state, value.player, context)) {
+        const player = getPlayer(state, playerId);
+        if (!player) continue;
+        for (const name of zones) {
+          const zone = name === "hand" ? player.hand : name === "deck" ? player.deck : player.discard;
+          total += filter
+            ? zone.filter((id) => matchesQuery(state, id, filter, { ...context, deps })).length
+            : zone.length;
+        }
+      }
+      return total;
+    }
     case "largestHandTypeGroup": {
       // docs/phase7-wave7.md §3.32. A tie between types gives the same number, so no choice is asked.
       const [playerId] = resolvePlayers(state, value.player, context);
@@ -2700,7 +2931,9 @@ export function resolveValue(
     case "deckCount": {
       // The player deck only: a separate deck (`PlayerState.separateDecks`) is its own deck, not part of this one.
       const [playerId] = resolvePlayers(state, value.player, context);
-      return playerId ? (getPlayer(state, playerId)?.deck.length ?? 0) : 0;
+      const player = playerId ? getPlayer(state, playerId) : undefined;
+      if (value.separateDeck !== undefined) return player?.separateDecks[value.separateDeck]?.deck.length ?? 0;
+      return player?.deck.length ?? 0;
     }
     case "distinctCardTypes": {
       const types = new Set<string>();
@@ -2727,7 +2960,7 @@ export function resolveValue(
     }
     case "printedCost": {
       const [id] = resolveRef(state, value.of, context);
-      return id ? printedCostOf(state, cardOf(state, id)) : 0;
+      return id ? printedCostOf(state, cardOf(state, id), id) : 0;
     }
     case "printedHp": {
       const [id] = resolveRef(state, value.of, context);
@@ -2737,7 +2970,7 @@ export function resolveValue(
     case "totalPrintedCost":
       // Read wherever the cards are (tucked cards are out of play); a card with no printed cost adds 0.
       return resolveRef(state, value.cards, context).reduce(
-        (sum, id) => sum + printedCostOf(state, cardOf(state, id)),
+        (sum, id) => sum + printedCostOf(state, cardOf(state, id), id),
         0,
       );
     case "totalPrintedResources": {
@@ -3093,6 +3326,21 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
     }
     case "inMode":
       return (state.scenarioRules.difficulty ?? "standard") === predicate.mode;
+    case "gameMode":
+      return gameModeOf(state) === predicate.is;
+    case "attackUsedAtk": {
+      const event = context.event;
+      if (!event) return false;
+      if (event.kind === "dealDamage") return damageUsedStat(state, event) === "atk";
+      if (event.kind === "attack") {
+        // Before it deals its damage, a basic attack may have been turned to THW by an interrupt of its own window
+        // (a var on its frame); once it has, the event itself records the stat (`applyPlayerAttack`).
+        const inProgress = playerAttackInProgress(state.stack);
+        const own = inProgress?.event.attackerInstanceId === event.attackerInstanceId ? inProgress : null;
+        return attackUsesAtk(event, own?.vars);
+      }
+      return event.kind === "enemyAttack" || event.kind === "enemyAttacksEnemy";
+    }
     case "firstAttackThisTurn": {
       const { against, by } = predicate;
       const matching = (state.attacksThisTurn ?? []).filter(
@@ -3757,7 +4005,7 @@ function victoryDisplayAbilityIds(deps: EngineDeps): ReadonlySet<string> {
  */
 export function constantControllerOf(state: GameState, sourceId: InstanceId): PlayerId | null {
   if (!state.victoryDisplay.includes(sourceId)) return controllerOf(state, sourceId);
-  return getInstance(state, sourceId)?.ownerId ?? null;
+  return playerCardOwnerOf(state, sourceId);
 }
 
 /**

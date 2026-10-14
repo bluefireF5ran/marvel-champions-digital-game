@@ -20,6 +20,8 @@ import {
   WAVE8_SCENARIOS,
   WAVE9_ENCOUNTER_SETS,
   WAVE9_SCENARIOS,
+  WAVE10_ENCOUNTER_SETS,
+  WAVE10_SCENARIOS,
 } from "./index.js";
 
 /** Scenarios/encounter sets a campaign might reference, across every wave that has ingested a `Campaign` record. */
@@ -33,6 +35,7 @@ const ALL_SCENARIOS = [
   ...WAVE7_SCENARIOS,
   ...WAVE8_SCENARIOS,
   ...WAVE9_SCENARIOS,
+  ...WAVE10_SCENARIOS,
 ];
 const ALL_ENCOUNTER_SETS = [
   ...WAVE2_ENCOUNTER_SETS,
@@ -44,6 +47,7 @@ const ALL_ENCOUNTER_SETS = [
   ...WAVE7_ENCOUNTER_SETS,
   ...WAVE8_ENCOUNTER_SETS,
   ...WAVE9_ENCOUNTER_SETS,
+  ...WAVE10_ENCOUNTER_SETS,
 ];
 
 /**

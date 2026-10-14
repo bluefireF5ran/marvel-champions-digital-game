@@ -38,6 +38,7 @@ import { withAttackBarWording } from "../view/attack-bar.js";
 import { withForcedActions } from "../view/forced-actions.js";
 import { withDefenseLockout } from "../view/defense-lockout.js";
 import { appendCardHistory, emptyCardHistoryLog, type CardHistoryLog } from "../view/card-history.js";
+import { blindRevealOf, eventsForBlindLog } from "../view/civil-war-blind.js";
 import { appendEvents, emptyLog, type LogState } from "../view/log-lines.js";
 import type { PaymentView } from "../view/payment-model.js";
 import { tabKeysTouchedBy } from "../view/tab-badges.js";
@@ -75,6 +76,7 @@ import { bindGamepad, bindKeyboard, type IntentBinding } from "./board/input.js"
 import { BoardMotion } from "./board/motion.js";
 import { drawSchemes, SchemeScrollState } from "./board/schemes.js";
 import { drawTargetingPanel, type TargetingHover } from "./board/targeting-panel.js";
+import { drawSearchedPickSheet } from "./board/searched-pick-sheet.js";
 import { focusKey } from "./board/selection.js";
 import { addTapTarget } from "./board/tap-target.js";
 import { LogPanel } from "./board/log.js";
@@ -291,6 +293,7 @@ export class BoardScene extends Phaser.Scene {
     this.#tabBadges.clear();
     this.#tabChanged.clear();
     this.#focus = null;
+    this.#controller.setUndoFocus(false);
     this.#focusRegion = "board";
     this.#guideFocusOwner = null;
     this.#saveFailureAnnounced = false;
@@ -396,6 +399,7 @@ export class BoardScene extends Phaser.Scene {
     this.game.events.on("mc-use-ability", this.#onInspectUseAbility, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", onResize, this);
+      this.#controller.dispose();
       this.#unsubscribe?.();
       this.#unsubscribe = null;
       this.#artUnsubscribe?.();
@@ -513,7 +517,15 @@ export class BoardScene extends Phaser.Scene {
       // A resumed game arrives mid-round with no events saying which round, so
       // an empty log starts counting from the state's round rather than "R0".
       if (this.#log.round === 0) this.#log = { ...this.#log, round: state.game.round };
-      this.#log = appendEvents(this.#log, state.lastEvents, state.game, state.perspectiveId, POOL_DEPS);
+      // A resumed game's first state carries the whole game so far: fold it first, so the panel opens on the recent lines.
+      // A blind game's log never names the hidden stage 2 (`eventsForBlindLog`).
+      const blind = blindRevealOf(state.config, state.game);
+      if (state.resumedHistory.length > 0) {
+        const history = eventsForBlindLog(state.resumedHistory, blind);
+        this.#log = appendEvents(this.#log, history, state.game, state.perspectiveId, POOL_DEPS);
+      }
+      const latest = eventsForBlindLog(state.lastEvents, blind);
+      this.#log = appendEvents(this.#log, latest, state.game, state.perspectiveId, POOL_DEPS);
       this.#cardHistory = appendCardHistory(this.#cardHistory, state.lastEvents);
       // Mirrored for Pause's "Jump to a moment" (`session.ts`'s own doc comment on `gameLog`).
       appSession().gameLog = this.#log;
@@ -1101,6 +1113,8 @@ export class BoardScene extends Phaser.Scene {
     drawHand(ctx, zones.hand!, model);
     drawActionBar(ctx, zones.actionBar!, model);
     this.#drawTargetingPanel(ctx, { x: 0, y: 0, width, height });
+    const searchedPick = this.#controller.searchedPick();
+    if (searchedPick) drawSearchedPickSheet(ctx, { x: 0, y: 0, width, height }, searchedPick);
     this.#drawTargetRings();
     this.#drawFocusRing();
     // Turns the moves of a fresh state (if any landed) into travels, now that
@@ -1335,6 +1349,8 @@ export class BoardScene extends Phaser.Scene {
     const at = order.findIndex((target) => sameTarget(target, this.#focus));
     const next = stepFocus(order, at, delta);
     this.#focus = next >= 0 ? (order[next] ?? null) : null;
+    // A greyed Undo says why while keyboard focus is on it (drawn by the next draw).
+    this.#controller.setUndoFocus(this.#focus?.kind === "undo");
     this.#draw();
   }
 
@@ -1351,6 +1367,7 @@ export class BoardScene extends Phaser.Scene {
     // rather than drawn somewhere stale.
     if (!this.#controller.focusOrder().some((target) => sameTarget(target, focus))) {
       this.#focus = null;
+      this.#controller.setUndoFocus(false);
       return;
     }
     const rect = this.#frame.focusRects.get(focusKey(focus));

@@ -256,3 +256,34 @@ describe("pauseLayout", () => {
     });
   });
 });
+
+describe("pauseLayout with a blind Civil War sheet", () => {
+  const blind = (keywordCount: number): PauseLayoutInput => ({ ...input(keywordCount), blindLineCount: 3 });
+
+  for (const { name, width, height } of ALL_SIZES) {
+    test(`reserves a sheet under the status and keeps every rect clear and inside at ${name}`, () => {
+      const layout = pauseLayout({ x: 0, y: 0, width, height }, blind(8));
+      expect(layout.blindSheet).not.toBeNull();
+      const bounds = layout.kind === "wide" ? layout.sheet : layout.panel;
+      const sheet = layout.blindSheet!;
+      expect(sheet.height).toBeGreaterThan(0);
+      expect(sheet.y + sheet.height).toBeLessThanOrEqual(bounds.y + bounds.height);
+      const rects = pauseLayoutRects(layout);
+      for (const rect of rects) expect(rectsOverlap(sheet, rect), "the sheet overlaps a control").toBe(false);
+      for (let i = 0; i < rects.length; i++)
+        for (let j = i + 1; j < rects.length; j++) expect(rectsOverlap(rects[i]!, rects[j]!)).toBe(false);
+      for (const rect of rects) {
+        expect(rect.y).toBeGreaterThanOrEqual(bounds.y - 0.001);
+        expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + bounds.height + 0.001);
+      }
+    });
+  }
+
+  test("no sheet, and the layout as before, for any other game", () => {
+    for (const { width, height } of ALL_SIZES) {
+      const plain = pauseLayout({ x: 0, y: 0, width, height }, input(8));
+      expect(plain.blindSheet).toBeNull();
+      expect(pauseLayout({ x: 0, y: 0, width, height }, { ...input(8), blindLineCount: 0 })).toEqual(plain);
+    }
+  });
+});

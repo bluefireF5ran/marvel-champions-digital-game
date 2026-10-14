@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { CORE_CARDS } from "@mc/content";
 import { CORE_DEPS, coreScenario } from "@mc/cards";
-import { applyCommand, createGame, playerId, type GameState } from "@mc/engine";
+import { activeVillain, applyCommand, cardOf, createGame, playerId, type GameState } from "@mc/engine";
 import {
   advanceSetupWalkthroughLog,
   emptySetupWalkthroughLog,
@@ -11,6 +11,15 @@ import {
 } from "./setup-walkthrough.js";
 
 const CARDS_BY_ID = new Map(CORE_CARDS.map((card) => [card.id as string, card]));
+
+/** The active villain's card re-printed as a leader (the pool has no Civil War data yet). */
+function asLeader(game: GameState): GameState {
+  const card = cardOf(game, activeVillain(game).instanceId)!;
+  return {
+    ...game,
+    cardPool: { ...game.cardPool, [card.id]: { ...card, printedType: "leader" } },
+  } as unknown as GameState;
+}
 
 function fourSeatGame(): { state: GameState; log: SetupWalkthroughLog } {
   const config = coreScenario("rhino", {
@@ -36,6 +45,13 @@ function fourSeatGame(): { state: GameState; log: SetupWalkthroughLog } {
 
 describe("setupWalkthroughViewOf: right after Deal it out (Rhino, 4 seats)", () => {
   const { state, log } = fourSeatGame();
+
+  test("the placed chip says Villain, and Leader for a leader", () => {
+    const label = (game: GameState) =>
+      setupWalkthroughViewOf(game, log, CORE_DEPS, CARDS_BY_ID).checklist.find((item) => item.key === "placed")?.label;
+    expect(label(state)).toBe("Villain & main scheme placed");
+    expect(label(asLeader(state))).toBe("Leader & main scheme placed");
+  });
 
   test("stops at the first seat's mulligan, not further", () => {
     expect(state.step).toEqual({

@@ -17,11 +17,13 @@ import type {
 } from "./cards/index.js";
 import {
   ATTACHMENT_HOST_CATEGORIES,
+  ATTACHMENT_HOST_CHOOSERS,
   ATTACHMENT_HOST_KINDS,
   HOST_CLASSIFICATIONS,
   HOST_MEASURES,
   SUPERLATIVE_HOST_POOLS,
   type AttachmentHostCategory,
+  type AttachmentHostChooser,
   type HostClassification,
   type HostMeasure,
   type SuperlativeHostPool,
@@ -30,7 +32,7 @@ import { EVIDENCE_COLORS, EVIDENCE_KINDS } from "./cards/evidence.js";
 import type { AbilityReference } from "./abilities.js";
 import type { CampaignId, EncounterSetId } from "./ids.js";
 import { KNOWN_KEYWORD_NAMES, type KeywordName } from "./keywords.js";
-import { setAsideModularSetCountFor } from "./sets.js";
+import { CIVIL_WAR_SIDES, setAsideModularSetCountFor } from "./sets.js";
 import type { Campaign, EncounterSet, Scenario, ScenarioSeparateDeck, StarterDeck } from "./sets.js";
 
 export interface ValidationResult {
@@ -103,6 +105,8 @@ function abilityRefErrors(refs: unknown, label: string): string[] {
  * one is never printed, and the engine's typed cost slots have no wild slot, so it is refused rather than guessed at.
  */
 const REQUIREMENT_TYPES: readonly string[] = ["physical", "mental", "energy"];
+/** Every printed resource icon type (`ResourceIconType`), for a field that names one. */
+const RESOURCE_ICON_TYPES: readonly string[] = [...REQUIREMENT_TYPES, "wild"];
 
 /**
  * A Requirement keyword's resources (RRG 1.8 "Requirement (Resources)", p. 37): exactly one of `resources` (icon counts,
@@ -599,6 +603,9 @@ export function validateHeroIdentityCard(card: HeroIdentityCard): ValidationResu
     )
       errors.push("offAspectAllowance anyTrait, when present, must list at least one trait");
     if (!isNonEmptyString(allowance.cardType)) errors.push("offAspectAllowance needs a cardType");
+    // docs/phase7-wave10-hero-packs.md §H3.15 (Simon Williams's Ionic Energy Being).
+    if (allowance.printedResource !== undefined && !RESOURCE_ICON_TYPES.includes(allowance.printedResource))
+      errors.push("offAspectAllowance printedResource must be physical, mental, energy or wild");
   }
   // docs/phase7-wave4.md §1.4 (Adam Warlock's Avatar of Life).
   if (card.deckbuilding?.maxCopiesPerTitle !== undefined && !isPositiveInteger(card.deckbuilding.maxCopiesPerTitle))
@@ -931,6 +938,24 @@ export function validateAttachmentCard(card: AttachmentCard): ValidationResult {
   const errors = [...baseErrors(card), ...encounterCommonErrors(card, "attachment")];
   // An attachment with no "attach to" text attaches itself from its own When Revealed (RRG 1.8 "Reveal", p. 38).
   if (card.attachesTo !== undefined) errors.push(...validateAttachmentHost(card.attachesTo, "attachment"));
+  if (card.hostChosenBy !== undefined) {
+    if (!ATTACHMENT_HOST_CHOOSERS.includes(card.hostChosenBy as AttachmentHostChooser))
+      errors.push(`attachment hostChosenBy '${String(card.hostChosenBy)}' is not a known chooser`);
+    // The chooser picks among the `attachesTo` hosts; a card that attaches itself from its own When Revealed has none.
+    if (card.attachesTo === undefined) errors.push("attachment hostChosenBy needs attachesTo");
+  }
+  const limits = card.playRestrictions;
+  if (limits !== undefined) {
+    if (typeof limits !== "object" || limits === null) errors.push("attachment playRestrictions must be an object");
+    else {
+      // Only the per-host limit: every other restriction is about a player playing a card.
+      for (const key of Object.keys(limits)) {
+        if (key !== "maxPerHost") errors.push(`attachment playRestrictions.${key} is not allowed on an attachment`);
+      }
+      if (!isPositiveInteger(limits.maxPerHost))
+        errors.push("attachment playRestrictions.maxPerHost must be a positive integer");
+    }
+  }
   const mods = card.statModifiers;
   if (mods !== undefined) {
     if (typeof mods !== "object" || mods === null) errors.push("attachment statModifiers must be an object");
@@ -1012,6 +1037,9 @@ export function validateMainSchemeCard(card: MainSchemeCard): ValidationResult {
         else if (stage.otherFaceId === undefined) errors.push(`${label} onCompletion flips to an otherFaceId it lacks`);
         if (stage.completionLoses === true) errors.push(`${label} cannot both flip and lose on completion`);
       }
+      // docs/phase7-wave10.md §1.2: the stage's stable key, the id of its printed B face.
+      if (stage.printedCardId !== undefined && !isNonEmptyString(stage.printedCardId))
+        errors.push(`${label} printedCardId must be a card id when present`);
       // docs/phase7-wave4.md §1.5: "Proxima Midnight's Scheme."
       if (stage.villainOf !== undefined && !isNonEmptyString(stage.villainOf))
         errors.push(`${label} villainOf must name a villain when present`);
@@ -1037,6 +1065,13 @@ export function validateMainSchemeCard(card: MainSchemeCard): ValidationResult {
         );
       }
       keys.add(key);
+    }
+    const printedIds = new Set<string>();
+    for (const stage of card.stages) {
+      if (stage.printedCardId === undefined) continue;
+      if (printedIds.has(stage.printedCardId))
+        errors.push(`main scheme has two stages with printedCardId ${stage.printedCardId}`);
+      printedIds.add(stage.printedCardId);
     }
   }
   return result(errors);
@@ -1204,7 +1239,35 @@ export function validateScenario(scenario: Scenario): ValidationResult {
   }
   errors.push(...wave2ScenarioErrors(scenario));
   errors.push(...wave4ScenarioErrors(scenario));
+  errors.push(...wave10ScenarioErrors(scenario));
   return result(errors);
+}
+
+/** Wave 10 scenario fields (docs/phase7-wave10.md §1.4): `side`, `modularSetCountRange`, `mainSchemeStages`. */
+function wave10ScenarioErrors(scenario: Scenario): string[] {
+  const errors: string[] = [];
+  if (scenario.side !== undefined && !(CIVIL_WAR_SIDES as readonly unknown[]).includes(scenario.side))
+    errors.push("scenario side must be 'registration' or 'resistance' when present");
+  const range: unknown = scenario.modularSetCountRange;
+  if (range !== undefined) {
+    const { min, max } = (typeof range === "object" && range !== null ? range : {}) as Record<string, unknown>;
+    if (!isNonNegativeInteger(min) || !isNonNegativeInteger(max) || min > max)
+      errors.push("scenario modularSetCountRange needs whole numbers with min at most max");
+    else {
+      const count = scenario.modularSetCount ?? 1;
+      if (count < min || count > max) errors.push("scenario modularSetCount must lie within modularSetCountRange");
+    }
+  }
+  const stages: unknown = scenario.mainSchemeStages;
+  if (stages !== undefined) {
+    const recommended = ((typeof stages === "object" && stages !== null ? stages : {}) as Record<string, unknown>)
+      .recommended;
+    if (!Array.isArray(recommended) || recommended.length !== 2 || !recommended.every((id) => isNonEmptyString(id)))
+      errors.push("scenario mainSchemeStages.recommended must name two stages (printedCardId of stage 1 and stage 2)");
+    else if (recommended[0] === recommended[1])
+      errors.push("scenario mainSchemeStages.recommended names one stage twice");
+  }
+  return errors;
 }
 
 /** Wave 4 scenario fields (docs/phase7-wave4.md §1.11, §1.12). */
@@ -1525,6 +1588,9 @@ export function validateScenarioEncounterSets(
     // RRG 1.8 "Standard Set" (p. 40) / "Expert Set" (p. 19): never a modular choice (docs/phase7-wave4.md §1.9).
     if (set?.classification !== undefined && scenario.recommendedModularSetIds.includes(id))
       errors.push(`scenario ${scenario.id} recommends ${set.classification} set ${id} as a modular set`);
+    // docs/phase7-wave10.md §1.3, §1.4: a set of the other Civil War side is refused (MC56 p. 4; ruling Jan 11, 2026 R1).
+    if (set?.side !== undefined && scenario.side !== undefined && set.side !== scenario.side)
+      errors.push(`scenario ${scenario.id} is on the ${scenario.side} side, but set ${id} is ${set.side}`);
     // MC21 p. 16 (docs/phase7-wave4.md §1.10).
     if (set?.singleVillainOnly && scenario.multipleVillains !== undefined)
       errors.push(`scenario ${scenario.id} has several villains, so it cannot use set ${id}`);
@@ -1551,6 +1617,47 @@ export function validateScenarioEncounterSets(
   for (const id of scenario.recommendedModularSetIds)
     if (byId.get(id)?.extraModular)
       errors.push(`scenario ${scenario.id} recommends ${id}, which is never counted as a modular set`);
+  return result(errors);
+}
+
+/**
+ * `Scenario.mainSchemeStages` against the scenario's main scheme card (docs/phase7-wave10.md §1.2, §1.4, §8.1 item 5):
+ * the card must hold the recommended stages, one of stage number 1 and one of stage number 2 (MC56 p. 5: the main scheme
+ * deck is one stage 1 on top of one stage 2), each by a `printedCardId`, and the card's encounter set must have the
+ * scenario's `side`. A scenario with neither field passes. A card or set `cards`/`sets` don't contain is reported.
+ */
+export function validateScenarioMainSchemeStages(
+  scenario: Scenario,
+  cards: readonly AnyCard[],
+  sets: readonly EncounterSet[],
+): ValidationResult {
+  const errors: string[] = [];
+  if (scenario.mainSchemeStages === undefined && scenario.side === undefined) return result(errors);
+  const card = cards.find((c) => c.id === scenario.mainSchemeCardId);
+  if (!card || card.type !== "main_scheme") {
+    errors.push(`scenario ${scenario.id} mainSchemeCardId ${scenario.mainSchemeCardId} is not a main scheme card`);
+    return result(errors);
+  }
+  if (scenario.side !== undefined) {
+    for (const setId of card.encounterSetIds) {
+      const set = sets.find((s) => s.id === setId);
+      if (!set) errors.push(`scenario ${scenario.id} main scheme set ${setId} is not registered`);
+      else if (set.side !== scenario.side)
+        errors.push(
+          `scenario ${scenario.id} is on the ${scenario.side} side, but main scheme set ${setId} is ${set.side ?? "neutral"}`,
+        );
+    }
+  }
+  const recommended = scenario.mainSchemeStages?.recommended;
+  if (recommended) {
+    const numbers = recommended.map((id) => card.stages.find((s) => s.printedCardId === id)?.stageNumber);
+    recommended.forEach((id, i) => {
+      if (numbers[i] === undefined)
+        errors.push(`scenario ${scenario.id} recommends stage ${id}, which main scheme ${card.id} does not hold`);
+    });
+    if (numbers.every((n) => n !== undefined) && (numbers[0] !== 1 || numbers[1] !== 2))
+      errors.push(`scenario ${scenario.id} must recommend one stage 1 then one stage 2, not ${numbers.join(" then ")}`);
+  }
   return result(errors);
 }
 

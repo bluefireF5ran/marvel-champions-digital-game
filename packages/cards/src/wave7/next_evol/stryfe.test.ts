@@ -785,16 +785,21 @@ describe("Mental Transferal (40169)", () => {
     expect(discardNames(run.state)).toContain("Mental Transferal");
   });
 
-  it("revealed by Stage II's When Revealed while the Grasp is still in play it goes to Hope Summers, and answers the damage that defeated Stage I", () => {
+  // Owner answer 43B (2026-10-12, docs/phase7-wave10.md section 4.0): a card that was not in play when a triggering
+  // condition occurred does not answer it (RRG 1.8 "Triggering Condition", p. 45; "Response", p. 38). Until then this
+  // test pinned the opposite: revealed before the lethal damage's response window opened, the card answered that
+  // damage, dealt it to Hope Summers and was discarded.
+  it("revealed by Stage II's When Revealed while the Grasp is still in play it goes to Hope Summers, and does not answer the damage that defeated Stage I", () => {
     const base = stackEncounterDeck(game(), "40169");
     const run = defeatVillain(base);
-    // The reveal comes before the response window of the lethal damage: Hope is attached to at that point.
+    // The reveal comes before the response window of the lethal damage, and after the damage itself.
     const attached = events(run.events, "cardMoved").find(
       (e) => e.cardId === "40169" && "hostInstanceId" in e.to && e.to.hostInstanceId === hopeOf(run.state),
     );
     expect(attached).toBeDefined();
-    expect(discardNames(run.state)).toContain("Mental Transferal");
-    expect(damageOn(run.state, hopeOf(run.state))).toBeGreaterThan(0);
+    expect(attachmentsOf(run.state, hopeOf(run.state))).toContain("Mental Transferal");
+    expect(discardNames(run.state)).not.toContain("Mental Transferal");
+    expect(damageOn(run.state, hopeOf(run.state))).toBe(0);
   });
 });
 

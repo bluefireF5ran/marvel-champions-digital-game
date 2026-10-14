@@ -164,8 +164,8 @@ export const MUTANT_SLAYERS: AbilityRegistry = defineAbilities({
     ),
   ),
 
-  // Mutant Slayers (side scheme): Each MARAUDER minion gains quickstrike (the engine runs quickstrike before the
-  // revealed card's When Revealed, wave 7 spec ruling Feb 28, 2026 (4) #2).
+  // Mutant Slayers (side scheme): Each MARAUDER minion gains quickstrike (the engine runs a revealed minion's
+  // quickstrike after its When Revealed, RRG 1.8 p. 36; the owner's answer 30B, 2026-10-12).
   "40101.mutant-slayers-constant": constant(gainsKeyword({ name: "quickstrike" }, MARAUDER_MINIONS)),
   // When Revealed: Place 1 additional threat here for each character in play with a listed trait.
   "40101.when-revealed": whenRevealed(placeThreat(countOf(SLAYER_TARGETS), self)),

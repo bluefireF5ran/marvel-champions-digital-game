@@ -430,8 +430,9 @@ play by Cortez's When Defeated does not see Cortez, who is already discarded. MC
 priority (ruling Jan 17, 2026 (3) #2), checked at resolution: another minion in play has the keyword's `sharedTrait`
 (by trait, granted traits included, e.g. Nano-Sentinel Tech's "gains the [Sentinel] trait"). Effect: the existing
 `enemyActivation` of that minion against its engaged player (attack or scheme by form, boost and villainous as usual).
-On a reveal it waits for the When Revealed (`reveal.ts`, after the `whenRevealed` stage, unlike quickstrike; §4 Q2). A
-minion that enters play unengaged does not activate. Log `keywordResolved { keyword: "teamwork" }`.
+On a reveal it waits for the When Revealed, with quickstrike (`reveal.ts`, the `keywords` stage, once the reveal's
+steps are done; RRG 1.8 p. 43, the owner's answer 30B of 2026-10-12 in `docs/phase7-wave10.md` §4.0, which supersedes
+§4 Q2). A minion that enters play unengaged does not activate. Log `keywordResolved { keyword: "teamwork" }`.
 
 **Composes with:** the Age of Apocalypse teamwork minions (`aoa` 45112–45116, 45140–45144) and any later teamwork card.
 

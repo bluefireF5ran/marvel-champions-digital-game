@@ -99,19 +99,39 @@ export function costReductionTotal(reductions: readonly { readonly abilityId: Ab
  * for the cards its own cost picks) — the same format `paymentsFromOptionIds` parses engine-side, read here rather than
  * re-derived, since the id already carries everything a `Payment` needs once matched back to its source.
  */
-function paymentsFromPicked(picked: readonly string[], sources: readonly PaymentSource[]): readonly Payment[] {
+export function paymentsFromPicked(picked: readonly string[], sources: readonly PaymentSource[]): readonly Payment[] {
   const byOption = new Map(sources.map((source) => [source.optionId, source] as const));
   const payments: Payment[] = [];
   for (const optionId of picked) {
     const source = byOption.get(optionId);
     if (!source) continue;
+    // "hand:<id>:<abilityId>[@…]": a hand card spent with its own "When you spend this card" ability (Energy Siphon,
+    // Organizational Support): the card is discarded and its ability's cost is paid with the picks and the amount the
+    // source carries (`Payment.whenSpent`; docs/phase7-wave10-hero-packs.md H3.14).
+    if (source.kind === "resourceAbility" && source.spendsHandCard) {
+      const spentAbility = optionId.split("@")[0]?.split(":")[2];
+      if (!spentAbility) continue;
+      payments.push({
+        fromHand: source.instanceId,
+        whenSpent: {
+          abilityId: spentAbility as AbilityId,
+          ...(source.costChoices ? { costChoices: source.costChoices } : {}),
+          ...(source.costSelection ? { costSelection: source.costSelection } : {}),
+        },
+      });
+      continue;
+    }
     if (source.kind === "handCard") {
       payments.push({ fromHand: source.instanceId });
       continue;
     }
-    // "ability:<id>:<abilityId>[:<n>][@<slot>=<ids>]": its cost's picks ride on the source (`costChoices`).
+    // "ability:<id>:<abilityId>[:<n>][@<slot>=<ids>]": its cost's picks ride on the source (`costChoices`), and the
+    // amount a chosen-amount cost takes or removes on `costSelection` ("take up to 3 damage →", "remove up to 2 threat →").
     const abilityId = optionId.split("@")[0]?.split(":")[2];
-    const costChoices = source.costChoices ? { costChoices: source.costChoices } : {};
+    const costChoices = {
+      ...(source.costChoices ? { costChoices: source.costChoices } : {}),
+      ...(source.costSelection ? { costSelection: source.costSelection } : {}),
+    };
     if (abilityId) {
       payments.push({ ability: { instanceId: source.instanceId, abilityId: abilityId as AbilityId, ...costChoices } });
     }
@@ -139,6 +159,7 @@ export function tryReducedPlay(
   costSelection: CostSelection | undefined,
   costChoices?: CostChoices,
   abilityId?: AbilityId,
+  x?: number,
 ): PaymentAttempt {
   const command: Command = {
     type: "playCard",
@@ -150,6 +171,7 @@ export function tryReducedPlay(
     ...(costSelection ? { costSelection } : {}),
     ...(costChoices ? { costChoices } : {}),
     ...(abilityId ? { abilityId } : {}),
+    ...(x !== undefined && x > 0 ? { x } : {}),
     costReductionAbilities: reductions,
   };
   const result = applyCommand(state, command, deps);

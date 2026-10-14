@@ -63,6 +63,9 @@ export type Vars = Readonly<Record<string, number>>;
 /** Where a reveal began (the reveal frame's `source`; docs/phase7-wave6.md §3.64). */
 export type RevealSource = "encounterDeck" | "elsewhere";
 
+/** A keyword that answers a revealed minion's engagement once its reveal has finished (`Frame<"reveal">.keywordOrder`). */
+export type RevealKeyword = "quickstrike" | "teamwork";
+
 /**
  * The one thwart a "(thwart)" ability makes (RRG 1.8 "Thwart", p. 44: "An ability labeled as a thwart is considered a
  * single thwart, even if that thwart removes multiple instances of threat"), carried by the root effects frame of the
@@ -195,6 +198,20 @@ export type StackFrame =
       /** "At the end of this attack" effects, run after the response window. */
       readonly endEffects: readonly DeferredEffects[];
       /**
+       * An enemy activation that began and then ended before resolving, because its enemy left play (RRG 1.8
+       * "Activation", p. 6). The frame is `cancelled` so that nothing more of it resolves, but unlike an activation
+       * cancelled outright (RRG 1.8 "Cancel", p. 11: "not considered to have occurred") it did occur and has ended, so
+       * its `endEffects` still resolve (ruling January 11, 2026 - Ruling 1, answer 3).
+       */
+      readonly endedEarly?: true;
+      /**
+       * An enemy attack queued ahead of the moment it is made (a keyword's attack waiting behind the responses to its
+       * minion's entering play, `quickstrikeFrame`), so nothing has yet asked whether a stunned status card replaces
+       * it: read as the attack would begin (RRG 1.8 "Stun, Stunned", p. 41; `resolve/event.ts`). The villain phase and
+       * the "X attacks" effects ask before they push their event and do not set this.
+       */
+      readonly statusReplaces?: true;
+      /**
        * Events whose *response* window was deferred to the end of this activation: RRG 1.8 "Defend, Defense" (p. 16),
        * "Abilities that trigger after a character defends an attack resolve after that attack ends." Only an
        * activation event frame (`enemyAttack`) carries these; `resolve/event.ts` opens them in its `done` stage.
@@ -275,6 +292,13 @@ export type StackFrame =
        * from the attack (an overkill spill) is not attacked (owner ruling Q50; `resolve/attack-ability.ts`).
        */
       readonly attacked?: readonly Extract<TriggerEvent, { kind: "characterAttacked" }>[];
+      /**
+       * On a player's `attack` event: the enemies this attack has been made against and charged for (`RuleSpec
+       * additionalAttackCost`, docs/phase7-wave10-hero-packs.md H3.16; `attack-cost.ts` `chargeAttackCosts`), whether
+       * or not a cost was owed for them. The events of one "(attack)" ability (`attackOf`) read each other's, so an
+       * enemy is paid for once per attack.
+       */
+      readonly attackCostsCharged?: readonly InstanceId[];
       /**
        * With `attackOf`: this attack began as its ability began resolving, before the `attack` instruction that deals
        * its damage (RRG 1.8 "Labeled Ability", p. 26; owner decision, 2026-10-08, docs/phase7-wave8.md §4.1 row 73), and
@@ -431,6 +455,12 @@ export type StackFrame =
        * they bound goes back to that frame under `<prefix>.` ("If at least 1 Sandman card was discarded this way").
        */
       readonly returnBindingsTo?: { readonly frameId: FrameId; readonly prefix: string };
+      /**
+       * An attack- or thwart-labeled ability whose `characterWouldAct` event was pushed above this frame
+       * (docs/phase7-wave10.md §3.21): `"asked"` once it has been, so it is announced once; `"replaced"` when an
+       * interrupt replaced it ("discard this card instead"), so the ability resolves none of its effects.
+       */
+      readonly wouldAct?: "asked" | "replaced";
     })
   /** Runs an `EffectSpec` program with a cursor and slot bindings. */
   | (FrameBase & {
@@ -639,8 +669,43 @@ export type StackFrame =
        * of engaged with `playerId`, so nothing that follows from an engagement happens. Absent on every other reveal.
        */
       readonly heldBy?: InstanceId;
-      /** With `stage: "uniqueCheck"`: the stage the reveal continues to when the card is let in. */
+      /**
+       * "Reveal it, treating each [per player] on it as 1" (`EffectSpec revealCard.perPlayerAs`; docs/phase7-wave10-
+       * hero-packs.md H3.5): while this frame is on the stack, every per player icon on `instanceId` multiplies by this
+       * number (`perPlayerReading`, `query.ts`). Gone with the frame, so the reading covers the reveal and nothing
+       * after it (the owner's answer to question 19 = A). Absent on every other reveal.
+       */
+      readonly perPlayerAs?: number;
+      /**
+       * With `stage: "uniqueCheck"`: the stage the reveal continues to when the card is let in. Legacy: no reveal sets
+       * it any more (the check always goes on to `whenRevealed`); `"quickstrike"` is read only off a frame saved before
+       * the reveal order of the owner's answer 30B (2026-10-12).
+       */
       readonly afterUnique?: "quickstrike" | "whenRevealed";
+      /**
+       * The player this minion engaged by this reveal: the revealing player it entered play engaged with (RRG 1.8
+       * "Reveal", p. 38, step 2), or the finder a minion found in play engaged because it was not already engaged
+       * with them ("Find", p. 19). Its quickstrike and teamwork resolve once the reveal's steps are done (`keywords`),
+       * and only while it is still in play: quickstrike only while it is still engaged with this player, teamwork
+       * against whichever player it is engaged with by then (the owner's answer 36B). Absent on a held minion (`heldBy`), a
+       * card that engaged nobody, and a frame saved after its `quickstrike` stage under the old order, whose keywords
+       * have already resolved.
+       */
+      readonly engagedPlayerId?: PlayerId;
+      /**
+       * `cardEntersPlay` events of this card that resolved while it was being revealed, oldest first: their response
+       * windows wait for the end of the reveal (RRG 1.8 "Reveal", p. 38: "Responses (both forced and non-forced) to
+       * any step of the revealing of an encounter card are not resolved until after all steps of the reveal process
+       * have been completed"; FAQ "Widow's Bite (#10)", p. 60; the owner's answers 32B and, for a card that is not a
+       * minion, 35B). They share the window of the reveal's own `cardRevealed` announcement, after a minion's
+       * quickstrike and teamwork.
+       */
+      readonly heldResponses?: readonly TriggerEvent[];
+      /**
+       * With `stage: "keywords"`: the engagement keywords still to resolve, in the order they resolve. Absent until the
+       * order is known (a minion with both asks the first player, the owner's answer 34B).
+       */
+      readonly keywordOrder?: readonly RevealKeyword[];
       /**
        * The effects frame whose pre-"then" text this reveal is ("Reveal that minion, then give it a tough status
        * card"): if the card's effects are cancelled, that frame is marked unresolved (RRG 1.8 "'Then'", p. 44).
@@ -666,8 +731,20 @@ export type StackFrame =
        * `uniqueCheck`: a minion, side scheme or environment has entered play and its enter-play window has resolved; it is
        * discarded if it still matches a card in play (RRG 1.8 "Unique Icon"), else the reveal goes on to `afterUnique`.
        *
-       * `quickstrike`: a minion has entered play engaged with its player (its enter-play window has resolved), and its
-       * quickstrike attack comes next, before its When Revealed (ruling, Feb 28, 2026 (4) answer 2).
+       * `quickstrike`: legacy. Until the owner's answer 30B (2026-10-12) a minion's quickstrike and teamwork resolved
+       * here, before its When Revealed (ruling, Feb 28, 2026 (4) answer 2). No reveal enters this stage any more; a
+       * frame saved in it records whom the minion engaged (`engagedPlayerId`) and goes on to `whenRevealed`, so its
+       * keywords resolve at `keywords` like any other reveal's.
+       *
+       * `finish`: steps 1 to 3 are done; step 4 discards a treachery (RRG 1.8 "Reveal", p. 38).
+       *
+       * `keywords`: every step of the reveal is done, and the minion's engagement keywords resolve, one at a time, each
+       * read as it resolves: quickstrike (RRG 1.8 p. 36: "If a minion with the quickstrike keyword is being revealed,
+       * the quickstrike keyword resolves after any 'When Revealed' abilities on that minion are resolved") and teamwork
+       * (p. 43, the same sentence). Skipped when neither applies.
+       *
+       * `responses`: the keywords are done; the responses to the reveal are announced (`cardRevealed` with the held
+       * enters-play responses, `encounterCardResolved`, `minionEngaged`), then surge.
        */
       readonly stage:
         | "faceup"
@@ -679,6 +756,8 @@ export type StackFrame =
         | "whenRevealed"
         | "settleAttach"
         | "finish"
+        | "keywords"
+        | "responses"
         | "done";
     })
   /** RRG "Initiating Abilities" steps 6–7, after costs are paid. */

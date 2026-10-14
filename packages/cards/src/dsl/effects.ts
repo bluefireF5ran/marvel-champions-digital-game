@@ -1,6 +1,8 @@
 import type {
   CampaignLogValueSpec,
+  BoostCardDestination,
   CardDestination,
+  DefeatDestination,
   CardSelector,
   CollectionSearchFilter,
   EventPattern,
@@ -31,6 +33,7 @@ import {
   eachPlayer,
   firstPlayer,
   query,
+  readsAtkOf,
   self,
   TRAIT,
   you,
@@ -101,6 +104,10 @@ export const heal = (n: Amount, target: TargetRef, opts: { readonly bind?: strin
  * takes "+1 damage from each attack", names its enemy as attacked (one retaliate each) and counts for "after you
  * attack and defeat". Damage to your own identity or an ally is never the attack's. `fromAttack: false` keeps one
  * instruction out of the attack; `fromAttack: true` is an attack's damage dealt by this card itself (no hero attack).
+ *
+ * `usesAtk` (docs/phase7-wave10.md §3.17): as an attack's damage, this instance "uses their ATK" (Cap's Shield;
+ * `attackUsedAtk()`). Set for you when the amount reads your identity's ATK (`statOf(yourIdentity, "atk")`); pass
+ * `usesAtk: true` or `false` only when the card's wording says otherwise.
  */
 export const dealDamage = (
   n: Amount,
@@ -117,6 +124,7 @@ export const dealDamage = (
      * owner ruling Q53). Prefer one `dealDamage` with the summed amount when the script can compute it.
      */
     readonly additional?: boolean;
+    readonly usesAtk?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "dealDamage",
@@ -124,6 +132,8 @@ export const dealDamage = (
   amount: amount(n),
   ...(opts.additional ? { additional: true as const } : {}),
   ...(opts.fromAttack !== undefined ? { fromAttack: opts.fromAttack } : {}),
+  // Not marked on an instruction kept out of the attack: that damage is no attack's.
+  ...((opts.usesAtk ?? (opts.fromAttack !== false && readsAtkOf(n, yourIdentity))) ? { usesAtk: true as const } : {}),
   ...withBind(opts.bind),
   ...(opts.perTarget ? { perTarget: true as const } : {}),
   ...(opts.sourceFromEvent ? { sourceFromEvent: true as const } : {}),
@@ -225,6 +235,11 @@ export const useThwInsteadOfAtk = (): EffectSpec => ({ kind: "modifyBasicPower",
  * `keywords` is this activation's own attack-keyword grant — "this attack gains piercing" (Vibranium Arrow, Piercing
  * Strike): exact for a played event's one-shot attack, unlike a persistent `constant(...attacksGainKeywords(...))`
  * grant, which needs the granting card to stay in play (docs/phase7-wave2.md §3, `RuleSpec attackKeywords`).
+ *
+ * `usesAtk` (docs/phase7-wave10.md §3.17; ruling December 17, 2025 (2) #3): the attack "uses their ATK", which
+ * `attackUsedAtk()` reads (Cap's Shield). Set for you when the amount reads the attacker's ATK: `attack(statOf(
+ * yourIdentity, "atk"), …)` and `attack(sum(statOf(yourIdentity, "atk"), 2), …)` are marked, `attack(4, …)` is not.
+ * Pass `usesAtk: true` or `false` only when the card's wording says otherwise.
  */
 export const attack = (
   n: Amount,
@@ -235,11 +250,13 @@ export const attack = (
     readonly moveDamageFrom?: TargetRef;
     readonly bind?: string;
     readonly keywords?: readonly AttackKeyword[];
+    readonly usesAtk?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "attack",
   target,
   amount: amount(n),
+  ...((opts.usesAtk ?? readsAtkOf(n, opts.attacker ?? yourIdentity)) ? { usesAtk: true as const } : {}),
   ...(opts.overkill ? { overkill: true } : {}),
   ...(opts.attacker ? { attacker: opts.attacker } : {}),
   ...(opts.moveDamageFrom ? { moveDamageFrom: opts.moveDamageFrom } : {}),
@@ -320,8 +337,17 @@ export const discard = (target: TargetRef): EffectSpec => ({ kind: "discardFromP
  * effect rather than by damage. Everything that sees an ordinary defeat sees this one (interrupts, When Defeated,
  * Victory X, `cannotBeDefeated`); a villain's stage falls the same way "Villain Defeat" (RRG 1.8 p. 47) describes,
  * and an identity's player is eliminated. Characters only.
+ *
+ * `ignoreWhenDefeated`: "Defeat a … minion … Ignore any 'When Defeated' abilities on that minion." (Coup de Grâce,
+ * `cw` 56016; docs/phase7-wave10-box-heroes.md B3.2) → `defeat(chosen("minion"), { ignoreWhenDefeated: true })`. The
+ * defeated card's own When Defeated abilities do not resolve (RRG 1.8 "Ignore", p. 23); Victory X, its attachments'
+ * "when attached minion is defeated" and other cards' responses to the defeat all still do.
  */
-export const defeat = (target: TargetRef): EffectSpec => ({ kind: "defeat", target });
+export const defeat = (target: TargetRef, opts: { readonly ignoreWhenDefeated?: true } = {}): EffectSpec => ({
+  kind: "defeat",
+  target,
+  ...(opts.ignoreWhenDefeated !== undefined ? { ignoreWhenDefeated: opts.ignoreWhenDefeated } : {}),
+});
 /**
  * A player sits the scenario out (`EffectSpec sitOutScenario`; MC45 p. 20, MC50 p. 6; owner decision 66B,
  * docs/phase7-wave9.md §4.1): eliminated without a defeat and, during setup, taken out of the count of players who
@@ -332,8 +358,24 @@ export const sitOut = (player: PlayerRef): EffectSpec => ({ kind: "sitOutScenari
 /**
  * "… return it to its owner's hand **instead of discarding it**" (Regroup, `drax` 19032; docs/phase7-wave3.md §3.45):
  * from an interrupt to a character's defeat, the card goes to `to` instead of its discard pile. It is still defeated.
+ *
+ * Also the defeated card's own When Defeated ability, whose leaving step follows it (RRG 1.8 "When Defeated
+ * Abilities", p. 48). With `boostCardOf` (docs/phase7-wave10.md §3.10):
+ * - "When Defeated: Give this card to the enemy leader as a facedown boost card." (Falcon, `cw` 56150) is
+ *   `whenDefeated(setDefeatDestination(boostCardOf(enemyLeader)))`;
+ * - "Forced Interrupt: When a minion is defeated, give it to the enemy leader as a facedown boost card." (Dangerous
+ *   Recruits, 56091) is `forcedInterrupt(on.defeated(…), setDefeatDestination(boostCardOf(
+ *   enemyLeader)))`.
  */
-export const setDefeatDestination = (to: CardDestination): EffectSpec => ({ kind: "setDefeatDestination", to });
+export const setDefeatDestination = (to: DefeatDestination): EffectSpec => ({ kind: "setDefeatDestination", to });
+/**
+ * "… as a facedown boost card": the defeat destination that is `enemy`'s boost cards (`BoostCardDestination`,
+ * docs/phase7-wave10.md §3.10), for `setDefeatDestination` only. The card is still defeated and leaves play; it waits
+ * facedown on the first card `enemy` names in play and is turned up at that enemy's next activation (RRG 1.8 "Boost,
+ * Boost Icon", p. 11). A Victory X card goes to the victory display instead, and with no such enemy in play the card is
+ * discarded as normal. A card that is not being defeated is given with `giveBoostCard(enemy, { card })`.
+ */
+export const boostCardOf = (enemy: TargetRef): BoostCardDestination => ({ kind: "boostCardOf", enemy });
 /**
  * "Cosmo does not take consequential damage for this use." (Cosmo, `stld` 17020, errata RRG 1.8 p. 67; docs/phase7-
  * wave3.md §3.21): cancels the named character's pending consequential damage from its current attack or thwart.
@@ -923,6 +965,17 @@ export const eachTimeUntil = (
   on: EventPattern,
   ...effects: readonly EffectArg[]
 ): EffectSpec => ({ kind: "eachTimeUntil", until, on, effects: flatten(effects) });
+/**
+ * "Reduce that amount to N" (Cosmic Flight, `cw` 56100: "When Captain Marvel would take more than 3 damage from an
+ * attack, reduce that amount to 3"): in an interrupt to damage, the damage still pending, read as this resolves, is
+ * lowered to `n` if it is higher. Not a prevention (nothing that answers prevented damage hears it); the amount dealt
+ * is unchanged. `bind`: `<bind>.amount` taken off, `<bind>.made`.
+ */
+export const reduceDamageTo = (n: Amount, opts: { readonly bind?: string } = {}): EffectSpec => ({
+  kind: "reduceDamageTo",
+  amount: amount(n),
+  ...(opts.bind !== undefined ? { bind: opts.bind } : {}),
+});
 /** "Prevent N of that damage" (absent = all of it). */
 /**
  * "Prevent [N of] that damage". `{ bind }`: `<bind>.amount` is how much was prevented ("the amount prevented this way",
@@ -972,19 +1025,31 @@ export const repeatTimes = (times: Amount, ...effects: readonly EffectArg[]): Ef
 export const forEachCard = (
   slot: string,
   cards: TargetRef,
-  ...rest: readonly (EffectArg | { readonly chooser: PlayerRef })[]
+  ...rest: readonly (EffectArg | ForEachCardOptions)[]
 ): EffectSpec => {
-  const isOpts = (r: unknown): r is { readonly chooser: PlayerRef } =>
-    !Array.isArray(r) && typeof r === "object" && r !== null && "chooser" in r && !("kind" in r);
+  const isOpts = (r: unknown): r is ForEachCardOptions =>
+    !Array.isArray(r) && typeof r === "object" && r !== null && ("chooser" in r || "bind" in r) && !("kind" in r);
   const opts = rest.find(isOpts);
   return {
     kind: "forEachCard",
     cards,
     slot,
-    ...(opts ? { chooser: opts.chooser } : {}),
+    ...(opts?.chooser ? { chooser: opts.chooser } : {}),
+    ...(opts?.bind !== undefined ? { bind: opts.bind } : {}),
     effects: flatten(rest.filter((r): r is EffectArg => !isOpts(r))),
   };
 };
+/**
+ * `forEachCard`'s options. `chooser`: who picks the next card while two or more wait. `bind`: what the passes did comes
+ * back to the ability after the loop, `<bind>.count` passes and each pass's own binds as `<bind>.<name>` (vars summed,
+ * slots joined): "Spider-Man attacks each character with Tangled Up attached. If no attack was made this way, …" is
+ * `forEachCard("c", each(…), enemyAttack(self, { targetCharacter: chosen("c"), bind: "hit" }), { bind: "attacks" })`
+ * then `varOf("attacks.hit.made")`, the number of those attacks that were made.
+ */
+export interface ForEachCardOptions {
+  readonly chooser?: PlayerRef;
+  readonly bind?: string;
+}
 export const preventThreat = (n?: Amount): EffectSpec =>
   n === undefined ? { kind: "preventThreat" } : { kind: "preventThreat", amount: amount(n) };
 /** "… instead": the interrupted event doesn't happen; these resolve in its place (RRG "Replacement Effect"). */
@@ -1160,7 +1225,13 @@ export const mayLookAtTopOfEncounterDeckUntil = (
  */
 export const reduceNextCardCost = (
   player: PlayerRef,
-  n: Amount,
+  /**
+   * `"toZero"`: "reduce the resource cost of the next ally that player plays this phase **to 0**" (Recruitment Drive,
+   * `hercules` 59023; docs/phase7-wave10-hero-packs.md H3.10) → `reduceNextCardCost(chosenPlayer, "toZero", "phase",
+   * query("ally"))`. The card's resource cost is 0 whatever it prints and whatever else reduces it; an increase from
+   * another card is still paid on top.
+   */
+  n: Amount | "toZero",
   duration: NextCardCostDuration,
   cardFilter?: TargetQuery,
   /**
@@ -1173,11 +1244,31 @@ export const reduceNextCardCost = (
 ): EffectSpec => ({
   kind: "reduceNextCardCost",
   player,
-  amount: amount(n),
+  amount: amount(n === "toZero" ? 0 : n),
+  ...(n === "toZero" ? { toZero: true as const } : {}),
   duration,
   ...(cardFilter ? { cardFilter } : {}),
   ...(opts.into ? { into: opts.into } : {}),
   ...(opts.anyPlayer ? { anyPlayer: true as const } : {}),
+});
+/**
+ * "Each player may search their deck and discard pile for an Avenger or S.H.I.E.L.D. card and add it to their hand.
+ * Reduce the cost to play each of those cards by 2 until the end of the phase." (Evaluate Threat, `hercules` 59028;
+ * docs/phase7-wave10-hero-packs.md H3.11) → `reduceCostOfCards(chosen("found"), 2, "phase")` after the search binds
+ * `found`. One reduction for each card the ref names, kept by that card wherever it goes, used by the next play of that
+ * card by any player and gone at the end of the phase (rulings June 2, 2026 – Ruling 2 (4), "for the next time it is
+ * played that phase, even if bounced", and July 9, 2026 – Ruling 3 (3), "not repeatedly").
+ */
+export const reduceCostOfCards = (
+  cardsRef: TargetRef,
+  n: Amount,
+  duration: Exclude<NextCardCostDuration, "untilPlayed">,
+): EffectSpec => ({
+  kind: "reduceNextCardCost",
+  player: you,
+  amount: amount(n),
+  duration,
+  cards: cardsRef,
 });
 /**
  * "Assign each of the discarded cards to a different ally at the mission. If a resource icon on the ally matches a
@@ -1275,6 +1366,18 @@ export const topOfDeck = (n: Amount, player: PlayerRef = you): CardSelector => z
 export const cards = (ref: TargetRef, filter?: TargetQuery): CardSelector => ({
   kind: "ref",
   ref,
+  ...(filter ? { filter } : {}),
+});
+/**
+ * The cards a ref names that are in that zone of their owner right now: "tuck that event **from your discard pile**
+ * under this card" (Ionic Physiology, `wonder_man` 58002) → `tuckCards(cardsFrom("discard", eventTarget), self)`. A
+ * named card that is anywhere else is not selected, so the ability is not offered while none is there, and a tuck that
+ * finds its card gone as it resolves does not resolve (RRG 1.8 "'Then'", p. 44).
+ */
+export const cardsFrom = (ownerZone: PlayerZone, ref: TargetRef, filter?: TargetQuery): CardSelector => ({
+  kind: "ref",
+  ref,
+  ownerZone,
   ...(filter ? { filter } : {}),
 });
 /**
@@ -1490,17 +1593,45 @@ export const oneCopyOf = (from: CardSelector): CardSelector => atMost(1, from);
  * §3.48): the first card `find(q, { owner })` names goes to `to` — a `CardDestination`, or `{ attachTo: host }`. A card
  * already there stays put; each deck searched is shuffled after (RRG 1.8 "Search", p. 39), also when nothing was found
  * (§4.1 Q77), which leaves the text before a "then" unresolved. `bind`: the found card, in that slot.
+ *
+ * docs/phase7-wave10-hero-packs.md H3.4 (RRG 1.8 "Find", p. 19):
+ * - `to: "reveal"`: "find X and reveal it". You reveal it in full; a card faceup in play is revealed where it is (a
+ *   minion engages you unless it already was, keeping everything on it, and its reveal keywords and When Revealed
+ *   resolve). The effects written after the find resolve once the reveal has.
+ * - `to: "play"`: "Find Amadeus Cho and put him into play" (Protect Humanity, `hercules` 59004), under your control:
+ *   `findCard({ name: "Amadeus Cho" }, "play", { owner: you })`. Already in play: nothing moves.
+ * - `choose`: the text names a kind of card, so you pick among every match, in play or out, each offered with the
+ *   area it is in; one match is found with no prompt. Every deck a match could be in was looked through and is
+ *   shuffled. "Find a non-Elite minion with at least 6 printed hit points. Reveal it, heal all damage from it, and
+ *   attach this card to it" (Defeat the Hydra 59002): `findCard(query("minion", { withoutTrait: ELITE, not: {
+ *   maxPrintedHp: 5 } }), "reveal", { choose: true, bind: "minion" })`, then `heal(…, chosen("minion"))` and
+ *   `attachCard(self, chosen("minion"))`. A facedown encounter card (a boost card, a dealt card) is never offered.
+ * - `outOfPlay`: "that is not in play". "Find an encounter side scheme that is not in play and reveal it" (Embody
+ *   Pathos 59003): `findCard(query("sideScheme", { controller: "encounter" }), "reveal", { choose: true, outOfPlay:
+ *   true, bind: "scheme" })`; `controller: "encounter"` leaves out player side schemes, which their owners control
+ *   wherever they are.
+ * - `perPlayerAs`, with `to: "reveal"`: "… and reveal it, **treating each [per player] on it as 1**" (Embody Pathos;
+ *   H3.5) is `perPlayerAs: 1` on that same find; see `revealCard`.
  */
 export const findCard = (
   q: TargetQuery,
-  to: CardDestination | { readonly attachTo: TargetRef },
-  opts: { readonly owner?: PlayerRef; readonly bind?: string } = {},
+  to: CardDestination | { readonly attachTo: TargetRef } | "reveal" | "play",
+  opts: {
+    readonly owner?: PlayerRef;
+    readonly bind?: string;
+    readonly choose?: boolean;
+    readonly outOfPlay?: boolean;
+    readonly perPlayerAs?: number;
+  } = {},
 ): EffectSpec => ({
   kind: "findCard",
   query: q,
   ...(opts.owner ? { owner: opts.owner } : {}),
   to,
   ...withBind(opts.bind),
+  ...(opts.choose ? { choose: true as const } : {}),
+  ...(opts.outOfPlay ? { outOfPlay: true as const } : {}),
+  ...(opts.perPlayerAs !== undefined ? { perPlayerAs: opts.perPlayerAs } : {}),
 });
 export const moveCards = (from: CardSelector, to: CardDestination, bind?: string): EffectSpec => ({
   kind: "moveCards",
@@ -1734,6 +1865,35 @@ export const resolvePreparationsOf = (
   ...(opts.player ? { player: opts.player } : {}),
   ...withBind(opts.bind),
 });
+/**
+ * "Resolve the 'Boost' ability of each minion in play" / "… of each minion engaged with you" (Freedom Fighters, `cw`
+ * 56153; docs/phase7-wave10.md §3.11): `resolveBoostAbilitiesOf(each(query("minion")), { bind: "boosts" })`. Each
+ * card's Boost abilities (`boost(...)`) resolve with the card where it is, in play: it is not turned up or discarded as
+ * a boost card. Inside them "this card" is that card, "you" is the resolving player (`player`, else this ability's
+ * "you": the revealing player, or the player the activation is against) and the triggering event is this ability's
+ * own. `bind`: `<bind>.count`, how many resolved ("If no 'Boost' abilities were resolved this way":
+ * `not(varAtLeast("<bind>.count"))`), with what they bound under `<bind>.`.
+ *
+ * `borrowedBoostIcons`: what "this card gains [boost][boost]" (`adjustBoostCount`) inside a borrowed ability does.
+ * Question 10 of the spec (§4.0; owner, 2026-10-11): absent or `"nothing"` is answer A, the default, and the icons do
+ * nothing (the minion is not a boost card of the activation; RRG 1.8 "Boost", p. 9); `"joinActivation"` is answer B,
+ * and they are added to the count of the boost card resolving this effect.
+ */
+export const resolveBoostAbilitiesOf = (
+  ref: TargetRef,
+  opts: {
+    readonly bind?: string;
+    readonly player?: PlayerRef;
+    readonly borrowedBoostIcons?: "nothing" | "joinActivation";
+  } = {},
+): EffectSpec => ({
+  kind: "resolveSpecials",
+  of: ref,
+  trigger: "boost",
+  ...(opts.player ? { player: opts.player } : {}),
+  ...(opts.borrowedBoostIcons ? { borrowedBoostIcons: opts.borrowedBoostIcons } : {}),
+  ...withBind(opts.bind),
+});
 /** Records `value` now as var `name`, for a comparison later in the same ability (docs/phase7-wave4.md §3.46). */
 export const setVar = (name: string, value: Amount): EffectSpec => ({ kind: "setVar", name, value: amount(value) });
 /**
@@ -1850,6 +2010,30 @@ export const selectCards = (slot: string, from: CardSelector): EffectSpec => ({
   slot,
   cards: from,
 });
+/** The cards of `player`'s separate deck `name`, top first: all of them, or its top `top`. */
+export const separateDeckCards = (name: string, player: PlayerRef = you, top?: Amount): CardSelector => ({
+  kind: "separateDeck",
+  player,
+  name,
+  ...(top !== undefined ? { top: amount(top) } : {}),
+});
+/**
+ * "Reveal the top card of the labor deck" (Hercules 59001b; docs/phase7-wave10-hero-packs.md H3.2): two effects, to be
+ * spread into an ability's list. The top card of `player`'s separate deck `name` is bound to `slot`, then revealed by
+ * `player` through the whole reveal procedure (RRG 1.8 "Reveal", p. 38: "If a player is instructed by card text to
+ * reveal an encounter card from the encounter deck or any other game area, this same resolution procedure applies").
+ * An obligation enters play in that player's play area; an attachment with no "attach to" text waits faceup in front
+ * of them, out of play, until its own When Revealed attaches it. An empty deck reveals nothing: gate the ability with
+ * `valueAtLeast(separateDeckCountOf(name), 1)`.
+ */
+export const revealTopOfSeparateDeck = (
+  name: string,
+  player: PlayerRef = you,
+  slot = `top-of-${name}`,
+): readonly EffectSpec[] => [
+  selectCards(slot, separateDeckCards(name, player, 1)),
+  { kind: "revealCard", cards: { kind: "slot", slot }, player },
+];
 /**
  * "Look at the top card of …" with no decision attached: `viewer` sees the cards (a `lookAt` prompt they acknowledge)
  * and nothing moves (RRG 1.8 "Look, Looked-At", p. 27). `bind` also records them in that slot and `<bind>.count`, like
@@ -1902,10 +2086,24 @@ export const lookAtAndRearrange = (
   rearrange: true,
   ...(opts.bindAt !== undefined ? { bindAt: opts.bindAt } : {}),
 });
-export const revealCard = (target: TargetRef, player: PlayerRef = you): EffectSpec => ({
+/**
+ * "Reveal it": the whole reveal procedure for `player` (RRG 1.8 "Reveal", p. 38), from wherever the card is.
+ *
+ * `perPlayerAs` (docs/phase7-wave10-hero-packs.md H3.5): "reveal it, treating each [per player] on it as 1" (Embody
+ * Pathos, `hercules` 59003) is `revealCard(target, you, { perPlayerAs: 1 })`, or `perPlayerAs: 1` on the `findCard`
+ * that reveals. While that card is being revealed every per player icon on it multiplies by 1: its starting threat,
+ * its hinder, and a `perHero` / `scaled` value in its own When Revealed. Other cards read the real number of players,
+ * and so does a later ability of the same card (the owner's answer to question 19 = A, provisional).
+ */
+export const revealCard = (
+  target: TargetRef,
+  player: PlayerRef = you,
+  opts: { readonly perPlayerAs?: number } = {},
+): EffectSpec => ({
   kind: "revealCard",
   cards: target,
   player,
+  ...(opts.perPlayerAs !== undefined ? { perPlayerAs: opts.perPlayerAs } : {}),
 });
 /**
  * "Reveal and attach the remaining set-aside Thunderbolt minion faceup here." (Justice, Like Lightning, `aos` 50131a;
@@ -2205,6 +2403,18 @@ export const fromAnyAspect: readonly string[] = ["aggression", "justice", "leade
  * area. `searchCollection({ categories: ["ally"], aspects: ["justice"], ...aDifferentCard }, "found", player)`.
  */
 export const aDifferentCard: Pick<CollectionSearchFilter, "notAmongOwnCards"> = { notAmongOwnCards: true };
+/**
+ * "Search your collection for an identity-specific ally **for an identity not in this game**" (Cameo, `wonder_man`
+ * 58031; docs/phase7-wave10-hero-packs.md H3.18): the "identity-specific … for an identity not in this game" half of
+ * a collection search filter, spread into it beside the card type:
+ * `searchCollection({ categories: ["ally"], ...forAnIdentityNotInThisGame }, "ally")`. A card with an identity's set
+ * icon (RRG 1.8 "Identity-Specific Card", p. 23) whose identity card is not in the game: no seat is using it (any
+ * version of a progressing identity counts) and no card effect has brought it in. Titles are not compared (ruling,
+ * March 19, 2026 - Ruling 6). Not with `aspects` or `heroNoCharacterIsTitledAs`, which would match no card.
+ */
+export const forAnIdentityNotInThisGame: Pick<CollectionSearchFilter, "identitySpecificToUnseated"> = {
+  identitySpecificToUnseated: true,
+};
 /**
  * "Search your collection for a hero whose title does not match a character in play" (Reluctant Foe, `aos` 50171;
  * docs/phase7-wave9.md §3.30; MC50 p. 22) → `searchCollection(heroNoCharacterIsTitledAs, "hero")`: an identity card
@@ -2933,6 +3143,13 @@ export const raiseMoment = (name: string, player: PlayerRef = you, carry: readon
   player,
   ...(carry.length > 0 ? { carry } : {}),
 });
+/**
+ * Printed text that applies only in competitive mode, which is not built (docs/phase7-wave10.md §3.4): `text` is the
+ * printed sentence. It does nothing. It goes in the competitive branch of `ifThen(inCompetitiveMode(), …)`, so
+ * the clause is in the script (`competitiveOnlyTexts` lists them) and never left out; the validator refuses it
+ * anywhere a cooperative game would reach it.
+ */
+export const competitiveOnly = (text: string): EffectSpec => ({ kind: "competitiveOnly", text });
 /**
  * "Choose a group in your pod" (the Fading Figments, Fenris Wolf 55042, Hraesvelgr 55043, Laufey 55044, New Jotunheim
  * 55048, `tt`; docs/phase7-wave9.md §3.67): the first player picks a group of the pod, this one included (MC55 p. 23),

@@ -2,7 +2,8 @@ import type { AbilityId, CardId, CoreAspect, EvidenceCombination, Trait, Villain
 import type { CampaignCardFace, CampaignWindow, LogWrite } from "./campaign.js";
 import type { RulesCardType } from "./card-types.js";
 import type { ChoiceId, EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
-import type { CardPosition, PendingChoice } from "./choices.js";
+import type { CardPosition, ChoiceBehalf, PendingChoice } from "./choices.js";
+import type { DelegableCostPart } from "./commands.js";
 import type { GroupId } from "./ids.js";
 import type { SharedEvent, SharedPodState, SharedResult } from "./pod.js";
 import type {
@@ -67,6 +68,17 @@ export type PreThenFailure =
    */
   | "tuckNotReplaced"
   /**
+   * A `tuckCards` tucked none of its cards: the card they go under already holds its maximum (`RuleSpec tuckLimit`,
+   * docs/phase7-wave10-hero-packs.md §H3.12).
+   */
+  | "tuckRefused"
+  /**
+   * A `tuckCards` named cards and could reach none of them: each was removed from the game, or is not in the zone the
+   * selector names (`CardSelector ref.ownerZone`: "tuck that event from your discard pile" with the event no longer
+   * there).
+   */
+  | "tuckNamedNoCard"
+  /**
    * A `replaceAttachHost` found no pending attach to send elsewhere, or no card that can have it attached
    * (docs/phase7-wave9.md §3.49).
    */
@@ -117,6 +129,18 @@ export type GameEvent =
       readonly from: ZoneId;
       readonly to: ZoneId;
     }
+  /**
+   * A permanent encounter attachment whose host left play, or whose player was eliminated, resolved its "attach to"
+   * text again and moved to `hostInstanceId` without leaving play (docs/phase7-wave10.md §3.19; MC56 p. 20: "When an
+   * attachment with the permanent keyword becomes unattached, resolve its 'attach to' text"). Follows the `cardMoved`
+   * of that move; `fromInstanceId` is the card it was on, null for one that was in a play area unattached.
+   */
+  | {
+      readonly type: "permanentAttachmentRehosted";
+      readonly instanceId: InstanceId;
+      readonly fromInstanceId: InstanceId | null;
+      readonly hostInstanceId: InstanceId;
+    }
   | { readonly type: "cardDrawn"; readonly playerId: PlayerId; readonly instanceId: InstanceId }
   /**
    * The card just drawn (the `cardDrawn` before this) is an obligation, so it went to the drawing player's play area
@@ -164,6 +188,19 @@ export type GameEvent =
       readonly slot: string;
     }
   /**
+   * A response to its discard from `playerId`'s deck took the card away, and the ability that discarded it still
+   * counts it: the response's ability says so (`AbilityDefinition.discardsStayCounted`; Skrull Business placing the
+   * cards facedown under itself, docs/phase7-wave10-box-heroes.md B3.3, question 14 = A). `slot`: the bound set it
+   * stays in; `takenByInstanceId`: the card whose response took it.
+   */
+  | {
+      readonly type: "deckDiscardStillCounted";
+      readonly playerId: PlayerId | null;
+      readonly instanceId: InstanceId;
+      readonly slot: string;
+      readonly takenByInstanceId: InstanceId | null;
+    }
+  /**
    * `playerId` spent a card tucked under `hostInstanceId` "as if it were in their hand" (`RuleSpec
    * spendableFromTucked`, docs/phase7-wave9.md §3.46 (c)): it went from under its host to its owner's discard pile
    * (the `cardMoved` before this). Logged in place of the `cardDiscardedFromHand` a hand card's spending logs.
@@ -173,6 +210,19 @@ export type GameEvent =
       readonly playerId: PlayerId;
       readonly instanceId: InstanceId;
       readonly hostInstanceId: InstanceId;
+    }
+  /**
+   * `helperId` pays the `part` part of a cost of `playerId`'s in their place (`CostSelection.paidBy`; `RuleSpec
+   * costsPayableByAnyPlayer`, docs/phase7-wave10-hero-packs.md H3.19): the cost is printed on `sourceInstanceId`.
+   * Logged as the cost is paid, before what the part does (the helper's damage, their deck's discard). A helper's
+   * resources and cards are not logged here: each card's own event names the hand or the play area it left.
+   */
+  | {
+      readonly type: "costPartPaidBy";
+      readonly playerId: PlayerId;
+      readonly helperId: PlayerId;
+      readonly sourceInstanceId: InstanceId;
+      readonly part: DelegableCostPart;
     }
   | {
       readonly type: "cardPlayed";
@@ -395,6 +445,16 @@ export type GameEvent =
       readonly schemeInstanceId: InstanceId;
       readonly stageIndex: number;
       readonly playerId: PlayerId;
+    }
+  /**
+   * The game was set up with chosen stages of its main scheme card (`GameSetupConfig.mainSchemeStageIndexes`,
+   * docs/phase7-wave10.md §3.2): `order` is the main scheme deck as stage indexes, first to last. The choice is made
+   * in the open (MC56 p. 5), so it is public. Emitted once, right after `gameCreated`; absent when every stage is played.
+   */
+  | {
+      readonly type: "mainSchemeStagesChosen";
+      readonly schemeInstanceId: InstanceId;
+      readonly order: readonly number[];
     }
   /**
    * A main scheme's stages were shuffled (docs/phase7-wave6.md §3.18). `order` is the full walk order of stage indexes
@@ -667,6 +727,28 @@ export type GameEvent =
       readonly characterInstanceId: InstanceId;
       readonly power: "attack" | "thwart" | "defend";
       readonly sourceInstanceIds: readonly InstanceId[];
+    }
+  /**
+   * An additional cost to attack an enemy was paid by the attacking character's controller as the attack was made
+   * against it (`RuleSpec additionalAttackCost`, docs/phase7-wave10-hero-packs.md H3.16; `attack-cost.ts`).
+   * `sourceInstanceId`: the card whose rule asked. What was paid is logged by the payment itself (a
+   * `cardDiscardedFromHand` for each card discarded).
+   */
+  | {
+      readonly type: "additionalAttackCostPaid";
+      readonly playerId: PlayerId;
+      readonly attackerInstanceId: InstanceId;
+      readonly targetInstanceId: InstanceId;
+      readonly sourceInstanceId: InstanceId;
+    }
+  /** The same cost could not be paid as the attack was made (`executePayAttackCost`): the attack is not undone. */
+  | {
+      readonly type: "additionalAttackCostNotPaid";
+      readonly playerId: PlayerId;
+      readonly attackerInstanceId: InstanceId;
+      readonly targetInstanceId: InstanceId;
+      readonly sourceInstanceId: InstanceId;
+      readonly reason: string;
     }
   /**
    * A defender was declared whose defense has an additional cost: its controller is asked to pay it
@@ -1303,9 +1385,26 @@ export type GameEvent =
   /** An empty separate deck took its discard pile back and was shuffled, with no penalty (`resetSeparateDeckIfEmpty`). */
   | { readonly type: "separateDeckReset"; readonly playerId: PlayerId; readonly name: string }
   /**
+   * A revealed attachment with no "attach to" text that its own When Revealed did not attach is discarded: it never
+   * entered play (RRG 1.8 "Attach To", p. 8: "If such a card cannot remain in its prior state or game area, discard
+   * it"). For a Labor card, RRG 1.8 FAQ "Hercules Hero Pack – Labor Cards" (p. 65): "Q: What happens if a labor card
+   * fails to find a target when it is revealed? A: That Labor card is discarded." Logged before the move, which for a
+   * Labor card ends on the bottom of the Labor deck (`returnedToSeparateDeck` follows; same FAQ, and ruling March 6,
+   * 2026 – Ruling 3 (2)); `playerId` is the player who revealed it. The discard is this log entry: no ability
+   * trigger answers the discard of a revealed card that is not in play (a treachery's included).
+   */
+  | {
+      readonly type: "revealedCardDiscarded";
+      readonly instanceId: InstanceId;
+      readonly cardId: CardId;
+      readonly playerId: PlayerId;
+      readonly reason: "notAttached";
+    }
+  /**
    * A card of a separate deck with no discard pile (Storm's Weather deck) would have gone to `instead` (a discard pile,
    * a hand or another deck) and went back into its own deck, facedown (`noDiscardPileDeckFor`, docs/phase7-wave6.md
-   * §3.46, §4.1 Q26). Logged before the move.
+   * §3.46, §4.1 Q26). Logged before the move. A deck's returned card goes to its bottom, so a Labor card that leaves
+   * play other than to the victory display is placed "on the bottom of the Labor deck" (RRG 1.8 FAQ, p. 65).
    */
   | {
       readonly type: "returnedToSeparateDeck";
@@ -1356,6 +1455,8 @@ export type GameEvent =
       readonly choiceId: ChoiceId;
       readonly playerId: PlayerId;
       readonly selectedOptionIds: readonly string[];
+      /** The answered choice's `PendingChoice.onBehalfOf`: `playerId` chose this for the enemy team (MC56 p. 6). */
+      readonly onBehalfOf?: ChoiceBehalf;
     }
   | {
       readonly type: "framePushed";
@@ -1374,6 +1475,18 @@ export type GameEvent =
    * §3.12). Logged only when some interrupt was waiting.
    */
   | { readonly type: "interruptsPreempted"; readonly event: TriggerEvent; readonly reason: "tough" }
+  /**
+   * An interrupt that was to resolve (a forced one, or one a player picked) for damage that would be taken did not:
+   * an interrupt that resolved before it changed the pending amount, and `event`, the damage as it now stands, no
+   * longer meets this ability's triggering condition (RRG 1.8 "Interrupt", p. 25: "further interrupts to the original
+   * triggering condition cannot be triggered"). The ability did not initiate: no cost was paid and no effect resolved.
+   */
+  | {
+      readonly type: "interruptConditionLapsed";
+      readonly instanceId: InstanceId;
+      readonly abilityId: AbilityId;
+      readonly event: TriggerEvent;
+    }
   | {
       readonly type: "windowOpened";
       readonly event: TriggerEvent;
@@ -1526,6 +1639,17 @@ export type GameEvent =
       readonly amount: number;
       readonly reason: "limit";
       readonly fromInstanceId?: InstanceId;
+    }
+  /**
+   * A card that was to be tucked under `hostInstanceId` and was not, because that card may hold no more (`RuleSpec
+   * tuckLimit`, "Max 3 cards tucked here"; docs/phase7-wave10-hero-packs.md §H3.12). It stays where it was; a card
+   * that was leaving play makes the move the tuck replaced.
+   */
+  | {
+      readonly type: "cardNotTucked";
+      readonly instanceId: InstanceId;
+      readonly hostInstanceId: InstanceId;
+      readonly reason: "limit";
     }
   | {
       readonly type: "counterRemoved";
@@ -1709,6 +1833,13 @@ export type GameEvent =
        */
       readonly reason: "noLegalHost" | "noSuchArea" | "cardType" | "cannotEnterPlay" | "maxPerPlayer";
     }
+  /**
+   * A played upgrade whose host is the card its additional cost to play put into play (`additionalCostToPlay
+   * .attachToSlot`; docs/phase7-wave10-box-heroes.md B3.1) found that card out of play as it would enter: it has no
+   * host and went to its owner's discard pile, its effects unresolved (RRG 1.8 "Attach To", p. 8). What was paid
+   * stays paid.
+   */
+  | { readonly type: "playedUpgradeHasNoHost"; readonly instanceId: InstanceId; readonly playerId: PlayerId }
   | { readonly type: "lastingEffectAdded"; readonly effect: LastingEffect }
   /**
    * A sequential damage pool has finished (`EffectSpec assignDamage.sequential`, docs/phase7-wave8.md §3.37): of

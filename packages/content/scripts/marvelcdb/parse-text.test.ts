@@ -193,6 +193,14 @@ describe("attach shapes: tough status clause and identity without a named attach
     expect(parsed.unclassified.filter((u) => u.includes("attach rule"))).toEqual([]);
   });
 
+  it("a minion of the enemy team's choice is a minion host and keeps the surge fallback (cw 56191)", () => {
+    const parsed = parseCardText("Attach to a minion of the enemy team's choice. Otherwise, this card gains surge.", {
+      villainNames: new Set(),
+    });
+    expect(parsed.attachesTo).toEqual({ kind: "minion" });
+    expect(parsed.unclassified).toEqual([]);
+  });
+
   it('"Attach to your identity if a copy of X is not attached to you." is a yourIdentity host without X', () => {
     const parsed = parseCardText(
       "Attach to your identity if a copy of Targeted for Elimination is not attached to you. Otherwise, this card gains surge.",
@@ -643,5 +651,16 @@ describe("parseCardText: the Preparation header", () => {
     );
 
     expect(parsed.abilities.map((a) => a.kind)).toEqual(["response"]);
+  });
+});
+
+describe("one ability printed with two timings (Hecate hercules 59042)", () => {
+  it("emits a when-revealed and a when-defeated ability over the same text, then the forced response", () => {
+    const text =
+      "When Revealed/Defeated: Find the All Versus All side scheme and reveal it.\n[star] Forced Response: After Hecate activates, place 2 threat on the All Versus All side scheme.";
+    const parsed = parseCardText(text, { villainNames: new Set() });
+    expect(parsed.unclassified).toEqual([]);
+    expect(parsed.abilities.map((a) => a.kind)).toEqual(["when-revealed", "when-defeated", "forced-response"]);
+    expect(parsed.abilities[0]?.text).toBe(parsed.abilities[1]?.text);
   });
 });

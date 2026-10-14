@@ -108,6 +108,24 @@ export interface SessionConfig {
    */
   readonly setupOptions?: ScenarioSetupOptions;
   /**
+   * A Civil War leader's main scheme stages (MC56 p. 5): the `printedCardId` of one stage 1 and one stage 2 of the
+   * leader's side. Goes to the scenario builder's `mainSchemeStageIds`, which refuses a pair of the other side. Absent
+   * is the rulebook's recommended pair, and absent on every other scenario and every older save (additive, like `modes`).
+   */
+  readonly mainSchemeStageIds?: readonly string[];
+  /** The game mode. Only `"cooperative"` is ever sent (competitive is shown as coming soon); absent is cooperative. */
+  readonly gameMode?: "cooperative";
+  /**
+   * The Civil War builder's blind option: the sets and stages stay hidden until the game reveals them. A display
+   * choice only, the engine never reads it; stored so the hiding survives save and resume, and "Play again".
+   */
+  readonly blind?: boolean;
+  /**
+   * The Civil War picks are what the builder's Random button rolled and were not edited afterwards. The engine never
+   * reads it; stored so Game Over can offer "New random scenario" (docs/phase7-wave10-client.md section 9).
+   */
+  readonly randomScenario?: boolean;
+  /**
    * This game is one scenario of a campaign, as `startGameFromLog` composed it (docs/campaign-mode-design.md §7.1,
    * §10.1). Goes straight into `GameSetupConfig.campaign` (`session-core.ts`'s `scenarioFor`) and therefore into
    * the replay baseline: **a saved campaign game replays without consulting the live `CampaignLog` at all**, which
@@ -214,6 +232,8 @@ export interface EngineUpdate {
   readonly saveError: string | null;
   /** The setup this game came from, for a rematch. */
   readonly config: SessionConfig | null;
+  /** A resumed game's first update only: every event the replay produced, oldest first, for the board's log. */
+  readonly history?: readonly GameEvent[];
 }
 
 export type DispatchResult =

@@ -61,6 +61,7 @@ export const TRIGGER_EVENT_WORDS: Readonly<Record<TriggerEventKind, string>> = {
   basicPowerUsed: "a basic power used",
   basicPowerUsing: "a basic power being used",
   basicRecovery: "a recovery",
+  characterWouldAct: "a character about to attack or thwart",
   cardReadying: "a card readying",
   cardReadied: "a card readied",
   turnStarted: "a turn starting",

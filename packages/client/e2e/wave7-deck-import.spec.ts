@@ -149,6 +149,13 @@ test("Psylocke's MarvelCDB deck 32089: imported on Decks, seated for Morlock Sie
   await clickStop(page, "play", "Seats");
   await waitForScene(page, "Setup", 15000);
   await settle(page);
+  // A fixed seed: Morlock Siege draws one of seven villains, and against Harpoon or Blockbuster an exhausted Psylocke
+  // who takes two attacks is defeated in round 1 about one game in six. Seed 5 seats Vertigo.
+  await clickStop(page, "seed", "Setup");
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("5");
+  await page.keyboard.press("Enter");
+  await settle(page);
   await clickStop(page, "deal-it-out", "Setup");
   await driveToBoard(page, { timeoutMs: 120000 });
 

@@ -55,6 +55,7 @@ import { cannotEnterPlay, cannotPlayCard, revealCannotBeCanceled, triggeredAbili
 import { abilityLacksValidTarget } from "./target-validity.js";
 import { KEYWORD_ABILITIES } from "../keyword-abilities.js";
 import { attackKeywordsOf, hasKeyword } from "../keywords.js";
+import { enteredPlaySince } from "../entered-since.js";
 
 /**
  * A cancel with nothing it can cancel is not offered (docs/phase7-wave4.md §3.27, §4 Q16 as the user decided it on
@@ -398,6 +399,14 @@ function matchesRest(
     const query: TargetQuery = pattern.targetHadAttachment;
     if (!(event.attachedInstanceIds ?? []).some((id) => matchesQuery(state, id, query, context))) return false;
   }
+  // "A card is revealed that gives 1 or more heroes the [trait] trait" (docs/phase7-wave10.md §3.16).
+  if (pattern.grantsTrait !== undefined) {
+    if (event.kind !== "cardRevealed") return false;
+    const reached = event.grantedTo?.[pattern.grantsTrait] ?? [];
+    if (reached.length === 0) return false;
+    const query = pattern.grantedToIs;
+    if (query && !reached.some((id) => matchesQuery(state, id, query, context))) return false;
+  }
   if (pattern.attackKind) {
     if (event.kind !== "attack" && event.kind !== "thwart") return false;
     if ((pattern.attackKind === "basic") !== (event.basic === true)) return false;
@@ -429,6 +438,26 @@ function matchesRest(
     if (player === undefined || !resolvePlayers(state, pattern.playerIn, context).includes(player)) return false;
   }
   return true;
+}
+
+const ASKS_TRAIT_GRANTS = new WeakMap<EngineDeps, boolean>();
+
+/**
+ * Whether any ability in the registry asks what a revealed card grants (`EventPattern.grantsTrait`, in the pattern or
+ * one of its alternatives; docs/phase7-wave10.md §3.16); cached per registry. A reveal stamps `cardRevealed.grantedTo`
+ * only then, so a registry with no such ability keeps its games' state and log as they were.
+ */
+export function asksTraitGrants(deps: EngineDeps): boolean {
+  const cached = ASKS_TRAIT_GRANTS.get(deps);
+  if (cached !== undefined) return cached;
+  const asks = (pattern: EventPattern): boolean =>
+    pattern.grantsTrait !== undefined || (pattern.anyOf ?? []).some(asks);
+  const listens = Object.values(deps.abilities).some((definition) => {
+    const trigger = definition.trigger;
+    return "on" in trigger && trigger.on !== undefined && asks(trigger.on);
+  });
+  ASKS_TRAIT_GRANTS.set(deps, listens);
+  return listens;
 }
 
 /**
@@ -621,6 +650,11 @@ function gatherCandidates(
   // Read once per call, and only once some ability has the right timing.
   let noTriggers: readonly ActiveRule<"cannotResolveTriggeredAbilities">[] | undefined;
   for (const id of cardsInPlay(state)) {
+    // A card that came into play after the condition occurred does not answer it: RRG 1.8 "Triggering Condition"
+    // (p. 45), "a specific occurrence", and "Response" (p. 38), resolved "after the specified triggering condition
+    // occurs" (the owner's answer 43B; `entered-since.ts` says when a condition has occurred). Interrupts are never
+    // affected: their window opens before the condition occurs.
+    if (timing === "response" && enteredPlaySince(event, id)) continue;
     for (const ref of activeAbilityRefs(state, id, deps)) {
       const definition = deps.abilities[ref.id];
       if (!definition) continue;
@@ -716,6 +750,8 @@ function keywordCandidates(
     // Cheap before the scan of every card in play: most events are of no keyword's kind.
     if (!kinds.includes(event.kind)) continue;
     for (const id of cardsInPlay(state)) {
+      // Nor does its keyword, for the same reason (`gatherCandidates`).
+      if (timing === "response" && enteredPlaySince(event, id)) continue;
       if (!hasKeyword(state, id, ability.keyword, deps)) continue;
       if (!matchesPattern(state, trigger.on, event, timing, id, deps)) continue;
       const controllerId = controllerOf(state, id) ?? uncontrolledYouOf(state, id);
@@ -1102,10 +1138,31 @@ export const hasCandidates = (state: GameState, deps: EngineDeps, event: Trigger
   candidatesFor(state, deps, event, timing, false).length > 0;
 
 /**
+ * Whether `event`, a condition as it stands after an earlier interrupt of its window changed it, is still one this
+ * candidate's ability answers: something is left to answer (`nothingToAnswer`: damage reduced to 0 is not), and the
+ * ability's own pattern matches it ("would take more than 3 damage" against the 3 now pending). Only the condition is
+ * read; the ability's limit, cost and targets are `stillOffered`'s. A keyword's engine ability has no pattern beyond
+ * its event and is kept while anything is left.
+ */
+export function stillAnswers(
+  state: GameState,
+  deps: EngineDeps,
+  candidate: TriggerCandidate,
+  event: TriggerEvent,
+  timing: WindowTiming,
+): boolean {
+  if (nothingToAnswer(event, timing)) return false;
+  const trigger = deps.abilities[candidate.abilityId]?.trigger;
+  if (!trigger || (trigger.kind !== "interrupt" && trigger.kind !== "response")) return true;
+  return matchesPattern(state, trigger.on, event, timing, candidate.instanceId, deps);
+}
+
+/**
  * Whether an optional candidate gathered as its window opened can still be initiated now, after the window's forced
  * tier resolved (`Frame<"window">.optionalAtOpen`, docs/phase7-wave6.md §3.79). Its triggering condition is not read
  * again: it was met by the occurrence (RRG 1.8 "Triggering Condition", p. 45), whatever the forced abilities changed
- * since. What is read again is everything `candidatesFor` checks of the ability itself: it is still on a card in play
+ * since. (One condition is read again, by the window and not here: damage that would be taken, once an interrupt has
+ * changed its amount. `stillAnswers`.) What is read again is everything `candidatesFor` checks of the ability itself: it is still on a card in play
  * and active (or the event is still in hand), its form, its own condition (`trigger.while`), limit, target and cost (RRG 1.8 "Initiating Abilities",
  * p. 24). A card answering from out of play (a spent resource, a card that left) is kept as it was gathered.
  */
@@ -1138,7 +1195,7 @@ export function stillOffered(
     if (playRestrictionFault(state, deps, controllerId, card, id)) return false;
     if (cannotPlayCard(state, deps, controllerId, id)) return false;
     // A card that plays itself in a window is still entering play (`RuleSpec cannotEnterPlay`; an event is not).
-    if (card.type !== "event" && cannotEnterPlay(state, deps, id)) return false;
+    if (card.type !== "event" && cannotEnterPlay(state, deps, id, controllerId)) return false;
   } else if (cardsInPlay(state).includes(id)) {
     if (!activeAbilityRefs(state, id, deps).some((ref) => ref.id === candidate.abilityId)) return false;
     const noTriggers = activeRules(state, deps, "cannotResolveTriggeredAbilities");

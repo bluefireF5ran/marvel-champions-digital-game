@@ -7,7 +7,8 @@
  * condition resolves. "Response" (p. 38). "Triggering Condition" (p. 45): one occurrence's conditions share a single
  * interrupt window. FAQ "Target Spotter (#38)" (p. 65): it "interrupts the engagement of that minion". "After you engage"
  * responses keep their place after the minion's keywords (ruling Jan 17, 2026 (3) answer 2). A revealed minion's
- * quickstrike resolves before its When Revealed (ruling Feb 28, 2026 (4) answer 2, over RRG 1.8 "Quickstrike", p. 36).
+ * quickstrike resolves after its When Revealed (RRG 1.8 "Quickstrike", p. 36; the owner's answer 30B, 2026-10-12, over
+ * ruling Feb 28, 2026 (4) answer 2).
  */
 
 import { flat, type AbilityReference, type AnyCard, type CardId } from "@mc/content";
@@ -161,10 +162,10 @@ describe("interrupts to a minion engaging a player", () => {
     expect(mustInstance(state, sentryIn(state)).engagedWith).toBe(p1);
   });
 
-  // Ruling, Feb 28, 2026 (4) answer 2: "A minion engages the player first, then resolves When Revealed. Because
-  // Quickstrike triggers upon engagement, Quickstrike resolves first, followed by When Revealed." This reverses RRG 1.8
-  // "Quickstrike" (p. 36), which put quickstrike after the When Revealed; the later ruling is followed.
-  it("a revealed quickstrike minion attacks before its When Revealed; 'after you engage' responses wait for the reveal", () => {
+  // RRG 1.8 "Quickstrike" (p. 36): "If a minion with the quickstrike keyword is being revealed, the quickstrike keyword
+  // resolves after any 'When Revealed' abilities on that minion are resolved." The owner's answer 30B (2026-10-12)
+  // follows it over ruling Feb 28, 2026 (4) answer 2 ("Quickstrike resolves first, followed by When Revealed").
+  it("a revealed quickstrike minion attacks after its When Revealed (RRG p. 36); 'after you engage' responses follow the attack (p. 38)", () => {
     const watching = play(game(), BOTH_WAYS).state;
     const { state, events } = runCommands(runCommands(watching, deps, toHero).state, deps, endTurn);
     const sentryAttack = (phase: string) =>
@@ -179,10 +180,10 @@ describe("interrupts to a minion engaging a player", () => {
     const resolved = sentryAttack("resolved");
     expect(initiated).toBeGreaterThanOrEqual(0);
     expect(resolved).toBeGreaterThan(initiated);
-    // Engagement interrupt, quickstrike attack (fully resolved), When Revealed, then the engagement response.
-    expect(marked(events, "before")).toBeLessThan(initiated);
-    expect(resolved).toBeLessThan(marked(events, "revealed"));
-    expect(marked(events, "revealed")).toBeLessThan(marked(events, "after"));
+    // Engagement interrupt, When Revealed, quickstrike attack (fully resolved), then the engagement response.
+    expect(marked(events, "before")).toBeLessThan(marked(events, "revealed"));
+    expect(marked(events, "revealed")).toBeLessThan(initiated);
+    expect(resolved).toBeLessThan(marked(events, "after"));
   });
 
   it("a revealed quickstrike minion engaging an alter-ego player does not attack; its When Revealed still resolves", () => {

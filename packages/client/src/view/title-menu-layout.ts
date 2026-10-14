@@ -38,7 +38,7 @@ const ART_PANEL_SHARE = 0.45;
 /**
  * The update banner. Wide enough, it is one row: two lines of text on the left, the buttons on the right. On a narrow
  * column (a small phone, a portrait tablet's art panel) the buttons would cover the text, so they drop to a row of
- * their own under it.
+ * their own under it. A close button ("not now", remembered for that release) takes the top-right corner either way.
  */
 const UPDATE_BANNER_PAD = 8;
 const UPDATE_BANNER_MAX_WIDTH = 520;
@@ -46,11 +46,17 @@ const UPDATE_BUTTON_WIDTH = 104;
 const UPDATE_TEXT_INSET = UPDATE_BANNER_PAD + 4;
 /** Room for "UPDATE AVAILABLE" over "Version 0.00.0". */
 const UPDATE_TEXT_WIDTH = 116;
-const UPDATE_TEXT_HEIGHT = 32;
+/** The close button: a touch-sized square at the banner's top-right (one row) or right end (inline). */
+const UPDATE_DISMISS_SIZE = hit.target;
 const UPDATE_BANNER_INLINE_WIDTH =
-  UPDATE_TEXT_INSET + UPDATE_TEXT_WIDTH + (UPDATE_BANNER_PAD + UPDATE_BUTTON_WIDTH) * 2 + UPDATE_BANNER_PAD;
+  UPDATE_TEXT_INSET +
+  UPDATE_TEXT_WIDTH +
+  (UPDATE_BANNER_PAD + UPDATE_BUTTON_WIDTH) * 2 +
+  (UPDATE_BANNER_PAD + UPDATE_DISMISS_SIZE) +
+  UPDATE_BANNER_PAD;
 const UPDATE_BANNER_HEIGHT = hit.target + UPDATE_BANNER_PAD * 2;
-const UPDATE_BANNER_STACKED_HEIGHT = UPDATE_BANNER_HEIGHT + UPDATE_TEXT_HEIGHT + UPDATE_BANNER_PAD;
+// Stacked: the text and the close button on one row, the action buttons on the next.
+const UPDATE_BANNER_STACKED_HEIGHT = UPDATE_BANNER_PAD * 3 + UPDATE_DISMISS_SIZE * 2;
 
 const updateBannerHeight = (width: number): number =>
   width >= UPDATE_BANNER_INLINE_WIDTH ? UPDATE_BANNER_HEIGHT : UPDATE_BANNER_STACKED_HEIGHT;
@@ -61,12 +67,15 @@ export interface UpdateBannerParts {
   readonly textWidth: number;
   /** One button per action, left to right. */
   readonly buttons: readonly Rect[];
+  /** The close button: dismisses the banner for this release. */
+  readonly dismiss: Rect;
 }
 
 /** The inside of the update banner, for `actions` buttons (one or two). */
 export function updateBannerParts(banner: Rect, actions: number): UpdateBannerParts {
   const textX = banner.x + UPDATE_TEXT_INSET;
   const buttonY = banner.y + banner.height - UPDATE_BANNER_PAD - hit.target;
+  const dismissRight = banner.x + banner.width - UPDATE_BANNER_PAD;
   if (banner.height > UPDATE_BANNER_HEIGHT) {
     // Stacked: the buttons share the full width of their own row.
     const inner = banner.width - UPDATE_BANNER_PAD * 2;
@@ -78,18 +87,30 @@ export function updateBannerParts(banner: Rect, actions: number): UpdateBannerPa
       height: hit.target,
     }));
     return {
-      text: { x: textX, y: banner.y + UPDATE_BANNER_PAD + 2 },
-      textWidth: banner.width - UPDATE_TEXT_INSET * 2,
+      text: { x: textX, y: banner.y + UPDATE_BANNER_PAD + 6 },
+      textWidth: banner.width - UPDATE_TEXT_INSET - UPDATE_BANNER_PAD * 2 - UPDATE_DISMISS_SIZE,
       buttons,
+      dismiss: {
+        x: dismissRight - UPDATE_DISMISS_SIZE,
+        y: banner.y + UPDATE_BANNER_PAD,
+        width: UPDATE_DISMISS_SIZE,
+        height: UPDATE_DISMISS_SIZE,
+      },
     };
   }
   const buttons: Rect[] = [];
-  let right = banner.x + banner.width - UPDATE_BANNER_PAD;
+  const dismiss: Rect = {
+    x: dismissRight - UPDATE_DISMISS_SIZE,
+    y: buttonY,
+    width: UPDATE_DISMISS_SIZE,
+    height: UPDATE_DISMISS_SIZE,
+  };
+  let right = dismiss.x - UPDATE_BANNER_PAD;
   for (let i = 0; i < actions; i++) {
     buttons.unshift({ x: right - UPDATE_BUTTON_WIDTH, y: buttonY, width: UPDATE_BUTTON_WIDTH, height: hit.target });
     right -= UPDATE_BUTTON_WIDTH + UPDATE_BANNER_PAD;
   }
-  return { text: { x: textX, y: banner.y + UPDATE_BANNER_PAD + 6 }, textWidth: right - textX, buttons };
+  return { text: { x: textX, y: banner.y + UPDATE_BANNER_PAD + 6 }, textWidth: right - textX, buttons, dismiss };
 }
 
 export interface TitleMenuLayoutInput {
@@ -98,6 +119,8 @@ export interface TitleMenuLayoutInput {
   readonly continuable: boolean;
   /** True when a newer release is on offer (`platform/update-check.ts`): reserves the update banner. */
   readonly update?: boolean;
+  /** The Civil War box is open: a "Civil War!" row directly under Campaign. */
+  readonly civilWar?: boolean;
 }
 
 export interface TitleMenuLayout {
@@ -122,6 +145,8 @@ export interface TitleMenuLayout {
   readonly newGame: Rect;
   readonly decks: Rect;
   readonly campaign: Rect;
+  /** "Civil War!", directly under Campaign; null until the Civil War box is unlocked. */
+  readonly civilWar: Rect | null;
   readonly extras: Rect;
   /** "How to play" (guided mode G6c, `docs/guided-mode.md` §4): opens the learning hub. */
   readonly howToPlay: Rect;
@@ -136,6 +161,7 @@ export function titleMenuLayoutRects(layout: TitleMenuLayout): readonly Rect[] {
     layout.newGame,
     layout.decks,
     layout.campaign,
+    ...(layout.civilWar ? [layout.civilWar] : []),
     layout.extras,
     layout.howToPlay,
     layout.settings,
@@ -143,9 +169,40 @@ export function titleMenuLayoutRects(layout: TitleMenuLayout): readonly Rect[] {
   ];
 }
 
+/** The least a gap or the logo shrinks to when the menu is too tall for the screen; rows keep their touch height. */
+const GAP_FLOOR = 4;
+const TITLE_SIZE_FLOOR = 28;
+const GAP_STEP = 2;
+const TITLE_STEP = 4;
+
+/**
+ * Lays the menu out at the form factor's own spacing; when every row present would not fit above the footer (a 360x740
+ * phone, a 1024x768 tablet with Continue, Civil War! and the update banner), tightens the gaps and the logo a step at a
+ * time to their floors. Touch targets never shrink.
+ */
 export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
   const { width, height } = input;
-  const { phone, short, pad, gap } = setupMetrics(width, height);
+  const { gap } = setupMetrics(width, height);
+  let tight = { gap, titleSize: null as number | null };
+  let layout = titleMenuLayoutAt(input, tight.gap, tight.titleSize);
+  while (!layout.fits && (tight.gap > GAP_FLOOR || layout.titleSize > TITLE_SIZE_FLOOR)) {
+    tight = {
+      gap: Math.max(GAP_FLOOR, tight.gap - GAP_STEP),
+      titleSize: Math.max(TITLE_SIZE_FLOOR, layout.titleSize - (tight.gap > GAP_FLOOR ? 0 : TITLE_STEP)),
+    };
+    layout = titleMenuLayoutAt(input, tight.gap, tight.titleSize);
+  }
+  const { fits: _fits, ...rest } = layout;
+  return rest;
+}
+
+function titleMenuLayoutAt(
+  input: TitleMenuLayoutInput,
+  gap: number,
+  titleOverride: number | null,
+): TitleMenuLayout & { readonly fits: boolean } {
+  const { width, height } = input;
+  const { phone, short, pad } = setupMetrics(width, height);
   const split = !phone;
 
   const artPanel: Rect | null = split ? { x: 0, y: 0, width: Math.round(width * ART_PANEL_SHARE), height } : null;
@@ -157,9 +214,9 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
   const column = Math.min(menuPanel.width - pad * 2, 520);
   const left = menuPanel.x + (menuPanel.width - column) / 2;
 
-  const titleSize = phone
-    ? 44
-    : Math.min(72, Math.round(menuPanel.width / 7), Math.round(height * (short ? 0.075 : 0.1)));
+  const titleSize =
+    titleOverride ??
+    (phone ? 44 : Math.min(72, Math.round(menuPanel.width / 7), Math.round(height * (short ? 0.075 : 0.1))));
 
   let updateBanner: Rect | null = null;
   let y = pad + titleSize * 0.6;
@@ -191,6 +248,11 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
   y += hit.target + gap;
   const campaign: Rect = { x: left, y, width: column, height: hit.target };
   y += hit.target + gap;
+  let civilWar: Rect | null = null;
+  if (input.civilWar === true) {
+    civilWar = { x: left, y, width: column, height: hit.target };
+    y += hit.target + gap;
+  }
   const extras: Rect = { x: left, y, width: column, height: hit.target };
   y += hit.target + gap;
   const howToPlay: Rect = { x: left, y, width: column, height: hit.target };
@@ -199,9 +261,11 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
   y += hit.target + gap;
 
   const footerY = Math.max(y, menuPanel.y + menuPanel.height - pad - hit.target);
+  const fits = footerY + hit.target <= menuPanel.y + menuPanel.height;
   const footer: Rect = { x: left, y: footerY, width: column, height: hit.target };
 
   return {
+    fits,
     split,
     pad,
     artPanel,
@@ -217,6 +281,7 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
     newGame,
     decks,
     campaign,
+    civilWar,
     extras,
     howToPlay,
     settings,

@@ -29,6 +29,7 @@ import {
   contextArea,
   controllerOf,
   type EffectContext,
+  leaderFor,
   selectTargets,
   traitsOf,
   villainAliasOf,
@@ -106,7 +107,7 @@ function hostMeasure(state: GameState, id: InstanceId, measure: SuperlativeHost[
       // "The ally with the highest cost" (Beguiled, 'Pool-ized): the printed cost (RRG 1.8 "Printed", p. 35). A card
       // in play has no other cost — cost modifiers change what a card costs to *play*. Cards with none are dropped
       // by `hasMeasure` before ranking, so this 0 is never compared.
-      return printedCostOf(state, cardOf(state, id));
+      return printedCostOf(state, cardOf(state, id), id);
     }
   }
 }
@@ -378,11 +379,9 @@ function rawHostCandidates(state: GameState, host: AttachmentHost, context: Effe
       return [...new Set(all)];
     }
     case "leader": {
-      // Cooperative play only (the Civil War rulebook, p. 6): "The leader in play is called 'the enemy leader.'", so the
-      // enemy leader is the villain; "A card ability that refers to 'your leader' cannot be resolved." (competitive mode,
-      // where a team has a leader of its own, is not built). Ruling, Jul 9, 2026 (3) answer 2.
-      if (host.of === "yours") return [];
-      return theVillain(state, context);
+      // Read where `TargetRef leader` is (`leaderFor`): cooperatively the enemy leader is the villain and "your leader"
+      // names no host (the Civil War rulebook, p. 6; ruling, Jul 9, 2026 (3) answer 2), so `ifAble` takes its otherwise.
+      return leaderFor(state, host.of, context, () => theVillain(state, context));
     }
     case "encounterCard":
       // "Attach to an encounter card in play." (Coordinated Effort): every in-play card on the encounter side,

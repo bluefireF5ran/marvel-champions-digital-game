@@ -54,6 +54,7 @@ import type { DefeatFlashState, ExhaustMotionState, HpTickState, StatusStampStat
 import { dimAlpha, targetState } from "./selection.js";
 import { drawTeamUpBlurb, drawTeamUpRing } from "./team-up-badge.js";
 import { drawTuckedRow, type TuckedRowDrawn } from "./tucked-row.js";
+import { TUCKED_HEADER_HEIGHT } from "../../view/tucked-row-layout.js";
 import { panelRings, ringDiameterFor } from "../../view/team-up-layout.js";
 
 export interface DrawCharacterOptions {
@@ -190,7 +191,14 @@ export function drawCharacter(
     top += 26;
   }
   top = drawStatusTags(ctx, left, top, textWidth, panel, dim, compact);
-  for (const effect of panel.effects) {
+  // The seat's lasting effects and Gift count, the Gift count a card reads, and an ability the engine refused with the
+  // part of its condition that failed (`view/ability-refusal.ts`): all notes in words.
+  const notes = [
+    ...panel.effects,
+    ...(panel.countNote ? [panel.countNote] : []),
+    ...controller.refusedAbilityLines(panel.instanceId),
+  ];
+  for (const effect of notes) {
     // A counter or effect line that does not fit one row wraps and its strip grows ("2 POWER COUNT…" is never drawn).
     const height = Math.max(16, footStripLayout(effect, textWidth).height);
     drawFootStrip(scene, { x: left, y: top, width: textWidth, height }, effect, "note", dim);
@@ -356,6 +364,7 @@ export function drawCharacter(
    * behind it. They go on *after* it.
    */
   const chipTargets: { readonly rect: Rect; readonly instanceId: InstanceId }[] = [];
+  const chipTuckedRows: TuckedRowDrawn[] = [];
   const chipsDrawn = chipsFit;
   for (const spec of specs.slice(0, chipsFit)) {
     const { attachment, name, damage, height: chipHeight, usable } = spec;
@@ -378,6 +387,17 @@ export function drawCharacter(
       tag.setX(chip.x + chip.width - 3 - tag.width);
     }
     chipTargets.push({ rect: chip, instanceId: attachment.instanceId });
+    if (attachment.tuckedCount > 0) {
+      const roomTop = chip.y + chipHeight - (damage ? DAMAGE_ROW : 0) - CHIP_TUCKED_ROOM;
+      chipTuckedRows.push(
+        drawTuckedRow(
+          ctx,
+          { x: chip.x + 3, y: roomTop, width: chip.width - 6, height: CHIP_TUCKED_ROOM },
+          attachment,
+          dim,
+        ),
+      );
+    }
     top += chipHeight + 3;
   }
 
@@ -440,6 +460,7 @@ export function drawCharacter(
   }
   for (const target of tuckTargets) openTucked(ctx, target.rect, target.ids);
   tuckedRow?.addTapTargets();
+  for (const row of chipTuckedRows) row.addTapTargets();
 }
 
 /** A tap target over a tucked-cards strip: it opens the first card in Inspect, ◂ ▸ stepping through the rest. */
@@ -469,6 +490,8 @@ function chipText(ctx: BoardDrawContext, attachment: CharacterPanel["attachments
 
 /** The row under a chip's name that carries the count of damage on the attachment. */
 const DAMAGE_ROW = 14;
+/** A header strip, a gap and a row of small cards: what a chip with cards tucked under it grows by. */
+const CHIP_TUCKED_ROOM = TUCKED_HEADER_HEIGHT + 3 + 36;
 
 const OWED_WORDS = " \u00B7 must use";
 
@@ -517,6 +540,8 @@ function measureAttachmentChip(
     height = Math.max(16, Math.ceil(name.height) + 6);
   }
   if (damage) height += DAMAGE_ROW;
+  // Cards tucked under the attachment (Ionic Physiology's events) ride in a row of their own under its name.
+  if (attachment.tuckedCount > 0) height += CHIP_TUCKED_ROOM;
   return { attachment, usable, name, damage, height };
 }
 
@@ -579,6 +604,12 @@ function drawCardShapedPanel(
     readonly inspectIds?: readonly InstanceId[];
   }[] = [];
   if (panel.ownerName && rect.height >= 40) strips.push({ text: `from ${panel.ownerName}`, tone: "note" });
+  // A Labor card: an encounter card a player owns, so the table says whose deck it came from.
+  if (panel.ownedBy && rect.height >= 40) strips.push({ text: panel.ownedBy, tone: "note" });
+  if (panel.countNote && rect.height >= 40) strips.push({ text: panel.countNote, tone: "note" });
+  if (rect.height >= 40) {
+    for (const line of controller.refusedAbilityLines(panel.instanceId)) strips.push({ text: line, tone: "note" });
+  }
   // What is tucked under this card (a minion with Energy Shield under it, an ally): the count, and a tap opens them.
   if (panel.tuckedCount > 0 && rect.height >= 40) {
     strips.push({

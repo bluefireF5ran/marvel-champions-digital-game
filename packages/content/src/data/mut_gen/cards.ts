@@ -779,6 +779,7 @@ export const MUT_GEN_CARDS: readonly AnyCard[] = [
       },
       abilities: [{ id: abilityId("32031b.phased-constant") }, { id: abilityId("32031b.phased-forced-response") }],
       image: imageRef("/bundles/cards/32031b.png"),
+      resourceIcons: { mental: 1 },
     },
   },
   {
@@ -3942,6 +3943,7 @@ export const MUT_GEN_CARDS: readonly AnyCard[] = [
     unique: false,
     images: { front: imageRef("/bundles/cards/32150.png") },
     attachesTo: { kind: "yourIdentity" },
+    playRestrictions: { maxPerHost: 1 },
     encounterSetIds: [encounterSetId("magneto_villain")],
     boostIcons: 2,
     traits: [trait("MAGNETIC")],

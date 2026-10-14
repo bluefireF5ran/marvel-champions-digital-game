@@ -19,7 +19,9 @@ import {
   type PlayerCard,
 } from "@mc/content";
 import { describe, expect, it } from "vitest";
-import { validateDeck, type DeckProblem } from "./deck.js";
+import { cardOfferedToDeck, validateDeck, type DeckProblem } from "./deck.js";
+import { printedResources } from "./resources.js";
+import { uniqueLabel } from "./unique.js";
 
 const SPIDER_MAN = "01001a";
 const ATTACK = trait("Attack");
@@ -179,5 +181,89 @@ describe("an allowance with no trait list (card type only)", () => {
       (p) => p.code === "deckbuilding_requirement",
     );
     expect(found?.message).toContain("up to 1 support cards from other aspects");
+  });
+});
+
+/**
+ * docs/phase7-wave10-hero-packs.md §H3.15: `OffAspectAllowance.printedResource`. Simon Williams (`wonder_man` 58001b),
+ * Ionic Energy Being: "You may include events with a printed [energy] resource icon from any aspect in your deck."
+ * Spider-Man and Core's Aggression cards stand in; the real identity is tested in `@mc/cards`
+ * (`wave10/wonder-man-deck.test.ts`). RRG 1.8 "Printed" (p. 35): what "is physically printed on the card", so a
+ * printed wild icon is not an energy icon.
+ */
+describe("§H3.15 an allowance by printed resource (events with a printed energy resource, any aspect)", () => {
+  const ENERGY_EVENTS: IdentityDeckbuilding = { offAspectAllowance: { cardType: "event", printedResource: "energy" } };
+  const aggression = (type: PlayerCard["type"], energy: boolean): PlayerCard => {
+    const found = CORE_CARDS.find(
+      (c): c is PlayerCard =>
+        isPlayer(c) && c.type === type && c.aspect === "aggression" && printedResources(c).energy > 0 === energy,
+    );
+    if (!found) throw new Error(`no Core Aggression ${type} ${energy ? "with" : "without"} an energy icon`);
+    return found;
+  };
+  const energyEvent = aggression("event", true);
+  /** The same event printing one wild icon and nothing else. */
+  const wildOnly = { ...energyEvent, resourceIcons: { wild: 1 } } as PlayerCard;
+  const otherEvent = aggression("event", false);
+  const energyAlly = aggression("ally", true);
+  const refusal = (card: PlayerCard) =>
+    `${uniqueLabel(card)} is a Aggression card, but this deck's aspect is Justice; beyond its identity set a deck may only use its chosen aspect and basic cards. Spider-Man (Peter Parker)'s deckbuilding rule lets in only event cards with a printed energy resource from other aspects, and this card is not one.`;
+  const pool = spiderManWith(ENERGY_EVENTS);
+  const spiderMan = (cards: readonly AnyCard[]) => {
+    const identity = cards.find((card) => card.id === SPIDER_MAN);
+    if (identity?.type !== "hero_identity") throw new Error("no Spider-Man");
+    return identity;
+  };
+
+  it("an off-aspect event printing energy is legal at its full copies, with no maximum", () => {
+    const deck = withCards(starter(), [{ cardId: energyEvent.id, quantity: 3 }]);
+    expect(problemsOf(deck).map((p) => p.code)).toEqual(["aspect_restriction"]);
+    expect(problemsOf(deck, pool)).toEqual([]);
+  });
+
+  it("an off-aspect event printing no energy icon is refused, and the message says what the rule lets in", () => {
+    expect(printedResources(otherEvent).energy).toBe(0);
+    const problems = problemsOf(withCards(starter(), [{ cardId: otherEvent.id, quantity: 1 }]), pool);
+    expect(problems.map((p) => [p.code, p.cardIds, p.message])).toEqual([
+      ["aspect_restriction", [otherEvent.id], refusal(otherEvent)],
+    ]);
+  });
+
+  it("an off-aspect card printing energy that is not an event is refused", () => {
+    const problems = problemsOf(withCards(starter(), [{ cardId: energyAlly.id, quantity: 1 }]), pool);
+    expect(problems.map((p) => [p.code, p.message])).toEqual([["aspect_restriction", refusal(energyAlly)]]);
+  });
+
+  it("a printed wild icon is not an energy icon", () => {
+    const wild = pool.map((card) => (card.id === energyEvent.id ? wildOnly : card));
+    const problems = problemsOf(withCards(starter(), [{ cardId: energyEvent.id, quantity: 1 }]), wild);
+    expect(problems.map((p) => [p.code, p.message])).toEqual([["aspect_restriction", refusal(energyEvent)]]);
+    // Asked for by name, a wild icon is what the allowance reads.
+    const wildRule = spiderManWith({ offAspectAllowance: { cardType: "event", printedResource: "wild" } });
+    const wildPool = wildRule.map((card) => (card.id === energyEvent.id ? wildOnly : card));
+    expect(problemsOf(withCards(starter(), [{ cardId: energyEvent.id, quantity: 1 }]), wildPool)).toEqual([]);
+  });
+
+  it("the deck builder's offer follows the same rule, and says the identity's own rule let the card in", () => {
+    const identity = spiderMan(pool);
+    expect(cardOfferedToDeck(energyEvent, identity, ["justice"])).toEqual({ offered: true, via: "allowance" });
+    expect(cardOfferedToDeck(otherEvent, identity, ["justice"])).toEqual({ offered: false });
+    expect(cardOfferedToDeck(energyAlly, identity, ["justice"])).toEqual({ offered: false });
+    expect(cardOfferedToDeck(wildOnly, identity, ["justice"])).toEqual({
+      offered: false,
+    });
+    // Chosen, its aspect offers it with no help from the rule; without the rule it is not offered.
+    expect(cardOfferedToDeck(energyEvent, identity, ["aggression"])).toEqual({ offered: true });
+    expect(cardOfferedToDeck(energyEvent, spiderMan(CORE_CARDS), ["justice"])).toEqual({ offered: false });
+  });
+
+  it("a maximum's message names the resource", () => {
+    const capped = spiderManWith({ offAspectAllowance: { cardType: "event", printedResource: "energy", maxCards: 2 } });
+    const found = problemsOf(withCards(starter(), [{ cardId: energyEvent.id, quantity: 3 }]), capped).find(
+      (p) => p.code === "deckbuilding_requirement",
+    );
+    expect(found?.message).toBe(
+      "Spider-Man (Peter Parker)'s deckbuilding requirement: up to 2 event cards with a printed energy resource from other aspects are allowed; this deck has 3.",
+    );
   });
 });

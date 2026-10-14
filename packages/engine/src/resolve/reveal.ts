@@ -2,7 +2,7 @@
 
 import { placeAttachment } from "./imminent-attach.js";
 import { displayNameOf } from "../visibility.js";
-import type { AttachmentHost } from "@mc/content";
+import type { AnyCard, AttachmentHost } from "@mc/content";
 import { type Ctx, emit, moveCard, popFrame, pushFrames, requestChoice, setFrame, updateInstance } from "../ctx.js";
 import { dealEncounterCardOrAnnounce, dealEncounterCardTo, encounterDealAwaitingInterrupt } from "../effects.js";
 import { type FrameId, type InstanceId, instanceId as asInstanceId, type PlayerId } from "../ids.js";
@@ -17,12 +17,12 @@ import {
   mainSchemeFor,
   cardBackOf,
 } from "../query.js";
-import { type EffectContext } from "../select.js";
-import type { RevealSource, StackFrame } from "../stack.js";
+import { cardsInPlay, enemyTeamDecider, traitGrantReach, type EffectContext } from "../select.js";
+import type { RevealKeyword, RevealSource, StackFrame } from "../stack.js";
 import type { ZoneId } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { entersRevealersPlayArea, firstRevealGainsSurge, whenRevealedRepeats } from "../rules.js";
-import { encounterTargetSelector } from "../villain/authority.js";
+import { encounterTargetSelector, simultaneousOrderer } from "../villain/authority.js";
 import { EngineInvariantError } from "../errors.js";
 import { matchingCardInPlay } from "../unique.js";
 import { attachmentHostCandidates } from "../attachment-hosts.js";
@@ -34,10 +34,12 @@ import {
   enterPlay,
   playerSideSchemeEntersPlay,
   quickstrikeAttack,
+  quickstrikeFrame,
   schemeEntryThreat,
   teamworkFrame,
+  teamworkWouldActivate,
 } from "./enter-play.js";
-import { hasCandidates, heard } from "./triggers.js";
+import { asksTraitGrants, hasCandidates, heard } from "./triggers.js";
 import { pushWindow } from "./window.js";
 import { markPreThenUnresolved } from "./then.js";
 import { base, eventFrame, type Frame, gameAbilityFrames, pushEvent } from "./frames.js";
@@ -157,6 +159,35 @@ const UNREVEALABLE: ReadonlySet<string> = new Set([
   "evidence",
 ]);
 
+/**
+ * The unique rule's answer for an encounter card being revealed (RRG 1.8 "Unique Icon", pp. 45-46; the `uniqueCheck`
+ * stage quotes it). With a matching card in play the card is turned away: logged `uniqueEntryBlocked`, discarded, its
+ * reveal ended with nothing more of it resolving, and the player revealing it dealt a facedown encounter card. Returns
+ * whether it was; false leaves everything as it was for the reveal to go on.
+ */
+function turnedAwayByUniqueRule(ctx: Ctx, frame: Frame<"reveal">, card: AnyCard): boolean {
+  const blocker = matchingCardInPlay(ctx.state, card, new Set([frame.instanceId]), frame.playerId, ctx.deps);
+  if (!blocker) return false;
+  emit(ctx, {
+    type: "uniqueEntryBlocked",
+    instanceId: frame.instanceId,
+    cardId: card.id,
+    matchedInstanceId: blocker,
+    disposition: "discarded",
+  });
+  markPreThenUnresolved(ctx, frame.preThenOf, "revealCancelled", frame.instanceId);
+  moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
+  setFrame(ctx, { ...frame, stage: "done" });
+  // "… the player revealing it is dealt a facedown encounter card": a deal, not a reveal (the owner's decisions,
+  // docs/phase7-wave9.md §4.1 Q38 = A after Q22 = B; RRG 1.8 "Deal, Deal an Encounter Card", p. 15: "This card is
+  // not revealed at this time"). Like a surge's card (`resolveSurge`) it waits facedown among the player's dealt
+  // encounter cards: in step three or four of the villain phase it is revealed in that same step four, after the
+  // cards already waiting; anywhere else, at the next one. Announced as every deal is, and open to a "would be
+  // dealt an encounter card" interrupt. Before Q38 this engine revealed it at once.
+  dealEncounterCardOrAnnounce(ctx, frame.playerId, "uniqueRule", frame.instanceId);
+  return true;
+}
+
 export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
   const card = mustCardOf(ctx.state, frame.instanceId);
   switch (frame.stage) {
@@ -235,6 +266,11 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
         setFrame(ctx, { ...frame, stage: "finish" });
         return;
       }
+      // A unique attachment is checked before it is placed anywhere: turned away, it never attaches, so nothing hears a
+      // `cardAttached` and none of its attach instruction, `cannotAttach` or When Revealed abilities resolves (RRG 1.8
+      // "Unique Icon", pp. 45-46; docs/phase7-wave10.md §3.8). Unlike a minion, it has no enter-play window of its own
+      // in which to clear the match first (`uniqueCheck`).
+      if (card.type === "attachment" && turnedAwayByUniqueRule(ctx, frame, card)) return;
       const attachesTo = card.type === "attachment" ? card.attachesTo : undefined;
       // "If [a card] is in play, attach to [one host]. Otherwise, attach to [another]." is the card's attach
       // instruction, resolved here where a data host would be applied (RRG 1.8 "Reveal", p. 38, step 2). It is not a
@@ -257,17 +293,19 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
       } else if (!enterPlayHeld(ctx, frame)) {
         enterPlayOnReveal(ctx, frame.instanceId, frame.playerId);
       }
-      // A minion's `cardEntersPlay` frame (its engagement interrupts and enter-play keywords) resolves first, then its
-      // quickstrike stage (quickstrike, then teamwork). A held minion engaged nobody, so that stage finds neither.
-      const afterEntering = card.type === "minion" ? "quickstrike" : "whenRevealed";
-      // A unique minion, side scheme or environment is checked once its enter-play window has resolved (below).
+      // A minion's `cardEntersPlay` frame (its engagement interrupts and enter-play keywords, toughness included)
+      // resolves first, then its When Revealed like any other card's. Whom it engaged is recorded for the keywords
+      // that answer the engagement once the reveal is done (`keywords`). A held minion engaged nobody.
+      const engaged = card.type === "minion" ? getInstance(ctx.state, frame.instanceId)?.engagedWith : undefined;
+      // A unique minion, side scheme or environment is checked once its enter-play window has resolved (below). An
+      // attachment was checked above, before it attached. An obligation or a treachery does not enter play this way.
       const checksUnique = card.type === "minion" || card.type === "side_scheme" || card.type === "environment";
-      setFrame(
-        ctx,
-        checksUnique
-          ? { ...frame, answer: null, stage: "uniqueCheck", afterUnique: afterEntering }
-          : { ...frame, answer: null, stage: afterEntering },
-      );
+      setFrame(ctx, {
+        ...frame,
+        answer: null,
+        stage: checksUnique ? "uniqueCheck" : "whenRevealed",
+        ...(engaged ? { engagedPlayerId: engaged } : {}),
+      });
       return;
     }
     case "uniqueCheck": {
@@ -283,54 +321,21 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
        * (`enterPlay`): a card whose "when this enters play, discard the matching card" interrupt (the Nebula nemesis
        * minion, 18026) clears the match itself and is let in.
        */
-      const blocker = matchingCardInPlay(ctx.state, card, new Set([frame.instanceId]), frame.playerId, ctx.deps);
-      if (!blocker) {
+      if (!turnedAwayByUniqueRule(ctx, frame, card))
         setFrame(ctx, { ...frame, stage: frame.afterUnique ?? "whenRevealed" });
-        return;
-      }
-      emit(ctx, {
-        type: "uniqueEntryBlocked",
-        instanceId: frame.instanceId,
-        cardId: card.id,
-        matchedInstanceId: blocker,
-        disposition: "discarded",
-      });
-      markPreThenUnresolved(ctx, frame.preThenOf, "revealCancelled", frame.instanceId);
-      moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
-      setFrame(ctx, { ...frame, stage: "done" });
-      // "… the player revealing it is dealt a facedown encounter card": a deal, not a reveal (the owner's decisions,
-      // docs/phase7-wave9.md §4.1 Q38 = A after Q22 = B; RRG 1.8 "Deal, Deal an Encounter Card", p. 15: "This card is
-      // not revealed at this time"). Like a surge's card (`resolveSurge`) it waits facedown among the player's dealt
-      // encounter cards: in step three or four of the villain phase it is revealed in that same step four, after the
-      // cards already waiting; anywhere else, at the next one. Announced as every deal is, and open to a "would be
-      // dealt an encounter card" interrupt. Before Q38 this engine revealed it at once.
-      dealEncounterCardOrAnnounce(ctx, frame.playerId, "uniqueRule", frame.instanceId);
       return;
     }
     case "quickstrike": {
       /*
-       * Ruling, Feb 28, 2026 (4) answer 2: "A minion engages the player first, then resolves When Revealed. Because
-       * Quickstrike triggers upon engagement, Quickstrike resolves first, followed by When Revealed."
-       *
-       * CONFLICT: RRG 1.8 "Quickstrike" (p. 36) says "If a minion with the quickstrike keyword is being revealed, the
-       * quickstrike keyword resolves after any 'When Revealed' abilities on that minion are resolved", and "Reveal"
-       * (p. 38) holds responses to any reveal step until every step is done. The ruling is FFG's later word, so it
-       * wins for quickstrike only. "After you engage a minion" responses (Widow's Bite, Have at Thee) still wait for
-       * the end of the reveal (`finish`): the ruling moves the keyword, which has timing priority over them (RRG 1.8
-       * FAQ "Widow's Bite"; ruling, Jan 17, 2026 (3) answer 2), so they keep their place after it.
-       *
-       * Teamwork (trait) has the same RRG wording (p. 43: "resolves after any 'When Revealed' abilities") and no ruling
-       * of its own. The user ruled it the quickstrike way (docs/phase7-wave6.md §4.1 Q2): it also triggers upon
-       * engagement, so it resolves here, after quickstrike and before the When Revealed. Its condition is checked as it
-       * resolves (`resolveTeamwork`).
+       * Legacy stage, kept so a game saved under the old order still loads. Until the owner's answer 30B (2026-10-12)
+       * quickstrike and teamwork resolved here, before the When Revealed (ruling, Feb 28, 2026 (4) answer 2). They now
+       * resolve once the reveal's steps are done (`keywords`), as RRG 1.8 "Quickstrike" (p. 36) and "Teamwork
+       * (Trait)" (p. 43) say. A frame saved here had not resolved them yet: it records whom the minion engaged and
+       * goes on to its When Revealed.
        */
-      setFrame(ctx, { ...frame, stage: "whenRevealed" });
-      if (frame.effectsCancelled) return;
-      const quickstrike = quickstrikeAttack(ctx, frame.instanceId);
-      // Teamwork needs the minion to have entered play (RRG 1.8 p. 43); one found in play did not (`foundInPlay`).
-      const teamwork = frame.foundInPlay ? null : teamworkFrame(ctx, frame.instanceId);
-      const keywords = [...(quickstrike ? [eventFrame(ctx, quickstrike)] : []), ...(teamwork ? [teamwork] : [])];
-      if (keywords.length > 0) pushFrames(ctx, keywords);
+      const { afterUnique: _legacy, ...rest } = frame;
+      const engaged = frame.effectsCancelled ? undefined : getInstance(ctx.state, frame.instanceId)?.engagedWith;
+      setFrame(ctx, { ...rest, stage: "whenRevealed", ...(engaged ? { engagedPlayerId: engaged } : {}) });
       return;
     }
     case "attachInstruction": {
@@ -404,7 +409,6 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
       return;
     }
     case "finish": {
-      setFrame(ctx, { ...frame, stage: "done" });
       // A revealed player event (a Cosmic Entity whose effects left it where it was) is discarded like a treachery,
       // to its encounter discard pile (docs/phase7-wave4.md §3.14).
       // Only a card still where its reveal found it (docs/phase7-wave4.md §3.45): a treachery whose When Revealed
@@ -421,50 +425,195 @@ export function executeRevealFrame(ctx: Ctx, frame: Frame<"reveal">): void {
         (card.type === "attachment" && card.attachesTo === undefined);
       // A new face revealed in play stays in play (`newFace`), and so does a card found in play (`foundInPlay`).
       if (discards && unmoved && !frame.newFace && !frame.foundInPlay && getInstance(ctx.state, frame.instanceId)) {
+        // An attachment that found no host is discarded, and said to be: for a Labor card that is the answer of RRG 1.8
+        // FAQ "Labor Cards" (p. 65), "That Labor card is discarded", and the move below then ends on the bottom of the
+        // Labor deck (`noDiscardPileDeckFor`; docs/phase7-wave10-hero-packs.md H3.3, owner's question 3 = B).
+        if (card.type === "attachment") {
+          emit(ctx, {
+            type: "revealedCardDiscarded",
+            instanceId: frame.instanceId,
+            cardId: card.id,
+            playerId: frame.playerId,
+            reason: "notAttached",
+          });
+        }
         // Its home deck's discard (docs/phase7-wave1.md §4.3, proposed; see `discardZoneFor`).
         moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
       }
-      // RRG "Reveal": responses to any step wait until every step has completed.
-      const events: TriggerEvent[] = [{ kind: "cardRevealed", instanceId: frame.instanceId, playerId: frame.playerId }];
-      const surgeLive = !frame.effectsCancelled && !frame.whenRevealedCancelled;
-      const surges = surgeLive && (frame.surgeGained || hasKeyword(ctx.state, frame.instanceId, "surge", ctx.deps));
-      // "After you resolve a treachery" (`encounterCardResolved`): a treachery or event one or more of whose abilities
-      // resolved, surge included (RRG 1.8 "Resolve", p. 37; FAQ "Spider-Man Noir (#15)", p. 63).
-      const resolved = !frame.effectsCancelled && (frame.abilityResolved === true || surges);
-      if (resolved && (card.type === "treachery" || card.type === "event")) {
-        const where = locateCard(ctx.state, frame.instanceId)?.kind ?? null;
-        const done: TriggerEvent = {
-          kind: "encounterCardResolved",
-          instanceId: frame.instanceId,
-          playerId: frame.playerId,
-          to: where,
-        };
-        if (heard(ctx.state, ctx.deps, done)) events.push(done);
-      }
-      // A revealed minion's quickstrike resolved at the `quickstrike` stage, before its When Revealed (ruling, Feb 28,
-      // 2026 (4) answer 2). It engaged its player; announced after its keywords (ruling, Jan 17, 2026 (3) answer 2).
-      // A new face did not engage by its reveal (`flipToOtherFace` announces a flip that did).
-      // A minion found in play engaged only if it was not already engaged with the revealing player (RRG 1.8 "Find",
-      // p. 19; `engagedByReveal`).
-      const engaged = frame.foundInPlay ? frame.engagedByReveal === true : !frame.newFace;
-      if (!frame.effectsCancelled && engaged && card.type === "minion")
-        events.push(...engagedEvent(ctx, frame.instanceId));
-      const frames: StackFrame[] = events.map((event) => eventFrame(ctx, event));
-      // RRG 1.8 "Surge" (p. 42): the keyword deals its player a facedown encounter card, queued last so the original
-      // card and the responses to its reveal are done first. Always on its own frame (`resolveSurge`), where "when
-      // the surge keyword … would be resolved" (Espionage) has its window. Nothing is revealed here
-      // (docs/phase7-wave9.md §4.1 Q22).
-      if (surges)
-        frames.push(
-          eventFrame(ctx, { kind: "surgeResolving", instanceId: frame.instanceId, playerId: frame.playerId }),
-        );
-      pushFrames(ctx, frames);
+      // Steps 1 to 4 are done (RRG 1.8 "Reveal", p. 38): the engagement keywords come next, in this same step.
+      const finished: Frame<"reveal"> = { ...frame, stage: "keywords" };
+      setFrame(ctx, finished);
+      stepRevealKeywords(ctx, finished);
       return;
     }
+    case "keywords":
+      stepRevealKeywords(ctx, frame);
+      return;
+    case "responses":
+      announceRevealFinished(ctx, frame, card);
+      return;
     case "done":
       popFrame(ctx);
       return;
   }
+}
+
+/**
+ * Whether `keyword` answers this reveal's engagement now. Read as the keyword resolves, never as the minion engaged
+ * (the owner's answer to open point 3 of docs/phase7-wave10-q30-impact.md = A): the minion must still be in play, so
+ * a When Revealed that removed it from play leaves nothing to resolve, and a keyword it gained or lost while its When
+ * Revealed resolved is read as it stands. An enemy that "cannot activate" is stopped where every activation is, as
+ * its event initiates (`executeEventFrame`).
+ *
+ * The two keywords part ways when the When Revealed moved the minion to another player (the owner's answers 36B and
+ * 37A, 2026-10-12):
+ * - Quickstrike answers one engagement: "After a minion with the quickstrike keyword engages a player whose identity
+ *   is in hero form, that minion attacks that player" (RRG 1.8 p. 36). The reveal's engagement was with
+ *   `engagedPlayerId`; a minion no longer engaged with that player has nothing left to answer here, and its new
+ *   engagement had its own quickstrike where it was made (`engagedInPlayFrames`).
+ * - Teamwork names no engagement, only where the minion stands as it resolves: "the minion that just entered play
+ *   activates against the player it is engaged with" (RRG 1.8 "Teamwork (Trait)", p. 43). So it still resolves, against
+ *   whichever player the minion is engaged with now (`teamworkActivation` reads `engagedWith` as it resolves), and
+ *   not at all when it is engaged with nobody. It needs the minion to have entered play engaged by this reveal
+ *   (`engagedPlayerId`) and not to have been found in play (`foundInPlay`, p. 19: "not considered to be entering
+ *   play").
+ */
+function revealKeywordApplies(ctx: Ctx, frame: Frame<"reveal">, keyword: RevealKeyword): boolean {
+  if (frame.effectsCancelled || frame.newFace || frame.engagedPlayerId === undefined) return false;
+  const id = frame.instanceId;
+  if (!cardsInPlay(ctx.state).includes(id)) return false;
+  const engagedWith = getInstance(ctx.state, id)?.engagedWith;
+  if (keyword === "quickstrike") return engagedWith === frame.engagedPlayerId && quickstrikeAttack(ctx, id) !== null;
+  return engagedWith != null && !frame.foundInPlay && hasKeyword(ctx.state, id, "teamwork", ctx.deps);
+}
+
+/** The frame that resolves `keyword` for this reveal, or null when it no longer applies (`revealKeywordApplies`). */
+function revealKeywordFrame(ctx: Ctx, frame: Frame<"reveal">, keyword: RevealKeyword): StackFrame | null {
+  if (!revealKeywordApplies(ctx, frame, keyword)) return null;
+  if (keyword === "teamwork") return teamworkFrame(ctx, frame.instanceId);
+  return quickstrikeFrame(ctx, frame.instanceId);
+}
+
+const REVEAL_KEYWORDS: readonly RevealKeyword[] = ["quickstrike", "teamwork"];
+const REVEAL_KEYWORD_LABELS: Readonly<Record<RevealKeyword, string>> = {
+  quickstrike: "Quickstrike",
+  teamwork: "Teamwork",
+};
+
+/**
+ * The `keywords` stage: the keywords that answer a revealed minion's engagement, resolved once every step of its
+ * reveal is done and before any response to the reveal (the owner's answers 30B and 32B, 2026-10-12).
+ *
+ * RRG 1.8 "Quickstrike" (p. 36): "If a minion with the quickstrike keyword is being revealed, the quickstrike keyword
+ * resolves after any 'When Revealed' abilities on that minion are resolved." "Teamwork (Trait)" (p. 43) has the same
+ * sentence. "Reveal" (p. 38): "Responses (both forced and non-forced) to any step of the revealing of an encounter
+ * card are not resolved until after all steps of the reveal process have been completed"; both keywords are forced
+ * responses to the engagement of step 2, and keywords have timing priority over the Response abilities that share
+ * their trigger (FAQ "Widow's Bite (#10)", p. 60). This supersedes ruling Feb 28, 2026 (4) answer 2 ("Quickstrike
+ * resolves first, followed by When Revealed") for a minion being revealed, by the owner's decision; that ruling still
+ * describes a minion put into play or engaged without a reveal, where nothing stands between the engagement and the
+ * keyword (`putIntoPlay`, `engagedInPlayFrames`).
+ *
+ * One keyword at a time: each is read as it resolves (`revealKeywordApplies`), so the second sees what the first
+ * did. A minion with both, where both would do something now, asks the first player which resolves first (answer 34B;
+ * RRG 1.8 "Forced", p. 20: "If two or more forced abilities would initiate at the same moment, the first player
+ * determines the order"). With teamwork's condition unmet there is nothing to order: quickstrike resolves, then
+ * teamwork checks its condition as it always does (`resolveTeamwork`).
+ * A minion its When Revealed moved to another player has only teamwork live here (`revealKeywordApplies`), so nobody
+ * is asked (answer 37A): teamwork activates it against its new player.
+ */
+function stepRevealKeywords(ctx: Ctx, frame: Frame<"reveal">): void {
+  const { keywordOrder, ...bare } = frame;
+  let order = keywordOrder;
+  if (order === undefined) {
+    const live = REVEAL_KEYWORDS.filter((keyword) => revealKeywordApplies(ctx, frame, keyword));
+    if (live.length === 2 && teamworkWouldActivate(ctx, frame.instanceId)) {
+      if (!frame.answer) {
+        requestChoice(ctx, {
+          playerId: simultaneousOrderer(ctx.state),
+          authority: "firstPlayerOrders",
+          prompt: { kind: "orderKeywords", instanceId: frame.instanceId },
+          options: live.map((keyword) => ({
+            optionId: keyword,
+            label: REVEAL_KEYWORD_LABELS[keyword],
+            ref: { kind: "card", instanceId: frame.instanceId } as const,
+          })),
+          minSelections: live.length,
+          maxSelections: live.length,
+          frameId: frame.frameId,
+          ordered: true,
+        });
+        return;
+      }
+      order = frame.answer.filter(
+        (picked): picked is RevealKeyword => picked === "quickstrike" || picked === "teamwork",
+      );
+    } else order = live;
+  }
+  const [next, ...rest] = order;
+  const after: Frame<"reveal"> =
+    rest.length > 0
+      ? { ...bare, answer: null, stage: "keywords", keywordOrder: rest }
+      : { ...bare, answer: null, stage: "responses" };
+  setFrame(ctx, after);
+  if (next === undefined) {
+    // Neither applies: the responses follow in this same step, as they did before the keywords had a stage.
+    announceRevealFinished(ctx, after, mustCardOf(ctx.state, frame.instanceId));
+    return;
+  }
+  const resolving = revealKeywordFrame(ctx, frame, next);
+  if (resolving) pushFrames(ctx, [resolving]);
+}
+
+/** The `responses` stage: everything that answers a finished reveal is announced, then its surge. */
+function announceRevealFinished(ctx: Ctx, frame: Frame<"reveal">, card: AnyCard): void {
+  const { heldResponses: held = [], ...rest } = frame;
+  setFrame(ctx, { ...rest, stage: "done" });
+  // RRG "Reveal": responses to any step wait until every step has completed.
+  // What the card's own text grants now that every step is done (docs/phase7-wave10.md §3.16), when asked.
+  const granted = asksTraitGrants(ctx.deps) ? traitGrantReach(ctx.state, ctx.deps, frame.instanceId) : {};
+  const events: TriggerEvent[] = [
+    {
+      kind: "cardRevealed",
+      instanceId: frame.instanceId,
+      playerId: frame.playerId,
+      ...(Object.keys(granted).length > 0 ? { grantedTo: granted } : {}),
+    },
+  ];
+  const surgeLive = !frame.effectsCancelled && !frame.whenRevealedCancelled;
+  const surges = surgeLive && (frame.surgeGained || hasKeyword(ctx.state, frame.instanceId, "surge", ctx.deps));
+  // "After you resolve a treachery" (`encounterCardResolved`): a treachery or event one or more of whose abilities
+  // resolved, surge included (RRG 1.8 "Resolve", p. 37; FAQ "Spider-Man Noir (#15)", p. 63).
+  const resolved = !frame.effectsCancelled && (frame.abilityResolved === true || surges);
+  if (resolved && (card.type === "treachery" || card.type === "event")) {
+    const where = locateCard(ctx.state, frame.instanceId)?.kind ?? null;
+    const done: TriggerEvent = {
+      kind: "encounterCardResolved",
+      instanceId: frame.instanceId,
+      playerId: frame.playerId,
+      to: where,
+    };
+    if (heard(ctx.state, ctx.deps, done)) events.push(done);
+  }
+  // A revealed minion's quickstrike and teamwork have resolved (`keywords`). It engaged its player; announced after
+  // its keywords (ruling, Jan 17, 2026 (3) answer 2; RRG 1.8 FAQ "Widow's Bite (#10)", p. 60).
+  // A new face did not engage by its reveal (`flipToOtherFace` announces a flip that did).
+  // A minion found in play engaged only if it was not already engaged with the revealing player (RRG 1.8 "Find",
+  // p. 19; `engagedByReveal`).
+  const engaged = frame.foundInPlay ? frame.engagedByReveal === true : !frame.newFace;
+  if (!frame.effectsCancelled && engaged && card.type === "minion") events.push(...engagedEvent(ctx, frame.instanceId));
+  const frames: StackFrame[] = events.map((event) => eventFrame(ctx, event));
+  // Responses to the card entering play waited for the end of the reveal (`heldResponses`; RRG 1.8 "Reveal",
+  // p. 38; the owner's answers 32B and 35B): they share the window of the `cardRevealed` announcement, the first.
+  const [announcement] = frames;
+  if (announcement?.kind === "event" && held.length > 0) frames[0] = { ...announcement, joinedResponses: held };
+  // RRG 1.8 "Surge" (p. 42): the keyword deals its player a facedown encounter card, queued last so the original
+  // card and the responses to its reveal are done first. Always on its own frame (`resolveSurge`), where "when
+  // the surge keyword … would be resolved" (Espionage) has its window. Nothing is revealed here
+  // (docs/phase7-wave9.md §4.1 Q22).
+  if (surges)
+    frames.push(eventFrame(ctx, { kind: "surgeResolving", instanceId: frame.instanceId, playerId: frame.playerId }));
+  pushFrames(ctx, frames);
 }
 
 /**
@@ -499,8 +648,8 @@ function enterPlayHeld(ctx: Ctx, frame: Frame<"reveal">): boolean {
  * it. That minion is not considered to be entering play. That minion is considered to engage that player unless it was
  * already engaged with that player." So the minion moves to the revealing player's play area as it is, with no
  * `cardEntersPlay` (no enter-play keywords, no unique check, no teamwork); having engaged, its quickstrike resolves
- * where a revealed minion's does, before its When Revealed (ruling, Feb 28, 2026 (4) answer 2, see the `quickstrike`
- * stage), and "after you engage" responses wait for the end of the reveal. Interrupts to the engagement get their
+ * where a revealed minion's does, after its When Revealed (RRG 1.8 "Quickstrike", p. 36; the `keywords` stage), and
+ * "after you engage" responses wait for the end of the reveal. Interrupts to the engagement get their
  * window here (RRG 1.8 "Engage", p. 18), as an in-play minion's do (`engagementFrame`).
  *
  * Ruling, June 25, 2026 (5): "Finding and revealing an attachment already in play triggers its When Revealed abilities
@@ -529,7 +678,13 @@ function revealWhereFound(ctx: Ctx, frame: Frame<"reveal">): void {
     setFrame(ctx, { ...frame, answer: null, stage: "whenRevealed" });
     return;
   }
-  setFrame(ctx, { ...frame, answer: null, stage: "quickstrike", engagedByReveal: true });
+  setFrame(ctx, {
+    ...frame,
+    answer: null,
+    stage: "whenRevealed",
+    engagedByReveal: true,
+    engagedPlayerId: frame.playerId,
+  });
   const engaging = engagementOf(ctx.state, frame.instanceId);
   if (engaging && hasCandidates(ctx.state, ctx.deps, engaging, "interrupt"))
     pushWindow(ctx, engaging, "interrupt", null);
@@ -744,9 +899,15 @@ function resolveAttachmentTarget(ctx: Ctx, frame: Frame<"reveal">, attachesTo: A
   }
   // RRG "First Player": an encounter card with several eligible targets — the
   // first player selects (not the revealing player).
+  // A host the card's text leaves to "the enemy team" (`AttachmentCard.hostChosenBy`; MC56 p. 6) is asked of that
+  // team's decider with the `enemyTeam` authority, as a scripted `chooser: enemyTeamDecider` choice is. The legal hosts
+  // are the same either way. A reveal read for no team has no such decider and falls back to the first player's rule.
+  const card = cardOf(ctx.state, frame.instanceId);
+  const enemyTeam = card?.type === "attachment" && card.hostChosenBy === "enemyTeam";
+  const decider = enemyTeam ? enemyTeamDecider(ctx.state, context) : null;
   requestChoice(ctx, {
-    playerId: encounterTargetSelector(ctx.state),
-    authority: "firstPlayerTargets",
+    playerId: decider ?? encounterTargetSelector(ctx.state),
+    authority: decider ? "enemyTeam" : "firstPlayerTargets",
     prompt: { kind: "chooseAttachmentTarget", instanceId: frame.instanceId },
     options: legal.map((id) => ({
       optionId: id,

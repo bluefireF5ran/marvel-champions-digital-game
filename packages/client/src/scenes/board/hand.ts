@@ -3,6 +3,7 @@
  * card's face — a scan, or the generated fallback.
  */
 
+import { countChipText } from "../../view/gift-count.js";
 import { noTargetTag } from "../../view/hand-reason.js";
 import { teamUpTagFor, type TeamUpRole } from "../../view/team-up-model.js";
 import type Phaser from "phaser";
@@ -21,7 +22,8 @@ import type { IllegalReason } from "../../view/highlights.js";
 import { DEFENSE_LOCKOUT_TAG, isDefenseBarMessage } from "../../view/defense-lockout.js";
 import { handRow, type HandRowLayout } from "../../view/hand-row.js";
 import type { Rect } from "../../view/layout.js";
-import { ON_TOP_NOTE, spentTagText, type PaymentView } from "../../view/payment-model.js";
+import { BAR_ROW } from "../../view/payment-bar-layout.js";
+import { isCompactTag, sourceTagText, spentTagText, type PaymentView } from "../../view/payment-model.js";
 import type { BoardDrawContext } from "./context.js";
 import {
   SOURCE_BAR_NOTE,
@@ -33,7 +35,7 @@ import {
   drawPlayConfirmBar,
   drawSourceBar,
 } from "./controller-bar.js";
-import { drawCostChoiceBar } from "./cost-choice-bar.js";
+import { COST_HELP_NOTE_ROW, drawCostChoiceBar, drawCostHelpBar } from "./cost-choice-bar.js";
 import { drawDiscardBar } from "./discard-bar.js";
 import { drawPaymentBar } from "./payment-bar.js";
 import { drawMyPiles } from "./piles.js";
@@ -60,7 +62,7 @@ const HAND_CAPTION_HEIGHT = 20;
  * board is not rebuilt once per pointer move.
  */
 /** A mode bar: 44px controls with 4px above and below (`hit.target` is the floor for anything tapped). */
-const BAR_HEIGHT = hit.target + 8;
+const BAR_HEIGHT = BAR_ROW;
 
 export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): void {
   const { scene, hand, tabbed } = ctx;
@@ -76,6 +78,7 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
   const playConfirmation = ctx.controller.playConfirmation();
   const allianceHelp = ctx.controller.allianceHelpView();
   const costChoice = ctx.controller.costChoiceView();
+  const costHelp = ctx.controller.costHelpView();
   const sourceChoice = ctx.controller.sourceChoice();
   const formChoice = ctx.controller.formChoice();
   const abilityChoice = ctx.controller.abilityChoice();
@@ -102,6 +105,10 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
   } else if (allianceHelp) {
     drawAllianceHelpBar(ctx, { x: rect.x, y: rect.y, width: rect.width, height: BAR_HEIGHT }, allianceHelp);
     top = rect.y + BAR_HEIGHT + 4;
+  } else if (costHelp) {
+    const height = BAR_HEIGHT + (costHelp.unavailable.length > 0 ? COST_HELP_NOTE_ROW : 0);
+    drawCostHelpBar(ctx, { x: rect.x, y: rect.y, width: rect.width, height }, costHelp);
+    top = rect.y + height + 4;
   } else if (costChoice) {
     drawCostChoiceBar(ctx, { x: rect.x, y: rect.y, width: rect.width, height: BAR_HEIGHT }, costChoice);
     top = rect.y + BAR_HEIGHT + 4;
@@ -140,12 +147,13 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
   const fan: false | "expanded" = tabbed ? "expanded" : false;
   const row = handRow(inner, {
     handCount: model.hand.length,
-    tableTiles: payment ? paymentTileCount(payment) : 0,
+    tableTiles: payment ? paymentTileCount(payment) : (discard?.helperCards.length ?? 0),
     fan,
     piles: tabbed ? "stacked" : "flank",
   });
   const { slots } = row;
   if (payment) drawPaymentTable(ctx, row, payment);
+  else if (discard && discard.helperCards.length > 0) drawHelperDiscardTable(ctx, row, discard);
 
   const rowRight = slots.reduce((max, slot) => Math.max(max, slot.x + slot.width), row.cardArea.x);
   hand.measure(row.cardArea, rowRight);
@@ -272,15 +280,20 @@ function drawPaymentTable(ctx: BoardDrawContext, row: HandRowLayout, payment: Pa
     const tile = tiles[index];
     if (!tile) return;
     drawTableTile(ctx, tile, game, source.instanceId, source.spent ? "selected" : "rest");
-    if (source.spent) {
+    if (source.spent || source.lockedReason) {
       const wash = scene.add.graphics();
       wash.fillStyle(surface.ink.hex, 0.3).fillRect(tile.x + 3, tile.y + 3, tile.width - 6, tile.height - 6);
     }
-    const where = source.helperName !== null ? source.helperName : "in play";
-    tableTag(scene, tile, source.spent ? spentTagText(source) : where, surface.ink.hex, "top");
+    // Both facts show, one tag over the other: where the card comes from (whose hand, the amount it takes, "overpay
+    // only"), and, once picked, its place in the payment ("spent 2 · on top"). A narrow tile gets the compact words.
+    const compact = isCompactTag(tile.width);
+    const where = sourceTagText(source, compact);
+    const ordered = source.spent && source.amountNote === null;
+    tableTag(scene, tile, where, surface.ink.hex, "top");
+    if (ordered) tableTag(scene, tile, spentTagText(source, compact), surface.ink.hex, "top", 1);
     tableTag(scene, tile, poolText(source.pool), signal.cost.hex, "bottom");
     ctx.frame.focusRects.set(focusKey({ kind: "card", instanceId: source.instanceId }), tile);
-    const onHover = onTopHover(scene, tile, source.instanceId, source.onTop);
+    const onHover = onTopHover(scene, tile, source.instanceId, source.orderNote);
     // By option, not by card: a card offering two resource abilities is two tiles.
     addTapTarget(scene, tile, {
       onTap: () => ctx.controller.togglePaymentOption(source.optionId),
@@ -293,6 +306,29 @@ function drawPaymentTable(ctx: BoardDrawContext, row: HandRowLayout, payment: Pa
     const rule = scene.add.graphics();
     rule.fillStyle(surface.paper.hex, ink.meta).fillRect(row.rule.x, row.rule.y, row.rule.width, row.rule.height);
   }
+}
+
+/**
+ * A helper's hand cards that can pay a "discard from hand" cost, drawn at the head of the hand row the way a payment's
+ * table sources are: the hand shows only the user's own cards, and a tile says whose card it is. Tapping toggles the
+ * pick like a card of the user's hand.
+ */
+function drawHelperDiscardTable(ctx: BoardDrawContext, row: HandRowLayout, discard: DiscardChoiceView): void {
+  const { scene } = ctx;
+  const game = appSession().store.state.game;
+  if (!game) return;
+  discard.helperCards.forEach((card, index) => {
+    const tile = row.tiles[index];
+    if (!tile) return;
+    const picked = discard.picked.has(card.instanceId);
+    drawTableTile(ctx, tile, game, card.instanceId, picked ? "selected" : "rest");
+    tableTag(scene, tile, picked ? `${card.heroName}: discard` : card.heroName, surface.ink.hex, "top");
+    ctx.frame.focusRects.set(focusKey({ kind: "card", instanceId: card.instanceId }), tile);
+    addTapTarget(scene, tile, {
+      onTap: () => ctx.controller.toggleDiscardPick(card.instanceId),
+      onInspect: () => ctx.inspect(card.instanceId),
+    });
+  });
 }
 
 /** How many strip tiles a payment needs: the in-play subject (an ability's cost), then each table source. */
@@ -327,12 +363,22 @@ function drawTableTile(
   }
 }
 
+/** One tag row's height, so a second tag stacks under the first without touching it. */
+const TAG_ROW = 18;
+
 /** A one-word tag inside a strip tile, the same chip the hand's cards carry. */
-function tableTag(scene: Phaser.Scene, tile: Rect, text: string, ground: number, edge: "top" | "bottom"): void {
+function tableTag(
+  scene: Phaser.Scene,
+  tile: Rect,
+  text: string,
+  ground: number,
+  edge: "top" | "bottom",
+  row = 0,
+): void {
   const tag = scene.add
     .text(
       tile.x + tile.width - 3,
-      edge === "top" ? tile.y + 4 : tile.y + tile.height - 4,
+      edge === "top" ? tile.y + 4 + row * TAG_ROW : tile.y + tile.height - 4,
       caseOf(typeRole.label, text),
       textStyle(typeRole.label, surface.paper.hex),
     )
@@ -442,7 +488,7 @@ function drawHandCard(
     ? subject
       ? { text: "paying for", ground: accent.heroRed.hex }
       : spent
-        ? { text: source ? spentTagText(source) : "spent", ground: surface.ink.hex }
+        ? { text: source ? spentTagText(source, isCompactTag(slot.width)) : "spent", ground: surface.ink.hex }
         : null
     : discard
       ? subject
@@ -461,7 +507,10 @@ function drawHandCard(
           // Not in your hand at all — say where it is, so an Arrow on the Quiver doesn't read as a card you hold.
           return card.from ? { text: card.from, ground: accent.heroRed.hex } : null;
         })();
-  if (tag && slot.width >= 70) {
+  // A narrow slot (a phone's) gets the compact tag, never none: the payment order is the point of it.
+  if (tag && (slot.width >= 70 || (payment && slot.width >= 36))) {
+    // The card being paid for keeps its printed name in view: on a narrow slot its tag sits on the bottom edge.
+    const atBottom = payment !== null && subject && isCompactTag(slot.width);
     // Inside the card during payment or a discard choice: that mode's own bar
     // sits directly above the hand, and a tag hung over the top edge disappears behind it.
     // Wrapped to the card's own width ("NOT AN / ACTION"), never wider than the card it names: on a crowded hand a
@@ -471,17 +520,18 @@ function drawHandCard(
     const tagText = scene.add
       .text(
         slot.x + slot.width - 3,
-        inside ? slot.y + 4 : slot.y + 6,
+        atBottom ? slot.y + slot.height - 4 : inside ? slot.y + 4 : slot.y + 6,
         caseOf(typeRole.label, tag.text),
         textStyle(typeRole.label, surface.paper.hex),
       )
-      .setOrigin(1, inside ? 0 : 1)
+      .setOrigin(1, atBottom || !inside ? 1 : 0)
       .setAlign("right")
       .setPadding(4, 2, 4, 2)
       .setBackgroundColor(cssOf(tag.ground));
     fitWrapped(tagText, slot.width - 6 - 8, 2, typeRole.label.size);
   }
   drawPriceChip(scene, inner, card, alpha);
+  drawCountChip(scene, inner, card, alpha);
   if (!payment && !discard) drawTeamUpTag(ctx, slot, card, tag !== null);
 
   if (spent) {
@@ -491,7 +541,7 @@ function drawHandCard(
     wash.fillStyle(surface.ink.hex, 0.3).fillRect(slot.x + 3, slot.y + 3, slot.width - 6, slot.height - 6);
   }
 
-  const onHover = onTopHover(scene, slot, card.instanceId, source?.onTop ?? false);
+  const onHover = onTopHover(scene, slot, card.instanceId, source?.orderNote ?? null);
   ctx.makeTapTarget(slot, card.instanceId, () => ctx.controller.tapHandCard(card.instanceId), ctx.hand.drag, onHover);
 }
 
@@ -508,9 +558,9 @@ function onTopHover(
   scene: Phaser.Scene,
   anchor: Rect,
   id: InstanceId,
-  onTop: boolean,
+  note: string | null,
 ): ((over: boolean) => void) | undefined {
-  if (onTop) return onTopNote(scene, anchor, id);
+  if (note !== null) return onTopNote(scene, anchor, id, note);
   if (hoveredOnTop === id) hoveredOnTop = null;
   return undefined;
 }
@@ -520,10 +570,10 @@ function onTopHover(
  * hidden after: a hover must never redraw the board, which would rebuild the card's own tap target under the mouse
  * (the team-up ring's label does the same, `team-up-badge.ts`). Returns the card's hover handler.
  */
-function onTopNote(scene: Phaser.Scene, anchor: Rect, id: InstanceId): (over: boolean) => void {
+function onTopNote(scene: Phaser.Scene, anchor: Rect, id: InstanceId, note: string): (over: boolean) => void {
   const viewport = scene.scale.gameSize;
   const text = scene.add
-    .text(0, 0, ON_TOP_NOTE, {
+    .text(0, 0, note, {
       ...textStyle({ ...typeRole.body, size: 13 }, surface.paper.hex),
       wordWrap: { width: ON_TOP_NOTE_WIDTH - 16, useAdvancedWrap: true },
     })
@@ -605,6 +655,29 @@ function drawPriceChip(scene: Phaser.Scene, inner: Rect, card: HandCardView, alp
     )
     .setOrigin(0.5);
   fitText(text, chip.width - 4, typeRole.statSmall.size);
+}
+
+/**
+ * "GIFT CARDS: 2" along the foot of a hand card that reads a count (The Gift of Battle, Wisdom of Athena, Son of Zeus),
+ * so the number the price or the effect turns on is on the card and not only in the log. Words and a number, never a
+ * color alone; the full sentence ("Counts Gift cards you control: 2") is in Inspect.
+ */
+function drawCountChip(scene: Phaser.Scene, inner: Rect, card: HandCardView, alpha: number): void {
+  if (!card.countNote || inner.width < 60) return;
+  const chip: Rect = { x: inner.x, y: inner.y + inner.height - 16, width: inner.width, height: 16 };
+  scene.add
+    .graphics()
+    .fillStyle(surface.ink.hex, 0.88 * alpha)
+    .fillRect(chip.x, chip.y, chip.width, chip.height);
+  const text = scene.add
+    .text(
+      chip.x + chip.width / 2,
+      chip.y + chip.height / 2,
+      caseOf(typeRole.label, countChipText(card.countNote)),
+      textStyle(typeRole.label, surface.paper.hex, alpha),
+    )
+    .setOrigin(0.5);
+  fitText(text, chip.width - 6, typeRole.label.size);
 }
 
 /**

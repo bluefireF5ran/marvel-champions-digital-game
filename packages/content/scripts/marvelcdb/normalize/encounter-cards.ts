@@ -41,7 +41,13 @@ export function normalizeEncounterCard(
   // Service/Snitches get Stitches sets) is faction "campaign", not "encounter": every such card belongs to its
   // own `campaignSpecific` `EncounterSet` instead of the pack's ordinary encounter sets.
   const isCampaignCard = r.faction_code === "campaign";
-  if (r.faction_code !== "encounter" && !isCampaignCard)
+  // An encounter-shaped card of an identity's own separate deck (docs/phase7-wave10-hero-packs.md H1.1, survey gap G6:
+  // Hercules's Labor cards) prints `faction_code: "hero"` yet behaves as an encounter card. It is named by a curated
+  // `separateDecks` entry with `cardFamily: "encounter"`, belongs to no encounter set and carries `separateDeck`.
+  const separateDeck = curation.separateDecks?.find(
+    (d) => d.cardFamily === "encounter" && d.cardCodes.includes(r.code),
+  );
+  if (r.faction_code !== "encounter" && !isCampaignCard && !(separateDeck && r.faction_code === "hero"))
     errors.push(`${r.code}: ${r.type_code} with faction ${r.faction_code}`);
   expectNoPlayerData(ctx, p, parsed);
   const encounterCommon = {
@@ -52,7 +58,10 @@ export function normalizeEncounterCard(
     // modular set's own obligation (Project Wideawake's Warn the Others 32099, Mojo Mania's sitcom set) is an
     // ordinary member of its encounter set, so the encounter deck builder can shuffle it in.
     encounterSetIds:
-      r.type_code === "obligation" && !isCampaignCard && ctx.heroBySet.has(set) ? [] : [brand("encounterSet", set)],
+      separateDeck || (r.type_code === "obligation" && !isCampaignCard && ctx.heroBySet.has(set))
+        ? []
+        : [brand("encounterSet", set)],
+    ...(separateDeck ? { separateDeck: separateDeck.deckName } : {}),
     boostIcons: p.boost,
     // RRG 1.8 "Boost, Boost Icon" (p. 11): the star in the boost area marks "the card has a 'Boost' ability", so the
     // flag follows the parsed text (docs/phase7-wave2-data.md "starIcon?: boolean"). `parse()` has already
@@ -100,7 +109,7 @@ export function normalizeEncounterCard(
         // The per group icon (The Mangog, `tt` 55041; MC55 insert p. 4): `hp` times the groups, one in single-table play.
         ...(r.health_per_group ? { hpPerGroup: true as const } : {}),
         ...encounterCommon,
-        ...(parsed.nemesisMinion ? { nemesisMinion: true } : {}),
+        ...(parsed.nemesisMinion || p.nemesisMinion ? { nemesisMinion: true } : {}),
       };
       record(ctx, minion, set, [p, ...flipParts]);
       return;
@@ -148,6 +157,9 @@ export function normalizeEncounterCard(
           errors.push(`${r.code}: "Attach to ${parsed.attachesToVillainNamed}." is not this set's villain`);
         }
       }
+      // Curated only (`Correction.hostChosenBy`): the chooser picks among the data hosts, so a card with none has no use
+      // for one.
+      if (p.hostChosenBy && !attachesTo) errors.push(`${r.code}: hostChosenBy on an attachment with no data host`);
       const mods: { -readonly [K in keyof PrintedStatModifiers]: number } = {};
       // MarvelCDB's -1 is its printed-X encoding (the same sentinel the minion branch above reads), but
       // `PrintedStatModifiers.atk` is a fixed number with no "X" — a dynamic stat-box bonus is a scripted ability's
@@ -174,6 +186,8 @@ export function normalizeEncounterCard(
         ...common,
         type: "attachment",
         ...(attachesTo ? { attachesTo } : {}),
+        ...(p.hostChosenBy ? { hostChosenBy: p.hostChosenBy } : {}),
+        ...(p.attachmentMaxPerHost !== undefined ? { playRestrictions: { maxPerHost: p.attachmentMaxPerHost } } : {}),
         ...(Object.keys(mods).length > 0 ? { statModifiers: mods } : {}),
         ...encounterCommon,
       };

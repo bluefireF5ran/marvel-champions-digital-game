@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { scenarioDetailLines, scenarioDetailOf, shelfSubtitleOf, lockCaptionOf } from "./scenario-detail.js";
+import type { AnyCard, Scenario } from "@mc/content";
 import { randomVillainLabel } from "./random-villain.js";
 import { requiredCardLabel } from "./modular-sets.js";
 import { CARDS_BY_ID, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
@@ -204,5 +205,20 @@ describe("a villain drawn at random reads as random everywhere", () => {
       expect(detail.villainIsRandom).toBe(true);
       expect(detail.displayName).toBe(label);
     }
+  });
+});
+
+describe("leader wording", () => {
+  test("a leader scenario's detail says Leader; Rhino keeps Villain", () => {
+    const villain = CARDS_BY_ID.get(rhino.villainCardId as string)!;
+    const leader = { ...villain, id: "fixture-iron-man", printedType: "leader" } as unknown as AnyCard;
+    const cards = new Map<string, AnyCard>([...CARDS_BY_ID, ["fixture-iron-man", leader]]);
+    const scenario = { ...rhino, villainCardId: "fixture-iron-man" } as unknown as Scenario;
+    const detail = scenarioDetailOf(scenario, cards, POOL_ENCOUNTER_SETS);
+    expect(detail.foeWord).toBe("Leader");
+    expect(scenarioDetailLines(detail)[0]).toMatch(/^Leader: /);
+    const plain = scenarioDetailOf(rhino, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+    expect(plain.foeWord).toBe("Villain");
+    expect(scenarioDetailLines(plain)[0]).toMatch(/^Villain: /);
   });
 });

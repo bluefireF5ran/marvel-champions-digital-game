@@ -99,7 +99,48 @@ const DRILL = actionEvent("drill", [
   },
 ]);
 
-const EVENTS = [CAMERAS, PURGE, DRILL];
+/**
+ * "Exhaust each ready ally you control, one at a time. Place 1 threat on the main scheme for each ally exhausted this
+ * way. Place 1 mark on each ally passed over. If 3 allies were passed over, place 10 more threat." A pass that could see another pass's result, or the loop's
+ * running total, would place 100.
+ */
+const TALLY = actionEvent("tally", [
+  {
+    kind: "forEachCard",
+    cards: each(MY_ALLIES),
+    slot: "ally",
+    bind: "loop",
+    effects: [
+      {
+        kind: "if",
+        condition: { kind: "varAtLeast", name: "did", amount: 1 },
+        then: [{ kind: "placeThreat", target: MAIN, amount: n(100) }],
+      },
+      {
+        kind: "if",
+        condition: { kind: "varAtLeast", name: "loop.did", amount: 1 },
+        then: [{ kind: "placeThreat", target: MAIN, amount: n(100) }],
+      },
+      {
+        kind: "if",
+        condition: { kind: "exists", query: { inSlot: "ally", exhausted: false } },
+        then: [
+          { kind: "exhaust", target: slot("ally") },
+          { kind: "setVar", name: "did", value: n(1) },
+        ],
+      },
+    ],
+  },
+  { kind: "placeThreat", target: MAIN, amount: { kind: "var", name: "loop.did" } },
+  { kind: "addCounters", target: slot("loop.ally"), counterType: "mark", amount: n(1) },
+  {
+    kind: "if",
+    condition: { kind: "varAtLeast", name: "loop.count", amount: 3 },
+    then: [{ kind: "placeThreat", target: MAIN, amount: n(10) }],
+  },
+]);
+
+const EVENTS = [CAMERAS, PURGE, DRILL, TALLY];
 const deps: EngineDeps = depsOf(...EVENTS.map((e) => e.ability));
 
 function start(staged: { readonly allies?: number; readonly theirs?: number; readonly players?: 1 | 2 } = {}) {
@@ -313,6 +354,50 @@ describe("forEachCard: one pass per card, that card bound (RRG 1.8 \"'For Each'\
   it("replays to the same state", () => {
     const { state, allies } = start({ allies: 3 });
     const result = playPicking(state, CAMERAS.card, [EXHAUST, THREAT, EXHAUST], [allies[2]!, allies[0]!]);
+    const replayed = replay(result.session.log, deps);
+    if (!replayed.ok) throw new Error(replayed.error.message);
+    expect(replayed.state).toEqual(result.state);
+  });
+});
+
+describe("forEachCard.bind: what the passes did, read after the loop", () => {
+  it("3 allies, one already exhausted: `loop.did` is 2 (summed over the passes) and `loop.count` 3, so 2 + 2 + 10 threat", () => {
+    const { state, allies } = start({ allies: 3 });
+    const result = playPicking(exhausted(state, allies[1]!), TALLY.card);
+    expect(passes(result.events)).toHaveLength(3);
+    expect(allies.map((id) => isExhausted(result.state, id))).toEqual([true, true, true]);
+    expect(mainThreat(result.state)).toBe(14);
+  });
+
+  it("2 allies, both ready: `loop.did` 2, `loop.count` 2 (under 3), so 2 + 2 threat; no pass saw another's result", () => {
+    const { state } = start({ allies: 2 });
+    const result = playPicking(state, TALLY.card);
+    expect(mainThreat(result.state)).toBe(4);
+  });
+
+  it("no card to pass over: `loop.count` and `loop.did` read 0, and the threat stays 2", () => {
+    const { state } = start();
+    const result = playPicking(state, TALLY.card);
+    expect(passes(result.events)).toEqual([]);
+    expect(mainThreat(result.state)).toBe(2);
+  });
+
+  it("the slot of the passes comes back joined: `loop.ally` names every card passed over, and each gets 1 mark", () => {
+    const { state, allies } = start({ allies: 3, theirs: 1, players: 2 });
+    const result = playPicking(state, TALLY.card, [], [allies[2]!, allies[0]!]);
+    expect(passes(result.events)).toEqual([allies[2], allies[0], allies[1]]);
+    expect(allies.map((id) => mustInstance(result.state, id).counters)).toEqual([
+      { mark: 1 },
+      { mark: 1 },
+      { mark: 1 },
+    ]);
+    const marked = Object.values(result.state.instances).filter((card) => (card.counters["mark"] ?? 0) > 0);
+    expect(marked).toHaveLength(3);
+  });
+
+  it("replays to the same state", () => {
+    const { state, allies } = start({ allies: 3 });
+    const result = playPicking(exhausted(state, allies[0]!), TALLY.card);
     const replayed = replay(result.session.log, deps);
     if (!replayed.ok) throw new Error(replayed.error.message);
     expect(replayed.state).toEqual(result.state);

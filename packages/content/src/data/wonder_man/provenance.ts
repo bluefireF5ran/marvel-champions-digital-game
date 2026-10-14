@@ -19,6 +19,7 @@ export const WONDER_MAN_PROVENANCE: readonly CardProvenance[] = [
     marvelcdbCodes: ["58002"],
     corrections: [
       "58002: Ionic Physiology is Permanent, entering play through its own text rather than being paid for from hand: raw sends no `cost` at all — the printed-dash pattern (RRG 1.8 \"Dash (Value)\", p. 15), not a data gap. [evidence: MarvelCDB card listing (marvelcdb.com/card/58002), \"Cost: —\"]",
+      "58002: errata RRG 1.8 — Ionic Physiology: the cost arrow before \"heal 1 damage from your identity\" became \"Then\" (tucking the event is no longer a cost). MarvelCDB and the card print the arrow; the printed text keeps it. [evidence: RRG 1.8 p. 70 (Wonder Man errata, IONIC PHYSIOLOGY (#2), mc_rulesreference_v18_compressed.md line 5150): \"Should read: Response: After you play an event with a printed [energy] resource, tuck that event from your discard pile under this card. Then, heal 1 damage from your identity. (Changed cost arrow to “Then”.)\"; ruling March 6, 2026 (3); scan 58002.png prints the arrow (scan check, \"Known errata\"). Raw text is the print.]",
     ],
   },
   { cardId: cardId("58003"), cardSetCode: "wonder_man", marvelcdbCodes: ["58003"], corrections: [] },
@@ -60,7 +61,9 @@ export const WONDER_MAN_PROVENANCE: readonly CardProvenance[] = [
     cardId: cardId("58026"),
     cardSetCode: "wonder_man_nemesis",
     marvelcdbCodes: ["58026"],
-    corrections: [],
+    corrections: [
+      "58026: Grim Reaper is Wonder Man's nemesis minion (the only minion of the wonder_man_nemesis set, 58026 to 58029) but prints no Nemesis reminder line, so the parser cannot set the flag. Without it, \"your nemesis minion\" finds nothing for Wonder Man. Never applied to text. [evidence: raw/marvelcdb/wonder_man.json: 58026 is the one minion in wonder_man_nemesis and its text carries no reminder line (Ares 59036 and The Hood 56024 print one); same fix as cw 56055 (docs/phase7-wave10-box-heroes.md B8.1).]",
+    ],
   },
   {
     cardId: cardId("58027"),

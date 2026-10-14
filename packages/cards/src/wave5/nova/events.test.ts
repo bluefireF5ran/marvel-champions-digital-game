@@ -141,7 +141,14 @@ describe("Nova's events (28003-28006, 28011-28014, 28026)", () => {
 
     it("a non-wild resource is not doubled: one [physical] card cannot pay for either", () => {
       const hero = runWave5(novaVsRhino(), toHero(P1));
-      const given = moveToHand(hero, P1, "28004", "28005", "28002");
+      // Lightspeed Flight only removes threat: a scheme must hold some (RRG 1.8 "Target", p. 42).
+      const given = moveToHand(
+        patchInstance(hero, hero.mainScheme.instanceId, { threat: 10 }),
+        P1,
+        "28004",
+        "28005",
+        "28002",
+      );
       const [flight, potShot, physical] = given.ids as [InstanceId, InstanceId, InstanceId];
       expect(refused(given.state, play(P1, flight, [physical]))).toBe("insufficient_resources");
       expect(refused(given.state, play(P1, potShot, [physical]))).toBe("insufficient_resources");

@@ -49,6 +49,7 @@ import {
 } from "@mc/engine";
 import type { ArtSource } from "../art/art-source.js";
 import { characterPanel, deckAspect, handCardView, schemePanel, type HandCardView } from "./board-model.js";
+import { foeWord } from "./foe-words.js";
 import { hpNumber } from "./hp-format.js";
 import { inspectModel } from "./inspect-model.js";
 import { appendEvents, emptyLog, plainLogLine, type LogLine, type LogState } from "./log-lines.js";
@@ -189,11 +190,12 @@ function stateFor(state: GameState, stepKind: (typeof SETUP_STEP_ORDER)[number])
 
 function checklistOf(state: GameState, deps: EngineDeps, revealedCount: number): readonly SetupChecklistItem[] {
   const scheme = schemePanel(state, state.mainScheme.instanceId, deps, true);
+  const foe = foeWord(cardOf(state, activeVillain(state).instanceId));
   return [
     // Before the scenario is set up nothing is placed yet: the chips say so instead of reading as done.
     beforeScenarioSetup(state)
-      ? { key: "placed", label: "Villain & main scheme placed", state: "current" as const }
-      : { key: "placed", label: "Villain & main scheme placed", state: "done" as const },
+      ? { key: "placed", label: `${foe} & main scheme placed`, state: "current" as const }
+      : { key: "placed", label: `${foe} & main scheme placed`, state: "done" as const },
     beforeScenarioSetup(state)
       ? { key: "threat", label: "Starting threat", state: "pending" as const }
       : { key: "threat", label: `${scheme.threat} starting threat`, state: "done" as const },
@@ -362,7 +364,8 @@ export function setupWalkthroughViewOf(
   // the current step's own checklist label, lowercased, or a wrap-up note once every step is done.
   const stepLabel = `Step ${Math.min(stepIndex + 1, checklist.length)} of ${checklist.length} · ${current ? current.label.toLowerCase() : "handing off to the board"}`;
 
-  const villainName = cardOf(state, activeVillain(state).instanceId)?.name ?? "the villain";
+  const foeCard = cardOf(state, activeVillain(state).instanceId);
+  const villainName = foeCard?.name ?? `the ${foeWord(foeCard, { lower: true })}`;
   const mainSchemeName = cardOf(state, state.mainScheme.instanceId)?.name ?? "the main scheme";
   const startingThreat = schemePanel(state, state.mainScheme.instanceId, deps, true).threat;
 

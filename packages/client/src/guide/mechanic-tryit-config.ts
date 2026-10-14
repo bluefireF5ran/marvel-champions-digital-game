@@ -593,6 +593,70 @@ const ZEMO: MechanicTryItConfig = {
   },
 };
 
+/**
+ * - Wonder Man (`wonder-man-justice`): Simon Williams with Ionic Physiology already attached (setup puts it into play). The
+ *   stacked hand is Starstruck (cost 1, a printed [energy] event), Energy (2 [energy], so paying with it alone overpays by
+ *   1 [energy] and stuns the enemy) and four cards that react to nothing. The lesson flips him, plays Starstruck overpaid,
+ *   tucks it for +1 ATK, then makes a basic attack, after which the Forced Response discards the tucked card.
+ */
+const WONDER_MAN: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "wonder-man-justice" }],
+    seed: 5801,
+    stack: {
+      players: {
+        0: [
+          cardId("58005"), // Starstruck
+          cardId("58023"), // Energy: 2 [energy]
+          cardId("58016"), // Battlefield Benevolence (filler)
+          cardId("58017"), // Bombs Away (filler)
+          cardId("58007"), // Wonder Fans (filler)
+          cardId("58024"), // Jarvis (filler)
+        ],
+      },
+    },
+  },
+};
+
+/**
+ * - Hercules (`hercules-leadership`): Hercules (alter ego) with a Labor deck and a Gift deck, both facedown and shuffled by
+ *   the seed: this seed puts Embody Pathos on top of the Labor deck and Nemean Lion Skin on top of the Gift deck. The stacked
+ *   hand is The Gift of Battle (cost 3), Wisdom of Athena (cost 3) and four cards that pay for them and react to nothing; two
+ *   more payers wait on top of the deck for the end-of-turn draw. Embody Pathos goes on a side scheme and only Hercules's
+ *   thwarts can remove its threat; finishing it earns the Gift, which lowers the cost of The Gift of Battle by 1. The
+ *   encounter deck is stacked so round 1's boost card and encounter card are harmless.
+ */
+const HERCULES: MechanicTryItConfig = {
+  config: {
+    scenarioId: "rhino",
+    difficulty: "standard",
+    modularSetIds: ["bomb_scare"],
+    players: [{ starterDeckId: "hercules-leadership" }],
+    seed: 6002,
+    stack: {
+      players: {
+        0: [
+          cardId("59009"), // The Gift of Battle: cost 3, minus 1 per Gift card
+          cardId("59011"), // Wisdom of Athena: cost 3, thwart 4
+          cardId("59024"), // "Avenge Me!": pays [physical]
+          cardId("59024"),
+          cardId("59024"),
+          cardId("59023"), // Recruitment Drive: pays [mental]
+          cardId("59023"), // the end-of-turn draw
+          cardId("59023"),
+        ],
+      },
+      encounter: [
+        cardId("01098"), // Armored Rhino Suit: round 1's boost card
+        cardId("01186"), // Advance: round 1's encounter card
+      ],
+    },
+  },
+};
+
 export const MECHANIC_TRYIT_CONFIGS: Readonly<Record<MechanicTryItId, MechanicTryItConfig>> = {
   storm: STORM,
   phoenix: PHOENIX,
@@ -616,4 +680,6 @@ export const MECHANIC_TRYIT_CONFIGS: Readonly<Record<MechanicTryItId, MechanicTr
   falcon: FALCON,
   blackPanther: BLACK_PANTHER,
   zemo: ZEMO,
+  wonderMan: WONDER_MAN,
+  hercules: HERCULES,
 };

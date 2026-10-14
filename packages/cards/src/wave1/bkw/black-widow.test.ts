@@ -20,9 +20,9 @@ import {
   use,
   type Picker,
 } from "../../testing/harness.js";
-import { driveStepwise } from "../../testing/staging.js";
+import { driveEventsPicking, driveStepwise } from "../../testing/staging.js";
 import { wave1Scenario } from "../setup.js";
-import { BKW_DEPS, runBkw, startBkwGame } from "./testing.js";
+import { BKW_DEPS, runBkw, stackFromSetAside, startBkwGame } from "./testing.js";
 
 // Real wave 1 content: the Black Widow (Justice) precon against Rhino, standard, solo.
 const bkwVsRhino = (seed = 2101) =>
@@ -237,6 +237,49 @@ describe("Black Widow / Natasha Romanoff kit", () => {
     const minion = instancesOf(after, "01101").find((id) => after.instances[id]?.engagedWith === P1)!;
     expect(inst(after, minion).damage).toBe(2);
     expect(inst(after, minion).statuses.stunned).toBeGreaterThan(0);
+    expect(playerOf(after, P1).discard).toContain(bite);
+  });
+
+  // RRG 1.8 FAQ "Widow's Bite (#10)" (p. 60): "Quickstrike and the 'Response' on Widow's Bite have the same timing
+  // trigger. Keywords have timing priority over 'Response' abilities, so Quickstrike resolves first." "Reveal" (p. 38):
+  // responses to any step of a reveal wait until every step is done (the owner's answer 32B, 2026-10-12).
+  it("Widow's Bite and a revealed Quickstrike minion (FAQ #10, RRG p. 60; p. 38): Vulture attacks first, then is dealt 2 damage and stunned", () => {
+    // Vulture (01167, Quickstrike, ATK 3) is Spider-Man's nemesis minion: a second seat brings him into the game.
+    const start = startBkwGame(
+      wave1Scenario("rhino", {
+        players: [{ starterDeckId: "bkw-justice" }, { starterDeckId: "core-spider-man-justice" }],
+        seed: 2101,
+      }),
+    );
+    const P2 = start.players[1]!.playerId;
+    const given = moveToHand(start, P1, "08010");
+    const [bite] = given.ids as [never];
+    const withBite = settle(
+      runBkw(given.state, play(P1, bite, payWith(given.state, P1, 1, [bite]))),
+      firstLegal,
+      undefined,
+      BKW_DEPS,
+    );
+    const hero = runBkw(withBite, toHero());
+    // Rhino's two boost cards (one activation per player), then Vulture dealt to the first player.
+    const stacked = stackEncounterDeck(stackFromSetAside(hero, P2, "01167"), ADVANCE, ADVANCE, "01167");
+    const { state: after, events } = driveEventsPicking(
+      BKW_DEPS,
+      stacked,
+      preferring("widows-bite-response"),
+      endTurn(P1),
+      endTurn(P2),
+    );
+    const vulture = instancesOf(after, "01167")[0]!;
+    expect(inst(after, vulture).engagedWith).toBe(P1);
+    const attacked = events.findIndex((e) => e.type === "attackResolved" && e.enemyInstanceId === vulture);
+    const bitten = events.findIndex((e) => e.type === "damageDealt" && e.targetInstanceId === vulture);
+    expect(attacked).toBeGreaterThanOrEqual(0);
+    expect(bitten).toBeGreaterThan(attacked);
+    // He attacked unstunned (the stun came after), and carries the Bite's 2 damage and its stunned status card now.
+    expect(events[attacked]).toMatchObject({ baseAtk: 3 });
+    expect(inst(after, vulture).damage).toBe(2);
+    expect(inst(after, vulture).statuses.stunned).toBe(1);
     expect(playerOf(after, P1).discard).toContain(bite);
   });
 });

@@ -64,10 +64,10 @@ import type {
   SetupInstructionSource,
   StackFrame,
 } from "@mc/engine";
-import { activeAbilityRefs, playDestinationOfOption } from "@mc/engine";
+import { activeAbilityRefs, locateCard, playDestinationOfOption } from "@mc/engine";
 import { setupCallCopyFor } from "../campaign/story.js";
 import { abilityLabelOf } from "./ability-label.js";
-import { cardName, formWords, numberWord } from "./names.js";
+import { cardName, formWords, numberWord, seatFormName } from "./names.js";
 
 /** The card (and, when unambiguous, the ability) a pending choice traces back to. */
 export interface ChoiceSource {
@@ -398,9 +398,12 @@ export function promptTitleOf(
 ): string {
   const kind = prompt.kind;
   // RRG 1.8 "End of Player Phase" (p. 17): a player may discard any number, then must discard down to hand size.
-  // Title the question by what is owed: "Discard any cards?" when nothing is, "Discard 2 to hand size" when two are.
+  // Title the question by what is owed: "Discard any cards?" when nothing is, and when some are, the floor and why
+  // ("Discard at least 2 (hand size 5)"; the sheet's count line adds that more may go).
   if (kind === "discardDownToHandSize" && counts) {
-    return counts.minSelections > 0 ? `Discard ${counts.minSelections} to hand size` : "Discard any cards?";
+    return counts.minSelections > 0
+      ? `Discard at least ${counts.minSelections} (hand size ${prompt.handSize})`
+      : "Discard any cards?";
   }
   if (kind === "orderCards") {
     if (prompt.to === "playerDeckTop") return "Put the top of your deck back in order";
@@ -463,6 +466,8 @@ export function promptTitleOf(
     orderPlayers: "Order the players",
     chooseBottomCards: "Choose which cards go to the bottom",
     orderTriggers: "Order these effects",
+    // A revealed minion with both Quickstrike and Teamwork: the first player picks which resolves first.
+    orderKeywords: "Choose which keyword resolves first",
     chooseTriggers: "Trigger an ability?",
     chooseTarget: "Choose a target",
     chooseAttachmentTarget: "Choose a host",
@@ -523,7 +528,76 @@ export function choiceHeaderText(
   return `${named}: ${genericTitle.charAt(0).toLowerCase()}${genericTitle.slice(1)}`;
 }
 
+/** The choice sheet's header: what the player is doing, and (when a card or setup instruction is asking) who is asking. */
+export interface ChoiceHeader {
+  readonly title: string;
+  readonly subtitle: string | null;
+}
+
+/**
+ * The deck every option of a card pick sits in, named for the title ("the encounter deck", "your deck", "Tigra's
+ * deck"), or null when the options are not all cards of one deck. The pick is the same whether the cards are the whole
+ * deck (a search) or its top few (a look), so the words say only where they are.
+ */
+function pickedFromDeck(state: GameState, choice: PendingChoice): string | null {
+  if (choice.prompt.kind !== "chooseCards" || choice.options.length === 0) return null;
+  let found: string | null = null;
+  for (const option of choice.options) {
+    if (option.ref.kind !== "card") return null;
+    const zone = locateCard(state, option.ref.instanceId);
+    let here: string | null = null;
+    if (zone?.kind === "encounterDeck") here = "the encounter deck";
+    else if (zone?.kind === "deck") {
+      here = zone.playerId === choice.playerId ? "your deck" : `${seatFormName(state, zone.playerId)}'s deck`;
+    }
+    if (here === null || (found !== null && found !== here)) return null;
+    found = here;
+  }
+  return found;
+}
+
+/**
+ * The sheet's header as two lines. A card pick out of a deck is titled by what the player is doing ("Choose cards from
+ * the encounter deck") with the card or setup instruction that asks as the subtitle, rather than "Iron Man: choose
+ * cards", which read as if Iron Man were the one choosing. Every other choice keeps 's one line,
+ * which already leads with its source, and has no subtitle.
+ */
+export function choiceHeaderOf(
+  state: GameState,
+  choice: PendingChoice,
+  deps: EngineDeps,
+  genericTitle: string,
+): ChoiceHeader {
+  const deck = pickedFromDeck(state, choice);
+  if (deck === null) return { title: choiceHeaderText(state, choice, deps, genericTitle), subtitle: null };
+  const source = choiceSourceOf(state, choice);
+  const instruction = source ? null : choiceInstructionOf(state, choice);
+  const subtitle = source
+    ? source.abilityId
+      ? abilityLabelOf(state, source.instanceId, source.abilityId, deps)
+      : cardName(state, source.instanceId)
+    : instruction
+      ? instructionHeaderName(instruction)
+      : null;
+  return { title: `Choose cards from ${deck}`, subtitle };
+}
+
 /** The card whose art the choice sheet should thumbnail beside the header — `choiceSourceOf`'s own instance, when there is one. */
 export function choiceHeaderInstanceId(state: GameState, choice: PendingChoice): InstanceId | null {
   return choiceSourceOf(state, choice)?.instanceId ?? null;
+}
+
+/**
+ * The count line under the end-of-phase discard's title. A bare "select 2–7" reads as a range of how many to discard
+ * that the player must hit; the rule is a floor (RRG 1.8 "End of Player Phase", p. 18: "may discard any number ... and
+ * must discard down to their hand size"), so the line says "at least" and that more may go. Null for any other prompt.
+ */
+export function discardCountNoteOf(
+  prompt: ChoicePrompt,
+  counts: Pick<PendingChoice, "minSelections" | "maxSelections">,
+): string | null {
+  if (prompt.kind !== "discardDownToHandSize") return null;
+  if (counts.minSelections <= 0) return "select any number to discard";
+  const more = counts.maxSelections > counts.minSelections ? " · you may discard more" : "";
+  return `select at least ${counts.minSelections}${more}`;
 }

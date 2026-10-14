@@ -221,7 +221,10 @@ describe("Ironheart's events (29005-29008, 29017-29019, 29025)", () => {
     it("an already-exhausted hero cannot pay the cost", () => {
       const hero = ironheartInHeroForm();
       const identity = identityOf(hero, P1);
-      const exhausted = patchInstance(hero, identity, { exhausted: true });
+      // Push Ahead only removes threat, so a scheme must hold some (RRG 1.8 "Target", p. 42) or it is refused first.
+      const exhausted = patchInstance(patchInstance(hero, identity, { exhausted: true }), hero.mainScheme.instanceId, {
+        threat: 10,
+      });
       const given = moveToHand(exhausted, P1, "29018", "29005");
       const [pushAhead, mentalCard] = given.ids as [InstanceId, InstanceId];
       const filler = payWith(given.state, P1, 2, [pushAhead, mentalCard]);

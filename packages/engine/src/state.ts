@@ -10,6 +10,8 @@ import type { RuleSpec } from "./abilities.js";
 import type { EffectSpec, StatusName } from "./spec.js";
 import type { EncounterDealSource, LeaveCauseSide, TriggerEvent } from "./trigger-events.js";
 import type { PodState } from "./pod.js";
+import type { GameMode } from "./game-mode.js";
+import type { TeamState } from "./team.js";
 
 export type Form = "hero" | "alterEgo";
 
@@ -207,7 +209,11 @@ export interface Accusation {
 export interface CardInstance {
   readonly instanceId: InstanceId;
   readonly cardId: CardId;
-  /** Player whose deck it came from; null for encounter/scenario cards. */
+  /**
+   * Player whose deck it came from; null for encounter/scenario cards, except a card of an identity's separate deck of
+   * encounter cards (a Labor card), which its player owns and no player controls (`isOwnedEncounterCard`,
+   * `playerCardOwnerOf`; docs/phase7-wave10-hero-packs.md H3.1).
+   */
   readonly ownerId: PlayerId | null;
   readonly controllerId: PlayerId | null;
   /** Where "discard" sends this card (see `CardHome`). */
@@ -481,6 +487,13 @@ export interface DeckDiscard {
   readonly by?: LeaveCauseSide;
   readonly how?: "effect" | "cost";
   readonly boundOn?: { readonly frameId: FrameId; readonly slot: string; readonly also?: readonly string[] };
+  /**
+   * On a discard a response window is watching (`DeckDiscardWindow`), once a response has moved the card from where
+   * its discard left it: the card that response's ability is on, and whether that ability leaves the card counted by
+   * the ability that discarded it (`AbilityDefinition.discardsStayCounted`, box-heroes B3.3). Recorded as that
+   * response finishes (`noteDeckDiscardsTaken`); the first response to move the card is the one named.
+   */
+  readonly takenBy?: { readonly instanceId: InstanceId | null; readonly stillCounted: boolean };
 }
 
 /**
@@ -571,9 +584,11 @@ export interface MainSchemeState {
   /** RRG "Acceleration Token": carries over when the main scheme advances. */
   readonly accelerationTokens: number;
   /**
-   * The order its stages are walked in, as stage indexes, once a card has shuffled them ("Shuffle all copies of main
-   * scheme 2A and stack them under this scheme", The Brotherhood Strikes! 1A; `EffectSpec shuffleMainSchemeStages`,
-   * docs/phase7-wave6.md §3.18). When present it is the authority for the default advance: the next stage is the entry
+   * The order its stages are walked in, as stage indexes: set at setup when the main scheme deck is chosen stages of
+   * the card (`GameSetupConfig.mainSchemeStageIndexes`, docs/phase7-wave10.md §3.2; the card's other stages are then
+   * not in the deck), or once a card has shuffled them ("Shuffle all copies of main scheme 2A and stack them under
+   * this scheme", The Brotherhood Strikes! 1A; `EffectSpec shuffleMainSchemeStages`, docs/phase7-wave6.md §3.18).
+   * When present it is the authority for the default advance: the next stage is the entry
    * after the current one, and the last entry is the final stage. Absent, stages are walked in printed order (and a
    * group of same-numbered alternatives needs card text to pick one, Kang's stage 3).
    */
@@ -968,7 +983,8 @@ export interface GameState {
   readonly nextGameAreaSeq: number;
   /**
    * Stage indexes of the main scheme card that can no longer be revealed: an alternative stage already revealed, or one
-   * removed from the game ("Remove any unused stage 3 schemes from the game", The Master of Time 2A).
+   * removed from the game ("Remove any unused stage 3 schemes from the game", The Master of Time 2A), or one left out
+   * of a main scheme deck made of chosen stages (`GameSetupConfig.mainSchemeStageIndexes`, docs/phase7-wave10.md §3.2).
    */
   readonly spentMainSchemeStages: readonly number[];
   /**
@@ -1102,6 +1118,14 @@ export interface GameState {
    * them have an entry, and the field is absent while there is none.
    */
   readonly hitPointsSeen?: Readonly<Record<string, number>>;
+  /**
+   * The target threat each main scheme stage in play was last seen to have, keyed `instanceId:stageIndex:side`, so a
+   * fall is noticed the moment it happens: RRG 1.8 "Main Scheme" (p. 27), a stage with threat equal to or greater
+   * than its target threat is completed, whether the threat rose or the target fell (`resolve/state-checks.ts`
+   * `checkSchemeTargetsFell`; docs/phase7-wave10.md §3.15). Memory of an edge and nothing else: a target is always
+   * derived (`mainSchemeValue`), never read from here. Absent until the first check between frames.
+   */
+  readonly schemeTargetsSeen?: Readonly<Record<string, number>>;
   /**
    * The card last logged as showing on top of each player's deck under a `topOfDeckFaceup` rule (docs/phase7-wave8.md
    * §3.48), so the log says `deckTopShown` / `deckTopHidden` once per change (`announceDeckTops`, `deck-top.ts`). This
@@ -1253,6 +1277,18 @@ export interface GameState {
    * serializes as before.
    */
   readonly pod?: PodState;
+  /**
+   * The game mode (docs/phase7-wave10.md §3.4), written by setup from `GameSetupConfig.gameMode`. Read through
+   * `gameModeOf` (`game-mode.ts`) alone. **Absent** in a cooperative game, so every game before the field serializes
+   * as before; setup refuses `"competitive"`, so today it is absent in every game setup makes.
+   */
+  readonly gameMode?: GameMode;
+  /**
+   * The teams of a game with two of them (docs/competitive-mode-plan.md §3.3; MC56 p. 14), in team order. Read through
+   * `team.ts` alone (`teamsOf`, `teamOf`, `playersOnTeam`, `teamSize`), which gives the one team of every seat when it
+   * is absent. **Absent** in every game setup makes, so every game before the field serializes as before.
+   */
+  readonly teams?: readonly TeamState[];
   /**
    * The campaign this game is a scenario of, exactly as the runner composed it (design §7.1) — **frozen**: nothing
    * in a game ever writes here. Because it lands in the replay baseline, a saved campaign game replays without

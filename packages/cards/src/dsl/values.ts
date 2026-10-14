@@ -3,7 +3,9 @@ import {
   attackPreventedVars,
   labeledResolvedVar,
   PAID_CARDS_SLOT,
+  PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
+  EXCESS_AS_DEALT_RESULT,
   TOTAL_ATK_RESULT,
   UNRESOLVED_VAR,
 } from "@mc/engine";
@@ -13,6 +15,7 @@ import type {
   CharacterNames,
   Form,
   PlayerRef,
+  PlayerZone,
   Predicate,
   ResourceRequirement,
   RulesCardType,
@@ -45,6 +48,27 @@ export const firstPlayer: PlayerRef = { kind: "firstPlayer" };
 export const eachPlayer: PlayerRef = { kind: "each" };
 /** "That player" inside `forEachPlayer`. */
 export const thatPlayer: PlayerRef = { kind: "scoped" };
+/**
+ * "Each player on your team" (docs/competitive-mode-plan.md §3.3): the players in the game on the resolving player's
+ * team, in player order; each player in a cooperative game. "More than 1 player on your team" counts it:
+ * `refCount(identityOf(yourTeam))`.
+ */
+export const yourTeam: PlayerRef = { kind: "team", of: "yours" };
+/**
+ * "The enemy team" as its players, in player order; "a player on the enemy team" is `choosePlayer` among them. Each
+ * player in a cooperative game (MC56 p. 6: "'the enemy team' refers to the players"). Who makes a choice the enemy team
+ * is given is a separate matter (plan §4 task 7).
+ */
+export const enemyTeam: PlayerRef = { kind: "team", of: "enemy" };
+/**
+ * "**The enemy team** exhausts a character you control", "a minion of **the enemy team's choice**", "The enemy team
+ * searches the encounter deck for…" (docs/competitive-mode-plan.md §3.4, §4 task 7): the chooser of a choice the card
+ * gives to the enemy team, as in `chooseTarget(slot, q, { chooser: enemyTeamChooses })`. MC56 p. 6: cooperatively the
+ * enemy team is the players, who "resolve these abilities using the grim rule: Imagine what an opponent would do if it
+ * were their choice"; the first player makes the choice (owner decision, 2026-10-11), and the prompt and the log say
+ * it is made for the enemy team. The options are the ones any chooser would be offered.
+ */
+export const enemyTeamChooses: PlayerRef = { kind: "enemyTeamDecider" };
 /** The player picked by `choosePlayer(slot)`. */
 export const chosenPlayer = (slot = "player"): PlayerRef => ({ kind: "slot", slot });
 /** "Each other hero": every player except these. */
@@ -149,6 +173,28 @@ export const self: TargetRef = { kind: "self" };
 /** "Attached minion/enemy/ally". */
 export const host: TargetRef = { kind: "host" };
 export const theVillain: TargetRef = { kind: "villain" };
+/**
+ * "Each of **those heroes**" in a response to `on.cardRevealedGranting(t, …)` (docs/phase7-wave10.md §3.16): the cards
+ * the revealed card's text gives the trait `t` to that are still in play, narrowed by `filter` (`query("hero")`). A
+ * card that already had the trait is among them (owner decision, question 12 = A, provisional).
+ */
+export const grantedTo = (t: Trait, filter?: TargetQuery): TargetRef => ({
+  kind: "grantedTo",
+  trait: t,
+  ...(filter ? { filter } : {}),
+});
+/**
+ * "The enemy leader" (docs/competitive-mode-plan.md §3.3): the leader the resolving player's team is fighting. In a
+ * cooperative game, the villain (MC56 p. 6; ruling of July 9, 2026 (3) answer 2), so a script writes the printed word
+ * and it reads as `theVillain` does.
+ */
+export const enemyLeader: TargetRef = { kind: "leader", of: "enemy" };
+/**
+ * "Your leader": the leader the enemy team is fighting. No card in a cooperative game, where an effect aimed at it
+ * does nothing and the rest of the ability resolves (MC56 p. 6: "Do as much as you can."). A printed "Otherwise" is
+ * an `ifThen` on `refCount(yourLeader)`.
+ */
+export const yourLeader: TargetRef = { kind: "leader", of: "yours" };
 /**
  * "The defending character" of the enemy attack in progress (Energy Projectiles' boost, 07027), while it is in play.
  * Empty for an undefended attack or outside an enemy attack. Works in a Boost ability, which has no triggering event.
@@ -742,6 +788,15 @@ export const eventResult = (key: string): ValueSpec => ({ kind: "eventResult", k
  * `enemyAttacks` response; `eventResult("damage")` is what the attack dealt after DEF.
  */
 export const attackTotalAtk: ValueSpec = eventResult(TOTAL_ATK_RESULT);
+/**
+ * "For each point of excess damage dealt to that enemy by that attack", for a card ruled to count the damage **dealt**
+ * (Prince of Power, `hercules` 59017; February 8, 2026 - Ruling 2, owner answer 31B in docs/phase7-wave10.md §4.0):
+ * the amount the attack dealt beyond the enemy's remaining hit points, before a reduction of the damage it takes, a
+ * tough status card or a prevention (engine `excessAsDealtOf`). Read on an `after.attacks` response. Every other
+ * "excess damage" reads `eventResult("excessDealt")` / `varOf("<bind>.excessDealt")`, the excess of the damage taken
+ * that overkill spills (RRG 1.8 "Overkill", p. 31): do not use this one without a ruling for the card.
+ */
+export const attackExcessAsDealt: ValueSpec = eventResult(EXCESS_AS_DEALT_RESULT);
 export const handSizeOf = (player: PlayerRef = you, printed = false): ValueSpec =>
   printed ? { kind: "handSize", player, printed } : { kind: "handSize", player };
 /**
@@ -755,6 +810,20 @@ export const handCountOf = (player: PlayerRef = you, filter?: TargetQuery): Valu
   player,
   ...(filter ? { filter } : {}),
 });
+/**
+ * The cards in a player's hand, deck or discard pile (or several of them as one pool), optionally only those matching
+ * `filter`: what a `zone(zone, player, { filter })` selector would name, as a number. "Tuck 1 event with a printed
+ * [energy] resource from your discard pile" (Wonder Fans, `wonder_man` 58007) can be done while
+ * `valueAtLeast(zoneCountOf("discard", you, query("event", { printedResource: "energy" })), 1)`, which is the `when:`
+ * of that option (RRG 1.8 "Choose (Option)", p. 12). `exists` and `countOf` read cards in play and cannot see these
+ * zones; `handCountOf` and `deckCountOf` are the one-zone forms that came first. With a filter on a deck it reads
+ * cards no player may look at: use it there only where the text has the deck searched.
+ */
+export const zoneCountOf = (
+  zone: PlayerZone | readonly PlayerZone[],
+  player: PlayerRef = you,
+  filter?: TargetQuery,
+): ValueSpec => ({ kind: "zoneCount", zone, player, ...(filter ? { filter } : {}) });
 /**
  * "X is the number of cards of the most common type in your hand" (Stryfe, `next_evol`; docs/phase7-wave7.md §3.32):
  * the size of the largest group of cards in that player's hand sharing one of the six player card types MC40 p. 18
@@ -773,6 +842,16 @@ export const mostCommonHandTypeCount = (player: PlayerRef = you): ValueSpec => (
  * "Modifiers" (p. 29) rounds fractional values up unless the text prints otherwise.
  */
 export const deckCountOf = (player: PlayerRef = you): ValueSpec => ({ kind: "deckCount", player });
+/**
+ * The cards in `player`'s separate deck `name` (the deck only, never its discard pile): 0 for a deck the player does
+ * not have. `valueAtLeast(separateDeckCountOf("Labor"), 1)` is "the labor deck has a card to reveal"
+ * (docs/phase7-wave10-hero-packs.md H3.2).
+ */
+export const separateDeckCountOf = (name: string, player: PlayerRef = you): ValueSpec => ({
+  kind: "deckCount",
+  player,
+  separateDeck: name,
+});
 /**
  * "For each facedown encounter card in front of you" (Star-Lord's own kit, `stld`: Gutsy Move, Sliding Shot, Jet
  * Boots, Star-Lord's Helmet; docs/phase7-wave3.md §3.10): the count of encounter cards the interrupt-time cost
@@ -1206,6 +1285,16 @@ export const refMatches = (ref: TargetRef, q: TargetQuery, opts: { readonly anyw
   query: q,
   ...(opts.anywhere ? { anywhere: true } : {}),
 });
+/**
+ * "… if paying for a Hulkling card" in what a resource ability generates (Alien Physiology, `cw` 56036;
+ * docs/phase7-wave10-box-heroes.md B7.2): the card the payment is for matches `q`. That card is the one being played,
+ * or the one whose ability's cost is being paid (FAQ "Finesse (#33)", RRG 1.8 p. 60), wherever it is; a payment for
+ * no card (a basic power's additional cost) matches nothing. Read in a `resource(...)` ability's `generates` and in
+ * its effects, which both have the card as slot `paidFor`:
+ * `resource(generatesAmount("wild", ifElse(payingFor(ofIdentitySetTitled("Hulkling")), 2, 1)), { cost: exhaustThis })`.
+ * Unlike `generatesFor`, it does not stop the ability being used for any other card.
+ */
+export const payingFor = (q: TargetQuery): Predicate => refMatches(chosen(PAID_FOR_SLOT), q, { anywhere: true });
 export const damagedAtLeast = (of: TargetRef, n: number): Predicate => ({ kind: "damagedAtLeast", of, amount: n });
 /**
  * A numeric comparison between two live values — the general form behind "if there is 10 or more threat here"
@@ -1331,6 +1420,43 @@ export const gameAreasSplit: Predicate = { kind: "gameAreasSplit" };
  * "(In expert mode, place 2 threat …)" is `ifThen(inMode("expert"), …)`.
  */
 export const inMode = (mode: "standard" | "expert"): Predicate => ({ kind: "inMode", mode });
+/**
+ * "In competitive mode, …. Otherwise, …" (docs/phase7-wave10.md §3.4): the game mode, which is cooperative in every
+ * game played today. The printed sentence is written in full, with the part that is not built as a marker:
+ * `ifThen(inCompetitiveMode(), competitiveOnly("In competitive mode, move 2 threat …"), placeThreat(…))`.
+ */
+export const inCompetitiveMode = (): Predicate => ({ kind: "gameMode", is: "competitive" });
+/**
+ * "… **uses their ATK** to attack and damage attached character" (Cap's Shield, `cw` 56143; docs/phase7-wave10.md
+ * §3.17): the attack, or the damage, this ability answers was made with the attacker's ATK. Written as the ability's
+ * own condition. After the attack, so the attacked character's retaliate has resolved (a keyword comes before a
+ * triggered ability, ruling January 17, 2026 (3) #2), with the damage read per character so that overkill counts
+ * (rulings January 11, 2026 (1), (2)): `forcedResponse(on.attacks(…), { while: and(attackUsedAtk(),
+ * eventDamageTaken(host)) }, …)`, and the same on `on.enemyAttacks(…)` for an enemy attacker. On `on.damage(…, {
+ * fromAttack: true })` it reads that one instance of damage, in its own window (before retaliate).
+ *
+ * True for a basic attack, an attack or damage instruction whose amount reads the attacker's ATK (`attack` and
+ * `dealDamage` mark those themselves), overkill damage spilled from either, and any attack of an enemy. False for a
+ * flat amount (ruling December 17, 2025 (2) #3) and for a basic attack made with THW instead.
+ */
+export const attackUsedAtk = (): Predicate => ({ kind: "attackUsedAtk" });
+/**
+ * Whether an amount is built from the ATK of the card(s) `of` names: a `statOf(of, "atk")` (or its base, printed or
+ * total reading) anywhere in it. What `attack` and `dealDamage` read to mark an attack as using its attacker's ATK
+ * (`usesAtk`, docs/phase7-wave10.md §3.17; ruling December 17, 2025 (2) #3: an ability that "calls out your ATK in
+ * some way"). The ATK of another character ("damage equal to that ally's ATK" on a hero's attack) does not count.
+ */
+export function readsAtkOf(value: Amount, of: TargetRef): boolean {
+  const wanted = JSON.stringify(of);
+  const visit = (node: unknown): boolean => {
+    if (Array.isArray(node)) return node.some(visit);
+    if (typeof node !== "object" || node === null) return false;
+    const record = node as Readonly<Record<string, unknown>>;
+    if (record.kind === "stat" && record.stat === "atk" && JSON.stringify(record.of) === wanted) return true;
+    return Object.values(record).some(visit);
+  };
+  return visit(value);
+}
 /**
  * "X is equal to Ironheart's [Version] number" (`ironheart`; docs/phase7-wave5.md §3.23): `traitNumber(yourIdentity,
  * "Version")` reads "VERSION 2" as 2 (from the printed hero face while in alter-ego form).

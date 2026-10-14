@@ -20,9 +20,13 @@
 import { type Ctx, emit, moveCard, updateInstance } from "../ctx.js";
 import type { EngineDeps } from "../abilities.js";
 import type { InstanceId, PlayerId } from "../ids.js";
-import { cardOf, getInstance, mustInstance } from "../query.js";
+import { cardOf, getInstance, mustInstance, isOwnedEncounterCard } from "../query.js";
 import { canHaveAttached, cannotBeUnattached } from "../rules.js";
 import { cardsInPlay, controllerOf, isFacedownAttachment } from "../select.js";
+import { attachmentHostCandidates } from "../attachment-hosts.js";
+import { isPermanent } from "../keywords.js";
+import { pushEvents } from "./frames.js";
+import { heard } from "./triggers.js";
 import type { GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { shuffle } from "../rng.js";
@@ -78,8 +82,9 @@ export function attachCard(ctx: Ctx, id: InstanceId, host: InstanceId, facedown 
   if (before.engagedWith !== null) updateInstance(ctx, id, (i) => ({ ...i, engagedWith: null }));
   // A player card entering play from out of play enters under its owner's control (RRG 1.8 p. 31); one moving between
   // hosts keeps its controller. A no-op for every card whose controller is already its owner.
+  // An encounter card a player owns (a Labor card) enters play under no player's control, as every encounter card does.
   const { ownerId, controllerId } = mustInstance(ctx.state, id);
-  if (!wasInPlay && ownerId !== null && controllerId !== ownerId)
+  if (!wasInPlay && ownerId !== null && controllerId !== ownerId && !isOwnedEncounterCard(ctx.state, id))
     updateInstance(ctx, id, (i) => ({ ...i, controllerId: ownerId }));
   if (facedown) updateInstance(ctx, id, (i) => ({ ...i, faceup: false, facedownAs: { kind: "blank", traits: [] } }));
   else if (isFacedownAttachment(ctx.state, id))
@@ -232,4 +237,52 @@ export function settleUpgradeControl(ctx: Ctx, id: InstanceId, otherwise: Player
   if (to === from) return;
   updateInstance(ctx, id, (i) => ({ ...i, controllerId: to }));
   if (to !== null) emit(ctx, { type: "controllerChanged", instanceId: id, from, to, reason: "attachedTo" });
+}
+
+/**
+ * The host a permanent encounter attachment goes to when it becomes unattached (docs/phase7-wave10.md §3.19). MC56
+ * p. 20: "When an attachment with the permanent keyword becomes unattached, resolve its 'attach to' text." (Cap's
+ * Shield, `cw` 56143: "Permanent. Attach to Captain America."); RRG 1.8 "Permanent" (p. 32): it cannot leave play, so
+ * the host's leaving does not take it. The printed instruction is read as a reveal reads it (`attachmentHostCandidates`;
+ * RRG 1.8 "Attach To", p. 8: "checked for legality when the card would be attached"), never onto the host that is
+ * leaving. Null for any other card (a player's permanent card is unattached in play, docs/phase7-wave5.md §3.30; a
+ * card with no "attach to" text, or with a player owner or controller) and when the instruction names no legal host.
+ *
+ * Several legal hosts would be the first player's choice (RRG 1.8 "First Player", p. 19); the first in stable order is
+ * taken, as player elimination has always done. No printed permanent attachment names more than one.
+ */
+export function permanentRehostFor(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  leavingHostId: InstanceId | null,
+): InstanceId | null {
+  const instance = getInstance(state, id);
+  if (!instance || instance.ownerId !== null || instance.controllerId !== null) return null;
+  const card = state.cardPool[instance.cardId];
+  if (card?.type !== "attachment" || card.attachesTo === undefined) return null;
+  if (isFacedownAttachment(state, id) || !isPermanent(state, id, deps)) return null;
+  const context = { selfInstanceId: id, controllerId: null, event: null, bindings: {}, deps };
+  const [host] = attachmentHostCandidates(state, card.attachesTo, context).filter(
+    (candidate) => candidate !== leavingHostId && candidate !== id && canAttachTo(state, deps, id, candidate),
+  );
+  return host ?? null;
+}
+
+/**
+ * Re-resolves a permanent encounter attachment's "attach to" as its host leaves play or its player is eliminated
+ * (`permanentRehostFor`): the card moves to that host without leaving play, keeping what is on it, and the attaching
+ * is announced (`cardAttached`), so "After Cap's Shield is attached to Captain America, give him a tough status
+ * card" answers it. Returns whether it moved; false leaves the card where it was, for the caller's fallback.
+ */
+export function rehostPermanentAttachment(ctx: Ctx, id: InstanceId, leavingHostId: InstanceId | null): boolean {
+  const host = permanentRehostFor(ctx.state, ctx.deps, id, leavingHostId);
+  if (host === null) return false;
+  const from = getInstance(ctx.state, id)?.attachedTo ?? null;
+  const events = attachCardBy(ctx, id, host, null);
+  if (getInstance(ctx.state, id)?.attachedTo !== host) return false;
+  emit(ctx, { type: "permanentAttachmentRehosted", instanceId: id, fromInstanceId: from, hostInstanceId: host });
+  const announced = events.filter((event) => announcesAttaching(event, (e) => heard(ctx.state, ctx.deps, e)));
+  if (announced.length > 0) pushEvents(ctx, announced);
+  return true;
 }

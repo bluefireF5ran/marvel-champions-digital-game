@@ -45,12 +45,33 @@ export type { HorsemanSide, Wave8ScenarioOptions } from "./wave8/index.js";
 // Wave 9 (cycle 9, Agents of S.H.I.E.L.D.): joined to `playable/`, minus the sets `playable/unscripted.ts` gates.
 export { WAVE9_ABILITIES, WAVE9_CARDS, WAVE9_DEPS, wave9Scenario, wave9StarterDeckSetup } from "./wave9/index.js";
 export type { Wave9ScenarioOptions } from "./wave9/index.js";
+// Wave 10 (cycle 10, Civil War): scaffold and scripts in progress, NOT joined to `playable/` yet.
+export {
+  WAVE10_ABILITIES,
+  WAVE10_CARDS,
+  WAVE10_DEPS,
+  WAVE10_GAME_ENCOUNTER_SETS,
+  wave10Scenario,
+  wave10StarterDeckSetup,
+} from "./wave10/index.js";
+export type { Wave10Difficulty, Wave10ScenarioOptions } from "./wave10/index.js";
+// A main scheme deck made of chosen stages (the Civil War leaders): picks to `mainSchemeStageIndexes`, and the options.
+export {
+  chooseMainSchemeStages,
+  mainSchemeStageGist,
+  mainSchemeStagesOffer,
+  mainSchemeStagesProblem,
+} from "./main-scheme-stages.js";
+export type { MainSchemeStageContext, MainSchemeStageOption, MainSchemeStagesOffer } from "./main-scheme-stages.js";
 export { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./playable/unscripted.js";
 // Which optional setup choices a playable scenario offers (Standard III, the Horsemen's versions, the easier
 // Apocalypse start, threat on Gene Pool): what a setup screen asks before it draws a control.
 export {
   INFINITES_GENE_POOL_THREAT_MAX,
   checkPlayableDifficultySets,
+  civilWarGameModes,
+  civilWarModularSets,
+  civilWarSidesOffer,
   difficultySetAlternativesFor,
   expertSetReplaceable,
   genePoolThreatOffer,
@@ -63,13 +84,21 @@ export {
   standardSetReplaceable,
 } from "./playable/scenario-options.js";
 export type {
+  CivilWarLeaderOffer,
+  CivilWarSideOffer,
   DifficultySetAlternatives,
+  GameModeOption,
   GenePoolThreatOffer,
   HorsemanSidesOffer,
+  MainSchemeStagesChoiceOffer,
+  ModularSetCountOffer,
+  ModularSetLegality,
   PlayableScenarioChoices,
   PlayableScenarioOffer,
 } from "./playable/scenario-options.js";
 export { PLAYABLE_ABILITIES, PLAYABLE_DEPS, playableScenario, playableStarterDeckSetup } from "./playable/index.js";
+export { randomCivilWarScenario } from "./playable/random-civil-war.js";
+export type { RandomCivilWarOptions, RandomCivilWarScenario } from "./playable/random-civil-war.js";
 export type { PlayableScenarioOptions } from "./playable/index.js";
 // Community decks: the saved, tested public MarvelCDB decklists, as a catalog a client can recommend from.
 export {
@@ -106,5 +135,8 @@ export {
   chosenModularSetIds,
   isModularChoice,
   isScenarioSpecificSet,
+  modularPickCountProblem,
+  modularPickCountRange,
   modularPickProblem,
+  scenarioSideClause,
 } from "./modular-pool.js";

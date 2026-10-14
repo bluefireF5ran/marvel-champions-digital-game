@@ -35,6 +35,12 @@ export interface SpentCardAbilityUse {
   readonly abilityId: AbilityId;
   /** The cards the ability's own cost picks, by slot (as `ResourceAbilityUse.costChoices`). */
   readonly costChoices?: CostChoices;
+  /**
+   * The amounts the ability's own cost leaves to the player (as `ResourceAbilityUse.costSelection`): "When you spend
+   * this card, take up to 3 damage → this card generates 1 additional [energy] resource for each damage taken this
+   * way" names the damage in `damageSelf` (docs/phase7-wave10-hero-packs.md H3.14).
+   */
+  readonly costSelection?: CostSelection;
 }
 
 /** One use of a resource ability in a payment (see `Payment`). */
@@ -45,8 +51,9 @@ export interface ResourceAbilityUse {
   readonly costChoices?: CostChoices;
   /**
    * The amounts the ability's own cost leaves to the player (`CostSelection.removeThreat`; docs/phase7-wave9.md
-   * §3.7 (b)). A use in a payment is never asked as its cost is paid, so the amount is part of the payment: absent,
-   * a chosen-amount threat cost removes the most it can.
+   * §3.7 (b); `CostSelection.damageSelf`, docs/phase7-wave10-hero-packs.md H3.14). A use in a payment is never asked
+   * as its cost is paid, so the amount is part of the payment: absent, a chosen-amount threat cost removes the most
+   * it can and a chosen-amount damage cost takes the least it may.
    */
   readonly costSelection?: CostSelection;
 }
@@ -84,13 +91,57 @@ export interface CostSelection {
    */
   readonly removeThreat?: number;
   /**
+   * How much damage a chosen-amount damage cost takes (`AbilityCost.damageSelf { choose }`, "take any amount of damage
+   * up to … →"; docs/phase7-wave7.md §3.79, docs/phase7-wave10-hero-packs.md H3.14): a whole number in the range the
+   * cost offers right now, from its `min` to the most the identity could take in full; anything else is refused.
+   * Named, the cost is paid with that amount and no `chooseNumber` choice is asked. Absent: the payer is asked as the
+   * cost is paid, except for a resource ability used in a payment (`ResourceAbilityUse.costSelection`,
+   * `SpentCardAbilityUse.costSelection`), which takes the least the cost allows: a payment is priced before it is
+   * paid, and damage nobody named is not taken for the player. A fixed-amount damage cost ignores it.
+   */
+  readonly damageSelf?: number;
+  /**
    * The number a chosen-size encounter deck discard cost discards (`AbilityCost.discardFromEncounterDeck { choose }`;
    * docs/phase7-wave9.md §3.43 (a)): a whole number from the cost's `min` to its `max`; anything else is refused. It
    * may be more than the deck holds (RRG 1.8 "Encounter Deck", p. 17). Named, no `chooseNumber` choice is asked.
    * Absent: the payer is asked as the cost is paid. A fixed-amount cost ignores it.
    */
   readonly discardFromEncounterDeck?: number;
+  /**
+   * Another player paying a part of this cost in the user's place (`RuleSpec costsPayableByAnyPlayer`, "While paying
+   * costs on attached card, any player may help pay those costs"; docs/phase7-wave10-hero-packs.md H3.19, owner answer
+   * 21B), or of the costs of an alliance card being played (RRG 1.8 "Alliance", p. 6; owner answer 48B): the player
+   * who pays each part named, whole. A part left out, or given the user's own id, is paid by the user. Refused unless
+   * such a rule names the card the cost is printed on or that card is an alliance card being played
+   * (`costPartsPayableByAnyPlayer`), the player is still in the game and the
+   * cost holds that part; then everything the part asks is checked against, and taken from, that player (their
+   * identity takes the damage, their deck or hand is discarded from).
+   *
+   * Only the parts a cost words as "you" without naming a card are listed (`DelegableCostPart`). A part paid with a
+   * card needs no entry: resources (`payment`), a discard from hand and a card in play (`costChoices`) name the cards,
+   * and a helper's card is a helper paying. A part that names the user's own card ("exhaust your hero", "exhaust this
+   * card") stays with the user and has no entry.
+   */
+  readonly paidBy?: CostPartPayers;
 }
+
+/**
+ * The parts of a cost `CostSelection.paidBy` may hand to another player, named as their `AbilityCost` fields: "take N
+ * damage" (`damageSelf`), "take N indirect damage" (`indirectDamage`), "discard the top N cards of your deck"
+ * (`discardFromDeck`), "discard N cards at random from your hand" (`discardRandomFromHand`) and "deal yourself N
+ * encounter cards" (`dealEncounterCards`).
+ */
+export const DELEGABLE_COST_PARTS = [
+  "damageSelf",
+  "indirectDamage",
+  "discardFromDeck",
+  "discardRandomFromHand",
+  "dealEncounterCards",
+] as const;
+export type DelegableCostPart = (typeof DELEGABLE_COST_PARTS)[number];
+
+/** Who pays which delegable part of a cost (`CostSelection.paidBy`). */
+export type CostPartPayers = Readonly<Partial<Record<DelegableCostPart, PlayerId>>>;
 
 /**
  * Every command names the player issuing it so authority can be checked here

@@ -274,7 +274,10 @@ describe("Solar Beam (event, 26008)", () => {
   });
 
   it("Solar Beam does nothing if the form condition fails (Dense-gated attack while Intangible)", () => {
-    const hero = setMassForm(runWith(WAVE4_DEPS, visionVsRhino(13), toHero()), "Intangible");
+    const intangible = setMassForm(runWith(WAVE4_DEPS, visionVsRhino(13), toHero()), "Intangible");
+    // The event also has a thwart half, and a scheme with no threat is not a valid target for it (RRG 1.8 "Target"
+    // p. 42): with no threat anywhere the whole event is unplayable, so give a scheme some. The attack half stays dead.
+    const hero = patchInstance(intangible, intangible.mainScheme.instanceId, { threat: 10 });
     const villain = activeVillain(hero).instanceId;
     const before = inst(hero, villain).damage;
     const { state } = playFromHandTyped(hero, "26008", 3, "26025");

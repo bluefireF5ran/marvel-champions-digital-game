@@ -21,7 +21,7 @@
 import type { AnyCard, CardId } from "@mc/content";
 import { describe, expect, it } from "vitest";
 import type { AbilityDefinition, EngineDeps } from "./abilities.js";
-import { replay } from "./engine.js";
+import { applyCommand, replay } from "./engine.js";
 import type { GameEvent } from "./events.js";
 import type { InstanceId } from "./ids.js";
 import { activeVillain, characterProfile, mustInstance } from "./query.js";
@@ -338,8 +338,18 @@ describe("§3.34 a permanent side scheme whose last threat is removed", () => {
     const chipped = play(scheme.state, CHIP.card.id).state;
     expect(mustInstance(chipped, scheme.id).threat).toBe(3);
     expect(counters(chipped, scheme.id)).toEqual({});
-    const emptied = playAll(chipped, EMPTY.card.id, EMPTY.card.id, CHIP.card.id).state;
+    const emptied = play(chipped, EMPTY.card.id).state;
     expect(counters(emptied, scheme.id)).toEqual({ emptied: 1 });
+    // A scheme with no threat is no target for a removal (RRG 1.8 "Target", p. 42): neither event can be played now.
+    for (const card of [EMPTY.card.id, CHIP.card.id]) {
+      const given = giveCard(emptied, P1, card);
+      const refused = applyCommand(
+        given.state,
+        { type: "playCard", playerId: P1, cardInstanceId: given.id, payment: [], attachToInstanceId: null },
+        deps,
+      );
+      expect(refused.ok ? null : refused.error.code).toBe("no_valid_target");
+    }
   });
 
   it("answers again after threat is placed on it and removed", () => {

@@ -300,7 +300,8 @@ describe("same-titled cards (Deadpool's pool: wave 7 QA finding 1)", () => {
   });
 
   test("a title that really cannot be told apart is refused, naming the candidates and how to write it", () => {
-    const result = parse("Hero: Spider-Man (01001a)\nAspect: Justice\n1x Hawkeye\n");
+    // Protection: none of the Hawkeye allies is in it. Justice has one since Wonder Man (58013), which would settle it.
+    const result = parse("Hero: Spider-Man (01001a)\nAspect: Protection\n1x Hawkeye\n");
     expect(result.ok).toBe(false);
     if (result.ok) return;
     const [problem] = result.problems;

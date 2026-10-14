@@ -43,7 +43,7 @@ import { CARD_BACKS, artFor } from "../art/art-source.js";
 import { abilityFaceOf, characterPanel, faceOf } from "../view/board-model.js";
 import type { Rect } from "../view/layout.js";
 import { cardChoiceSlots, formFactorFor, isTabbed } from "../view/layout.js";
-import { decisionLabel } from "../view/villain-walkthrough.js";
+import { authorityTagOf, decisionLabel, enemyTeamNoticeOf } from "../view/villain-walkthrough.js";
 import { abilityShortLabelOf } from "../view/ability-label.js";
 import { choiceTileBarsOf, type TileBar } from "../view/choice-tile-bars.js";
 import { divideSheetOf, shownDivideChoice } from "../view/divide-sheet.js";
@@ -53,8 +53,9 @@ import {
   requiredPaymentNoteOf,
   type PaymentSheetView,
 } from "../view/payment-sheet.js";
-import { choiceHeaderText, choiceInstructionOf, promptTitleOf } from "../view/choice-source.js";
+import { choiceHeaderOf, choiceInstructionOf, discardCountNoteOf, promptTitleOf } from "../view/choice-source.js";
 import { choiceSheetAction, sheetIsCovered, stuckSheetShouldRecover } from "../view/choice-sheet-sync.js";
+import { keywordOrderTilesOf } from "../view/keyword-order-choice.js";
 import { choiceSourcePanelOf } from "../view/choice-source-panel.js";
 import {
   railReserve,
@@ -70,6 +71,7 @@ import { defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice
 import {
   defendChoiceLayout,
   defendMatchupLayout,
+  defendMiddleLayout,
   defendOptionPicture,
   defendOptionFit,
   defendOptionSlots,
@@ -479,7 +481,13 @@ export class ChoiceOverlay extends Phaser.Scene {
       state.game.players.length > 1 && decider
         ? characterPanel(state.game, decider.identity.instanceId, POOL_DEPS)
         : null;
-    const bar: Rect = { x: sheet.x, y: sheet.y, width: sheet.width, height: seat ? 56 : 38 };
+    // A card pick out of a deck says what is being done in the title and who asks in a line beneath (`choiceHeaderOf`).
+    const genericTitle =
+      choice.prompt.kind === "lookAt"
+        ? lookAtTitleOf(state.game, choice, state.perspectiveId ?? choice.playerId)
+        : promptTitleOf(choice.prompt, POOL_DEPS, choice, state.game);
+    const header = choiceHeaderOf(state.game, choice, POOL_DEPS, genericTitle);
+    const bar: Rect = { x: sheet.x, y: sheet.y, width: sheet.width, height: seat ? 56 : header.subtitle ? 52 : 38 };
     const barG = this.add.graphics();
     barG.fillStyle(surface.ink.hex, 1).fillRect(bar.x, bar.y, bar.width, bar.height);
 
@@ -531,16 +539,17 @@ export class ChoiceOverlay extends Phaser.Scene {
     // already shows it at readable size, in the rail or the strip below — drawing it a second time, smaller, next
     // to the text that already names it would read as two answers to the same question.
     const titleLeft = bar.x + 10;
-    const genericTitle =
-      choice.prompt.kind === "lookAt"
-        ? lookAtTitleOf(state.game, choice, state.perspectiveId ?? choice.playerId)
-        : promptTitleOf(choice.prompt, POOL_DEPS, choice, state.game);
-    const titleText = choiceHeaderText(state.game, choice, POOL_DEPS, genericTitle);
+    const titleText = header.title;
+    const titleY = header.subtitle ? bar.y + 17 : bar.y + bar.height / 2;
     const title = this.add
-      .text(titleLeft, bar.y + bar.height / 2, titleText, textStyle(typeRole.barTitle, surface.paper.hex))
+      .text(titleLeft, titleY, titleText, textStyle(typeRole.barTitle, surface.paper.hex))
       .setOrigin(0, 0.5)
       .setLetterSpacing(2);
     fitBarTitle(title, Math.max(60, titleRight - titleLeft));
+    if (header.subtitle) {
+      const source = label(this, titleLeft, bar.y + 36, header.subtitle, typeRole.label, surface.paper.hex, ink.meta);
+      fitText(source, Math.max(60, titleRight - titleLeft), typeRole.label.size);
+    }
 
     if (backOutRect) {
       this.#buttons.push(
@@ -572,11 +581,21 @@ export class ChoiceOverlay extends Phaser.Scene {
     // Why this player is the one deciding. The villain-phase screen's
     // "auto-advance paused" wording belongs to that screen, not here.
     const reason = decisionLabel(choice, state.game, state.perspectiveId);
+    // An enemy-team choice (MC56 p. 6) carries its tag, whom it acts against, the instruction and the grim rule.
+    const enemyTeam = enemyTeamNoticeOf(choice, state.game, state.perspectiveId);
+    const reasonText = choice.soleDecider ? `${reason} · Peril — nobody else may act` : reason;
     const advisory = this.add
       .text(
         sheet.x + 12,
         bodyTop + 10,
-        choice.soleDecider ? `${reason} · Peril — nobody else may act` : reason,
+        enemyTeam
+          ? [
+              `${enemyTeam.tag} · ${reasonText}`,
+              ...(enemyTeam.against ? [enemyTeam.against] : []),
+              enemyTeam.instruction,
+              `${enemyTeam.whyTitle} ${enemyTeam.rule}`,
+            ].join("\n")
+          : reasonText,
         textStyle(typeRole.body, surface.ink.hex, ink.secondary),
       )
       .setWordWrapWidth(sheet.width - 24);
@@ -589,6 +608,7 @@ export class ChoiceOverlay extends Phaser.Scene {
         : isBreakChoice(choice)
           ? ""
           : (chosenResourcesNoteOf(choice.prompt) ??
+            discardCountNoteOf(choice.prompt, choice) ??
             requiredPaymentNoteOf(state.game, choice) ??
             `select ${choice.minSelections === choice.maxSelections ? choice.minSelections : `${choice.minSelections}–${choice.maxSelections}`}${choice.ordered ? " · order matters" : ""}`),
       typeRole.label,
@@ -1006,7 +1026,7 @@ export class ChoiceOverlay extends Phaser.Scene {
     headerG
       .fillStyle(surface.ink.hex, 1)
       .fillRect(layout.header.x, layout.header.y, layout.header.width, layout.header.height);
-    const authorityTag = choice.soleDecider ? "PERIL" : "AUTHORITY: PLAYER";
+    const authorityTag = authorityTagOf(choice);
     label(
       this,
       layout.header.x + layout.header.width - 12,
@@ -1083,27 +1103,28 @@ export class ChoiceOverlay extends Phaser.Scene {
     // Between them: ATK, an arrow pointing at the target, and one facedown back per boost card still to flip.
     const mid = matchup.middle;
     const midX = mid.x + mid.width / 2;
-    // Stacked top to bottom with every height taken from the column's own, so a phone's short column shrinks the
-    // number and drops the backs rather than letting them land on each other.
-    const atkSize = Math.min(44, Math.max(18, Math.round(mid.height * 0.24)));
-    label(this, midX, mid.y + 2, "base atk", typeRole.label, surface.ink.hex, ink.label).setOrigin(0.5, 0);
+    // Measured from the foot caption up (`defendMiddleLayout`), so a short column never runs the arrow through it.
+    const column = defendMiddleLayout(mid);
+    if (column.baseLabelY !== null)
+      label(this, midX, column.baseLabelY, "base atk", typeRole.label, surface.ink.hex, ink.label).setOrigin(0.5, 0);
     this.add
-      .text(midX, mid.y + 15, String(view.summary.baseAtk), textStyle(typeRole.stat, accent.heroRed.hex))
+      .text(midX, column.atkY, String(view.summary.baseAtk), textStyle(typeRole.stat, accent.heroRed.hex))
       .setOrigin(0.5, 0)
-      .setFontSize(atkSize);
-    const arrowY = mid.y + 15 + atkSize + 16;
+      .setFontSize(column.atkSize);
+    const arrowY = column.arrowY;
+    const half = column.arrowHalf;
     summaryG.fillStyle(accent.heroRed.hex, 1).fillRect(mid.x + 4, arrowY - 3, mid.width - 20, 6);
     summaryG.fillTriangle(
       mid.x + mid.width - 18,
-      arrowY - 10,
+      arrowY - half,
       mid.x + mid.width - 18,
-      arrowY + 10,
+      arrowY + half,
       mid.x + mid.width - 2,
       arrowY,
     );
-    const boostLabelY = mid.y + mid.height - 12;
+    const boostLabelY = column.boostLabelY;
     const boosts = Math.min(view.summary.facedownCount, 4);
-    const backHeight = Math.min(64, boostLabelY - 4 - (arrowY + 14));
+    const backHeight = column.backHeight;
     if (boosts > 0 && backHeight >= 22) {
       const backWidth = Math.round(backHeight * (63 / 88));
       const step = boosts > 1 ? Math.min(backWidth + 4, (mid.width - backWidth) / (boosts - 1)) : 0;
@@ -1112,7 +1133,7 @@ export class ChoiceOverlay extends Phaser.Scene {
       for (let index = 0; index < boosts; index++) {
         const rect: Rect = {
           x: midX - rowWidth / 2 + index * step,
-          y: arrowY + 14,
+          y: column.backsY,
           width: backWidth,
           height: backHeight,
         };
@@ -1988,8 +2009,13 @@ export class ChoiceOverlay extends Phaser.Scene {
       width: slot.width - 6,
       height: slot.height - 6 - (bar ? barHeight + 6 : 0),
     };
+    // Which keyword resolves first: the minion is the one source card beside the sheet, so each option is its keyword
+    // in words, never a second copy of the same face (`view/keyword-order-choice.ts`).
+    const keywordTile = state?.pendingChoice
+      ? keywordOrderTilesOf(state.pendingChoice)?.get(option.optionId)
+      : undefined;
     const source =
-      state && instanceId
+      state && instanceId && !keywordTile
         ? artFor(
             state.cardPool[state.instances[instanceId]?.cardId ?? ""],
             abilityFaceOf(state, instanceId, option.ref.kind === "ability" ? option.ref.abilityId : null),
@@ -2005,7 +2031,27 @@ export class ChoiceOverlay extends Phaser.Scene {
      * and threat box outside the frame. For the portrait cards this slot usually
      * holds the two fits are identical, so nothing is lost by being safe.
      */
-    if (!drawArt(this, key, inner, { fit: "contain" })) {
+    if (keywordTile) {
+      const pad = 10;
+      const name = this.add
+        .text(inner.x + pad, inner.y + pad + 22, keywordTile.name, textStyle(typeRole.rowTitle, surface.ink.hex))
+        .setFontSize(20);
+      fitText(name, inner.width - pad * 2, 20);
+      const line = this.add
+        .text(
+          inner.x + pad,
+          name.y + name.height + 8,
+          keywordTile.line,
+          textStyle(typeRole.body, surface.ink.hex, ink.secondary),
+        )
+        .setLineSpacing(2);
+      fitWrapped(
+        line,
+        inner.width - pad * 2,
+        Math.max(3, Math.floor((inner.y + inner.height - line.y - pad) / 16)),
+        14,
+      );
+    } else if (!drawArt(this, key, inner, { fit: "contain" })) {
       // No scan: the name is the option, exactly as the list form shows it.
       this.add
         .text(

@@ -221,6 +221,20 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
       { scenarioId: "thunderbolts", identityCardId: "54001a" }, // Winter Soldier
     ],
   },
+  {
+    // The gate is Agents of S.H.I.E.L.D.'s (owner, question 25 = A). Civil War ships no campaign (MC56 p. 3), so the row
+    // names none. Tigra and Hulkling are MC56's own cast. Wonder Man and Hercules unlock by beating the box's leaders
+    // (owner, question 25A): Wonder Man for Registration Iron Man, Hercules for Resistance Captain America. Captain
+    // Marvel and Spider-Woman pay no hero.
+    cycleId: "cycle10",
+    name: "Civil War",
+    gate: { kind: "campaignWin", campaignId: "aos", hint: "Complete the Agents of S.H.I.E.L.D. campaign" },
+    starterHeroIds: ["56001a", "56029a"], // Tigra, Hulkling: MC56's own cast
+    heroRewards: [
+      { scenarioId: "registration-iron-man", identityCardId: "58001a" }, // Wonder Man
+      { scenarioId: "resistance-captain-america", identityCardId: "59001a" }, // Hercules
+    ],
+  },
 ];
 
 /** What the player has done, read from storage by `progressOf`. */
@@ -231,6 +245,9 @@ export interface UnlockProgress {
   readonly wonCampaignIds: readonly string[];
   readonly wonExpertCampaignIds: readonly string[];
 }
+
+/** Whether the unlock path has a row for this cycle. A box with none yet (its wave is still being built) has no page. */
+export const hasUnlockWave = (cycleId: string): boolean => UNLOCK_WAVES.some((wave) => wave.cycleId === cycleId);
 
 export const NO_PROGRESS: UnlockProgress = {
   wonScenarioIds: [],
@@ -349,12 +366,15 @@ export const scenarioCycleOf = (scenario: Pick<Scenario, "packCode">): string | 
 export const heroCycleOf = (identityCardId: string): string | undefined =>
   CARDS_BY_ID.get(identityCardId)?.cycleId as string | undefined;
 
-/** "Rhino", or "Norman Osborn (Risky Business)" when the scenario isn't named for its villain. */
+/**
+ * "Rhino", or "Norman Osborn (Risky Business)" when the scenario isn't named for its villain. A scenario name that
+ * already contains the villain ("Registration: Iron Man") adds nothing, so the villain stands alone.
+ */
 export function villainLabelOf(scenarioId: string): string {
   const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === scenarioId);
   if (!scenario) return scenarioId;
   const villain = CARDS_BY_ID.get(scenario.villainCardId as string)?.name ?? scenario.name;
-  return villain === scenario.name ? villain : `${villain} (${scenario.name})`;
+  return scenario.name.toLowerCase().includes(villain.toLowerCase()) ? villain : `${villain} (${scenario.name})`;
 }
 
 export interface UnlockHero {

@@ -27,6 +27,7 @@ import {
   WAVE7_SCENARIOS,
   WAVE8_SCENARIOS,
   WAVE9_SCENARIOS,
+  WAVE10_SCENARIOS,
   WAVE1_ENCOUNTER_SETS,
   WAVE2_ENCOUNTER_SETS,
   WAVE3_ENCOUNTER_SETS,
@@ -36,6 +37,8 @@ import {
   WAVE7_ENCOUNTER_SETS,
   WAVE8_ENCOUNTER_SETS,
   WAVE9_ENCOUNTER_SETS,
+  WAVE10_ENCOUNTER_SETS,
+  modularSetCountRangeOf,
   setAsideModularSetCountFor,
   type AnyCard,
   type CardId,
@@ -60,6 +63,8 @@ export const PLAYABLE_ENCOUNTER_SETS: readonly EncounterSet[] = [
       ...WAVE8_ENCOUNTER_SETS,
       // Wave 9 (cycle 9) minus the sets not scripted yet (`playable/unscripted.ts`).
       ...WAVE9_ENCOUNTER_SETS,
+      // Wave 10 (cycle 10): Civil War's sets and the Wonder Man and Hercules packs' own (nemesis sets, All Versus All).
+      ...WAVE10_ENCOUNTER_SETS,
     ]
       .filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id))
       .map((set) => [set.id as string, set] as const),
@@ -138,6 +143,8 @@ export const PLAYABLE_SCENARIO_RECORDS: readonly Scenario[] = [
   ...WAVE8_SCENARIOS,
   // Wave 9 (cycle 9): the scripted scenarios, each with its pool of modular sets cut to the scripted ones.
   ...WAVE9_SCENARIOS.filter(scenarioIsScripted).map(playableScenarioRecord),
+  // Wave 10 (cycle 10): Civil War's four leaders.
+  ...WAVE10_SCENARIOS.filter(scenarioIsScripted).map(playableScenarioRecord),
 ];
 
 /** Every set some scenario names as its Standard or Expert set: never a modular choice anywhere (RRG 1.8 pp. 40, 19). */
@@ -173,10 +180,25 @@ export function scenarioOwnSetIds(scenario: Scenario): ReadonlySet<string> {
 }
 
 /**
+ * Who leads a sided scenario and which side, as a refusal says it: "Captain America leads the resistance", "Iron Man
+ * leads the registration side". The leader is the scenario's villain card (docs/phase7-wave10.md §1.4).
+ */
+export function scenarioSideClause(scenario: Scenario): string {
+  const leader = PLAYABLE_CARDS.find((card) => card.id === scenario.villainCardId)?.name ?? scenario.name;
+  return `${leader} leads the ${scenario.side === "resistance" ? "resistance" : "registration side"}`;
+}
+
+/**
  * Why `id` cannot be one of `scenario`'s modular sets, or null when it can. RRG 1.8 "Modular Encounter Set" (p. 29):
  * "added to a scenario ... as an entire set"; the Standard and Expert sets are never a modular choice (pp. 40, 19), a
  * nemesis set is its hero's (p. 30), a campaign-specific set is for its campaign (p. 11); MC21 p. 16: the Infinity
  * Gauntlet set "cannot be used" with more than one villain.
+ *
+ * The Civil War side rule (MC56 p. 4: "You cannot mix registration and resistance modular sets."; ruling Jan 11, 2026:
+ * "you cannot use Registration modular sets with a Resistance leader, nor vice versa"): a set of the other side is
+ * refused. A set with no side is neutral and allowed at a sided scenario (MC56 p. 5, "modular sets from other products
+ * may be included"), and a sided set is allowed at a scenario with no side (p. 5, "fully compatible with the rest of
+ * Marvel Champions").
  */
 export function modularPickProblem(
   scenario: Scenario,
@@ -195,6 +217,8 @@ export function modularPickProblem(
   if (set.campaignSpecific) return `${id} is a campaign set`;
   if (set.competitiveOnly) return `${id} is a competitive-mode set`;
   if (isScenarioSpecificSet(id)) return `${id} belongs to another scenario`;
+  if (set.side !== undefined && scenario.side !== undefined && set.side !== scenario.side)
+    return `${set.name} is a ${set.side} set; ${scenarioSideClause(scenario)} (MC56 p. 4)`;
   if (set.singleVillainOnly && scenario.multipleVillains)
     return `${id} cannot be used with more than one villain (MC21 p. 16)`;
   return null;
@@ -213,8 +237,8 @@ export function chosenModularSetIds(
 ): readonly string[] {
   if (picks === undefined) return scenario.recommendedModularSetIds;
   const label = scenario.name;
-  const count = scenario.modularSetCount ?? scenario.recommendedModularSetIds.length;
-  if (count === 0 && picks.length > 0) throw new Error(`${label} uses no modular encounter sets, got ${picks.length}`);
+  if (modularPickCountRange(scenario).max === 0 && picks.length > 0)
+    throw new Error(`${label} uses no modular encounter sets, got ${picks.length}`);
   if (new Set(picks).size !== picks.length) throw new Error(`${label}: a modular set is chosen twice`);
   for (const id of picks) {
     const problem = modularPickProblem(scenario, id, encounterSets);
@@ -223,11 +247,32 @@ export function chosenModularSetIds(
   return picks;
 }
 
-/** A scenario without a modular pool wants exactly `modularSetCount` picks (the recommendation's length when unset). */
-export function checkModularPickCount(scenario: Scenario, picks: readonly string[] | undefined): void {
-  if (picks === undefined || scenario.modularSetPool) return;
+/**
+ * How many modular sets the players pick at a scenario without a pool: the record's range when it has one (a Civil War
+ * leader's three or four, MC56 p. 4, through `modularSetCountRangeOf`), otherwise exactly `modularSetCount` (the
+ * recommendation's length when unset).
+ */
+export function modularPickCountRange(scenario: Scenario): { readonly min: number; readonly max: number } {
+  if (scenario.modularSetCountRange) return modularSetCountRangeOf(scenario);
   const count = scenario.modularSetCount ?? scenario.recommendedModularSetIds.length;
-  if (picks.length !== count) throw new Error(`${scenario.name} uses ${count} modular set(s), got ${picks.length}`);
+  return { min: count, max: count };
+}
+
+/** Why `count` modular picks is not a number this scenario takes, or null when it is (or the scenario draws from a pool). */
+export function modularPickCountProblem(scenario: Scenario, count: number): string | null {
+  if (scenario.modularSetPool) return null;
+  const { min, max } = modularPickCountRange(scenario);
+  if (count >= min && count <= max) return null;
+  return min === max
+    ? `${scenario.name} uses ${min} modular set(s), got ${count}`
+    : `${scenario.name} uses ${min} to ${max} modular sets, got ${count}`;
+}
+
+/** A scenario without a modular pool wants a number of picks in its range (`modularPickCountRange`). */
+export function checkModularPickCount(scenario: Scenario, picks: readonly string[] | undefined): void {
+  if (picks === undefined) return;
+  const problem = modularPickCountProblem(scenario, picks.length);
+  if (problem) throw new Error(problem);
 }
 
 function randomPicks(from: readonly string[], count: number, rng: RngState): readonly [string[], RngState] {

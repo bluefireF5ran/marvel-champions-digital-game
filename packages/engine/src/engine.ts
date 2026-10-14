@@ -201,6 +201,7 @@ function resolveChoice(ctx: Ctx, command: Command & { type: "resolveChoice" }): 
     choiceId: choice.choiceId,
     playerId: choice.playerId,
     selectedOptionIds: selected,
+    ...(choice.onBehalfOf ? { onBehalfOf: choice.onBehalfOf } : {}),
   });
 
   // A choice that belongs to a stack frame is handed straight back to that frame.

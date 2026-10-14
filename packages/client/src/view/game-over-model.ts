@@ -14,6 +14,7 @@
  */
 
 import {
+  cardOf,
   controllerOf,
   getInstance,
   mainSchemeStage,
@@ -30,6 +31,9 @@ import {
 } from "@mc/engine";
 import type { GameRecord } from "../engine/game-record.js";
 import type { SessionConfig } from "../engine/host.js";
+import { describeCivilWar } from "./civil-war-label.js";
+import type { CivilWarRandomizer } from "./civil-war-builder-model.js";
+import { foeWord } from "./foe-words.js";
 import { hpFraction, hpNumber } from "./hp-format.js";
 import { inspectModel } from "./inspect-model.js";
 import { cardName, playerName } from "./names.js";
@@ -173,6 +177,7 @@ export function gameOverModel(
   const lokiId = dial?.instanceId ?? null;
   const villain = dial && lokiId ? cardName(state, lokiId) : avatar;
   const stage = numeral(villainState.stageIndex);
+  const foe = foeWord(cardOf(state, villainState.instanceId), { lower: true });
   const round = state.round;
 
   const scheme = mainSchemeStage(state);
@@ -219,7 +224,7 @@ export function gameOverModel(
       }
       kicker = dial && lokiId ? "The shared villain fell" : `Stage ${stage} cleared`;
       headline = `${villain} defeated`;
-      summary = `${villain} went down in round ${round}, with ${dial && lokiId ? dial.damage : record.damageToVillain} damage dealt to the villain across the game.`;
+      summary = `${villain} went down in round ${round}, with ${dial && lokiId ? dial.damage : record.damageToVillain} damage dealt to the ${foe} across the game.`;
       const blow = record.lastVillainDamage;
       if (dial && lokiId) {
         // The last hit landed on an Avatar and moved the dial (or a shatter did): the record's blow names the Avatar, so
@@ -506,4 +511,58 @@ export function newsParts(
     news && news.unlocked.length > 0 ? `Unlocked: ${news.unlocked.join(", ")}` : null,
     extrasNews > 0 ? `${extrasNews} new in Extras` : null,
   ].filter((part): part is string => part !== null);
+}
+
+/** What a rematch button does: the same config with a fresh shuffle, the same config and seed, or a re-rolled Random. */
+export type RematchKind = "fresh" | "sameSeed" | "newRandom";
+
+export interface RematchAction {
+  readonly kind: RematchKind;
+  readonly label: string;
+  readonly primary: boolean;
+}
+
+/**
+ * The rematch buttons for a standalone game. A Civil War game with its own picks (custom or random, blind or not) is
+ * played again with the same picks: the stored config already holds the leader, stages, sets and the blind flag, so
+ * "Play again" is that config with a new seed (docs/phase7-wave10-client.md section 9, owner answers 24A and 26A).
+ * "New random scenario" is offered only when the game began as Random.
+ */
+export function rematchActionsOf(config: SessionConfig | null): readonly RematchAction[] {
+  const customCivilWar =
+    config !== null && config.mainSchemeStageIds !== undefined && describeCivilWar(config) !== null;
+  const actions: RematchAction[] = [
+    { kind: "fresh", label: customCivilWar ? "Play again" : "Run it back", primary: true },
+    { kind: "sameSeed", label: "Same seed, same hands", primary: false },
+  ];
+  if (config?.randomScenario) actions.splice(1, 0, { kind: "newRandom", label: "New random scenario", primary: false });
+  return actions;
+}
+
+/**
+ * The config a rematch starts. "fresh" and "sameSeed" keep every pick; "newRandom" rolls a new leader, stage pair and
+ * sets (the same number of sets, the same blind choice) and deals them with the following seed, as the builder does.
+ * Falls back to the plain fresh shuffle if the roll is refused.
+ */
+export function rematchConfigOf(
+  config: SessionConfig,
+  kind: RematchKind,
+  seed: number,
+  randomizer: CivilWarRandomizer,
+): SessionConfig {
+  if (kind === "sameSeed") return config;
+  if (kind === "fresh") return { ...config, seed };
+  try {
+    const picks = randomizer({ seed, modularCount: config.modularSetIds?.length ?? 4 });
+    return {
+      ...config,
+      scenarioId: picks.leaderId,
+      mainSchemeStageIds: picks.stageIds,
+      modularSetIds: picks.modularSetIds,
+      seed: seed + 1,
+      randomScenario: true,
+    };
+  } catch {
+    return { ...config, seed };
+  }
 }

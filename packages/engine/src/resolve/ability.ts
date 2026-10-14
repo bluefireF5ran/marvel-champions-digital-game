@@ -3,16 +3,16 @@
 import type { AbilityId } from "@mc/content";
 import { type AbilityDefinition, abilityUseKey, GRANTED_BY_SLOT } from "../abilities.js";
 import { COST_NOT_PAID_VAR } from "../cost-damage.js";
-import { type Ctx, emit, popFrame } from "../ctx.js";
+import { type Ctx, emit, popFrame, setFrame } from "../ctx.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { statusActive } from "../keywords.js";
-import { cardOf, getInstance, mustPlayer } from "../query.js";
+import { cardOf, mustPlayer, playerCardOwnerOf } from "../query.js";
 import { abilityIgnored } from "../select.js";
 import type { GameState } from "../state.js";
 import { eventSubjects, slotsCarriedByResolved, type TriggerEvent } from "../trigger-events.js";
 import { declareWildTypes } from "./declare-wilds.js";
 import { declareLabeledDefense, declaresDefender, recordDefenseLabel } from "./enemy-activation.js";
-import { announce, type Frame, pushEffects } from "./frames.js";
+import { announce, type Frame, pushEffects, pushEvent } from "./frames.js";
 import { heard } from "./triggers.js";
 import { keywordAbilityOf } from "../keyword-abilities.js";
 import { discardStatusCards, settlePaidForEffects } from "../effects.js";
@@ -41,7 +41,8 @@ function triggeringEventKey(state: GameState, event: TriggerEvent | null): strin
  * The `abilityUses` key a limit counts against. An unqualified limit uses `<instance>:<ability>`, exactly as before;
  * `limit.per` appends `#<value>` so the same ability keeps one count per value ("limit once per round for each
  * aspect", Superhuman Agility; "once per round per player", The Grand Collection — `#player:<id>`, the player using
- * it, docs/phase7-wave3.md §3.36). `#` never appears in an ability id, so `clearAbilityUses` can strip it back off.
+ * it, docs/phase7-wave3.md §3.36; "once per phase per player" on a forced trigger — `#eventPlayer:<id>`, the player
+ * the triggering event belongs to, docs/phase7-wave10.md §3.14). `#` never appears in an ability id, so `clearAbilityUses` can strip it back off.
  */
 export function limitKeyOf(
   state: GameState,
@@ -58,6 +59,11 @@ export function limitKeyOf(
   }
   const base = abilityUseKey(id, abilityId);
   if (definition.limit?.per === "player") return `${base}#player:${playerId ?? "none"}`;
+  // "Once per phase per player" on a forced ability nobody controls (docs/phase7-wave10.md §3.14): the event's player.
+  if (definition.limit?.per === "eventPlayer") {
+    const [eventPlayer] = event ? eventSubjects(event).players : [];
+    return `${base}#eventPlayer:${eventPlayer ?? "none"}`;
+  }
   if (definition.limit?.per !== "aspectOfEventCard") return base;
   const [subject] = event ? eventSubjects(event).targets : [];
   const card = subject ? cardOf(state, subject) : undefined;
@@ -86,6 +92,7 @@ export function executeAbilityFrame(ctx: Ctx, frame: Frame<"ability">): void {
   if (frame.undeclaredWilds && frame.controllerId) {
     return declareWildTypes(ctx, frame, frame.controllerId, frame.undeclaredWilds);
   }
+  if (askWouldAct(ctx, frame)) return;
   popFrame(ctx);
   const below = ctx.state.stack[0]?.frameId ?? null;
   resolveAbility(ctx, frame);
@@ -94,6 +101,42 @@ export function executeAbilityFrame(ctx: Ctx, frame: Frame<"ability">): void {
   const top = ctx.state.stack[0];
   const pushed = top?.kind === "effects" && top.frameId !== below && top.selfInstanceId === frame.instanceId;
   settlePaidForEffects(ctx, frame.frameId, pushed ? top.frameId : null);
+}
+
+/**
+ * "When [a character] would thwart or attack" for an attack- or thwart-labeled ability (docs/phase7-wave10.md §3.21;
+ * `TriggerEvent characterWouldAct`): announced once, above the ability's frame, when the ability is about to resolve
+ * its effects. The character is the ability's player's identity, whose attack or thwart a labeled ability is (RRG
+ * 1.8 "Labeled Ability", p. 26). True when it was announced: the frame stays on the stack beneath the event.
+ *
+ * Not announced for an ability that will not resolve anyway (ignored, its cost not paid, its limit reached), nor for
+ * one a stunned or confused status card is about to cancel: the status card replaces the attempt first, as it does a
+ * basic power's (`labelCancels`).
+ */
+function askWouldAct(ctx: Ctx, frame: Frame<"ability">): boolean {
+  const playerId = frame.controllerId;
+  if (frame.wouldAct || !playerId || keywordAbilityOf(frame.abilityId)) return false;
+  const definition = ctx.deps.abilities[frame.abilityId];
+  const acts = (["attack", "thwart"] as const).filter((act) => definition?.label?.includes(act));
+  if (!definition || acts.length === 0) return false;
+  if (abilityIgnored(ctx.state, ctx.deps, frame.instanceId, frame.abilityId)) return false;
+  if ((frame.vars[COST_NOT_PAID_VAR] ?? 0) > 0) return false;
+  if (limitReached(ctx.state, frame.instanceId, frame.abilityId, definition, frame.event, playerId)) return false;
+  const identity = mustPlayer(ctx.state, playerId).identity.instanceId;
+  if (statusesCancelling(ctx, identity, definition.label ?? []).length > 0) return false;
+  const events = acts
+    .map((act): TriggerEvent => ({
+      kind: "characterWouldAct",
+      act,
+      characterInstanceId: identity,
+      playerId,
+      abilityFrameId: frame.frameId,
+    }))
+    .filter((event) => heard(ctx.state, ctx.deps, event));
+  if (events.length === 0) return false;
+  setFrame(ctx, { ...frame, wouldAct: "asked" });
+  for (const event of events.reverse()) pushEvent(ctx, event);
+  return true;
 }
 
 function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
@@ -129,6 +172,9 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
       playerId: frame.controllerId,
     });
   }
+  // "… would thwart or attack, discard this card instead" replaced this use (docs/phase7-wave10.md §3.21): none of
+  // its effects resolve. Its costs are paid and its limit counted above, as for a use a status card cancels.
+  if (frame.wouldAct === "replaced") return;
   if (definition.label && frame.controllerId && labelCancels(ctx, frame.controllerId, definition.label)) return;
   // RRG 1.8 "Defend, Defense" (p. 15): from here no other player resolves a defense-labeled ability for this attack.
   if (definition.label?.includes("defense") && frame.controllerId) recordDefenseLabel(ctx, frame.controllerId);
@@ -148,7 +194,7 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
   // A keyword is a game rule, not a player's choice: "players cannot discard …" does not stop temporary.
   const byPlayer =
     !keyword &&
-    ((getInstance(ctx.state, frame.instanceId)?.ownerId ?? null) !== null ||
+    (playerCardOwnerOf(ctx.state, frame.instanceId) !== null ||
       trigger.kind === "action" ||
       trigger.kind === "resource" ||
       ((trigger.kind === "interrupt" || trigger.kind === "response") && !trigger.forced));
@@ -198,9 +244,7 @@ export function announceAbilityResolved(ctx: Ctx, frame: Frame<"effects">): void
  */
 function labelCancels(ctx: Ctx, playerId: PlayerId, labels: readonly string[]): boolean {
   const identity = mustPlayer(ctx.state, playerId).identity.instanceId;
-  const cancelling: ("stunned" | "confused")[] = [];
-  if (labels.includes("attack") && statusActive(ctx.state, identity, "stunned", ctx.deps)) cancelling.push("stunned");
-  if (labels.includes("thwart") && statusActive(ctx.state, identity, "confused", ctx.deps)) cancelling.push("confused");
+  const cancelling = statusesCancelling(ctx, identity, labels);
   announceStatusDiscarded(
     ctx,
     cancelling.flatMap((status) =>
@@ -208,6 +252,14 @@ function labelCancels(ctx: Ctx, playerId: PlayerId, labels: readonly string[]): 
     ),
   );
   return cancelling.length > 0;
+}
+
+/** The status cards on `identity` that cancel an ability with these labels (`labelCancels`). */
+function statusesCancelling(ctx: Ctx, identity: InstanceId, labels: readonly string[]): ("stunned" | "confused")[] {
+  const cancelling: ("stunned" | "confused")[] = [];
+  if (labels.includes("attack") && statusActive(ctx.state, identity, "stunned", ctx.deps)) cancelling.push("stunned");
+  if (labels.includes("thwart") && statusActive(ctx.state, identity, "confused", ctx.deps)) cancelling.push("confused");
+  return cancelling;
 }
 
 export function recordAbilityUse(

@@ -8,8 +8,9 @@
  *
  * What the committed test does (it must stay fast; the wide scan lives in the doc and in the `QA_FULL` block):
  *
- * - `PINS`: one game per pairing (6 x 5): a win where the scratch scans found one (3 pairings), otherwise the quickest
- *   game seen, each named by (seed, driver defense mode, explore). Each is played command by command with the invariants below, replayed from its log to a
+ * - `PINS`: one game per pairing (6 x 5): a win where the scratch scans found one (2 pairings), otherwise the quickest
+ *   game seen (Deadpool / Morlock Siege was a win until a removal of threat could no longer target a scheme with no
+ *   threat, RRG 1.8 "Target" p. 42; a rescan of seeds 1-12 x explore 0-8 x both defenses, 216 games, found no win), each named by (seed, driver defense mode, explore). Each is played command by command with the invariants below, replayed from its log to a
  *   deep-equal state, and its outcome and round count asserted exactly (the table is the regression signal: any engine,
  *   script or content change that moves a seeded game shows up here as a changed row).
  * - Wins additionally assert the win condition by its rule, the final state (game over, winner, victory display) and
@@ -309,7 +310,7 @@ const PINS: readonly Pin[] = [
     defense: "hero-ready",
     explore: 3,
     verdict: "loss:mainSchemeCompleted",
-    rounds: 5,
+    rounds: 6,
   },
   {
     hero: "cable",
@@ -528,8 +529,8 @@ const PINS: readonly Pin[] = [
     style: "rules",
     defense: "balanced",
     explore: 6,
-    verdict: "win",
-    rounds: 9,
+    verdict: "loss:mainSchemeCompleted",
+    rounds: 5,
   },
   {
     hero: "deadpool",

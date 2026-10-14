@@ -38,6 +38,7 @@
  */
 import Phaser from "phaser";
 import { addPressShield } from "../ui/press-shield.js";
+import { playableScenarioOffer } from "@mc/cards";
 import { POOL_DEPS, POOL_ENCOUNTER_SETS, POOL_SCENARIOS } from "../content/pool.js";
 import { accent, ink, signal, status, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { caseOf, setTextResolution, textStyle } from "../ui/theme.js";
@@ -59,7 +60,7 @@ import {
   type PauseWideLayout,
 } from "../view/pause-layout.js";
 import { logLineWords, recentLogMoments } from "../view/pause-log-window.js";
-import { pauseStatusOf } from "../view/pause-model.js";
+import { blindSheetNamesOf, pauseStatusOf } from "../view/pause-model.js";
 import { rulesGlossaryOf, type RulesEntry } from "../view/rules-reference.js";
 import { scenarioCardListOf } from "../view/scenario-card-list.js";
 import {
@@ -300,9 +301,11 @@ export class PauseOverlay extends Phaser.Scene {
     const guideAfterLevel = guideRows.filter(isGuideNonLevelRow);
     const guidedRunActive = this.#guidedRunActive();
 
+    const blindLines = game && perspectiveId ? this.#blindSheet(game, perspectiveId, config) : [];
     const layout = pauseLayout(
       { x: 0, y: 0, width, height },
       {
+        blindLineCount: blindLines.length,
         keywordCount: keywordEntries.length,
         keywordTexts: keywordEntries.map((entry) => ({
           definition: entry.definition,
@@ -422,6 +425,7 @@ export class PauseOverlay extends Phaser.Scene {
       ink.secondary,
     ).setFontSize(11);
     fitText(statusLabel, layout.status.width, 11);
+    if (game && perspectiveId) this.#drawBlindSheet(layout.blindSheet, game, perspectiveId, config);
 
     this.#menuButton(stops, "resume", "primary", "Resume", layout.menu.resume, () => this.#resume());
     this.#menuButton(
@@ -731,7 +735,7 @@ export class PauseOverlay extends Phaser.Scene {
       .strokeRect(layout.panel.x, layout.panel.y, layout.panel.width, layout.panel.height);
     paintDotGrid(this, layout.panel, "ink", { spacing: 8, radius: 1, alpha: 0.08 });
 
-    this.#drawHeader(layout.header, layout.closeButton, game, perspectiveId, config, stops);
+    this.#drawHeader(layout.header, layout.closeButton, layout.blindSheet, game, perspectiveId, config, stops);
 
     if (this.#searchInput) this.#searchInput.layout(layout.search);
     else {
@@ -774,6 +778,7 @@ export class PauseOverlay extends Phaser.Scene {
   #drawHeader(
     rect: Rect,
     closeRect: Rect,
+    blindRect: Rect | null,
     game: SessionState["game"],
     perspectiveId: SessionState["perspectiveId"],
     config: SessionState["config"],
@@ -793,6 +798,7 @@ export class PauseOverlay extends Phaser.Scene {
       surface.paper.hex,
       ink.secondary,
     ).setFontSize(11);
+    if (game && perspectiveId) this.#drawBlindSheet(blindRect, game, perspectiveId, config);
     // Wraps rather than running under the ✕ or ending in "…": at phone width the full "‹scenario› · ‹difficulty› ·
     // Round ‹n› · ‹phase› · ‹seat›" line is wider than the header has room for beside the close button.
     statusLabel
@@ -811,6 +817,43 @@ export class PauseOverlay extends Phaser.Scene {
     stops.set("close", { rect: closeRect, activate: () => this.#resume() });
     const rule = this.add.graphics();
     rule.fillStyle(surface.paper.hex, 0.4).fillRect(rect.x, rect.y + rect.height - 2, rect.width, 2);
+  }
+
+  /**
+   * A Civil War game played blind (docs/phase7-wave10-client.md 2.6): the stage pair and the modular sets as they stand,
+   * hidden pieces worded and counted; a built or rolled game (not blind) lists its stages and sets. Empty for every
+   * other game, and for a leader as printed.
+   */
+  #blindSheet(
+    game: NonNullable<SessionState["game"]>,
+    perspectiveId: NonNullable<SessionState["perspectiveId"]>,
+    config: SessionState["config"],
+  ): readonly string[] {
+    if (!config) return [];
+    let offer = null;
+    try {
+      offer = playableScenarioOffer(config.scenarioId);
+    } catch {
+      offer = null;
+    }
+    const setNames = new Map(POOL_ENCOUNTER_SETS.map((set) => [set.id as string, set.name]));
+    const status = pauseStatusOf(game, perspectiveId, config, POOL_SCENARIOS, blindSheetNamesOf(offer, setNames));
+    return status.blindSheet ?? status.buildSheet ?? [];
+  }
+
+  #drawBlindSheet(
+    rect: Rect | null,
+    game: NonNullable<SessionState["game"]>,
+    perspectiveId: NonNullable<SessionState["perspectiveId"]>,
+    config: SessionState["config"],
+  ): void {
+    const lines = this.#blindSheet(game, perspectiveId, config);
+    if (!rect || lines.length === 0) return;
+    this.add
+      .text(rect.x, rect.y, lines.join("\n"), textStyle(typeRole.label, surface.paper.hex, ink.secondary))
+      .setFontSize(10)
+      .setLineSpacing(3)
+      .setWordWrapWidth(rect.width);
   }
 
   #statusLine(

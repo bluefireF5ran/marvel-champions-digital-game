@@ -9,8 +9,10 @@
  * entering play. That minion is considered to engage that player unless it was already engaged with that player." Not
  * searched: facedown encounter cards in an in-play area, the victory display. Ruling, June 25, 2026 (5): "Finding and
  * revealing an attachment already in play triggers its When Revealed abilities and keywords." RRG 1.8 "Search" (p. 39):
- * a searched deck is shuffled. Ruling, Feb 28, 2026 (4) answer 2: quickstrike resolves upon engagement, before the When
- * Revealed. The owner's decision, §4.1 Q17 = A: an attachment found on another player stays where it is.
+ * a searched deck is shuffled. RRG 1.8 "Quickstrike" (p. 36): a minion being revealed resolves quickstrike after its
+ * When Revealed (the owner's answer 30B, 2026-10-12, over ruling Feb 28, 2026 (4) answer 2), and p. 19 calls a minion
+ * found and revealed "being revealed". The owner's decision, §4.1 Q17 = A: an attachment found on another player stays
+ * where it is.
  *
  * Synthetic cards only; the engine never names a card.
  */
@@ -388,7 +390,7 @@ describe("§3.1 reveal keywords of a minion found in play: quickstrike", () => {
       (e) => e.phase === "initiated" && e.event.kind === "enemyAttack" && e.event.enemyInstanceId === id,
     );
 
-  it("it engaged the finder, a hero: it attacks once for 3, before its When Revealed (ruling Feb 28, 2026 (4))", () => {
+  it("it engaged the finder, a hero: it attacks once for 3, after its When Revealed (RRG p. 19, p. 36)", () => {
     const { state: at, striker } = struck(p2);
     const { state, events } = play(at, CALL_STRIKER.card);
     expect(mustInstance(state, striker).engagedWith).toBe(p1);
@@ -399,8 +401,8 @@ describe("§3.1 reveal keywords of a minion found in play: quickstrike", () => {
     expect(counterOn(state, p1, "struck")).toBe(1);
     const attack = events.indexOf(attacksBy(events, striker)[0]!);
     const whenRevealed = events.findIndex((e) => e.type === "counterAdded");
-    expect(events.findIndex((e) => e.type === "revealedInPlay")).toBeLessThan(attack);
-    expect(attack).toBeLessThan(whenRevealed);
+    expect(events.findIndex((e) => e.type === "revealedInPlay")).toBeLessThan(whenRevealed);
+    expect(whenRevealed).toBeLessThan(attack);
     expect(announced(events, "cardEntersPlay", striker)).toEqual([]);
   });
 

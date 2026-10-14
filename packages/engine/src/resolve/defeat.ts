@@ -16,6 +16,7 @@ import {
 } from "../effects.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { hasKeyword, isPermanent } from "../keywords.js";
+import { rehostPermanentAttachment } from "./attach.js";
 import {
   cardOf,
   characterProfile,
@@ -145,7 +146,8 @@ export function checkMainSchemeCompletion(ctx: Ctx): void {
   }
 }
 
-function checkOneMainScheme(ctx: Ctx, schemeId: InstanceId): void {
+/** The same check for one main scheme: its target threat fell to the threat on it (`checkSchemeTargetsFell`). */
+export function checkOneMainScheme(ctx: Ctx, schemeId: InstanceId): void {
   const scheme = mainSchemeStateOf(ctx.state, schemeId);
   if (!scheme || scheme.completed || advancePending(ctx.state, schemeId) || completingPending(ctx.state, schemeId))
     return;
@@ -329,7 +331,9 @@ export function shuffleMainSchemeStages(
   const card = scheme ? ctx.state.cardPool[scheme.cardId] : undefined;
   if (!scheme || card?.type !== "main_scheme") return;
   const from = Math.max(0, Math.trunc(fromStageIndex));
-  const indexes = card.stages.map((_, index) => index);
+  // The stages in its deck, in printed order: every stage, or those of an order it already has (chosen at setup,
+  // docs/phase7-wave10.md §3.2, or an earlier shuffle's). A stage outside that order is not shuffled back in.
+  const indexes = card.stages.flatMap((_, index) => (scheme.stageOrder?.includes(index) === false ? [] : [index]));
   const current = scheme.stageIndex;
   const unspent = (index: number): boolean => !ctx.state.spentMainSchemeStages.includes(index);
   let stageOrder: readonly number[];
@@ -826,19 +830,22 @@ export function villainDefeatRemoves(state: GameState, villainId: InstanceId): b
  * villain is defeated. The game is won when every villain is (The Wrecking Crew insert: "If the players defeat all
  * 4 villains, they win the game!"). Returns the frame that chooses the next active villain, when one is needed.
  */
-export function defeatVillainStage(ctx: Ctx, villainId: InstanceId): StackFrame | null {
+export function defeatVillainStage(ctx: Ctx, villainId: InstanceId, ignoreWhenDefeated = false): StackFrame | null {
   const villain = mustVillain(ctx.state, villainId);
   const nextIndex = villain.stageIndex + 1;
   // The defeated stage's own "When Defeated" (Kang (I): "Advance the main scheme to stage 2 at the end of the phase";
   // Kang (III): "The players win the game."), read before the stage changes. Resolved after this defeat's bookkeeping.
-  const whenDefeated = gameAbilityFrames(
-    ctx,
-    villainId,
-    ["whenDefeated"],
-    null,
-    villainStageOf(ctx.state, villainId).abilities,
-    ctx.state.firstPlayerId,
-  );
+  // None when the defeating effect ignores them (`EffectSpec defeat` `ignoreWhenDefeated`; RRG 1.8 "Ignore", p. 23).
+  const whenDefeated = ignoreWhenDefeated
+    ? []
+    : gameAbilityFrames(
+        ctx,
+        villainId,
+        ["whenDefeated"],
+        null,
+        villainStageOf(ctx.state, villainId).abilities,
+        ctx.state.firstPlayerId,
+      );
   if (nextIndex > villain.lastStageIndex || nextIndex >= villainStageCount(ctx.state, villainId)) {
     // RRG 1.8 "Victory X" (p. 46): a defeated character with the keyword is placed in the victory display — here the
     // villain's last stage card (Loki I, `mts` 21160–21164; the Brotherhood of Mutants, `mut_gen` 32121–32124;
@@ -1067,6 +1074,11 @@ export function eliminatePlayer(ctx: Ctx, playerId: PlayerId): void {
   const notOwnedPermanent = (id: InstanceId): boolean =>
     getInstance(ctx.state, id)?.ownerId !== playerId && isPermanent(ctx.state, id, ctx.deps);
   const reattachOrRemove = (id: InstanceId): void => {
+    // An encounter attachment resolves its "attach to" text again, and the attaching is announced (docs/phase7-
+    // wave10.md §3.19; MC56 p. 20), so "After Cap's Shield is attached to Captain America, give him a tough status
+    // card" answers a Shield that comes back from an eliminated player's hero.
+    if (rehostPermanentAttachment(ctx, id, identityId)) return;
+    // A card a player owns or controls (another player's permanent upgrade here) is moved as it always was.
     const card = ctx.state.cardPool[mustInstance(ctx.state, id).cardId];
     const attachesTo = card && "attachesTo" in card ? card.attachesTo : undefined;
     const context = { selfInstanceId: id, controllerId: null, event: null, bindings: {}, deps: ctx.deps };

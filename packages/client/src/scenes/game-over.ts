@@ -28,10 +28,18 @@ import { coverFit, ensurePictureLoaded, type Picture } from "../art/pictures.js"
 import { ART_CATALOG, outcomeArtFor } from "../art/scenario-art.js";
 import { accent, dotGrid, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import { caseOf, cssOf, textStyle } from "../ui/theme.js";
+import { cardsRandomizer } from "../view/civil-war-random.js";
 import { McButton, fitText, label, paintDotGrid } from "../ui/widgets.js";
 import { bindHoldTarget } from "../ui/hold-target.js";
 import { faceOf } from "../view/board-model.js";
-import { gameOverModel, newsParts, type GameOverModel } from "../view/game-over-model.js";
+import {
+  gameOverModel,
+  newsParts,
+  rematchActionsOf,
+  rematchConfigOf,
+  type GameOverModel,
+} from "../view/game-over-model.js";
+import { beatsPanelHeight, tallActionsLayout, wideActionsLayout } from "../view/game-over-actions-layout.js";
 import { formFactorFor, type Rect } from "../view/layout.js";
 import { rollSeed } from "../view/seed.js";
 import type { SessionConfig } from "../engine/host.js";
@@ -49,10 +57,13 @@ import { setGuideRunLevelOverride } from "../guide/guide-store.js";
 const GROUND_DOTS = { spacing: 9, radius: 1, alpha: 0.22 } as const;
 /** How much of the ground color sits over the wide layout's backdrop picture: enough that the result still reads as red or green and paper text holds its contrast. */
 const BACKDROP_WASH = 0.74;
+/** The least the phone's art window shrinks to when the content below it needs the room for its buttons. */
+const BAND_FLOOR = 96;
 
 export class GameOverScene extends Phaser.Scene {
   #buttons: McButton[] = [];
   #busy = false;
+  #bandShrink = 0;
   #status: Phaser.GameObjects.Text | null = null;
   /**
    * Keyboard and pad. The route is the buttons in the order `#button` lays them
@@ -130,7 +141,8 @@ export class GameOverScene extends Phaser.Scene {
     fadeScreenIn(this);
   }
 
-  #draw(): void {
+  #draw(bandShrink = 0): void {
+    this.#bandShrink = bandShrink;
     for (const button of this.#buttons) button.destroy();
     this.#buttons = [];
     destroyChildren(this);
@@ -155,8 +167,21 @@ export class GameOverScene extends Phaser.Scene {
       const model = gameOverModel(game, record, config, POOL_DEPS);
       const formFactor = formFactorFor(width, height);
       const tall = formFactor === "phone" || formFactor === "tabletPortrait";
-      if (tall) this.#drawTall(model, config, width, height, ribbon ? ribbon.rect.y + ribbon.rect.height + 8 : 10);
-      else this.#drawWide(model, config, width, height);
+      if (tall) {
+        const overflow = this.#drawTall(
+          model,
+          config,
+          width,
+          height,
+          ribbon ? ribbon.rect.y + ribbon.rect.height + 8 : 10,
+        );
+        // The content ran into the buttons (a long cause, an MVP row, a small phone): take that much from the art
+        // window and draw once more, rather than leave a button under a line of text.
+        if (overflow > 0 && bandShrink === 0) {
+          this.#draw(overflow);
+          return;
+        }
+      } else this.#drawWide(model, config, width, height);
       // The wide loss screen is Hero Red from edge to edge, which would swallow a red ring.
       if (!tall && model.tone === "loss") ringColor = surface.ink.hex;
     }
@@ -280,7 +305,9 @@ export class GameOverScene extends Phaser.Scene {
 
     // The rounds where it turned.
     const beatsTop = bodyTop + cardHeight + 16;
-    this.#beatsPanel({ x: pad, y: beatsTop, width: mainWidth, height: Math.max(120, bodyBottom - beatsTop) }, model);
+    // As tall as its lines, so one line is a short strip and the leader's picture shows below it.
+    const beatsHeight = beatsPanelHeight(this.#beatRowHeights(model, mainWidth), Math.max(120, bodyBottom - beatsTop));
+    this.#beatsPanel({ x: pad, y: beatsTop, width: mainWidth, height: beatsHeight }, model);
 
     // Right column: the table, then the actions.
     const sideX = width - pad - sideWidth;
@@ -301,25 +328,25 @@ export class GameOverScene extends Phaser.Scene {
     tablePanel.lineStyle(4, surface.paper.hex, 1).strokeRect(sideX, bodyTop, sideWidth, tableHeight);
 
     const actions = this.#actions(config);
-    const buttonHeight = hit.primary;
-    const backHeight = hit.target;
-    let actionY = bodyBottom - backHeight - (buttonHeight + 10) * actions.length;
-    actionY = Math.max(actionY, bodyTop + tableHeight + 14);
-    for (const action of actions) {
+    const stack = wideActionsLayout({
+      sideX,
+      sideWidth,
+      tableBottom: bodyTop + tableHeight,
+      bodyBottom,
+      actions: actions.length,
+    });
+    actions.forEach((action, index) => {
       this.#button(
         action.primary ? "secondary" : "quiet",
         action.label,
-        { x: sideX, y: actionY, width: sideWidth, height: buttonHeight },
+        stack.actions[index]!,
         action.run,
         action.unavailable,
       );
-      actionY += buttonHeight + 10;
-    }
-    this.#button("quiet", "Back to title", { x: sideX, y: actionY, width: sideWidth, height: backHeight }, () =>
-      goToScreen(this, SCENES.title),
-    );
+    });
+    this.#button("quiet", "Back to title", stack.back, () => goToScreen(this, SCENES.title));
     this.#status = this.add
-      .text(sideX, bodyTop + tableHeight + 4, "", textStyle(typeRole.emphasis, surface.paper.hex))
+      .text(stack.status.x, stack.status.y, "", textStyle(typeRole.emphasis, surface.paper.hex))
       .setWordWrapWidth(sideWidth);
   }
 
@@ -351,14 +378,14 @@ export class GameOverScene extends Phaser.Scene {
     height: number,
     /** Where the villain's card may start: below the news ribbon, which would otherwise cover its title bar. */
     cardTop = 10,
-  ): void {
+  ): number {
     this.cameras.main.setBackgroundColor(cssOf(surface.ink.hex));
     const accentHue = model.tone === "win" ? signal.caution.hex : accent.heroRed.hex;
     const pad = 16;
 
     // The art window across the top (P11 "Defeat art" / P17): this result's scene from `art/`, edge to edge;
     // or, when `art/` has none for it, the villain's card, whole.
-    const bandHeight = Math.round(Math.min(250, height * 0.3));
+    const bandHeight = Math.max(BAND_FLOOR, Math.round(Math.min(250, height * 0.3)) - this.#bandShrink);
     const band = this.add.graphics();
     band.fillStyle(surface.void.hex, 1).fillRect(0, 0, width, bandHeight);
     if (this.#outcomeArt) {
@@ -438,39 +465,29 @@ export class GameOverScene extends Phaser.Scene {
 
     // Actions at the thumb: the rematch in red, the rest beneath it.
     const actions = this.#actions(config);
-    const [primary, ...rest] = actions;
-    const rowCount = Math.ceil((rest.length + 1) / 2);
-    let actionY = height - 20 - hit.primary - 8 - rowCount * (hit.target + 7);
-    actionY = Math.max(actionY, y);
+    const stack = tallActionsLayout({
+      pad,
+      column,
+      width,
+      height,
+      // The status line sits 18px above the first button, so it needs that much room under the content too.
+      top: y + 18,
+      actions: actions.length,
+    });
     this.#status = this.add
-      .text(pad, actionY - 18, "", textStyle(typeRole.emphasis, accent.heroRed.hex))
+      .text(stack.status.x, stack.status.y, "", textStyle(typeRole.emphasis, accent.heroRed.hex))
       .setWordWrapWidth(column);
-    if (primary) {
+    actions.forEach((action, index) => {
       this.#button(
-        "primary",
-        primary.label,
-        { x: pad, y: actionY, width: column, height: hit.primary },
-        primary.run,
-        primary.unavailable,
-      );
-      actionY += hit.primary + 8;
-    }
-    const quiet = [
-      ...rest,
-      { label: "Back to title", primary: false, run: () => goToScreen(this, SCENES.title), unavailable: undefined },
-    ];
-    const halfWidth = (column - 7) / 2;
-    quiet.forEach((action, index) => {
-      const x = pad + (index % 2) * (halfWidth + 7);
-      const rowY = actionY + Math.floor(index / 2) * (hit.target + 7);
-      this.#button(
-        "secondary",
+        index === 0 ? "primary" : "secondary",
         action.label,
-        { x, y: rowY, width: halfWidth, height: hit.target },
+        stack.actions[index]!,
         action.run,
         action.unavailable,
       );
     });
+    this.#button("secondary", "Back to title", stack.back, () => goToScreen(this, SCENES.title));
+    return stack.overflow;
   }
 
   /**
@@ -501,6 +518,19 @@ export class GameOverScene extends Phaser.Scene {
     this.#order.push(stop);
     this.#stops.set(stop, { rect, activate: open });
     return rect;
+  }
+
+  /** The wrapped height of each beat's text at this panel width, measured on throwaway text. */
+  #beatRowHeights(model: GameOverModel, panelWidth: number): readonly number[] {
+    return model.beats.map((beat) => {
+      const probe = this.add
+        .text(0, 0, beat.text, textStyle(typeRole.body, surface.paper.hex, 0.85))
+        .setFontSize(12)
+        .setWordWrapWidth(panelWidth - 40 - 64);
+      const height = probe.height;
+      probe.destroy();
+      return height;
+    });
   }
 
   #beatsPanel(rect: Rect, model: GameOverModel): void {
@@ -570,20 +600,12 @@ export class GameOverScene extends Phaser.Scene {
       ];
     }
     const missing = config ? undefined : "this game's setup isn't available";
-    return [
-      {
-        label: "Run it back",
-        primary: true,
-        run: () => config && void this.#rematch({ ...config, seed: rollSeed() }),
-        unavailable: missing,
-      },
-      {
-        label: "Same seed, same hands",
-        primary: false,
-        run: () => config && void this.#rematch(config),
-        unavailable: missing,
-      },
-    ];
+    return rematchActionsOf(config).map((action) => ({
+      label: action.label,
+      primary: action.primary,
+      run: () => config && void this.#rematch(rematchConfigOf(config, action.kind, rollSeed(), cardsRandomizer)),
+      unavailable: missing,
+    }));
   }
 
   /**

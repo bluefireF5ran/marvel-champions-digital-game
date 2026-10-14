@@ -103,7 +103,9 @@ export function normalizeEncounterSets(ctx: NormalizeContext): {
         // Wave 2 (docs/phase7-wave2.md §6.3): the Civil War rulebook, "Custom Scenario Expansion" (p. 3) — Standard
         // PvP "replaces the standard encounter set when playing in competitive mode". Competitive mode is not
         // built; `validateScenarioEncounterSets` refuses a standalone scenario that names this set.
-        ...(id === "standard_pvp" ? { competitiveOnly: true } : {}),
+        ...(id === "standard_pvp" || override?.competitiveOnly ? { competitiveOnly: true } : {}),
+        // docs/phase7-wave10.md §1.3: the Civil War side, curated per set.
+        ...(override?.side ? { side: override.side } : {}),
         // docs/phase7-wave4.md §1.9: RRG 1.8 "Standard Set" (p. 40) / "Expert Set" (p. 19) — a set in this
         // classification is never a modular choice. Standard II / Expert II (`hood`) print "Standard II" /
         // "Expert II" at the bottom of the card, so they're the same classification as Core's own Standard/Expert.

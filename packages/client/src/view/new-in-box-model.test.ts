@@ -6,6 +6,7 @@ import { UNLOCK_WAVES } from "../progression/unlocks.js";
 import { MECHANIC_TRYITS } from "../guide/mechanic-tryits.js";
 import {
   BOXES,
+  COMPETITIVE_NOTICE,
   boxPageContentLayout,
   boxPageFocusOrder,
   boxPageHeaderLayout,
@@ -35,6 +36,7 @@ describe("boxPages", () => {
       "cycle7",
       "cycle8",
       "cycle9",
+      "cycle10",
     ]);
   });
 
@@ -266,7 +268,12 @@ describe("entries that apply to Core cards too", () => {
     expect(home.link).toEqual({ label: "Also a Core rule", boxId: "core" });
     const onCore = page("core").heroMechanics.find((r) => r.id === "counters")!;
     expect(onCore.link).toEqual({ label: "Added with Mutant Genesis", boxId: "cycle6" });
-    expect(ids(page("core").scenarioMechanics)).toEqual(["encounterDeckEmpty", "mainSchemeBSide", "surgeDealt"]);
+    expect(ids(page("core").scenarioMechanics)).toEqual([
+      "cannotTakeDamage",
+      "encounterDeckEmpty",
+      "mainSchemeBSide",
+      "surgeDealt",
+    ]);
     expect(page("cycle1").keywords.find((r) => r.id === "setup")!.link?.boxId).toBe("core");
     expect(page("core").keywords.find((r) => r.id === "setup")!.link?.label).toBe("Added with The Rise of Red Skull");
   });
@@ -414,5 +421,60 @@ describe("introducedIn is derived from card data, not guessed", () => {
         expect(entry.introducedIn, `${name} first appears in ${first}`).toBe(boxOfPack(first));
       }
     }
+  });
+});
+
+describe("the Civil War box notice", () => {
+  it("has the cycle10 row named Civil War", () => {
+    const box = BOXES.find((b) => b.id === "cycle10");
+    expect(box).toMatchObject({ name: "Civil War", unlockKey: "cycle10", notice: "Competitive mode coming soon." });
+    expect(COMPETITIVE_NOTICE).toBe("Competitive mode coming soon.");
+  });
+
+  it("shows the notice exactly once, with no tagged entry needed, and lays it out", () => {
+    const p = page("cycle10");
+    expect(p.title).toBe("New in Civil War");
+    expect(p.notice).toBe("Competitive mode coming soon.");
+    const layout = boxPageContentLayout(800, p);
+    expect(layout.noticeRect).not.toBeNull();
+    expect(layout.noticeRect!.y + layout.noticeRect!.height).toBeLessThanOrEqual(layout.totalHeight);
+    for (const r of boxPageRowRects(layout)) expect(rectsOverlap(r, layout.noticeRect!)).toBe(false);
+    expect(layout.heights.reduce((a, b) => a + b, 0)).toBeCloseTo(layout.totalHeight);
+  });
+
+  it("lists the Civil War entries by group, with the Core-wide targeting rule linked to Core", () => {
+    const p = page("cycle10");
+    expect(ids(p.keywords)).toEqual([]);
+    expect([...ids(p.scenarioMechanics)].sort()).toEqual([
+      "avengerTeamwork",
+      "cannotTakeDamage",
+      "civilWarCooperative",
+      "civilWarSides",
+      "competitiveMode",
+      "customScenario",
+      "enemyTeam",
+      "givenAsBoost",
+      "leaderCard",
+      "unregistered",
+      "yourLeader",
+    ]);
+    expect([...ids(p.heroMechanics)].sort()).toEqual([
+      "huntedMinion",
+      "ionicPhysiology",
+      "laborGiftDecks",
+      "overpaying",
+      "shapeshift",
+      "teamworkEvent",
+    ]);
+    expect(page("core").scenarioMechanics.find((r) => r.id === "cannotTakeDamage")?.link?.boxId).toBe("cycle10");
+  });
+
+  it("a locked box has no page", () => {
+    expect(boxPages((key) => key !== "cycle10").some((x) => x.id === "cycle10")).toBe(false);
+  });
+
+  it("is on no other box", () => {
+    for (const p of boxPages(allOpen)) if (p.id !== "cycle10") expect(p.notice).toBeNull();
+    expect(boxPageContentLayout(800, page("cycle9")).noticeRect).toBeNull();
   });
 });

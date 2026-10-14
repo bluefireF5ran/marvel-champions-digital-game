@@ -6,6 +6,7 @@ import {
   POINTS,
   UNLOCK_CAMPAIGNS,
   UNLOCK_HEROES,
+  hasUnlockWave,
   UNLOCK_WAVES,
   Unlocks,
   devUnlockAllFrom,
@@ -35,6 +36,11 @@ const make = (progress: UnlockProgress = NO_PROGRESS, prefs: UnlockPrefs = DEFAU
   new Unlocks({ progress, prefs });
 
 describe("the unlock path", () => {
+  it("knows which cycles are on the unlock path", () => {
+    expect(hasUnlockWave("cycle9")).toBe(true);
+    expect(hasUnlockWave("cycle99")).toBe(false);
+  });
+
   it("lists every wave the pool's scenarios and heroes come from", () => {
     const listed = new Set(UNLOCK_WAVES.map((w) => w.cycleId));
     for (const s of POOL_SCENARIOS) expect(listed, `${s.id as string}`).toContain(scenarioCycleOf(s));
@@ -121,9 +127,61 @@ describe("the unlock path", () => {
     expect(skull.heroLock(heroNamed("Venom"))).toBe("Beat Nebula to unlock Venom");
   });
 
+  it("opens the Civil War box after the Agents of S.H.I.E.L.D. campaign, with Tigra and Hulkling, no campaign and Wonder Man and Hercules as leader rewards", () => {
+    expect(hasUnlockWave("cycle10")).toBe(true);
+    const wave = UNLOCK_WAVES.find((w) => w.cycleId === "cycle10")!;
+    expect(wave.name).toBe("Civil War");
+    expect(wave.gate).toEqual({
+      kind: "campaignWin",
+      campaignId: "aos",
+      hint: "Complete the Agents of S.H.I.E.L.D. campaign",
+    });
+    expect(wave.campaignId).toBeUndefined();
+    expect(wave.heroRewards).toEqual([
+      { scenarioId: "registration-iron-man", identityCardId: "58001a" },
+      { scenarioId: "resistance-captain-america", identityCardId: "59001a" },
+    ]);
+    expect(wave.starterHeroIds).toEqual(["56001a", "56029a"]);
+
+    const fresh = make(NO_PROGRESS);
+    expect(fresh.waveLock("cycle10")).toBe("Complete the Agents of S.H.I.E.L.D. campaign to unlock Civil War");
+    expect(fresh.scenarioLock(scenario("registration-iron-man"))).toBe(
+      "Complete the Agents of S.H.I.E.L.D. campaign to unlock Civil War",
+    );
+    expect(fresh.heroLock(heroNamed("Tigra"))).not.toBeNull();
+
+    const finished = make(won([], ["aos"]));
+    expect(finished.waveLock("cycle10")).toBeNull();
+    expect(finished.scenarioLock(scenario("resistance-captain-america"))).toBeNull();
+    expect(finished.heroLock(heroNamed("Tigra"))).toBeNull();
+    expect(finished.heroLock(heroNamed("Hulkling"))).toBeNull();
+    // The two hero-pack heroes stay locked until their leader is beaten.
+    expect(finished.heroLock(heroNamed("Wonder Man"))).toBe("Beat Iron Man to unlock Wonder Man");
+    expect(finished.heroLock(heroNamed("Hercules"))).toBe("Beat Captain America to unlock Hercules");
+    const beaten = make(won(["registration-iron-man"], ["aos"]));
+    expect(beaten.heroLock(heroNamed("Wonder Man"))).toBeNull();
+    expect(beaten.heroLock(heroNamed("Hercules"))).not.toBeNull();
+  });
+
   it("names a villain by its scenario when they differ", () => {
     expect(villainLabelOf("rhino")).toBe("Rhino");
     expect(villainLabelOf("infiltrate-the-museum")).toMatch(/\(Infiltrate the Museum\)$/);
+  });
+
+  it('names a Civil War leader once, not as "Iron Man (Registration: Iron Man)"', () => {
+    expect(villainLabelOf("registration-iron-man")).toBe("Iron Man");
+    expect(villainLabelOf("registration-captain-marvel")).toBe("Captain Marvel");
+    expect(villainLabelOf("resistance-captain-america")).toBe("Captain America");
+    expect(villainLabelOf("resistance-spider-woman")).toBe("Spider-Woman");
+  });
+
+  it("keeps a hero lock line short enough to wrap in two lines on a 360 px tile", () => {
+    // The shelf tile keeps two caption lines of about 26 characters at 360 wide, then " · or N pts".
+    for (const hero of ["Wonder Man", "Hercules"]) {
+      const line = make(won([], ["aos"])).heroLock(heroNamed(hero)) ?? "";
+      expect(line).not.toContain("(");
+      expect(line.length).toBeLessThanOrEqual(40);
+    }
   });
 });
 

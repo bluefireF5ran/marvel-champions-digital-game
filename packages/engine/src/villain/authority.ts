@@ -42,12 +42,14 @@ export const simultaneousOrderer = (state: GameState): PlayerId => state.firstPl
  * The authority of a choice an effect asks of `chooser`. Scripts write
  * `chooser: firstPlayer` on an encounter card exactly where the card targets
  * without saying "choose"; a "choose" on an encounter card is the resolving
- * player's own decision (RRG "Choose").
+ * player's own decision (RRG "Choose"). `chooser: enemyTeamDecider` is a choice the card gives to "the enemy team"
+ * (MC56 p. 6), on a card of either side.
  */
 export function effectChoiceAuthority(
   state: GameState,
   sourceId: InstanceId | null,
   chooser: PlayerRef,
 ): DecisionAuthority {
+  if (chooser.kind === "enemyTeamDecider") return "enemyTeam";
   return chooser.kind === "firstPlayer" && isEncounterSide(state, sourceId) ? "firstPlayerTargets" : "player";
 }

@@ -11,11 +11,19 @@
 
 import { type Ctx, popFrame, pushFrames, setFrame } from "../ctx.js";
 import { characterProfile, getInstance } from "../query.js";
-import { sourcePlayerOf } from "../select.js";
+import { cardsInPlay, sourcePlayerOf } from "../select.js";
 import type { ReportTarget, StackFrame, Vars } from "../stack.js";
-import type { TriggerEvent } from "../trigger-events.js";
+import { EXCESS_AS_DEALT_RESULT, type TriggerEvent } from "../trigger-events.js";
 import { checkDefeats } from "./defeat.js";
-import { applyDamage, asDamaged, excessDamageOf, piercedBeforeInterrupts, stampAttackTarget } from "./event.js";
+import {
+  applyDamage,
+  asDamaged,
+  excessAsDealtOf,
+  excessDamageOf,
+  piercedBeforeInterrupts,
+  stampAttackTarget,
+  withUsedStat,
+} from "./event.js";
 import { base, type Frame } from "./frames.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
 
@@ -71,8 +79,9 @@ export function executeDamageGroupFrame(ctx: Ctx, frame: Frame<"damageGroup">): 
         const target = member.event.targetInstanceId;
         const before = getInstance(ctx.state, target)?.damage ?? 0;
         const maxHp = characterProfile(ctx.state, target, ctx.deps)?.maxHp;
+        const inPlay = cardsInPlay(ctx.state).includes(target);
         // Its response window (stage three) reads the member's event: the target as it took the damage.
-        const event = asDamaged(ctx.state, member.event);
+        const event = asDamaged(ctx.state, withUsedStat(ctx.state, member.event));
         stampAttackTarget(ctx, event);
         applyDamage(ctx, event, frame.frameId, false);
         const vars: Record<string, number> = {};
@@ -82,6 +91,9 @@ export function executeDamageGroupFrame(ctx: Ctx, frame: Frame<"damageGroup">): 
         // (RRG 1.8 "Overkill", p. 31).
         const excessDealt = excessDamageOf(ctx, member.event, before, taken, maxHp);
         if (excessDealt > 0) vars.excessDealt = excessDealt;
+        // …and the excess of the amount dealt, whatever kept the target from taking it (`excessAsDealtOf`).
+        const excessAsDealt = inPlay ? excessAsDealtOf(ctx, member.event, before, maxHp) : 0;
+        if (excessAsDealt > 0) vars[EXCESS_AS_DEALT_RESULT] = excessAsDealt;
         members.push({ ...member, event, vars: vars as Vars });
       }
       setFrame(ctx, { ...frame, members, stage: "responses" });

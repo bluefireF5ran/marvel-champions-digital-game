@@ -23,6 +23,8 @@ import {
 import {
   basicPowerCost,
   costAsDetermined,
+  costPartsPayableByAnyPlayer,
+  playCostWith,
   counterCostHolder,
   eventActionForQuery,
   eventActions,
@@ -31,7 +33,9 @@ import {
   handCardResources,
   isAlternativeAmount,
   isWhenSpentUse,
+  minimumChosenX,
   mostFromEachHandCard,
+  whenSpentCostSize,
   spentCardOptionId,
   priceOrNull,
   paidForMultiplied,
@@ -51,11 +55,20 @@ import {
 } from "./actions.js";
 import { chosenSizePayments } from "./payable.js";
 import type { PendingChoice } from "./choices.js";
-import type { Command, CostChoices, CostSelection, Payment } from "./commands.js";
+import {
+  type Command,
+  type CostChoices,
+  type CostPartPayers,
+  type CostSelection,
+  DELEGABLE_COST_PARTS,
+  type DelegableCostPart,
+  type Payment,
+} from "./commands.js";
 import { createCtx } from "./ctx.js";
 import { areaCostReductionFor } from "./effects.js";
 import { applyCommand } from "./engine.js";
 import { attachCostCard, attachCostHosts, dealDamageCostChoices } from "./attach-cost.js";
+import { encounterSearchCostCandidates } from "./encounter-search-cost.js";
 import { resolveAbilityCostCandidates } from "./resolve-ability-cost.js";
 import { encounterDiscardCostRange } from "./encounter-discard-cost.js";
 import { EngineInvariantError, type EngineErrorCode } from "./errors.js";
@@ -79,7 +92,13 @@ import { attachmentHostCandidates } from "./resolve/index.js";
 import { addPools, combineRequirements, poolTotal, requirementTotal, type ResolvedRequirement } from "./resources.js";
 import { basicPowerCostNeeds } from "./basic-power-uses.js";
 import { dealToCostChoices } from "./deal-to-cost.js";
-import { attachmentReachOf, formChangeCostsFor, playDestinationsOf, type FormChangeCost } from "./rules.js";
+import {
+  attachmentReachOf,
+  costsPayableByAnyPlayer,
+  formChangeCostsFor,
+  playDestinationsOf,
+  type FormChangeCost,
+} from "./rules.js";
 import { formChangeCostSources } from "./form-change-cost.js";
 import {
   activeAbilityRefs,
@@ -90,10 +109,12 @@ import {
   isAlly,
   isCaptiveAlly,
   matchesQuery,
+  printedAbilityRefs,
   triggeringPlayers,
   type EffectContext,
 } from "./select.js";
 import type { Form, GameState } from "./state.js";
+import { healCostChoices } from "./heal-cost.js";
 import { anyThwartCost } from "./thwart-cost.js";
 
 /** One thing a player could do on their turn, independent of target and payment. */
@@ -138,7 +159,10 @@ export interface LegalAction {
   readonly blockedTargets: readonly BlockedTarget[];
   /** Players who may control the card, for "play under any player's control" cards. */
   readonly controllers?: readonly PlayerId[];
-  /** True when the action costs resources, so the client opens the payment step. */
+  /**
+   * True when the action costs resources, so the client opens the payment step. Also true for a play that costs
+   * nothing when overpaying matters for it (`PaymentQuery.overpayMatters`).
+   */
   readonly needsPayment: boolean;
   /**
    * An either/or cost ("Choose to either exhaust your hero or spend 2 resources of any type →"; docs/phase7-wave3.md
@@ -202,6 +226,21 @@ export interface LegalAction {
    * pays it, and `paymentFor` / `tryPayment` take the action as they take a play. Absent for a free change.
    */
   readonly formChangeCost?: { readonly sourceInstanceIds: readonly InstanceId[] };
+  /**
+   * An ability whose cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`; docs/phase7-wave10-hero-packs.md
+   * H3.19), or the play of an alliance card (RRG 1.8 "Alliance", p. 6; owner answer 48B), whose cost holds a part another player can take over whole (`DelegableCostPart`: "take 2 damage", "discard
+   * the top card of your deck"): for each such part, the players who can pay it right now, the user first when they
+   * can. The client asks who pays and sends a player other than the user as `costSelection.paidBy`; `example` has the
+   * user pay every part they can, and names a helper only for a part the user cannot pay. Absent for every other cost.
+   * A helper's resources and cards need no entry here: they are payment sources and cost picks like the user's own.
+   */
+  readonly costHelp?: readonly CostHelp[];
+}
+
+/** Who can pay one delegable part of a cost right now (`LegalAction.costHelp`). */
+export interface CostHelp {
+  readonly part: DelegableCostPart;
+  readonly payers: readonly PlayerId[];
 }
 
 export interface IllegalAction {
@@ -254,6 +293,8 @@ interface Variant {
   readonly controllerId?: PlayerId;
   /** The either/or cost branch this variant pays (`costSelection.branch`), when the cost has one. */
   readonly branch?: number;
+  /** Who pays each delegable part of the cost in this variant, the user included (`LegalAction.costHelp`). */
+  readonly partPayers?: CostPartPayers;
   readonly build: (payment: readonly Payment[]) => Command;
 }
 
@@ -293,8 +334,46 @@ function encounterDiscardRange(
   return range ? { ...range, inDeck: activeEncounterDeck(state).deck.length } : undefined;
 }
 
-const withBranch = (branch: number | undefined): { readonly costSelection?: CostSelection } =>
-  branch === undefined ? {} : { costSelection: { branch } };
+const withBranch = (branch: number | undefined, paidBy?: CostPartPayers): { readonly costSelection?: CostSelection } =>
+  branch === undefined && !paidBy
+    ? {}
+    : { costSelection: { ...(branch === undefined ? {} : { branch }), ...(paidBy ? { paidBy } : {}) } };
+
+/** The delegable parts (`DelegableCostPart`) a cost holds, in its own components or in the branch chosen. */
+const delegableParts = (cost: AbilityCost | undefined, branch: number | undefined): readonly DelegableCostPart[] => {
+  const paid = branch === undefined ? cost : { ...cost, ...cost?.either?.[branch] };
+  return DELEGABLE_COST_PARTS.filter((part) => paid?.[part] !== undefined);
+};
+
+/**
+ * Who could pay each delegable part of a cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, or an
+ * alliance card being played: `costPartsPayableByAnyPlayer`): the user
+ * paying everything first, then every other split, the helpers in player order. One entry, `undefined`, for a cost
+ * nobody else may pay or with no such part, which keeps every other command exactly as it was.
+ */
+function partPayerSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  parts: readonly DelegableCostPart[],
+): readonly (CostPartPayers | undefined)[] {
+  if (parts.length === 0 || !costPartsPayableByAnyPlayer(state, deps, source)) return [undefined];
+  const players = [playerId, ...playerOrder(state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))];
+  // Nobody to help (a solo game): the command and what is listed stay exactly as without the rule.
+  if (players.length < 2) return [undefined];
+  let sets: CostPartPayers[] = [{}];
+  for (const part of parts) sets = players.flatMap((payer) => sets.map((set) => ({ ...set, [part]: payer })));
+  // The fewest helpers first, so the first working variant has the user pay everything they can.
+  const helped = (set: CostPartPayers): number => Object.values(set).filter((payer) => payer !== playerId).length;
+  return [...sets].sort((a, b) => helped(a) - helped(b));
+}
+
+/** The `paidBy` a command carries for a variant's part payers: only the parts a player other than the user pays. */
+function paidByOf(playerId: PlayerId, partPayers: CostPartPayers | undefined): CostPartPayers | undefined {
+  const helped = Object.entries(partPayers ?? {}).filter(([, payer]) => payer !== playerId);
+  return helped.length > 0 ? (Object.fromEntries(helped) as CostPartPayers) : undefined;
+}
 
 type Evaluated = { readonly legal: LegalAction } | { readonly illegal: IllegalAction };
 
@@ -374,9 +453,7 @@ function walletsWithWhenSpent(
     const pool = priceOrNull(ctx, playerId, [payment], null, payingFor);
     return pool ? poolTotal(pool) : 0;
   };
-  const picksOf = (p: Payment): number =>
-    "fromHand" in p ? Object.values(p.whenSpent?.costChoices ?? {}).flat().length : 0;
-  const sizes = [...new Set(uses.map(picksOf))].sort((a, b) => a - b);
+  const sizes = [...new Set(uses.map(whenSpentCostSize))].sort((a, b) => a - b);
   return [
     ...plain,
     ...sizes.flatMap((size) => {
@@ -622,9 +699,16 @@ function discardPicks(
   if (min === 0 && !combined) return [];
   const filter = cost?.discardFromHand?.filter;
   const context: EffectContext = { selfInstanceId: source, controllerId: playerId, event: null, bindings: {}, deps };
-  const hand = (getPlayer(state, playerId)?.hand ?? [])
-    .filter((id) => id !== source)
-    .filter((id) => !filter || matchesQuery(state, id, filter, context));
+  // A cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, hero-packs H3.19): the user's own cards
+  // first, then the other players' in player order, so a helper's card is picked only when the user's run out.
+  const hands = costsPayableByAnyPlayer(state, deps, source)
+    ? [playerId, ...playerOrder(state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
+    : [playerId];
+  const matching = (owner: PlayerId): InstanceId[] =>
+    (getPlayer(state, owner)?.hand ?? [])
+      .filter((id) => id !== source)
+      .filter((id) => !filter || matchesQuery(state, id, filter, context));
+  const hand = hands.flatMap(matching);
   if (combined) {
     // "… with a combined resource cost of 3 or more" (`DiscardCombined`): the fewest cards that reach it, largest
     // share first. A hand whose matching cards can't reach it yields all of them, which the engine refuses — so
@@ -641,8 +725,11 @@ function discardPicks(
     }
     return picks;
   }
-  const cheapest = [...hand].sort(
-    (a, b) => resourceCount(state, a) - resourceCount(state, b) || isResourceCard(state, a) - isResourceCard(state, b),
+  const cheapest = hands.flatMap((owner) =>
+    matching(owner).sort(
+      (a, b) =>
+        resourceCount(state, a) - resourceCount(state, b) || isResourceCard(state, a) - isResourceCard(state, b),
+    ),
   );
   return cheapest.slice(0, min);
 }
@@ -663,13 +750,13 @@ function costChoiceSets(
   cost: AbilityCost | undefined,
   picks: readonly InstanceId[],
 ): readonly CostChoiceSet[] {
-  const sets = resolveChoiceSets(
+  const sets = searchChoiceSets(
     state,
     deps,
     playerId,
     source,
     cost,
-    pickChoiceSets(state, deps, playerId, source, cost, picks),
+    resolveChoiceSets(state, deps, playerId, source, cost, pickChoiceSets(state, deps, playerId, source, cost, picks)),
   );
   const attach = cost?.attach;
   if (!attach) return damageChoiceSets(state, deps, playerId, source, cost, sets);
@@ -689,6 +776,29 @@ function costChoiceSets(
 }
 
 /**
+ * "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost
+ * (`AbilityCost.searchEncounterIntoPlay`, docs/phase7-wave10-box-heroes.md B3.1): each variant once per card the payer
+ * may search out, which is the variant's target. With no candidate the variants are left as they are and the engine's
+ * own check (`planCost`) refuses them, so the play is listed illegal with its reason.
+ */
+function searchChoiceSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  cost: AbilityCost | undefined,
+  sets: readonly CostChoiceSet[],
+): readonly CostChoiceSet[] {
+  const search = cost?.searchEncounterIntoPlay;
+  if (!search) return sets;
+  const candidates = encounterSearchCostCandidates(state, deps, source, playerId, search);
+  if (candidates.length === 0) return sets;
+  return sets.flatMap(({ costChoices, target }) =>
+    candidates.map((card) => ({ costChoices: { ...costChoices, [search.slot]: [card] }, target: target ?? card })),
+  );
+}
+
+/**
  * "Deal 1 damage to another friendly character →" (`AbilityCost.dealDamage.choose`, docs/phase7-wave8.md §3.74): each
  * variant once per card the payer may pick. With no candidate the variants are left as they are and the engine's own
  * check (`planCost`) refuses them, so the ability is not offered.
@@ -701,13 +811,35 @@ function damageChoiceSets(
   cost: AbilityCost | undefined,
   given: readonly CostChoiceSet[],
 ): readonly CostChoiceSet[] {
-  const sets = dealToChoiceSets(state, cost, given);
+  const sets = healChoiceSets(state, deps, playerId, source, cost, dealToChoiceSets(state, cost, given));
   const choose = cost?.dealDamage?.choose;
   if (!choose) return sets;
   const candidates = dealDamageCostChoices(state, deps, source, playerId, choose);
   if (candidates.length === 0) return sets;
   return sets.flatMap(({ costChoices, target }) =>
     candidates.map((card) => ({ costChoices: { ...costChoices, [choose.slot]: [card] }, target: target ?? card })),
+  );
+}
+
+/**
+ * "Heal 2 damage from an enemy →" (`AbilityCost.healCharacter`, docs/phase7-wave10-hero-packs.md H3.17): each variant
+ * once per character the payer may pick, which is the variant's target. With no candidate the variants are left as
+ * they are and the engine's own check (`planCost`) refuses them, so the ability is not offered.
+ */
+function healChoiceSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  cost: AbilityCost | undefined,
+  sets: readonly CostChoiceSet[],
+): readonly CostChoiceSet[] {
+  const heal = cost?.healCharacter;
+  if (!heal) return sets;
+  const candidates = healCostChoices(state, deps, source, playerId, heal);
+  if (candidates.length === 0) return sets;
+  return sets.flatMap(({ costChoices, target }) =>
+    candidates.map((card) => ({ costChoices: { ...costChoices, [heal.slot]: [card] }, target: target ?? card })),
   );
 }
 
@@ -843,6 +975,7 @@ function evaluate(
     };
   }
   const payment = smallestPayment(state, deps, first.variant.build, first.wallet);
+  const example = first.variant.build(payment);
   const targets = [...new Set(working.flatMap((t) => (t.variant.target === null ? [] : [t.variant.target])))];
   const controllers = variants.some((v) => v.controllerId !== undefined)
     ? [...new Set(working.flatMap((t) => (t.variant.controllerId ? [t.variant.controllerId] : [])))]
@@ -852,15 +985,25 @@ function evaluate(
         (a, b) => a - b,
       )
     : undefined;
+  // Who can pay each delegable part (`LegalAction.costHelp`), from the variants that work, in the order tried.
+  const helpParts = DELEGABLE_COST_PARTS.filter((part) => variants.some((v) => v.partPayers?.[part] !== undefined));
+  const costHelp: readonly CostHelp[] = helpParts.map((part) => ({
+    part,
+    payers: [...new Set(working.flatMap((t) => t.variant.partPayers?.[part] ?? []))],
+  }));
   return {
     legal: {
       action,
-      example: first.variant.build(payment),
+      example,
       targets,
       blockedTargets,
       ...(controllers ? { controllers } : {}),
-      needsPayment: payment.length > 0,
+      needsPayment:
+        payment.length > 0 ||
+        printsX(state, action) ||
+        ("playerId" in example && overpayMatters(state, deps, example.playerId, action)),
       ...(costBranches ? { costBranches } : {}),
+      ...(costHelp.length > 0 ? { costHelp } : {}),
     },
   };
 }
@@ -913,7 +1056,8 @@ function evaluatePlayOf(
   ability: AbilityDefinition | undefined,
   abilityId: AbilityId | undefined,
 ): Evaluated {
-  const cost = costAsDetermined(state, deps, id, playerId, ability?.cost);
+  // With the card's additional cost to play (`playCostWith`, box-heroes B3.1), as the play command plans it.
+  const cost = costAsDetermined(state, deps, id, playerId, playCostWith(state, deps, id, playerId, ability?.cost));
   const picks = discardPicks(state, deps, playerId, id, cost);
   const reserved = new Set([id, ...picks]);
   const spend = spendOrder(state, deps, playerId, reserved, id);
@@ -945,6 +1089,8 @@ function evaluatePlayOf(
     [],
     ...reducers.map((reducer) => [reducer]),
   ];
+  // A printed X cost is probed at the least X the card may be played with (`AbilityDefinition.minX`; 0 for most).
+  const leastX = minimumChosenX(state, deps, id, abilityId);
   const variantsOver = (over: readonly (InstanceId | null)[]): Variant[] => {
     const variants: Variant[] = [];
     for (const reductions of reductionSets) for (const host of over) variants.push(...variantsOn(reductions, host));
@@ -958,23 +1104,28 @@ function evaluatePlayOf(
     for (const { costChoices, target } of costChoiceSets(state, deps, playerId, id, cost, picks)) {
       for (const controllerId of controllers) {
         for (const branch of branchSelections(cost)) {
-          variants.push({
-            target: host ?? target,
-            ...(controllerId ? { controllerId } : {}),
-            ...(branch === undefined ? {} : { branch }),
-            build: (payment) => ({
-              type: "playCard",
-              playerId,
-              cardInstanceId: id,
-              payment,
-              attachToInstanceId: host,
-              ...(costChoices ? { costChoices } : {}),
-              ...(controllerId && controllerId !== playerId ? { controllerId } : {}),
-              ...(reductions.length > 0 ? { costReductionAbilities: reductions } : {}),
-              ...withBranch(branch),
-              ...(abilityId ? { abilityId } : {}),
-            }),
-          });
+          // An alliance card's delegable cost parts (RRG 1.8 "Alliance", p. 6; owner answer 48B): one variant per
+          // way of sharing them out, the user paying everything first. One `undefined` entry for every other card.
+          for (const partPayers of partPayerSets(state, deps, playerId, id, delegableParts(cost, branch)))
+            variants.push({
+              target: host ?? target,
+              ...(controllerId ? { controllerId } : {}),
+              ...(branch === undefined ? {} : { branch }),
+              ...(partPayers ? { partPayers } : {}),
+              build: (payment) => ({
+                type: "playCard",
+                playerId,
+                cardInstanceId: id,
+                payment,
+                attachToInstanceId: host,
+                ...(costChoices ? { costChoices } : {}),
+                ...(controllerId && controllerId !== playerId ? { controllerId } : {}),
+                ...(reductions.length > 0 ? { costReductionAbilities: reductions } : {}),
+                ...withBranch(branch, paidByOf(playerId, partPayers)),
+                ...(abilityId ? { abilityId } : {}),
+                ...(leastX > 0 ? { x: leastX } : {}),
+              }),
+            });
         }
       }
     }
@@ -1116,24 +1267,30 @@ function evaluateAbility(
   const cost = costAsDetermined(state, deps, instanceId, playerId, deps.abilities[abilityId]?.cost);
   const picks = discardPicks(state, deps, playerId, instanceId, cost);
   const reserved = new Set(picks);
-  const spend = spendOrder(state, deps, playerId, reserved, null);
+  // A cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, hero-packs H3.19) is paid for its card, which
+  // is what makes the other players' hand cards and resource abilities sources (`paymentOptions`).
+  const payingFor = costsPayableByAnyPlayer(state, deps, instanceId) ? instanceId : null;
+  const spend = spendOrder(state, deps, playerId, reserved, payingFor);
   const chosenSize = resourcesChoiceOf(cost);
   const variants: Variant[] = costChoiceSets(state, deps, playerId, instanceId, cost, picks).flatMap(
     ({ costChoices, target }) =>
-      branchSelections(cost).map((branch) => ({
-        target,
-        ...(branch === undefined ? {} : { branch }),
-        build: (payment: readonly Payment[]): Command => ({
-          type: "useAbility",
-          playerId,
-          cardInstanceId: instanceId,
-          abilityId,
-          // A hand card a `chooseCard` cost picks cannot also pay (RRG 1.8 "Cost", p. 13: one card, one cost).
-          payment: cost?.chooseCard ? payment.filter((p) => !("fromHand" in p && p.fromHand === target)) : payment,
-          ...(costChoices ? { costChoices } : {}),
-          ...withBranch(branch),
-        }),
-      })),
+      branchSelections(cost).flatMap((branch) =>
+        partPayerSets(state, deps, playerId, instanceId, delegableParts(cost, branch)).map((partPayers) => ({
+          target,
+          ...(branch === undefined ? {} : { branch }),
+          ...(partPayers ? { partPayers } : {}),
+          build: (payment: readonly Payment[]): Command => ({
+            type: "useAbility",
+            playerId,
+            cardInstanceId: instanceId,
+            abilityId,
+            // A hand card a `chooseCard` cost picks cannot also pay (RRG 1.8 "Cost", p. 13: one card, one cost).
+            payment: cost?.chooseCard ? payment.filter((p) => !("fromHand" in p && p.fromHand === target)) : payment,
+            ...(costChoices ? { costChoices } : {}),
+            ...withBranch(branch, paidByOf(playerId, partPayers)),
+          }),
+        })),
+      ),
   );
   const evaluated = evaluate(
     state,
@@ -1147,7 +1304,7 @@ function evaluateAbility(
       leavingCardsToDiscard(
         [
           ...chosenSizeWallets(state, deps, playerId, spend, chosenSize, instanceId),
-          ...walletsWithWhenSpent(state, deps, playerId, reserved, null, spend),
+          ...walletsWithWhenSpent(state, deps, playerId, reserved, payingFor, spend),
         ],
         cost,
       ),
@@ -1449,6 +1606,11 @@ export interface PaymentSource {
    * The amount this source's own cost removes when the source is one amount of several ("remove up to 2 threat from …
    * → generate a resource for each": a resource ability's `ResourceAbilityUse.costSelection`; docs/phase7-wave9.md
    * §3.7 (b)). The source for the most it can remove has none. A payment may hold one source of the same ability.
+   *
+   * Also the damage this source's own cost takes ("take up to 3 damage → … for each damage taken this way":
+   * `CostSelection.damageSelf`; docs/phase7-wave10-hero-packs.md H3.14): one source per amount, each with what that
+   * amount generates in `pool`. A `spendsHandCard` source carries it for the card's own ability
+   * (`SpentCardAbilityUse.costSelection`); the option id holds it too ("#damageSelf=<n>").
    */
   readonly costSelection?: CostSelection;
   /**
@@ -1464,6 +1626,14 @@ export interface PaymentSource {
    * §3.46 (c)). Its option id is a hand card's; choosing it discards it from under its host. Absent for a card in hand.
    */
   readonly tuckedUnder?: InstanceId;
+  /**
+   * This `resourceAbility` source generates "to overpay for a card" (`AbilityDefinition.overpayOnly`, Mr. Hollywood;
+   * docs/phase7-wave10-hero-packs.md H3.14): its `pool` never counts toward `requirement`, so the other sources
+   * selected must cover the cost by themselves, and everything in `pool` is overpaid. Listed only while a card is
+   * being played. `suggested` never holds it (the smallest working payment has no use for it); a selection that needs
+   * it to reach the cost is refused by `tryPayment` with `insufficient_resources`.
+   */
+  readonly overpayOnly?: true;
 }
 
 export interface PaymentQuery {
@@ -1482,6 +1652,12 @@ export interface PaymentQuery {
    * `requirement` is then what the rest of the cost asks (0).
    */
   readonly chosenResources?: { readonly min: number; readonly max: number };
+  /**
+   * Overpaying matters for this play: the card reads an `overpaid.*` value, or a resource that can only be overpaid
+   * (`PaymentSource.overpayOnly`) is on offer for it. Set only on a play with nothing to pay, where it is the whole
+   * reason the query exists; the cost is 0, so paying nothing is a legal default and anything spent is overpaid.
+   */
+  readonly overpayMatters?: true;
 }
 
 export type PaymentAttempt =
@@ -1505,6 +1681,12 @@ export interface PaymentContext {
    * (docs/phase7-wave8.md §3.35). Absent: the player's own play area.
    */
   readonly into?: string;
+  /**
+   * The X the player names for a cost printed "X" (`playCard.x`; RRG 1.8 "Non-Numerical Variable", p. 30). Absent:
+   * the least X the card may be played with (`minimumChosenX`: 0 unless its ability sets `minX`), which is also what
+   * `legalActions` probes the play at. Ignored by a card with no printed X.
+   */
+  readonly x?: number;
 }
 
 /** An action that carries a payment, resolved down to a single command shape. */
@@ -1569,7 +1751,13 @@ function payableFor(
     // usable one, which is what `LegalAction.example` triggers.
     const query = card ? eventActionForQuery(createCtx(state, deps), card, id, playerId, options.abilityId) : null;
     const abilityId = query?.named ? query.action?.abilityId : undefined;
-    const cost = costAsDetermined(state, deps, id, playerId, query?.action?.definition.cost);
+    const cost = costAsDetermined(
+      state,
+      deps,
+      id,
+      playerId,
+      playCostWith(state, deps, id, playerId, query?.action?.definition.cost),
+    );
     const picks = options.costChoices?.discard ?? discardPicks(state, deps, playerId, id, cost);
     const sets = costChoiceSets(state, deps, playerId, id, cost, picks);
     const chosen = sets.find((set) => set.target !== null && set.target === options.target) ?? sets[0];
@@ -1588,6 +1776,8 @@ function payableFor(
     const selection = options.costSelection;
     const plan = planCost(state, deps, id, playerId, cost, costChoices ?? {}, NO_RESERVED, selection);
     const planned = "requirement" in plan ? plan : null;
+    // The X of a printed X cost: the player's (`PaymentContext.x`), else the least the card may be played with.
+    const x = options.x ?? minimumChosenX(state, deps, id, abilityId);
     const requirement =
       card && planned
         ? playRequirement(
@@ -1597,7 +1787,7 @@ function payableFor(
             planned.requirement,
             deps,
             host,
-            0,
+            x,
             deckTopCostReduction(state, deps, playerId, id) +
               Math.max(0, areaCostReductionFor(state, deps, playerId, id, options.into ?? null)),
           )
@@ -1614,6 +1804,7 @@ function payableFor(
         ...(selection ? { costSelection: selection } : {}),
         ...(abilityId ? { abilityId } : {}),
         ...(options.into !== undefined ? { into: { scenarioPlayArea: options.into } } : {}),
+        ...(x > 0 ? { x } : {}),
       }),
       excludeInstanceId: id,
       reserved: new Set([id, ...picks]),
@@ -1684,6 +1875,41 @@ function payableFor(
 }
 
 /**
+ * A play with nothing to pay that still has a pay step: overpaying means something for it. The card reads an
+ * `overpaid.*` value, or a resource that can only be overpaid is on offer (`PaymentSource.overpayOnly`).
+ */
+function overpayMatters(state: GameState, deps: EngineDeps, playerId: PlayerId, action: ActionRef): boolean {
+  if (action.kind !== "playCard") return false;
+  if (readsOverpaid(state, deps, action)) return true;
+  return paymentOptions(createCtx(state, deps), playerId, action.instanceId, action.instanceId).some(
+    (option) => option.ref.kind === "ability" && deps.abilities[option.ref.abilityId]?.overpayOnly === true,
+  );
+}
+
+/** Whether the played card prints an X cost (`specialCost: "X"`), which the player names in the pay step (`PaymentContext.x`). */
+function printsX(state: GameState, action: ActionRef): boolean {
+  if (action.kind !== "playCard") return false;
+  const card = cardOf(state, action.instanceId);
+  return !!card && "specialCost" in card && card.specialCost === "X";
+}
+
+/** Whether a played card's printed abilities read an `overpaid.*` value anywhere in their text. */
+function readsOverpaid(state: GameState, deps: EngineDeps, action: ActionRef): boolean {
+  if (action.kind !== "playCard") return false;
+  const card = cardOf(state, action.instanceId);
+  return !!card && printedAbilityRefs(card).some((ref) => mentionsOverpaid(deps.abilities[ref.id]));
+}
+
+function mentionsOverpaid(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(mentionsOverpaid);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Readonly<Record<string, unknown>>;
+  const name = record.kind === "var" || record.kind === "varAtLeast" ? record.name : undefined;
+  if (typeof name === "string" && name.startsWith("overpaid.")) return true;
+  return Object.values(record).some(mentionsOverpaid);
+}
+
+/**
  * What the player must pay for `action`, what they may pay it with, and the
  * payment the engine itself would make. Null when there is nothing to decide:
  * a basic action with no additional resource cost (a basic attack or thwart
@@ -1704,7 +1930,10 @@ export function paymentFor(
 ): PaymentQuery | null {
   if (!getPlayer(state, playerId)) return null;
   const payable = payableFor(state, deps, playerId, action, options);
-  if (!payable || payable.requirement === null || !payable.spendable) return null;
+  if (!payable || payable.requirement === null) return null;
+  // A play with nothing to pay still has a pay step when overpaying means something for the card (checked below,
+  // once the sources are known).
+  if (!payable.spendable && action.kind !== "playCard") return null;
   const ctx = createCtx(state, deps);
   const discardTop = getPlayer(state, playerId)?.discard[0] ?? null;
   const sources = paymentOptions(ctx, playerId, payable.excludeInstanceId, payable.payingFor).flatMap<PaymentSource>(
@@ -1732,7 +1961,12 @@ export function paymentFor(
       if (spending && "fromHand" in spending && spending.whenSpent) {
         if (payable.reserved.has(spending.fromHand)) return [];
         const picks = spending.whenSpent.costChoices;
-        const use = { instanceId: spending.fromHand, abilityId: spending.whenSpent.abilityId };
+        const amounts = spending.whenSpent.costSelection;
+        const use = {
+          instanceId: spending.fromHand,
+          abilityId: spending.whenSpent.abilityId,
+          ...(amounts ? { costSelection: amounts } : {}),
+        };
         return [
           {
             optionId: option.optionId,
@@ -1751,12 +1985,14 @@ export function paymentFor(
                   { ...use, ...(picks ? { costChoices: picks } : {}) },
                   playerId,
                   discardTop,
+                  payable.payingFor,
                 ),
                 playerId,
               ),
             ),
             spendsHandCard: true,
             ...(picks ? { costChoices: picks } : {}),
+            ...(amounts ? { costSelection: amounts } : {}),
           },
         ];
       }
@@ -1784,11 +2020,13 @@ export function paymentFor(
               },
               playerId,
               discardTop,
+              payable.payingFor,
             ),
             playerId,
           ),
           ...(costChoices ? { costChoices } : {}),
           ...(costSelection ? { costSelection } : {}),
+          ...(deps.abilities[option.ref.abilityId]?.overpayOnly ? { overpayOnly: true as const } : {}),
         },
       ];
     },
@@ -1804,10 +2042,15 @@ export function paymentFor(
     suggested = optionIdsOf(smallestPayment(state, deps, payable.build, wallet));
     break;
   }
+  const overpayMatters =
+    !payable.spendable && (sources.some((source) => source.overpayOnly) || readsOverpaid(state, deps, action));
+  // A card printed with an X cost always has a pay step: the player names the X there, even when the least X costs 0.
+  if (!payable.spendable && !overpayMatters && !printsX(state, action)) return null;
   return {
     requirement: payable.requirement,
     sources,
     suggested,
+    ...(overpayMatters ? { overpayMatters: true as const } : {}),
     ...(payable.chosenResources ? { chosenResources: payable.chosenResources } : {}),
   };
 }
@@ -1834,4 +2077,68 @@ export function tryPayment(
   if (!command) return { ok: false, reason: "no_valid_target", message: "this action needs a target" };
   const result = applyCommand(state, command, deps);
   return result.ok ? { ok: true, command } : { ok: false, reason: result.error.code, message: result.error.message };
+}
+
+/** The cost a play of `id` pays besides its resource cost: its additional cost to play and its event Action's cost. */
+function playCostAsQueried(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  id: InstanceId,
+  abilityId: AbilityId | undefined,
+): AbilityCost | undefined {
+  const card = cardOf(state, id);
+  const query = card ? eventActionForQuery(createCtx(state, deps), card, id, playerId, abilityId) : null;
+  return costAsDetermined(
+    state,
+    deps,
+    id,
+    playerId,
+    playCostWith(state, deps, id, playerId, query?.action?.definition.cost),
+  );
+}
+
+/** Whether `helperId` can pay one delegable part of a cost for another player, and the engine's reason when not. */
+export type CostHelpAnswer =
+  | { readonly part: DelegableCostPart; readonly ok: true }
+  | {
+      readonly part: DelegableCostPart;
+      readonly ok: false;
+      readonly reason: EngineErrorCode;
+      readonly message: string;
+    };
+
+/**
+ * "Why can't I help pay that?", asked for the helper: for each delegable part (`DelegableCostPart`) of the cost of
+ * `playerId`'s ability `action`, whether `helperId` could pay it in their place right now (`CostSelection.paidBy`),
+ * with the engine's own reason when they cannot: no rule lets another player pay ("only the player using this ability
+ * can pay its costs"), or the part cannot be taken from them (their identity holds a tough status card, their deck is
+ * short). Each part is judged alone, so the answer does not depend on what else the user can or cannot pay. Empty for a
+ * cost with no such part, and for anything but a `useAbility` or a `playCard` (the cost of playing the card with the
+ * event Action `options.abilityId` names, else its first; an alliance card's is the one a helper may pay, RRG 1.8
+ * "Alliance", p. 6, owner answer 48B). The parts that name the user's own card are never listed: no player can take
+ * those over (RRG 1.8 "Cost", p. 14; owner answer 21B).
+ */
+export function costHelpFor(
+  state: GameState,
+  playerId: PlayerId,
+  action: ActionRef,
+  helperId: PlayerId,
+  options: Pick<PaymentContext, "costSelection" | "abilityId"> = {},
+  deps: EngineDeps = DEFAULT_DEPS,
+): readonly CostHelpAnswer[] {
+  if (!getPlayer(state, playerId)) return [];
+  if (action.kind !== "useAbility" && action.kind !== "playCard") return [];
+  const { instanceId } = action;
+  const cost =
+    action.kind === "useAbility"
+      ? costAsDetermined(state, deps, instanceId, playerId, deps.abilities[action.abilityId]?.cost)
+      : playCostAsQueried(state, deps, playerId, instanceId, options.abilityId);
+  return delegableParts(cost, options.costSelection?.branch).map((part): CostHelpAnswer => {
+    const paid = { ...cost, ...cost?.either?.[options.costSelection?.branch ?? -1] };
+    const { branch: _branch, ...amounts } = options.costSelection ?? {};
+    const selection: CostSelection = { ...amounts, paidBy: { [part]: helperId } };
+    const plan = planCost(state, deps, instanceId, playerId, { [part]: paid[part] }, {}, NO_RESERVED, selection);
+    return "requirement" in plan ? { part, ok: true } : { part, ok: false, reason: plan.code, message: plan.message };
+  });
 }

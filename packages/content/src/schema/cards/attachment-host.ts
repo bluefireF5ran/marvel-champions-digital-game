@@ -137,6 +137,14 @@ export const ATTACHMENT_HOST_KINDS: readonly AttachmentHostKind[] = [
 ];
 
 /**
+ * Who picks among an encounter attachment's legal hosts when its text gives the choice away
+ * (`AttachmentCard.hostChosenBy`). `enemyTeam`: "of the enemy team's choice", "the enemy team attaches this card to …"
+ * (Civil War, MC56 p. 6).
+ */
+export const ATTACHMENT_HOST_CHOOSERS = ["enemyTeam"] as const;
+export type AttachmentHostChooser = (typeof ATTACHMENT_HOST_CHOOSERS)[number];
+
+/**
  * The card categories a `qualified` host narrows. `character` is any character in play. `villain` is a villain in play
  * told apart by a trait, because the plain `{ kind: "villain" }` host is "the villain" (the single villain of the
  * scenario): Trickster Takeover's Dark Scepter `tt` 55036, "Attach to the Avatar of Loki villain." (trait AVATAR OF

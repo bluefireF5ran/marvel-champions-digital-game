@@ -566,12 +566,12 @@ describe("the community feature never restricts or alters a player's own decks",
   });
   it("a card outside the playable pool is refused with its code, not dropped or substituted", () => {
     const raw = fixture("falcon-pool");
-    const result = parseMarvelCdbDeckJson({ ...raw, slots: { ...raw.slots, "59024": 1 } }, PLAYABLE_CARDS);
+    const result = parseMarvelCdbDeckJson({ ...raw, slots: { ...raw.slots, "60002": 1 } }, PLAYABLE_CARDS);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.problems.map((p) => p.code)).toEqual(["unknown_card"]);
-    expect(result.problems[0]!.message).toContain("59024");
-    expect(result.problems[0]!.cardIds).toEqual(["59024"]);
+    expect(result.problems[0]!.message).toContain("60002");
+    expect(result.problems[0]!.cardIds).toEqual(["60002"]);
   });
   it("importing does not mutate its input, and two imports of the same JSON are equal but independent", () => {
     const raw = fixture("maria-hill-leadership");

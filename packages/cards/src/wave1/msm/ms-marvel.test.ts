@@ -274,7 +274,9 @@ describe("Ms. Marvel kit", () => {
     const start = msmVsRhino();
     const given = moveToHand(start, P1, "05004");
     const [sneakBy] = given.ids as [never];
-    const hero = runMsm(given.state, toHero());
+    // A scheme with no threat is not a valid target for a removal of threat (RRG 1.8 "Target" p. 42), so give it some.
+    const toppedUp = runMsm(given.state, toHero());
+    const hero = patchInstance(toppedUp, toppedUp.mainScheme.instanceId, { threat: 6 });
     const mainSchemeThreatBefore = inst(hero, hero.mainScheme.instanceId).threat;
     const played = runMsm(hero, play(P1, sneakBy, payWith(hero, P1, 2, [sneakBy])));
     const after = settle(played, firstLegal, undefined, MSM_DEPS);
@@ -441,7 +443,9 @@ describe("Ms. Marvel kit", () => {
     const start = msmVsRhino();
     const given = moveToHand(start, P1, "05011", "05004");
     const [shrink, sneakBy] = given.ids as [never, never];
-    const hero = runMsm(given.state, toHero());
+    const toppedUp = runMsm(given.state, toHero());
+    // Threat to remove: a scheme with none is not a valid thwart target (RRG 1.8 "Target" p. 42).
+    const hero = patchInstance(toppedUp, toppedUp.mainScheme.instanceId, { threat: 8 });
     const withShrink = runMsm(hero, play(P1, shrink, payWith(hero, P1, 2, [shrink, sneakBy])));
     const threatBefore = inst(withShrink, withShrink.mainScheme.instanceId).threat;
     const option = `${shrink}:05011.shrink-interrupt`;

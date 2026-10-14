@@ -36,7 +36,7 @@ const FOUR_PLAYERS: readonly (readonly [string, number, string, number, number[]
     [
       [1, 0, 6, 0, 12, 6],
       [2, 0, 5, 0, 13, 7],
-      [3, 0, 7, 0, 14, 18],
+      [3, 0, 7, 0, 19, 18],
       [4, 0, 9, 0, 3, 19],
       [5, 1, 7, 0, 0, 0],
     ],

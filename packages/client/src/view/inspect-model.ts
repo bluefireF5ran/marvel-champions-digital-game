@@ -56,6 +56,7 @@ import { qualifiedHeroName } from "./hero-names.js";
 import { abilityLabelOf } from "./ability-label.js";
 import { cardHistoryOf, emptyCardHistoryLog, type CardHistoryLine, type CardHistoryLog } from "./card-history.js";
 import { cardName, faceUpName } from "./names.js";
+import { maskedStageInspect, type BlindReveal } from "./civil-war-blind.js";
 import { cardTextDisplay } from "./card-text-display.js";
 import { howThisWorksFor } from "./how-this-works.js";
 import { citeLabelOf, everyGlossaryEntry } from "./rules-reference.js";
@@ -82,6 +83,7 @@ import {
   type StatTile,
 } from "./board-model.js";
 import { aspectName } from "./aspect-stamp.js";
+import { foeWord } from "./foe-words.js";
 
 /** One action ability this card could use right now, named and priced. */
 export interface UsableAbility {
@@ -438,7 +440,7 @@ export function inspectModel(
     // stage and a main scheme's on its side, so asking for a front gets
     // nothing at all for exactly the cards a player most wants to read.
     art: artFor(card, face),
-    footerLeft: `${card.setCode as string} · ${card.collectorNumber}`,
+    footerLeft: footerLeftOf(card, face),
     footerRight: [card.unique ? "Unique" : null, `×${card.quantityInSet} in set`].filter(Boolean).join(" · "),
     status: statusOf(state, instanceId, legal, perspectiveId, payment, deps),
     abilities: usableAbilitiesOf(state, instanceId, legal, deps),
@@ -747,7 +749,23 @@ export function referenceInspectModel(reference: {
   };
 }
 
-export function cardInspectModel(card: AnyCard | undefined, face: CardFace): InspectModel {
+/**
+ * A printed card's sheet with no game behind it. `blind` (`blindRevealOf`, a Civil War scenario played blind) hides a main
+ * scheme stage 2 or later until the game has advanced to it; the sheet of a live instance never needs it, because the
+ * stage on the table has been reached.
+ */
+export function cardInspectModel(
+  card: AnyCard | undefined,
+  face: CardFace,
+  blind: BlindReveal | null = null,
+): InspectModel {
+  const model = printedInspectModel(card, face);
+  if (!blind || blind.stage2Reached || card?.type !== "main_scheme" || face.kind !== "mainSchemeStage") return model;
+  const stage = card.stages[face.stageIndex];
+  return stage && stage.stageNumber >= 2 ? maskedStageInspect(model) : model;
+}
+
+function printedInspectModel(card: AnyCard | undefined, face: CardFace): InspectModel {
   if (!card) {
     return {
       instanceId: "" as InstanceId,
@@ -812,7 +830,7 @@ export function cardInspectModel(card: AnyCard | undefined, face: CardFace): Ins
     keywordChips,
     traits: printedTraitsOf(card, face),
     art: artFor(card, face),
-    footerLeft: `${card.setCode as string} · ${card.collectorNumber}`,
+    footerLeft: footerLeftOf(card, face),
     footerRight: [card.unique ? "Unique" : null, `×${card.quantityInSet} in set`].filter(Boolean).join(" · "),
     status: { playable: null, message: "", targets: [] },
     // No game behind this sheet, so there is no honest verdict on what's
@@ -857,6 +875,23 @@ function printedKeywordDefinitions(card: AnyCard, face: CardFace): readonly Keyw
 }
 
 /** A hero identity names its two sides differently; everything else has one name. */
+/**
+ * "CW · 141A/141B". A main scheme that carries several stages (the Civil War ones interleave theirs: 141A/141B,
+ * 142A/142B, 172A/172B, ...) prints one A/B pair per stage, so the footer names only the inspected stage's own pair
+ * instead of the whole run, which overprinted the footer's other half. Everything else prints the card's number.
+ */
+export function footerLeftOf(card: AnyCard, face: CardFace): string {
+  const set = card.setCode as string;
+  if (card.type === "main_scheme" && face.kind === "mainSchemeStage") {
+    const numbers = card.collectorNumber.split("/");
+    if (card.stages.length > 1 && numbers.length === card.stages.length * 2) {
+      const at = face.stageIndex * 2;
+      return `${set} · ${numbers[at]}/${numbers[at + 1]}`;
+    }
+  }
+  return `${set} · ${card.collectorNumber}`;
+}
+
 function faceNameOf(card: AnyCard, face: CardFace): string {
   if (face.kind === "flipSide" && "flipSide" in card && card.flipSide) return card.flipSide.name;
   if (card.type !== "hero_identity") return card.name;
@@ -910,7 +945,7 @@ function typeLineOf(card: AnyCard, face: CardFace = { kind: "front" }): string {
       .join(" · ")
       .toUpperCase();
   }
-  const parts: string[] = [card.type.replace(/_/g, " ")];
+  const parts: string[] = [card.type === "villain" ? foeWord(card, { lower: true }) : card.type.replace(/_/g, " ")];
   // The face showing, not the front: Phoenix Force flipped to Unleashed reads UNLEASHED, never RESTRAINED.
   if (face.kind === "flipSide" && "flipSide" in card && card.flipSide) {
     parts.push(...(card.flipSide.traits as readonly string[]).slice(0, 2));

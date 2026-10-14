@@ -1,5 +1,6 @@
 /** The resolution stack's entry point: runs the top frame, and the resolve API the rest of the engine uses. */
 
+import { chargeAttackCosts } from "../attack-cost.js";
 import type { Ctx } from "../ctx.js";
 import { EngineInvariantError } from "../errors.js";
 import { executeAbilityFrame } from "./ability.js";
@@ -34,6 +35,9 @@ export { announceStatusDiscarded, announceStatusPlaced } from "./status-discarde
 export { hasCandidates, heard } from "./triggers.js";
 
 export function executeFrame(ctx: Ctx): void {
+  // "As an additional cost to attack [an enemy] …" (`attack-cost.ts`, docs/phase7-wave10-hero-packs.md H3.16): an
+  // attack made against an enemy it has not paid for pays first, in a frame of its own above everything else.
+  if (chargeAttackCosts(ctx)) return;
   const frame = ctx.state.stack[0];
   if (!frame) throw new EngineInvariantError("executeFrame with an empty stack");
   switch (frame.kind) {

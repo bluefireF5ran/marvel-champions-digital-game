@@ -34,6 +34,7 @@ const matchesFilter = (
   filter: CollectionSearchFilter,
   titlesInPlay: () => ReadonlySet<string>,
   ownTitles: () => ReadonlySet<string>,
+  identitiesInGame: () => ReadonlySet<string>,
 ): boolean => {
   if ("specificTo" in card && card.specificTo !== undefined) return false;
   if (linkedKeywordsOf(card).length > 0) return false;
@@ -45,6 +46,10 @@ const matchesFilter = (
     const title = foeHeroFace(card).faceName;
     if ([...titlesInPlay()].some((inPlay) => sameTitle(title, inPlay))) return false;
   }
+  if (filter.identitySpecificToUnseated) {
+    const owner = identitySetOwnerOf(card);
+    if (owner === undefined || identitiesInGame().has(owner)) return false;
+  }
   const categories = CARD_DATA_CATEGORIES[card.type];
   if (filter.categories && !filter.categories.some((category) => categories.includes(category))) return false;
   if (filter.aspects && !filter.aspects.includes("aspect" in card ? (card.aspect as string) : "")) return false;
@@ -54,6 +59,34 @@ const matchesFilter = (
   }
   return true;
 };
+
+/**
+ * The identity whose set a player card belongs to (RRG 1.8 "Identity-Specific Card", p. 23: the identity icon, carried
+ * as `aspect: "hero:<identity card id>"`), by that identity's card id. Undefined for an identity card itself and for a
+ * card of no identity's set.
+ */
+function identitySetOwnerOf(card: AnyCard): string | undefined {
+  if (card.type === "hero_identity" || !("aspect" in card)) return undefined;
+  const aspect = String(card.aspect);
+  return aspect.startsWith(IDENTITY_SET_PREFIX) ? aspect.slice(IDENTITY_SET_PREFIX.length) : undefined;
+}
+const IDENTITY_SET_PREFIX = "hero:";
+
+/**
+ * The card ids of the identities in this game, for `CollectionSearchFilter.identitySpecificToUnseated`: every identity
+ * card the game holds an instance of, in any zone (each seat's identity; an identity card a card effect brought in),
+ * with every version of a progressing identity, which are one identity on several cards.
+ */
+function identityCardsInGame(state: GameState): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const instance of Object.values(state.instances)) {
+    const card = state.cardPool[instance.cardId];
+    if (card?.type !== "hero_identity") continue;
+    ids.add(card.id);
+    for (const version of card.progressingIdentity?.versions ?? []) ids.add(version);
+  }
+  return ids;
+}
 
 /**
  * The cards of `filter` a collection search can find right now, in title order (then card id), which is the order
@@ -81,10 +114,13 @@ export function collectionCandidates(
   const titlesInPlay = (): ReadonlySet<string> => (titles ??= characterTitlesInPlay(state));
   let own: ReadonlySet<string> | undefined;
   const ownTitles = (): ReadonlySet<string> => (own ??= titlesAmongCardsOf(state, playerId));
+  let identities: ReadonlySet<string> | undefined;
+  const identitiesInGame = (): ReadonlySet<string> => (identities ??= identityCardsInGame(state));
   return Object.values(state.cardPool)
     .filter(
       (card) =>
-        matchesFilter(card, filter, titlesInPlay, ownTitles) && card.quantityInSet - (inGame.get(card.id) ?? 0) > 0,
+        matchesFilter(card, filter, titlesInPlay, ownTitles, identitiesInGame) &&
+        card.quantityInSet - (inGame.get(card.id) ?? 0) > 0,
     )
     .sort(byTitle);
 }

@@ -172,7 +172,7 @@ function drawEngagedChip(
   // than broken or cut.
   // With the stack held to its primary chip (a short zone), the keyword tag only rides on a tile that has no chip of its
   // own: a second row would run past the headroom the row reserved.
-  const own = engagedChipRows(minion, maxRows);
+  const own = engagedChipRows(minion, maxRows, rect.width);
   const keepsTag = maxRows === Infinity || own.length < maxRows;
   const rows = [
     ...own.map((row, index) => ({ ...row, alpha: index === 0 ? 1 : ink.meta + 0.3 })),
@@ -1326,16 +1326,39 @@ function drawSeparateDecks(
     if (row.y + row.height > rect.y + rect.height) return;
     label(scene, row.x, row.y, deck.name, typeRole.label, surface.ink.hex, ink.label);
     const boxTop = row.y + 14;
-    const boxHeight = row.height - 14;
+    // Cards of an encounter-card deck that are out of it (a Labor card being revealed, in play, in the victory display):
+    // one line each under the boxes, a tap on it reads the card. Only as many as the row has room for.
+    const lineCount = Math.min(deck.outside.length, Math.max(0, Math.floor((row.height - 14 - 30) / 12)), 3);
+    const boxHeight = row.height - 14 - lineCount * 12;
     if (boxHeight < 30) return;
-    const boxWidth = (row.width - 6) / 2;
+    const boxWidth = deck.hasDiscard ? (row.width - 6) / 2 : row.width;
     const deckBox: Rect = { x: row.x, y: boxTop, width: boxWidth, height: boxHeight };
     const discardBox: Rect = { x: row.x + boxWidth + 6, y: boxTop, width: boxWidth, height: boxHeight };
 
     drawPile(ctx, deckBox, "deck", deck.deckCount, deck.topArt);
-    drawPile(ctx, discardBox, "disc.", deck.discardCount, deck.discardTopArt);
     ctx.frame.pileRects.set(pileKey("separateDeck", perspectiveId, deck.name), deckBox);
-    ctx.frame.pileRects.set(pileKey("separateDiscard", perspectiveId, deck.name), discardBox);
+    // A deck whose cards never reach a discard pile (Weather, Labor, Gift) has no discard box and no count to draw.
+    if (deck.hasDiscard) {
+      drawPile(ctx, discardBox, "disc.", deck.discardCount, deck.discardTopArt);
+      ctx.frame.pileRects.set(pileKey("separateDiscard", perspectiveId, deck.name), discardBox);
+    }
+    deck.outside.slice(0, lineCount).forEach((card, at) => {
+      const line = label(
+        scene,
+        row.x,
+        boxTop + boxHeight + 2 + at * 12,
+        card.line,
+        typeRole.label,
+        surface.ink.hex,
+        ink.label,
+      );
+      fitText(line, row.width, typeRole.label.size);
+      ctx.makeTapTarget(
+        { x: row.x, y: boxTop + boxHeight + 2 + at * 12, width: row.width, height: 12 },
+        card.instanceId,
+        () => ctx.inspect(card.instanceId),
+      );
+    });
 
     // The deck's top card is the point of it — Master of the Mystic Arts
     // (`09005`) and Spell Mastery (`09001a`) both read it directly — so it is

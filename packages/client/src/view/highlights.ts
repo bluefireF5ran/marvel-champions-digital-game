@@ -9,10 +9,12 @@
  * board must not reflow while the player's hand is already moving.
  */
 
+import type { AbilityId } from "@mc/content";
 import {
   cannotEnterPlay,
   uniqueEntryBlocker,
   type ActionRef,
+  type DecisionAuthority,
   type EngineDeps,
   type EngineErrorCode,
   type ExclusionCode,
@@ -56,6 +58,11 @@ export interface Highlights {
    * them. Absent until that has been applied.
    */
   readonly owed?: ReadonlySet<InstanceId>;
+  /**
+   * In-play abilities the engine refused this instant, by card (a printed action whose condition is unmet: New Labors of
+   * Hercules with a Labor card in play). Absent on a hand-built `Highlights`; read as empty.
+   */
+  readonly refusedAbilities?: ReadonlyMap<InstanceId, readonly AbilityId[]>;
   /** Every card any legal action could be aimed at, for the targeting pulse. */
   readonly anyTarget: ReadonlySet<InstanceId>;
   /** Targets that exist but are blocked right now, e.g. the villain behind a Guard minion. */
@@ -70,7 +77,9 @@ export interface OpenChoice {
   readonly promptKind: string;
   readonly soleDecider: boolean;
   /** Whose decision it is by rule; anything but "player" is made for the encounter side. */
-  readonly authority: "player" | "firstPlayerTargets" | "firstPlayerOrders";
+  readonly authority: DecisionAuthority;
+  /** Set exactly when `authority` is "enemyTeam": the player the team's choice is aimed at (null: none). */
+  readonly facingPlayerId?: PlayerId | null;
   readonly minSelections: number;
   readonly maxSelections: number;
   readonly ordered: boolean;
@@ -132,6 +141,7 @@ export function highlights(actions: LegalActions): Highlights {
         promptKind: choice.prompt.kind,
         soleDecider: choice.soleDecider,
         authority: choice.authority,
+        ...(choice.onBehalfOf ? { facingPlayerId: choice.onBehalfOf.facingPlayerId } : {}),
         minSelections: choice.minSelections,
         maxSelections: choice.maxSelections,
         ordered: choice.ordered,
@@ -151,6 +161,7 @@ export function highlights(actions: LegalActions): Highlights {
   const usableAbilities = new Set<InstanceId>();
   const anyTarget = new Set<InstanceId>();
   const blocked = new Map<InstanceId, string>();
+  const refusedAbilities = new Map<InstanceId, AbilityId[]>();
 
   const illegalEntries = actions.kind === "turn" || actions.kind === "notYourTurn" ? actions.illegal : [];
   for (const entry of legalEntriesOf(actions)) {
@@ -162,6 +173,14 @@ export function highlights(actions: LegalActions): Highlights {
   for (const entry of illegalEntries) {
     if (entry.action.kind === "playCard") {
       unplayable.set(entry.action.instanceId, { code: entry.reason, message: entry.message });
+    }
+    // Only a printed condition that is unmet is explained on the card (`view/ability-refusal.ts`); a cost the player
+    // cannot pay, a limit already used or an exhausted card are answered where they always were.
+    if (entry.action.kind === "useAbility" && /condition is not met/i.test(entry.message)) {
+      refusedAbilities.set(entry.action.instanceId, [
+        ...(refusedAbilities.get(entry.action.instanceId) ?? []),
+        entry.action.abilityId,
+      ]);
     }
     for (const target of entry.blockedTargets) {
       // A target legal for one action wins over a block from another.
@@ -189,7 +208,17 @@ export function highlights(actions: LegalActions): Highlights {
     };
   });
 
-  return { yourTurn: !offTurn, playable, unplayable, usableAbilities, anyTarget, blocked, basics, openChoice: null };
+  return {
+    yourTurn: !offTurn,
+    playable,
+    unplayable,
+    usableAbilities,
+    refusedAbilities,
+    anyTarget,
+    blocked,
+    basics,
+    openChoice: null,
+  };
 }
 
 /**
@@ -304,7 +333,7 @@ export function exclusionWordingFor(
 ): string {
   if (code !== "cannotEnterPlay") return exclusionWording(code);
   const unique = uniqueEntryBlocker(state, deps, id, forPlayer) !== null;
-  const barred = cannotEnterPlay(state, deps, id);
+  const barred = cannotEnterPlay(state, deps, id, forPlayer);
   if (barred && !unique) return RULE_BARS_ENTRY_WORDING;
   if (unique && !barred) return UNIQUE_ENTRY_WORDING;
   return exclusionWording(code);

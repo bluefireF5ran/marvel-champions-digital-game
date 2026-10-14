@@ -59,7 +59,7 @@ import {
   resolveRef,
   resolveValue,
 } from "../select.js";
-import type { CardDestination, CardSelector, ScenarioDeckSource, TargetQuery } from "../spec.js";
+import type { CardDestination, CardSelector, PlayerZone, ScenarioDeckSource, TargetQuery } from "../spec.js";
 import type { GameState, ZoneId } from "../state.js";
 import type { HostStep, LeaveRequest, TriggerEvent } from "../trigger-events.js";
 import { describeFrame } from "../stack.js";
@@ -73,6 +73,12 @@ import {
   showScenarioDeckFace,
 } from "./scenario-deck-top.js";
 import { swapCards } from "./swap-cards.js";
+
+/** Whether this card is in that zone of the player who owns it (`CardSelector ref.ownerZone`). */
+function inOwnersZone(state: GameState, id: InstanceId, zone: PlayerZone): boolean {
+  const at = locateCard(state, id);
+  return at !== null && at.kind === zone && at.playerId === getInstance(state, id)?.ownerId;
+}
 import { hasCandidates } from "./triggers.js";
 import { tuckLeavingCard } from "./tuck.js";
 import { pushWindow } from "./window.js";
@@ -124,7 +130,10 @@ export function selectCards(ctx: Ctx, selector: CardSelector, context: EffectCon
       // Only card text naming that area does (`CardSelector removedFromGame`, Loose Ends).
       return filtered(
         resolveRef(state, selector.ref, context).filter(
-          (id) => getInstance(state, id) !== undefined && !state.removedFromGame.includes(id),
+          (id) =>
+            getInstance(state, id) !== undefined &&
+            !state.removedFromGame.includes(id) &&
+            (selector.ownerZone === undefined || inOwnersZone(state, id, selector.ownerZone)),
         ),
         selector.filter,
       );

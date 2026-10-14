@@ -131,6 +131,7 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
     );
   if (cost.healIdentity !== undefined)
     parts.push(typeof cost.healIdentity === "number" ? `heal ${cost.healIdentity} damage` : "heal damage");
+  if (cost.healCharacter) parts.push(`heal ${cost.healCharacter.amount} damage from a character`);
   if (cost.discardFromHand) {
     const { min, max, filter, combined } = cost.discardFromHand;
     // "Attack cards" from `filter.trait` (Advanced Glider, `sm` 27136): traits are stored upper-cased (`trait()`,

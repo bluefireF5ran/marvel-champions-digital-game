@@ -34,6 +34,8 @@ import {
   modeOnlyFlipped,
   mustPlayer,
   mustVillain,
+  isOwnedEncounterCard,
+  playerCardOwnerOf,
 } from "./query.js";
 import type { StatusDiscardCause } from "./events.js";
 import {
@@ -59,7 +61,9 @@ import {
   staysInHand,
 } from "./rules.js";
 import { addFrameSlots, eventFrame, pushEvent } from "./resolve/frames.js";
+import { permanentRehostFor, rehostPermanentAttachment } from "./resolve/attach.js";
 import { moveCardsTo } from "./resolve/cards.js";
+import { boostCardGivenTo } from "./resolve/enemy-activation.js";
 import { staysInGameForScenarioDeck } from "./resolve/scenario-deck-top.js";
 import { flipSeparatedCard, separatedFlipWaits } from "./separated-identity.js";
 import { describeFrame, type StackFrame } from "./stack.js";
@@ -78,7 +82,7 @@ import {
   type EffectContext,
 } from "./select.js";
 import { hasCandidates, heard } from "./resolve/triggers.js";
-import type { CardDestination, StatusName } from "./spec.js";
+import type { CardDestination, DefeatPlacement, StatusName } from "./spec.js";
 import type { DeckDiscard, GameOutcome, GameState, MainSchemeState, TuckedDiscard, ZoneId } from "./state.js";
 import type { AttachmentBound, LastingDuration, LastingEffect, LastingEffectBody } from "./lasting.js";
 
@@ -1351,13 +1355,16 @@ export function discardAtOnce(ctx: Ctx, id: InstanceId): void {
  *   out of play);
  * - one that can leave play is discarded with its host (`discardAtOnce`);
  * - a permanent or "cannot leave play" one stays in play (`staysInPlayWithoutHost`): a player card is unattached into
- *   its controller's play area (§3.30), and an unowned permanent encounter one is discarded past the keyword (§4.2
- *   Q26), through `leaveNow` itself rather than `leavePlayAtOnce`. The host leaving is a game rule with no source card,
- *   so Permanent's own-set exception (§4.1 Q46) never applies here.
+ *   its controller's play area (§3.30); a permanent encounter attachment resolves its "attach to" text again and
+ *   moves to that host (`rehostPermanentAttachment`, docs/phase7-wave10.md §3.19; MC56 p. 20); an unowned permanent
+ *   encounter card with no such host is discarded past the keyword (§4.2 Q26), through `leaveNow` itself rather than
+ *   `leavePlayAtOnce`. The host leaving is a game rule with no source card, so Permanent's own-set exception (§4.1
+ *   Q46) never applies here.
  */
 export function discardWithLeavingHost(ctx: Ctx, id: InstanceId): void {
   if (leavingCancelled(ctx.state, id)) unattachInPlay(ctx, id);
   else if (!staysInPlayWithoutHost(ctx, id)) discardAtOnce(ctx, id);
+  else if (rehostPermanentAttachment(ctx, id, getInstance(ctx.state, id)?.attachedTo ?? null)) return;
   else if (discardedWithoutHost(ctx, id)) leaveNow(ctx, id, discardZoneFor(ctx.state, id), "top", true, true);
   else unattachInPlay(ctx, id);
 }
@@ -1392,17 +1399,25 @@ export function leavingPlayPending(state: GameState, id: InstanceId): boolean {
  * X attachments included: the defeat waits as one `LeaveRequest defeat`. `sourceCardId`: the card whose ability defeats
  * it, if any (`permanentStopsLeaving`); a defeat by the game's rules has none.
  */
-export function defeatFromPlay(ctx: Ctx, id: InstanceId, insteadTo?: CardDestination, sourceCardId?: CardId): void {
+export function defeatFromPlay(ctx: Ctx, id: InstanceId, placement?: DefeatPlacement, sourceCardId?: CardId): void {
   const instance = getInstance(ctx.state, id);
   if (!instance) return;
   const victory = hasKeyword(ctx.state, id, "victory", ctx.deps);
+  // "Give this card to the enemy leader as a facedown boost card" (docs/phase7-wave10.md §3.10): onto that card while
+  // it is in play; with it gone the defeated card is discarded as normal.
+  const givenTo = typeof placement === "object" && "boostCardOf" in placement ? placement.boostCardOf : undefined;
+  const holder = givenTo !== undefined && givenTo !== id && cardsInPlay(ctx.state).includes(givenTo) ? givenTo : null;
+  const insteadTo = typeof placement === "object" && "boostCardOf" in placement ? undefined : placement;
   const going: ZoneId["kind"] = victory
     ? "victoryDisplay"
-    : insteadTo !== undefined
-      ? destinationZoneKind(insteadTo)
-      : leaveDestinationKind(ctx.state, ctx.deps, id, discardZoneFor(ctx.state, id).kind, true);
+    : holder !== null
+      ? "boost"
+      : insteadTo !== undefined
+        ? destinationZoneKind(insteadTo)
+        : leaveDestinationKind(ctx.state, ctx.deps, id, discardZoneFor(ctx.state, id).kind, true);
   const source = sourceCardId !== undefined ? { sourceCardId } : {};
-  const request: LeaveRequest = { kind: "defeat", ...(insteadTo !== undefined ? { insteadTo } : {}), ...source };
+  const instead = placement !== undefined ? { insteadTo: placement } : {};
+  const request: LeaveRequest = { kind: "defeat", ...instead, ...source };
   if (waitsForLeaveInterrupts(ctx, id, request, going)) return;
   // A permanent card this defeat cannot move keeps its Victory X attachments with it.
   if (permanentStopsLeaving(ctx.state, ctx.deps, id, sourceCardId)) {
@@ -1414,6 +1429,12 @@ export function defeatFromPlay(ctx: Ctx, id: InstanceId, insteadTo?: CardDestina
       leavePlayAtOnce(ctx, attachment, { kind: "victoryDisplay" });
   }
   if (victory) leavePlay(ctx, id, { kind: "victoryDisplay" }, "top", false, undefined, sourceCardId);
+  else if (holder !== null) {
+    // After the boost cards already there ("bottom"), which are turned up in the order given, and facedown once it has
+    // left play; a double-sided card is removed from the game instead (`removedAsDoubleSided`).
+    leavePlay(ctx, id, { kind: "boost", hostInstanceId: holder }, "bottom", false, { faceup: false }, sourceCardId);
+    if (locateCard(ctx.state, id)?.kind === "boost") boostCardGivenTo(ctx, holder, id);
+  }
   // "… instead of discarding it" (a defeat destination, docs/phase7-wave3.md §3.45) replaces only the discard.
   else if (insteadTo !== undefined) moveCardsTo(ctx, [id], insteadTo, undefined, sourceCardId);
   else discardFromPlay(ctx, id, sourceCardId);
@@ -1482,21 +1503,21 @@ function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: Insta
   return mustInstance(state, hostId).attachments.filter((id) => {
     const attachment = getInstance(state, id);
     if (!attachment || isFacedownAttachment(state, id) || !staysWithoutHost(state, deps, id)) return false;
-    const unowned = attachment.ownerId === null && attachment.controllerId === null;
+    const unowned = playerCardOwnerOf(state, id) === null && attachment.controllerId === null;
     return !unowned || cannotLeavePlay(state, deps, id, undefined, true);
   });
 }
 
 /**
- * A permanent encounter attachment with no player owner or controller, whose host leaves play: discarded to its
- * encounter discard pile, permanent notwithstanding (user ruling, docs/phase7-wave5.md §4.2 Q26; no printed card does
- * this yet). "Cannot leave play" stays absolute (RRG 1.8 "'Cannot'", p. 11). Player cards keep §3.30's unattach, and
- * player elimination re-resolves "attach to" instead (`eliminatePlayer`, ruling Mar 19, 2026 (3)).
+ * A permanent encounter attachment with no player owner or controller, whose host leaves play, when its printed
+ * "attach to" names no other legal host (`permanentRehostFor`): discarded to its encounter discard pile, permanent
+ * notwithstanding (user ruling, docs/phase7-wave5.md §4.2 Q26). "Cannot leave play" stays absolute (RRG 1.8
+ * "'Cannot'", p. 11). Player cards keep §3.30's unattach.
  */
 function discardedWithoutHost(ctx: Ctx, id: InstanceId): boolean {
   const instance = mustInstance(ctx.state, id);
   return (
-    instance.ownerId === null &&
+    playerCardOwnerOf(ctx.state, id) === null &&
     instance.controllerId === null &&
     !cannotLeavePlay(ctx.state, ctx.deps, id, undefined, true)
   );
@@ -1792,6 +1813,8 @@ export function leavingWithHost(
     // A blocked Victory X one stays for the host's own move, which treats it as `leaveNow` does (`defeatFromPlay`).
     if (how === "defeat" && !blocked && hasKeyword(ctx.state, attachment, "victory", ctx.deps)) to = "victoryDisplay";
     else if (how === "flip") to = blocked ? null : discarded();
+    // A permanent encounter attachment that goes to the host its "attach to" names does not leave play (§3.19).
+    else if (blocked && permanentRehostFor(ctx.state, ctx.deps, attachment, hostId) !== null) to = null;
     else to = !blocked || discardedWithoutHost(ctx, attachment) ? discarded() : null;
     if (to === null) continue;
     const event: TriggerEvent = {
@@ -1910,7 +1933,12 @@ export function leavePlay(
  */
 export function applyLeavePatch(ctx: Ctx, id: InstanceId, patch: LeavePatch): void {
   const { ownerId, ...rest } = patch;
-  if (ownerId !== undefined && mustInstance(ctx.state, id).ownerId !== ownerId) {
+  // An encounter card a player owns (a Labor card) is never another player's: it goes back to its own deck.
+  if (
+    ownerId !== undefined &&
+    mustInstance(ctx.state, id).ownerId !== ownerId &&
+    !isOwnedEncounterCard(ctx.state, id)
+  ) {
     updateInstance(ctx, id, (i) => ({ ...i, ownerId, home: { kind: "player" } }));
     emit(ctx, { type: "ownershipChanged", instanceId: id, playerId: ownerId });
   }
@@ -2022,6 +2050,7 @@ function leaveNow(
   moveCard(ctx, id, to, redirect !== null ? "bottom" : position);
   // A card in play dealt to a player as a facedown encounter card (`dealAsEncounterCards`): heard as any other deal.
   if (to.kind === "dealtEncounter") recordEncounterCardDealt(ctx, to.playerId, id, "ability");
+  const ownedEncounter = isOwnedEncounterCard(ctx.state, id);
   // A card that re-enters play is a new instance of it: "this phase" starts over (docs/phase7-wave6.md §3.4).
   updateInstance(ctx, id, ({ damageTakenThisPhase: _tally, ...i }) => ({
     ...i,
@@ -2042,7 +2071,10 @@ function leaveNow(
     ...(i.ownerId === null && !("playerId" in to) ? { controllerId: null } : {}),
     // RRG 1.8 "Ownership and Control" (p. 31): "A player controls the cards in their own out-of-play areas", so a card
     // another player controlled in play (an upgrade on their card) is its owner's again in its owner's discard pile.
-    ...(i.ownerId !== null && "playerId" in to && i.controllerId !== to.playerId ? { controllerId: to.playerId } : {}),
+    // An encounter card a player owns (a Labor card back in its deck) stays under no player's control.
+    ...(i.ownerId !== null && !ownedEncounter && "playerId" in to && i.controllerId !== to.playerId
+      ? { controllerId: to.playerId }
+      : {}),
   }));
   // "While Karma is in play": a minion it took goes back when it leaves (docs/phase7-wave4.md §3.29).
   releaseTreatedBy(ctx, id);
@@ -2274,13 +2306,36 @@ export function costReductionFor(
   playerId: PlayerId,
   cardInstanceId: InstanceId,
 ): number {
-  const context: EffectContext = { selfInstanceId: null, controllerId: playerId, event: null, bindings: {}, deps };
-  return state.lastingEffects.reduce((sum, effect) => {
-    // A reduction by destination is priced by the play that names the destination (`areaCostReductionFor`).
-    if (effect.kind !== "costReduction" || effect.into || !reductionIsFor(effect, playerId)) return sum;
-    if (effect.cardFilter && !matchesQuery(state, cardInstanceId, effect.cardFilter, context)) return sum;
-    return sum + effect.amount;
-  }, 0);
+  return waitingReductions(state, deps, playerId, cardInstanceId).reduce((sum, effect) => sum + effect.amount, 0);
+}
+
+/**
+ * Whether a "reduce the resource cost of the next [card] … to 0" waits on this play (`costReduction.toZero`,
+ * docs/phase7-wave10-hero-packs.md H3.10): the card's resource cost is then 0 whatever `costReductionFor` totals.
+ */
+export function costSetToZeroFor(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+): boolean {
+  return waitingReductions(state, deps, playerId, cardInstanceId).some((effect) => effect.toZero === true);
+}
+
+/**
+ * The "costs N additional resources" total among the lasting changes waiting on this play (the negative amounts of
+ * `costReductionFor`, as a positive number): what a cost reduced to 0 is still raised by (H3.10).
+ */
+export function costIncreaseFor(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+): number {
+  return waitingReductions(state, deps, playerId, cardInstanceId).reduce(
+    (sum, effect) => sum + Math.max(0, -effect.amount),
+    0,
+  );
 }
 
 type CostReductionEffect = Extract<LastingEffect, { kind: "costReduction" }>;
@@ -2288,6 +2343,26 @@ type CostReductionEffect = Extract<LastingEffect, { kind: "costReduction" }>;
 /** Whose play a "next card" reduction waits for: its player's, or any player's ("the next ally played"). */
 const reductionIsFor = (effect: CostReductionEffect, playerId: PlayerId): boolean =>
   effect.anyPlayer === true || effect.playerId === playerId;
+
+/**
+ * The lasting cost changes a play of this card by `playerId` to their own area is priced with and uses up: one bound to
+ * the card itself (`cardInstanceId`, H3.11), whoever plays it, or one waiting for this player's next card that the card
+ * matches. A reduction by destination is priced by the play that names the destination (`areaCostReductionFor`).
+ */
+function waitingReductions(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  cardInstanceId: InstanceId,
+): readonly CostReductionEffect[] {
+  const context: EffectContext = { selfInstanceId: null, controllerId: playerId, event: null, bindings: {}, deps };
+  return state.lastingEffects.filter((effect): effect is CostReductionEffect => {
+    if (effect.kind !== "costReduction" || effect.into) return false;
+    if (effect.cardInstanceId !== undefined) return effect.cardInstanceId === cardInstanceId;
+    if (!reductionIsFor(effect, playerId)) return false;
+    return !effect.cardFilter || matchesQuery(state, cardInstanceId, effect.cardFilter, context);
+  });
+}
 
 /** The reductions by destination that a play of this card by `playerId` into `area` uses (docs/phase7-wave8.md §3.35). */
 function areaCostReductions(
@@ -2301,6 +2376,7 @@ function areaCostReductions(
   return state.lastingEffects.filter(
     (effect): effect is CostReductionEffect =>
       effect.kind === "costReduction" &&
+      effect.cardInstanceId === undefined &&
       effect.into?.scenarioPlayArea === area &&
       reductionIsFor(effect, playerId) &&
       (!effect.cardFilter || matchesQuery(state, cardInstanceId, effect.cardFilter, context)),
@@ -2368,12 +2444,8 @@ export function consumeCostReductions(
   playerId: PlayerId,
   cardInstanceId: InstanceId,
 ): void {
-  const context: EffectContext = { selfInstanceId: null, controllerId: playerId, event: null, bindings: {}, deps };
-  for (const effect of [...ctx.state.lastingEffects]) {
-    if (effect.kind !== "costReduction" || effect.into || !reductionIsFor(effect, playerId)) continue;
-    if (effect.cardFilter && !matchesQuery(ctx.state, cardInstanceId, effect.cardFilter, context)) continue;
+  for (const effect of waitingReductions(ctx.state, deps, playerId, cardInstanceId))
     endLastingEffect(ctx, effect.id, "consumed");
-  }
 }
 
 /**

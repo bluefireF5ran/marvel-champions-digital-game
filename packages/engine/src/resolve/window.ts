@@ -19,7 +19,8 @@ import {
   deckTopCostReduction,
   deckTopPlayOf,
   playableFromAttachment,
-  playCostModifier,
+  playCostContributions,
+  priceAfterReductions,
   priceOrNull,
   pricePlay,
   resourceVars,
@@ -32,7 +33,7 @@ import type { ChoiceOption } from "../choices.js";
 import type { CostChoices, CostSelection } from "../commands.js";
 import { type Ctx, emit, findFrame, popFrame, pushFrames, requestChoice, setFrame, updateFrame } from "../ctx.js";
 import { candidateDefenseBar, windowDefenseBar } from "../defense-claim.js";
-import { costReductionFor } from "../effects.js";
+
 import { EngineInvariantError } from "../errors.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardOf, deckDiscardStillThere, getInstance, mustPlayer, playerOrder, printedCostOf } from "../query.js";
@@ -47,7 +48,7 @@ import { abilityFrame, base, type Frame } from "./frames.js";
 import { pushPlayCardFrame } from "./play-card.js";
 import { activeAbilityRefs, cardsInPlay } from "../select.js";
 import { keywordAbilityOf } from "../keyword-abilities.js";
-import { candidatesFor, hearerKey, hearersOf, stillOffered } from "./triggers.js";
+import { candidatesFor, hearerKey, hearersOf, stillAnswers, stillOffered } from "./triggers.js";
 
 export function pushWindow(
   ctx: Ctx,
@@ -130,7 +131,7 @@ function answeredTogether(
       continue;
     }
     const key = `${candidate.instanceId}:${candidate.abilityId}`;
-    const event = answered(frame, candidate).event;
+    const event = answered(ctx, frame, candidate).event;
     const index = at.get(key);
     const first = index === undefined ? undefined : kept[index];
     if (index === undefined || first === undefined) {
@@ -228,13 +229,47 @@ const hasWouldCandidates = (ctx: Ctx, event: TriggerEvent): boolean =>
  * The condition a candidate answers, and its event frame: for a shared condition, its own frame while it is still to
  * apply (a shared interrupt window, `alsoEventFrameIds`), else none (its frame has finished).
  */
-const answered = (frame: Frame<"window">, candidate: TriggerCandidate) =>
+const answeredAtOpen = (frame: Frame<"window">, candidate: TriggerCandidate) =>
   candidate.sharedEvent
     ? {
         event: candidate.sharedEvent.event,
         eventFrameId: frame.alsoEventFrameIds?.[candidate.sharedEvent.index] ?? null,
       }
     : { event: frame.event, eventFrameId: frame.eventFrameId };
+
+/**
+ * The condition a candidate answers as it stands now. A window keeps each condition as it was when the window opened,
+ * which is what an ability answers, with one exception: damage that would be taken, while its interrupts resolve. An
+ * interrupt that resolved first may have changed the amount ("reduce that amount to 3", "prevent 1 of that damage",
+ * "increase that amount by 1"), and what the next interrupt answers, and reads as "that damage", is the damage as it
+ * is now pending on its event frame. RRG 1.8 "Interrupt" (p. 25): "If an interrupt changes (via a replacement effect)
+ * or cancels an imminent triggering condition, further interrupts to the original triggering condition cannot be
+ * triggered"; "Replacement Effect" (p. 37): "When an effect is replaced, it is no longer considered imminent and no
+ * further interrupts or responses to that effect can be triggered." The original amount is no longer imminent; the
+ * new one is. This is the engine's reading of those two entries (the owner's decision of 2026-10-12, question 29 =
+ * B), not an FFG ruling on any card.
+ */
+const answered = (ctx: Ctx, frame: Frame<"window">, candidate: TriggerCandidate) => {
+  const atOpen = answeredAtOpen(frame, candidate);
+  if (frame.timing !== "interrupt" || atOpen.event.kind !== "dealDamage" || atOpen.eventFrameId === null) return atOpen;
+  const pending = findFrame(ctx.state, atOpen.eventFrameId);
+  if (pending?.kind !== "event" || pending.event.kind !== "dealDamage") return atOpen;
+  return pending.event.amount === atOpen.event.amount ? atOpen : { ...atOpen, event: pending.event };
+};
+
+/**
+ * Whether a candidate gathered for damage that would be taken still has its triggering condition, now that an earlier
+ * interrupt of the same window has changed the pending amount (`answered`). Read again before it is offered, and
+ * again before it resolves: "When [she] would take more than 3 damage" is not met by the 3 that the first copy left,
+ * so a second copy neither resolves nor is discarded, and nothing answers damage that was reduced to 0 (RRG 1.8
+ * "Interrupt", p. 25, and "Replacement Effect", p. 37). True while the amount is the one the window opened with: the
+ * condition was met by the occurrence.
+ */
+const conditionStillMet = (ctx: Ctx, frame: Frame<"window">, candidate: TriggerCandidate): boolean => {
+  const now = answered(ctx, frame, candidate);
+  if (now.event === answeredAtOpen(frame, candidate).event) return true;
+  return stillAnswers(ctx.state, ctx.deps, candidate, now.event, frame.timing);
+};
 
 /** Whether the event frame `frameId` names has been cancelled or replaced by an interrupt (RRG "Interrupt"). */
 const cancelledFrame = (ctx: Ctx, frameId: FrameId | null): boolean => {
@@ -249,7 +284,7 @@ const cancelledFrame = (ctx: Ctx, frameId: FrameId | null): boolean => {
  */
 const stillImminent = (ctx: Ctx, frame: Frame<"window">, candidate: TriggerCandidate): boolean => {
   if (frame.timing !== "interrupt") return true;
-  const on = answered(frame, candidate);
+  const on = answered(ctx, frame, candidate);
   if (cancelledFrame(ctx, on.eventFrameId)) return false;
   // An attachment leaving with its host (§4.1 Q32): not if the host's own event here was cancelled and the host stays.
   // An attachment's attachment asks the same of its host's host, and so on up (§4.1 Q50).
@@ -302,10 +337,20 @@ export function executeWindowFrame(ctx: Ctx, frame: Frame<"window">): void {
     if (!next) throw new EngineInvariantError("empty trigger queue");
     // Its event was cancelled or replaced by an interrupt that resolved first (a shared window, §4.1 Q33 of wave 5).
     if (!stillImminent(ctx, frame, next)) return setFrame(ctx, { ...frame, queue: rest });
+    // The damage it answers was changed by an interrupt that resolved first, and no longer meets its condition.
+    if (!conditionStillMet(ctx, frame, next)) {
+      emit(ctx, {
+        type: "interruptConditionLapsed",
+        instanceId: next.instanceId,
+        abilityId: next.abilityId,
+        event: answered(ctx, frame, next).event,
+      });
+      return setFrame(ctx, { ...frame, queue: rest });
+    }
     // A response to a card's discard from a deck, chosen before an earlier response in the queue moved that card: it
     // has nothing left to act on, and is not initiated (docs/phase7-wave7.md §3.55).
     // One that answers several discards at once (`EventPattern.together`) still has the others to act on.
-    const answering = next.together ?? [answered(frame, next).event];
+    const answering = next.together ?? [answered(ctx, frame, next).event];
     if (answering.every((each) => each.kind === "cardDiscardedFromDeck" && !deckDiscardStillThere(ctx.state, each)))
       return setFrame(ctx, { ...frame, queue: rest });
     // Another player defended this attack, or resolved a "(defense)" ability for it, since this one was picked or
@@ -325,7 +370,8 @@ export function executeWindowFrame(ctx: Ctx, frame: Frame<"window">): void {
     const remaining = frame.pending.filter(
       (candidate) =>
         stillImminent(ctx, frame, candidate) &&
-        stillOffered(ctx.state, ctx.deps, candidate, answered(frame, candidate).event),
+        conditionStillMet(ctx, frame, candidate) &&
+        stillOffered(ctx.state, ctx.deps, candidate, answered(ctx, frame, candidate).event),
     );
     if (remaining.length === 0) return setFrame(ctx, { ...settled, pending: [] });
     emit(ctx, {
@@ -405,7 +451,8 @@ export function executeWindowFrame(ctx: Ctx, frame: Frame<"window">): void {
         ...(frame.optionalAtOpen ?? windowCandidates(ctx, frame, false, would)).filter(
           (candidate) =>
             stillImminent(ctx, frame, candidate) &&
-            stillOffered(ctx.state, ctx.deps, candidate, answered(frame, candidate).event),
+            conditionStillMet(ctx, frame, candidate) &&
+            stillOffered(ctx.state, ctx.deps, candidate, answered(ctx, frame, candidate).event),
         ),
         ...late,
         ...turnedUp,
@@ -510,6 +557,7 @@ function askNextController(ctx: Ctx, frame: Frame<"window">): void {
     (c) =>
       (c.controllerId ?? ctx.state.firstPlayerId) === current &&
       stillImminent(ctx, frame, c) &&
+      conditionStillMet(ctx, frame, c) &&
       windowDefenseBar(ctx.state, ctx.deps, frame.queue, c) === null,
   );
   if (mine.length === 0) {
@@ -532,22 +580,21 @@ function askNextController(ctx: Ctx, frame: Frame<"window">): void {
 function windowEventCost(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCandidate): number {
   const card = cardOf(ctx.state, candidate.instanceId);
   if (!card || !candidate.controllerId) return 0;
-  const printed = printedCostOf(ctx.state, card);
+  const printed = printedCostOf(ctx.state, card, candidate.instanceId);
   // A card played straight from hand at its own trigger window (Crosscounter, Knife Leap, …) is priced the same
   // way `ownPlayCost` prices a normally-played card: printed cost, then every in-play/hand-active `CostModifierSpec`
   // constant (`playCostModifier` — this path previously read only `costReductionFor`'s older "reduce the next card"
   // lasting-effect mechanism, so a constant cost reduction like Knife Leap's "reduce the cost to play this card by
   // 1 for each vengeance counter on Drax" silently never applied here), then the older reduction, never below 0.
-  const modified = Math.max(
-    0,
-    printed + playCostModifier(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId, null),
-  );
   // Played from the top of the deck, less its permission's reduction (`playableTopOfDeck`, docs/phase7-wave8.md §3.49).
-  const reduced = Math.max(
-    0,
-    modified -
-      costReductionFor(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId) -
-      deckTopCostReduction(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId),
+  const reduced = priceAfterReductions(
+    ctx.state,
+    ctx.deps,
+    candidate.controllerId,
+    candidate.instanceId,
+    printed,
+    playCostContributions(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId, null).map((e) => e.delta),
+    deckTopCostReduction(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId),
   );
   // The ability's own resources, a computed X included (`resourcesEqualTo`), as `planCost` will ask for them.
   const abilityCost = costResourceRequirement(
@@ -556,7 +603,7 @@ function windowEventCost(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCan
     candidate.instanceId,
     candidate.controllerId,
     ctx.deps.abilities[candidate.abilityId]?.cost,
-    answered(frame, candidate).event,
+    answered(ctx, frame, candidate).event,
   ).requirement;
   return requirementTotal(combineRequirements(reduced, abilityCost));
 }
@@ -826,7 +873,7 @@ function triggerCandidate(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCa
   // Read now and spent unless a payment is asked for, which reads it again (`payWindowAbility`).
   const selection = costSelectionFor(frame, candidate);
   spendCostCounters(ctx, frame);
-  const on = answered(frame, candidate);
+  const on = answered(ctx, frame, candidate);
   const definition = ctx.deps.abilities[candidate.abilityId];
   const controller = candidate.controllerId;
   // RRG 1.8 "Limit" (pp. 26–27): an ability at its limit cannot be initiated, so its cost is not paid. Two players may
@@ -893,7 +940,7 @@ function payWindowAbility(ctx: Ctx, frame: Frame<"window">, answer: readonly str
   const controller = candidate?.controllerId;
   const definition = candidate ? ctx.deps.abilities[candidate.abilityId] : undefined;
   if (!candidate || !controller || !definition) return;
-  const on = answered(frame, candidate);
+  const on = answered(ctx, frame, candidate);
   const payment = paymentsFromOptionIds(answer);
   const plan = planCost(
     ctx.state,
@@ -958,7 +1005,7 @@ function requestWindowPayment(
       candidate.instanceId,
       candidate.abilityId,
       limited,
-      answered(frame, candidate).event,
+      answered(ctx, frame, candidate).event,
       controller,
     )
   ) {
@@ -1043,7 +1090,7 @@ function playWindowEvent(ctx: Ctx, frame: Frame<"window">, answer: readonly stri
     undefined,
     deckTop?.costReduction ?? 0,
     selection,
-    answered(frame, candidate).event,
+    answered(ctx, frame, candidate).event,
     // The window's payment choice carries no declaration of its wilds: the play's own frame asks for one when a card
     // reads the types that paid and the declaration can matter (docs/phase7-wave8.md §3.62).
     { abilityId: candidate.abilityId },
@@ -1055,7 +1102,7 @@ function playWindowEvent(ctx: Ctx, frame: Frame<"window">, answer: readonly stri
     candidate.instanceId,
     controller,
     null,
-    { triggeredAbilityId: candidate.abilityId, ...answered(frame, candidate) },
+    { triggeredAbilityId: candidate.abilityId, ...answered(ctx, frame, candidate) },
     playFrameCost(priced),
   );
   payCost(ctx, candidate.instanceId, controller, abilityCost, priced.plan);

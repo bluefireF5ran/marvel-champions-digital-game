@@ -128,20 +128,17 @@ export function choiceExclusions(state: GameState, deps: EngineDeps = DEFAULT_DE
       next.target.slot === effect.slot
     );
   });
-  const movesFromSlot = rest.some(
-    (next) => next.kind === "moveThreat" && next.from.kind === "slot" && next.from.slot === effect.slot,
-  );
   const exclusions: ChoiceExclusion[] = [];
   for (const id of cardsInPlay(state)) {
     if (offered.has(id)) continue;
     const reason = explainQuery(state, id, effect.query, context);
     if (reason !== null) exclusions.push({ instanceId: id, reason });
-    // A scheme with no threat is no source for a move either (RRG 1.8 "Move", p. 30); that is not a removal bar, so
-    // it is left unreported rather than given this code.
+    // A scheme with no threat is no source for a move (RRG 1.8 "Move", p. 30) and no target for a removal ("Target",
+    // p. 42) either; that is not a removal bar, so it is left unreported rather than given this code.
     else if (
       removesThreat &&
       !slotTargetValid(state, deps, rest, effect.slot, id, context) &&
-      (!movesFromSlot || (getInstance(state, id)?.threat ?? 0) > 0)
+      (getInstance(state, id)?.threat ?? 0) > 0
     ) {
       exclusions.push({ instanceId: id, reason: "cannotRemoveThreat" });
     }

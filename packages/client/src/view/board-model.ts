@@ -13,8 +13,13 @@ import {
   cardOf,
   cardsInPlay,
   characterProfile,
+  controllerOf,
   currentName,
   getInstance,
+  isOwnedEncounterCard,
+  locateCard,
+  separateDeckDefinition,
+  tuckLimitOf,
   getPlayer,
   identityFace,
   iconsOn,
@@ -61,11 +66,13 @@ import {
 import { artFor, type ArtSource, type CardBack, type CardFace } from "../art/art-source.js";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { breakPointOf } from "./break-point.js";
+import { giftReaderNote, giftSeatNote } from "./gift-count.js";
 import { counterGoalsOf } from "./counter-goal.js";
 import { counterLimitsOf } from "./counter-limit.js";
 import { otherFaceVisible } from "./hidden-reverse.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
+import { foeWord, isLeaderCard } from "./foe-words.js";
 import { deckTopStatus, shownTopOf } from "./deck-top.js";
 import { STATUS_DISABLES } from "../tokens.js";
 import { hpFraction } from "./hp-format.js";
@@ -167,6 +174,17 @@ export interface CharacterPanel {
   readonly exhausted: boolean;
   /** Facedown boost cards waiting on this enemy, shown as "Boost ?? ×2". */
   readonly boostCount: number;
+  /**
+   * Set (true) on a Civil War leader's panel: a villain-type card printed as a leader (MC56 p. 3). The word itself is
+   * already in `subtitle`; this lets the scene give the panel the leader's frame and title. Absent on every other card.
+   */
+  readonly leader?: true;
+  /**
+   * What the facedown boost cards on a villain or leader mean, when it holds any: the cards given to it outside its
+   * own activation (Falcon, Dangerous Recruits) stay facedown until it activates, and are turned up then in addition
+   * to the one dealt (RRG 1.8 "Boost", p. 11). The cards are never named. Absent when none are waiting.
+   */
+  readonly boostNote?: string;
   /** The seat this enemy is engaged with, if any. */
   readonly engagedWith: PlayerId | null;
   /**
@@ -210,6 +228,10 @@ export interface CharacterPanel {
    * lent card is indistinguishable from one of your own.
    */
   readonly ownerName: string | null;
+  /** "Hercules's Labor" on a Labor card in a play area (an encounter card a player owns); null for every other card. */
+  readonly ownedBy: string | null;
+  /** "Counts Gift cards you control: 2" on a card that reads the Gift count (Olympus); null for every other card. */
+  readonly countNote: string | null;
   /** Lasting effects aimed at this identity's seat, as short notes ("next card costs 1 less"). */
   readonly effects: readonly string[];
   /**
@@ -260,6 +282,22 @@ export interface AttachmentChip {
    * any more than the table's own picture of it does (`faceOf`'s own `back` branch).
    */
   readonly faceup: boolean;
+  /** "Labor (Hercules)" for a Labor card hanging here (an encounter card a player owns; short, the chip is narrow); null for every other card. */
+  readonly ownedBy: string | null;
+  /**
+   * Cards tucked under this attachment, faceup ones named (Ionic Physiology holds up to three events; RRG 1.8 "Tuck",
+   * p. 45). Public information: a table shows what sits under a card. Empty for almost every attachment.
+   */
+  readonly tucked: readonly TuckedCardView[];
+  /** `tucked.length`. */
+  readonly tuckedCount: number;
+  /** The most it may hold (`tuckLimitOf`, the engine's own answer), or null when no rule limits it. */
+  readonly tuckMax: number | null;
+  /**
+   * The count against the maximum - "2 of 3 tucked" - or "2 tucked" with no maximum; null with nothing tucked and no
+   * maximum. A card with a maximum says "0 of 3 tucked" at none, so the room left is read, never guessed.
+   */
+  readonly tuckedNote: string | null;
   /**
    * The count its own text waits for on a kind of counter ("charm": 5 on a Hypnotic Gaze), so the chip reads "3/5 charm"
    * and shows the goal even at none (`counterGoalsOf`). Absent when it waits for none.
@@ -308,6 +346,8 @@ export function attachmentChipText(chip: AttachmentChip): string {
     chip.name,
     ...toward,
     ...chip.counters.filter((counter) => !(counter.name in goals)).map((counter) => `${counter.count} ${counter.name}`),
+    chip.ownedBy,
+    chip.tuckedNote,
     chip.exhausted ? "exhausted" : null,
   ]
     .filter(Boolean)
@@ -364,6 +404,18 @@ export interface SchemePanel {
    * already gives a facedown boost card.
    */
   readonly tuckedCount: number;
+  /**
+   * The cards tucked under this scheme, in order, as `tuckedCardsUnder` words them (a facedown one is a card back,
+   * never named): Negative Zone Prison's defeated allies (docs/phase7-wave10.md §3.15). Empty for every other scheme.
+   */
+  readonly tucked: readonly TuckedCardView[];
+  /** "Defeated allies, facedown: 2" over the row of backs; null with nothing under the scheme. */
+  readonly tuckedLabel: string | null;
+  /**
+   * A main scheme with cards under it: "Target 7, 2 facedown under it". The 7 is the engine's computed target (the
+   * printed target and what lowers it are not both exposed, so the arithmetic is never shown); null otherwise.
+   */
+  readonly targetNote: string | null;
   readonly art: ArtSource | null;
   /**
    * Cards attached to this scheme — Odin attached to the main scheme, captive side faceup (Hela, `mts` 21139a,
@@ -558,6 +610,8 @@ export interface HandCardView {
    * reduction, which carries no source card of its own.
    */
   readonly costSources: readonly string[];
+  /** "Counts Gift cards you control: 2" on a hand card that reads the Gift count; null for every other card. */
+  readonly countNote: string | null;
   /** Current (errata'd) rules text; the table caps it, Inspect shows it whole. */
   readonly rulesText: string;
   /** The icons this card produces when spent as a resource. */
@@ -750,6 +804,33 @@ export interface SeparateDeckPile {
    */
   readonly discardTopInstanceId: InstanceId | null;
   readonly discardTopArt: ArtSource | null;
+  /** The deck by its owner, as the table says it: "Hercules's Labor deck" (the per-pile wording; the label stays short). */
+  readonly ownerLabel: string;
+  /** `"encounter"`: a deck of encounter cards a player owns (Hercules's Labor deck); `"player"` for every other deck. */
+  readonly family: "player" | "encounter";
+  /** The deck's printed `topCardFaceup`. False: no one may look at the top card, and Inspect on the pile shows a back. */
+  readonly topFaceup: boolean;
+  /** False when the deck's cards never enter a discard pile (`discardPile: "none"`): the pile draws no discard box and no count. */
+  readonly hasDiscard: boolean;
+  /** Whether Inspect on this pile may show a card (its top is faceup). False reads "Facedown. No one may look at it." */
+  readonly inspectable: boolean;
+  /** "Facedown. No one may look at it. 3 cards." for a pile whose cards are hidden; null when the top is faceup. */
+  readonly hiddenNote: string | null;
+  /**
+   * The deck's own cards that are out of it and where they are - revealed, in play, in the victory display - for an
+   * encounter-card deck only (Hercules's Labor cards: a card is dealt faceup while it is revealed, then sits in play
+   * or in the victory display, or goes back to the bottom of the deck). Empty for every other deck.
+   */
+  readonly outside: readonly SeparateDeckOutsideCard[];
+}
+
+/** One card of an encounter-card separate deck that is not in it now (`locateCard` says where). */
+export interface SeparateDeckOutsideCard {
+  readonly instanceId: InstanceId;
+  readonly name: string;
+  readonly where: "revealed" | "in play" | "attached" | "victory display";
+  /** "Defeat the Hydra - attached to Rhino", the line the zone draws. */
+  readonly line: string;
 }
 
 const ROMAN = ["I", "II", "III", "IV", "V"] as const;
@@ -799,6 +880,10 @@ function separateDeckPiles(state: GameState, me: PlayerState): readonly Separate
     // `topCardFaceup` (RRG-scoped to the deck's own definition) keeps the engine's `CardInstance.faceup` true for
     // this card, so `faceOf` — the same visibility-aware face lookup every other pile on the table already uses —
     // reads it correctly without this file re-deriving "is the top card visible" itself.
+    const definition = separateDeckDefinition(state, me.playerId, name);
+    const family = definition?.cardFamily === "encounter" ? "encounter" : "player";
+    const topFaceup = definition?.topCardFaceup ?? true;
+    const noun = /\bdeck$/i.test(name) ? name : `${name} deck`;
     return {
       name,
       deckCount: pile.deck.length,
@@ -807,8 +892,69 @@ function separateDeckPiles(state: GameState, me: PlayerState): readonly Separate
       topArt: top ? artFor(cardOf(state, top), faceOf(state, top)) : null,
       discardTopInstanceId: discardTop,
       discardTopArt: discardTop ? artFor(cardOf(state, discardTop), { kind: "front" }) : null,
+      ownerLabel: `${possessiveName(playerName(state, me.playerId))} ${noun}`,
+      family,
+      topFaceup,
+      hasDiscard: (definition?.discardPile ?? "own") !== "none",
+      inspectable: topFaceup,
+      hiddenNote: topFaceup
+        ? null
+        : `Facedown. No one may look at it. ${pile.deck.length} card${pile.deck.length === 1 ? "" : "s"}.`,
+      outside: family === "encounter" ? outsideCardsOf(state, me.playerId, name, pile.deck) : [],
     };
   });
+}
+
+/** "Hercules's", "Thor's": always 's, as the plan and the cards say it. */
+const possessiveName = (name: string): string => `${name}'s`;
+
+/**
+ * The cards whose home is this encounter-card deck and that are out of it, in instance order, with where each is now.
+ * A revealed card is `dealtEncounter` while it is revealed; one in play sits in a play area or hangs on a card; a
+ * defeated or completed one is in the victory display (RRG 1.8 FAQ "Hercules Hero Pack - Labor Cards", p. 65).
+ *
+ * Each line leads with where the card is ("In play: Defeat the Hydra on Lernean Hydra"). It hangs under the pile's
+ * boxes, so a bare card name there read as the pile's own name (click-through F9: a card back captioned
+ * "DEFEAT THE HYDRA"); the place first says it is a card that left the deck, and a clipped tail loses only the host.
+ */
+function outsideCardsOf(
+  state: GameState,
+  playerId: PlayerId,
+  deckName: string,
+  inDeck: readonly InstanceId[],
+): readonly SeparateDeckOutsideCard[] {
+  const out: SeparateDeckOutsideCard[] = [];
+  for (const instance of Object.values(state.instances)) {
+    if (instance.ownerId !== playerId || instance.home.kind !== "separateDeck" || instance.home.name !== deckName) {
+      continue;
+    }
+    if (inDeck.includes(instance.instanceId)) continue;
+    const zone = locateCard(state, instance.instanceId);
+    const name = currentName(state, instance.instanceId) ?? cardOf(state, instance.instanceId)?.name ?? "Card";
+    const entry = (where: SeparateDeckOutsideCard["where"], line: string): void => {
+      out.push({ instanceId: instance.instanceId, name, where, line });
+    };
+    if (zone?.kind === "dealtEncounter") entry("revealed", `Revealing: ${name}`);
+    else if (zone?.kind === "victoryDisplay") entry("victory display", `Victory display: ${name}`);
+    else if (zone?.kind === "attachment") {
+      entry("attached", `In play: ${name} on ${faceUpName(state, zone.hostInstanceId)}`);
+    } else if (zone?.kind === "playArea") entry("in play", `In play: ${name}`);
+  }
+  return out;
+}
+
+/**
+ * "Hercules's Labor" for an encounter card a player owns (a Labor card; `isOwnedEncounterCard`), null for every other
+ * card. An encounter card all the same, so no one controls it: the label says whose deck it came from.
+ */
+export function ownedEncounterLabel(state: GameState, id: InstanceId, short = false): string | null {
+  if (!isOwnedEncounterCard(state, id)) return null;
+  const instance = getInstance(state, id);
+  if (!instance || instance.ownerId === null || instance.home.kind !== "separateDeck") return null;
+  const owner = playerName(state, instance.ownerId);
+  // The short form is for a chip on the card it hangs from, a narrow strip that wraps and clips a long possessive
+  // ("HERCULES'S..." cut the owner off): the kind of card first, the owner in brackets, "Labor (Hercules)".
+  return short ? `${instance.home.name} (${owner})` : `${possessiveName(owner)} ${instance.home.name}`;
 }
 
 /**
@@ -1070,6 +1216,10 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
     ...(defeat ? { defeat } : {}),
     exhausted: defeat ? false : instance.exhausted,
     boostCount: instance.boostCards.length,
+    ...(card && isLeaderCard(card) ? { leader: true as const } : {}),
+    ...(card?.type === "villain" && instance.boostCards.length > 0
+      ? { boostNote: boostNoteOf(instance.boostCards.length) }
+      : {}),
     engagedWith: instance.engagedWith,
     engagedName: engagedNameOf(state, instance.engagedWith),
     disabledActions: statuses
@@ -1083,12 +1233,19 @@ export function characterPanel(state: GameState, id: InstanceId, deps: EngineDep
       instance.ownerId !== null && instance.controllerId !== null && instance.ownerId !== instance.controllerId
         ? playerName(state, instance.ownerId)
         : null,
-    effects: seatEffectsOf(state, state.players.find((seat) => seat.identity.instanceId === id)?.playerId ?? null),
+    ownedBy: ownedEncounterLabel(state, id),
+    countNote: giftReaderNote(state, id, controllerOf(state, id) ?? state.players[0]!.playerId, deps),
+    effects: seatNotesOf(state, state.players.find((seat) => seat.identity.instanceId === id)?.playerId ?? null, deps),
     tucked: tuckedCardsUnder(state, id),
     tuckedCount: instance.tucked.length,
     heldBy: heldByOf(state, id),
     inactiveKeywords: inactiveKeywordsOf(state, id, deps),
   };
+}
+
+/** "2 facedown boost cards waiting", with when they are turned up. Counts only; the cards are never named. */
+export function boostNoteOf(count: number): string {
+  return `${count} facedown boost card${count === 1 ? "" : "s"} waiting, turned up at the next activation in addition to the one dealt`;
 }
 
 /** What a held minion's keywords do while it is held: Guard needs an engagement to protect, and it has none. */
@@ -1133,6 +1290,12 @@ function heldCharacters(state: GameState): readonly InstanceId[] {
  * cost of the next card that player plays") otherwise leaves no trace on the
  * table that it happened, or to whom.
  */
+/** The seat's lasting effects and, for a hero with a Gift deck, the Gift count as the engine reads it. */
+function seatNotesOf(state: GameState, playerId: PlayerId | null, deps: EngineDeps): readonly string[] {
+  const gift = playerId === null ? null : giftSeatNote(state, playerId, deps);
+  return [...seatEffectsOf(state, playerId), ...(gift ? [gift] : [])];
+}
+
 function seatEffectsOf(state: GameState, playerId: PlayerId | null): readonly string[] {
   if (playerId === null) return [];
   const reduction = state.lastingEffects.reduce(
@@ -1293,8 +1456,8 @@ function subtitleOf(state: GameState, instance: CardInstance, card: AnyCard | un
       // The Four Horsemen print a version letter (A/B) on each card instead of a stage (`stageLabel`): a roman
       // numeral would call War's B card "Stage I".
       const letter = villainStageOf(state, instance.instanceId).stageLabel;
-      if (letter) return `Villain · Side ${letter}${victory}`;
-      return `Villain · Stage ${ROMAN[villain.stageIndex] ?? String(villain.stageIndex + 1)}${victory}`;
+      if (letter) return `${foeWord(card)} · Side ${letter}${victory}`;
+      return `${foeWord(card)} · Stage ${ROMAN[villain.stageIndex] ?? String(villain.stageIndex + 1)}${victory}`;
     }
     case "hero_identity": {
       const player = state.players.find((seat) => seat.identity.instanceId === instance.instanceId);
@@ -1444,6 +1607,11 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
       crisis: iconsOn(state, deps, id, "crisis") > 0,
       accelerationTokens: accel,
       tuckedCount: instance.tucked.length,
+      ...schemeTuckFields(
+        state,
+        id,
+        stage.dashedValues?.includes("targetThreat") ? null : mainSchemeValue(state, "targetThreat", deps, scheme),
+      ),
       art: artFor(card, faceOf(state, id)),
       attachments,
       counters: countersOf(state, id),
@@ -1474,10 +1642,28 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
     crisis,
     accelerationTokens: 0,
     tuckedCount: instance.tucked.length,
+    ...schemeTuckFields(state, id, null),
     art: artFor(card, { kind: "front" }),
     attachments: attachmentChipsOf(state, instance, deps),
     counters: countersOf(state, id),
   };
+}
+
+/** The tucked list and its words for a scheme panel (docs/phase7-wave10.md §3.15); the target is the engine's number. */
+function schemeTuckFields(
+  state: GameState,
+  id: InstanceId,
+  target: number | null,
+): Pick<SchemePanel, "tucked" | "tuckedLabel" | "targetNote"> {
+  const tucked = tuckedCardsUnder(state, id);
+  if (tucked.length === 0) return { tucked, tuckedLabel: null, targetNote: null };
+  const facedown = tucked.filter((card) => !card.faceup).length;
+  const allAllies = tucked.every((card) => cardOf(state, card.instanceId)?.type === "ally");
+  const tuckedLabel =
+    facedown === tucked.length && allAllies
+      ? `Defeated allies, facedown: ${facedown}`
+      : `Under this scheme: ${tucked.length}${facedown > 0 ? `, ${facedown} facedown` : ""}`;
+  return { tucked, tuckedLabel, targetNote: target === null ? null : `Target ${target}, ${tucked.length} under it` };
 }
 
 /**
@@ -1501,11 +1687,33 @@ function attachmentChipsOf(state: GameState, instance: CardInstance, deps: Engin
       // A facedown card's text is hidden, so its threshold is too.
       damageThreshold: faceup ? breakPointOf(state, attachmentId, deps) : null,
       faceup,
+      ownedBy: ownedEncounterLabel(state, attachmentId, true),
+      ...tuckFacts(state, attachmentId, deps),
       ...(faceup && Object.keys(counterGoalsOf(state, attachmentId, deps)).length > 0
         ? { counterGoals: counterGoalsOf(state, attachmentId, deps) }
         : {}),
     };
   });
+}
+
+/**
+ * What a card holds under it against what it may hold (`tuckLimitOf`): the cards, the count, the engine's maximum and the
+ * words for them. The client never counts room itself: a maximum is the engine's number or there is none.
+ */
+export function tuckFacts(
+  state: GameState,
+  id: InstanceId,
+  deps: EngineDeps,
+): Pick<AttachmentChip, "tucked" | "tuckedCount" | "tuckMax" | "tuckedNote"> {
+  const tucked = tuckedCardsUnder(state, id);
+  const tuckMax = tuckLimitOf(state, deps, id);
+  return {
+    tucked,
+    tuckedCount: tucked.length,
+    tuckMax,
+    tuckedNote:
+      tuckMax !== null ? `${tucked.length} of ${tuckMax} tucked` : tucked.length > 0 ? `${tucked.length} tucked` : null,
+  };
 }
 
 /**
@@ -1631,6 +1839,7 @@ function neutralCard(state: GameState, id: InstanceId, deps: EngineDeps): Scenar
       crisis: false,
       accelerationTokens: 0,
       tuckedCount: instance?.tucked.length ?? 0,
+      ...schemeTuckFields(state, id, null),
       art: artFor(card, faceOf(state, id)),
       attachments: instance ? attachmentChipsOf(state, instance, deps) : [],
       counters: countersOf(state, id),
@@ -1761,6 +1970,7 @@ export function handCardView(state: GameState, id: InstanceId, playerId: PlayerI
       cost: null,
       currentCost: null,
       costSources: [],
+      countNote: null,
       rulesText: "",
       resourceIcons: [],
       art: null,
@@ -1780,6 +1990,7 @@ export function handCardView(state: GameState, id: InstanceId, playerId: PlayerI
     cost: price?.printed ?? null,
     currentCost: price?.current ?? null,
     costSources: price ? costSourceNames(state, price) : [],
+    countNote: giftReaderNote(state, id, playerId, deps),
     // `current`, not `printed`: the errata'd wording is what the game plays by.
     rulesText: "text" in card ? card.text.current : "",
     // What it generates right now, not only printed icons: Band Together (`mts` 21018) prints none and generates a

@@ -8,6 +8,7 @@ import {
   instancesOf,
   moveToHand,
   P1,
+  patchInstance,
   payWith,
   play,
   playerOf,
@@ -145,7 +146,14 @@ describe("Wasp kit", () => {
     const [pym] = given.ids as [InstanceId];
     const other = moveToHand(given.state, P1, "13013"); // Into the Fray, cost 3
     const [event] = other.ids as [InstanceId];
-    const damaged = withDamage(other.state, identityOf(other.state), 3);
+    // Into the Fray is a thwart event: it needs a scheme holding threat (RRG 1.8 "Target" p. 42).
+    const damaged = patchInstance(
+      withDamage(other.state, identityOf(other.state), 3),
+      other.state.mainScheme.instanceId,
+      {
+        threat: 6,
+      },
+    );
     const payment = [pym, ...payWith(damaged, P1, 2, [pym, event])];
     const played = settle(
       runWave2(damaged, play(P1, event, payment)),
@@ -160,10 +168,11 @@ describe("Wasp kit", () => {
     const [pymTiny] = givenTiny.ids as [InstanceId];
     const otherTiny = moveToHand(givenTiny.state, P1, "13013");
     const [eventTiny] = otherTiny.ids as [InstanceId];
-    const beforeHand = playerOf(otherTiny.state, P1).hand.length;
-    const paymentTiny = [pymTiny, ...payWith(otherTiny.state, P1, 2, [pymTiny, eventTiny])];
+    const threatenedTiny = patchInstance(otherTiny.state, otherTiny.state.mainScheme.instanceId, { threat: 6 });
+    const beforeHand = playerOf(threatenedTiny, P1).hand.length;
+    const paymentTiny = [pymTiny, ...payWith(threatenedTiny, P1, 2, [pymTiny, eventTiny])];
     const playedTiny = settle(
-      runWave2(otherTiny.state, play(P1, eventTiny, paymentTiny)),
+      runWave2(threatenedTiny, play(P1, eventTiny, paymentTiny)),
       accepting("13007.pym-particles-response"),
       undefined,
       WAVE2_DEPS,

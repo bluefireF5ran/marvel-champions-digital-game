@@ -1,8 +1,17 @@
 import type { AbilityId, CardId, Trait } from "@mc/content";
 import type { EventPattern } from "./abilities.js";
+import type { BasicPowerShare, Command } from "./commands.js";
 import type { EncounterDeckId, FrameId, GameAreaId, InstanceId, PlayerId } from "./ids.js";
 import type { StatusDiscardCause } from "./events.js";
-import type { CardDestination, EffectSpec, Predicate, StatName, StatusName, TargetCategory } from "./spec.js";
+import type {
+  CardDestination,
+  DefeatPlacement,
+  EffectSpec,
+  Predicate,
+  StatName,
+  StatusName,
+  TargetCategory,
+} from "./spec.js";
 import { PAID_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
 import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./state.js";
 
@@ -111,6 +120,15 @@ export type TriggerEventBody =
        * exceptAttackKeyword`; docs/phase7-wave7.md §3.30).
        */
       readonly ranged?: true;
+      /**
+       * This instance of an attack's damage was dealt with the attacker's ATK ("uses their ATK to attack and damage",
+       * docs/phase7-wave10.md §3.17): a basic attack's damage, an attack or damage instruction marked `usesAtk`
+       * ("damage … equal to your ATK"), and overkill damage spilled from either (rulings December 17, 2025 (2) #3 and
+       * January 11, 2026 (1), (2)). Stamped as the attack pushes the damage; every damage of an enemy's attack is
+       * stamped as it is applied (`damageUsedStat`, `rules.ts`), so the damage's response window always reads it here.
+       * Absent for a flat amount and for damage that is not an attack's.
+       */
+      readonly usedStat?: "atk";
       /** The card whose ability produced this damage when that isn't the source ("damage from Black Panther upgrades"). */
       readonly viaInstanceId?: InstanceId | null;
       /** An ally's consequential damage (RRG 1.8 "Consequential Damage", p. 13), so "for this use" can cancel it (§3.21). */
@@ -207,6 +225,15 @@ export type TriggerEventBody =
       readonly overkill?: boolean;
       /** "This attack gains piercing/ranged": keywords this attack has that its attacker need not (`AttackKeyword`). */
       readonly keywords?: readonly ("piercing" | "ranged" | "overkill")[];
+      /**
+       * The attack in progress deals its damage with the attacker's ATK (docs/phase7-wave10.md §3.17): written as the
+       * event is made for an `attack` instruction marked `usesAtk` and for a friendly character made to attack, and
+       * as the attack deals its damage for a basic attack (`attackUsesAtk`, `rules.ts`, which reads a basic attack
+       * before then), and for the attack of an "(attack)" ability as one of its damage instructions marked
+       * `usesAtk` deals its damage. `"thw"`: a basic attack made with THW instead ("uses their THW instead of their
+       * ATK", `modifyBasicPower.useStat`), written as it deals its damage. Absent for a flat amount.
+       */
+      readonly usedStat?: "atk" | "thw";
       /** The card whose ability made this attack (the event card for "Hero Action (attack)"). */
       readonly sourceInstanceId?: InstanceId | null;
       /**
@@ -450,7 +477,21 @@ export type TriggerEventBody =
       /** The cards that paid for the play, as `cardPlayed.paidCards` has them; absent when no card paid. */
       readonly paidCards?: readonly InstanceId[];
     }
-  | { readonly kind: "cardRevealed"; readonly instanceId: InstanceId; readonly playerId: PlayerId }
+  | {
+      readonly kind: "cardRevealed";
+      readonly instanceId: InstanceId;
+      readonly playerId: PlayerId;
+      /**
+       * "After another card is revealed that gives 1 or more heroes the Unregistered trait" (Hunting Rebel Heroes, `cw`
+       * 56097b; docs/phase7-wave10.md §3.16): for each trait a constant ability of the revealed card grants
+       * (`TraitGrantSpec.trait`), the cards in play that grant reaches, read once every step of the reveal has
+       * completed and the card is in play (`traitGrantReach`). Whether a card already had the trait is not asked: the
+       * text "gives" it to every card it names (owner decision, docs/phase7-wave10.md §4.1 question 12 = A,
+       * provisional). A trait whose grant reaches no card is left out. Read by `EventPattern.grantsTrait` and
+       * `TargetRef grantedTo`. Absent on a reveal that grants nothing, and in a game where no ability asks.
+       */
+      readonly grantedTo?: Readonly<Record<string, readonly InstanceId[]>>;
+    }
   /**
    * A revealed treachery (or a revealed event) has **resolved**: "After you resolve a treachery, … attach that treachery
    * facedown here" (Spider-Man Noir, `spdr` 31015). RRG 1.8 "Resolve" (p. 37): "A treachery card is resolved when it is
@@ -545,13 +586,20 @@ export type TriggerEventBody =
        */
       readonly byEffect?: true;
       /**
+       * The defeating effect ignores the defeated card's own "When Defeated" abilities (`EffectSpec defeat`
+       * `ignoreWhenDefeated`; RRG 1.8 "Ignore", p. 23): none of them resolves as the defeat applies. Every other part of
+       * the defeat, and every other card's ability that answers it, is unchanged.
+       */
+      readonly ignoreWhenDefeated?: true;
+      /**
        * Set by the defeat sweep on villains that reached zero together: whether each could be defeated ("cannot be
        * defeated while X has any hit points remaining") was read once for all of them, before any applied, so applying
        * one does not re-read it after another has already advanced to a fresh stage (docs/phase7-wave4.md §3.3).
        */
       readonly protectionChecked?: true;
       /**
-       * The defeating damage was attack damage (`dealDamage.fromAttack`: an attack's damage, or its overkill spill), so
+       * The defeating damage was attack damage (`dealDamage.fromAttack`: an attack's damage, or its overkill spill), or
+       * the defeat was an "(attack)" ability's own instruction (`attack-ability.ts`, "A defeat instruction"), so
        * "When an ally is defeated by an enemy attack" (Regroup, `drax` 19032) is `fromAttack: true` with `sourceIs` an
        * enemy (docs/phase7-wave3.md §3.45). Absent for any other defeat.
        */
@@ -560,8 +608,9 @@ export type TriggerEventBody =
        * "Return it to its owner's hand instead of discarding it" (Regroup): where the defeated card goes instead of its
        * discard pile, set by an interrupt's `EffectSpec setDefeatDestination` (docs/phase7-wave3.md §3.45). It is still
        * defeated — When Defeated, Victory X and "after … is defeated" all still apply; only the discard is replaced.
+       * `{ boostCardOf }`: onto that card as a facedown boost card (docs/phase7-wave10.md §3.10).
        */
-      readonly destination?: CardDestination;
+      readonly destination?: DefeatPlacement;
       readonly parentFrameId?: FrameId | null;
       /**
        * The damage event that dealt the defeating damage, told "defeated" as well as its parent: "If that character is
@@ -579,6 +628,8 @@ export type TriggerEventBody =
          */
         readonly viaInstanceId?: InstanceId | null;
         readonly ranged?: true;
+        /** The defeating damage's `usedStat`: overkill damage of an attack that used ATK used it too (§3.17 of wave 10). */
+        readonly usedStat?: "atk";
       };
       /**
        * The player whose card dealt the defeating damage ("after *you* defeat a
@@ -594,6 +645,13 @@ export type TriggerEventBody =
        * defeating *card*. Null when nothing player- or card-driven defeated it.
        */
       readonly sourceInstanceId?: InstanceId | null;
+      /**
+       * For a defeat by an effect (`byEffect`) that an "(attack)" ability made as its attack (`attack-ability.ts`, "A
+       * defeat instruction"): the card whose ability says "defeat", where `sourceInstanceId` is then the attacking
+       * identity, as `dealDamage.viaInstanceId` is to its source. The rules that read the defeating card (Permanent,
+       * "card abilities cannot remove") read this one. Absent for every other defeat.
+       */
+      readonly viaInstanceId?: InstanceId | null;
       /**
        * Excess damage (RRG 1.8 "Excess Damage", p. 19): how far the damage that defeated this character went beyond its
        * remaining hit points, the value overkill would spill ("If a card ability counts excess damage dealt, that ability
@@ -1171,7 +1229,8 @@ export type TriggerEventBody =
    * Condition", p. 45) that resolves before the discarding ability's next effect. A response that takes the card away
    * leaves nothing for another to act on: once the card is no longer where the discard put it, nothing more is offered
    * for it (`deckDiscardStillThere`), and the discarding ability no longer counts it (ruling, April 30, 2026 - Ruling
-   * 4, answer 1; §4.1 Q32; `settleDeckDiscards`).
+   * 4, answer 1; §4.1 Q32; `settleDeckDiscards`), unless the response that took it says it stays counted
+   * (`AbilityDefinition.discardsStayCounted`, docs/phase7-wave10-box-heroes.md B3.3).
    *
    * `at`: where the discard left the card. `"discard"`: the player's discard pile. `"deck"`: the discard emptied the
    * deck, whose reset shuffled this card into the new deck at once (RRG 1.8 "Player Deck", p. 33; MC40 p. 21: "Player
@@ -1363,6 +1422,37 @@ export type TriggerEventBody =
       readonly power: "attack" | "thwart" | "defense" | "recover";
       readonly stat: StatName;
       readonly playerId: PlayerId;
+    }
+  /**
+   * A player's character is about to attack or thwart (docs/phase7-wave10.md §3.21): "Forced Interrupt: When attached
+   * character would scheme, thwart, or attack, discard this card instead." (Tangled Up, `cw` 56181.) One "would"
+   * point for every way the act is made:
+   *
+   * - **a basic attack or thwart**, of a hero or an ally: pushed by the command once its costs are paid (the character
+   *   is exhausted, the power's own additional cost paid) and after a stunned or confused status card has had its
+   *   say, in place of everything the power does. Its apply step is the power itself (`basic`): the attack or thwart
+   *   events, the consequential damage, the `basicPowerUsing` / `basicPowerUsed` announcements;
+   * - **an attack- or thwart-labeled ability** (an event, or an ability of a card in play), which is its player's
+   *   identity's attack or thwart (RRG 1.8 "Labeled Ability", p. 26): pushed above the ability's frame
+   *   (`abilityFrameId`) as it begins resolving, after its costs are paid. The ability resolves once this has.
+   *
+   * Replaced (`replaceTriggeringEvent`; RRG 1.8 "'Would'", p. 48, "Replacement Effect", p. 37), the act never
+   * happened: nothing of the basic power is pushed, the character has not attacked, thwarted or used a basic power,
+   * and the ability resolves none of its effects. What was paid stays paid (RRG 1.8 "Cost", p. 13), a played event
+   * is discarded, and the ability's use counts toward its limit, as a use a status card cancels does.
+   *
+   * Pushed only when an ability could react; otherwise the act goes ahead at once. A basic defense or recovery, and
+   * an attack or thwart an unlabeled effect has a character make, do not announce it.
+   */
+  | {
+      readonly kind: "characterWouldAct";
+      readonly act: "attack" | "thwart";
+      readonly characterInstanceId: InstanceId;
+      readonly playerId: PlayerId;
+      /** **Engine-internal.** The basic power this stands in front of, carried out by the apply step. */
+      readonly basic?: BasicPowerResume;
+      /** **Engine-internal.** The labeled ability's frame waiting beneath this event. */
+      readonly abilityFrameId?: FrameId;
     }
   /**
    * The healing of a basic recovery (docs/phase7-wave6.md §3.40): its apply step heals the identity by its REC as it
@@ -1641,9 +1731,18 @@ export interface SchemeWouldPlaceThreat {
  * `defeated`, `undefended`, `threatPlaced`, `threatRemoved`, and one
  * `damageTaken.<instanceId>` per character that took damage, `damageTakenKey`). A `removeThreat` that took its scheme
  * from some threat to none records `lastThreatRemoved` (docs/phase7-wave7.md §3.34). An enemy attack that reached its
- * damage step records `totalAtk` (`TOTAL_ATK_RESULT`).
+ * damage step records `totalAtk` (`TOTAL_ATK_RESULT`). Damage, and the attack it belongs to, records `excessDealt` (the
+ * excess of the damage taken) and `excessAsDealt` (of the damage dealt, `EXCESS_AS_DEALT_RESULT`).
  */
-export type TriggerEvent = TriggerEventBody & { readonly results?: Vars };
+export type TriggerEvent = TriggerEventBody & {
+  readonly results?: Vars;
+  /**
+   * The cards that entered play after this condition occurred, in the order they entered: none of them answers it
+   * in a response window (RRG 1.8 "Triggering Condition", p. 45; "Response", p. 38; the owner's answer 43B,
+   * `entered-since.ts`). Absent until a card does, which is nearly always.
+   */
+  readonly enteredPlaySince?: readonly InstanceId[];
+};
 
 /**
  * The result key an enemy attack records "its total ATK for that attack" under (docs/phase7-wave8.md §3.81): the
@@ -1653,6 +1752,17 @@ export type TriggerEvent = TriggerEventBody & { readonly results?: Vars };
  * cancelled attack. The result `damage` is what the attack then dealt.
  */
 export const TOTAL_ATK_RESULT = "totalAtk";
+
+/**
+ * The result key a damage event, and the attack it belongs to, record the excess of the damage **dealt** under: the
+ * amount dealt beyond the target's remaining hit points, before anything that changes the damage taken (a constant
+ * reduction, a tough status card, a prevention; `excessAsDealtOf`, `resolve/event.ts`, which says what "dealt" is in
+ * each case). Beside `excessDealt`, which despite its name is the excess of the damage **taken**, the value overkill
+ * spills (RRG 1.8 "Overkill", p. 31) and the one every "excess damage" ability reads unless the owner has ruled its
+ * card counts the damage dealt (February 8, 2026 - Ruling 2; owner answer 31B, docs/phase7-wave10.md §4.0). Absent
+ * (read as 0) when the amount dealt did not exceed the remaining hit points.
+ */
+export const EXCESS_AS_DEALT_RESULT = "excessAsDealt";
 
 /**
  * The result key an attack/activation records one character's damage taken under (docs/phase7-wave5.md §4.1 Q65):
@@ -1739,7 +1849,7 @@ export type LeaveRequest =
       readonly sourceCardId?: CardId;
       readonly asCost?: true;
     }
-  | { readonly kind: "defeat"; readonly insteadTo?: CardDestination; readonly sourceCardId?: CardId }
+  | { readonly kind: "defeat"; readonly insteadTo?: DefeatPlacement; readonly sourceCardId?: CardId }
   /**
    * A swap's outgoing card (`EffectSpec swapCards`, docs/phase7-wave6.md §3.47): once its interrupts resolve, the swap
    * with `with` completes (`swapCards` again), taking the out-of-play card's place as that card enters play in its own.
@@ -1849,6 +1959,26 @@ export interface LeavePatch {
 }
 
 /**
+ * A basic attack or thwart whose costs are paid, held by its `characterWouldAct` event until that event's interrupt
+ * window has passed (docs/phase7-wave10.md §3.21): the command as it was given, the targets it was checked against
+ * (`shares`: one target, or a divided power's), and for a thwart whether it uses ATK and whether the schemes'
+ * additional thwart cost is already paid.
+ */
+export type BasicPowerResume =
+  | {
+      readonly power: "attack";
+      readonly command: Extract<Command, { type: "basicAttack" }>;
+      readonly shares: readonly BasicPowerShare[];
+    }
+  | {
+      readonly power: "thwart";
+      readonly command: Extract<Command, { type: "basicThwart" }>;
+      readonly shares: readonly BasicPowerShare[];
+      readonly useAtk: boolean;
+      readonly thwartCostPaid: boolean;
+    };
+
+/**
  * The stat a basic power uses when nothing substitutes another (RRG 1.8 "Basic Power", p. 10): the default of the
  * `stat` on `basicPowerUsing` / `basicPowerUsed`.
  */
@@ -1895,6 +2025,8 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     case "basicPowerUsing":
     // "When you make a basic recovery … instead of healing damage" (wave 6 §3.40): the healing is still to come.
     case "basicRecovery":
+    // "When attached character would … thwart, or attack" (docs/phase7-wave10.md §3.21): the act is still to come.
+    case "characterWouldAct":
     case "turnEnding":
     // "Interrupt: When you change to hero form" (`formChanging`): the change is still to come.
     case "formChanging":
@@ -2081,6 +2213,7 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
     case "basicPowerUsed":
     case "basicPowerUsing":
     case "basicRecovery":
+    case "characterWouldAct":
       return of([event.characterInstanceId], [event.characterInstanceId], [event.playerId]);
     case "cardReadying":
     // The readied card is the event's *target*, so "after you ready Quicksilver" is

@@ -7,6 +7,7 @@ import { resolveTuck } from "./tuck.js";
 import { resolveImminentAttach } from "./imminent-attach.js";
 import { applyCountersBeingPlaced } from "./counters-being-placed.js";
 import { applyWouldDiscard, wouldDiscardNotMade } from "./would-discard.js";
+import { resumeBasicPower } from "../actions.js";
 import { type Ctx, emit, findFrame, popFrame, pushFrames, setFrame, updateFrame, updateInstance } from "../ctx.js";
 import { overkillRecipient } from "../defend-preview.js";
 import {
@@ -21,7 +22,7 @@ import {
   setForm,
 } from "../effects.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
-import { ATTACK_KEYWORDS, attackKeywordsOf, hasKeyword, keywordTotal } from "../keywords.js";
+import { ATTACK_KEYWORDS, attackKeywordsOf, hasKeyword, keywordTotal, statusActive } from "../keywords.js";
 import { titlesNaming } from "../titles.js";
 import { boostIconsFor } from "../modifiers.js";
 import {
@@ -67,6 +68,9 @@ import {
   cannotActivate,
   cardAbilitiesCannotRemove,
   type ConsequentialDamage,
+  attackUsesAtk,
+  damageUsedStat,
+  lostAttackKeywords,
 } from "../rules.js";
 import {
   actingCharacterOf,
@@ -89,6 +93,7 @@ import {
   runCarriedHostStep,
 } from "./cards.js";
 import { currentActivationFrameId, type StackFrame, type Vars } from "../stack.js";
+import { forgetEnteredWhileApplying } from "../entered-since.js";
 import { STATUS_NAMES, type GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
@@ -99,8 +104,8 @@ import {
   recordKeywordsIgnored,
   thwartBlockersIgnored,
 } from "./keyword-ignored.js";
-import { damageTakenKey } from "../trigger-events.js";
-import type { DefeatFollowUp, EffectSpec, Predicate } from "../spec.js";
+import { damageTakenKey, EXCESS_AS_DEALT_RESULT } from "../trigger-events.js";
+import type { AttackKeyword, DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
 import {
   alreadyDefeated,
   applyMainSchemeCompleting,
@@ -225,6 +230,22 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         setFrame(ctx, { ...frame, stage: "apply", cancelled: true });
         return;
       }
+      // An attack queued before anything asked about its attacker's status (`Frame<"event">.statusReplaces`): RRG 1.8
+      // "Stun, Stunned" (p. 41), "When this character would attack, remove each stunned status card from it instead."
+      // Before its interrupt window, as the villain phase's check is before the activation is initiated (FAQ "Norman
+      // Osborn (#1A)", p. 58): no boost card, no responses to an attack.
+      if (
+        frame.statusReplaces &&
+        frame.event.kind === "enemyAttack" &&
+        statusActive(ctx.state, frame.event.enemyInstanceId, "stunned", ctx.deps)
+      ) {
+        setFrame(ctx, { ...frame, stage: "apply", cancelled: true });
+        announceStatusDiscarded(
+          ctx,
+          discardStatusCards(ctx, frame.event.enemyInstanceId, "stunned", "cancelledAttack"),
+        );
+        return;
+      }
       emit(ctx, { type: "triggerEvent", event: frame.event, phase: "initiated" });
       setFrame(ctx, { ...frame, stage: "apply" });
       // Attachments this event's apply step takes out of play with its card get their "when this leaves play"
@@ -311,10 +332,28 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         if (stepDeferredResponses(ctx, frame)) return;
         // Earlier conditions of the same occurrence did happen: their shared window still opens (RRG 1.8 p. 45).
         if (openJoinedResponses(ctx, frame)) return;
+        // "At the end of this attack" delayed effects created before the attack ended (in its "when [enemy] attacks"
+        // window) still resolve when the attacker left play (`endedEarly`): the attack has ended, which is their timing
+        // point (RRG 1.8 "Delayed Effect", p. 16; ruling January 11, 2026 - Ruling 1, answer 3: Armored Defense
+        // defeating the attacking minion still gives the tough status card). An effect that names the departed attacker
+        // finds nothing to do.
+        //
+        // Not when the activation was cancelled outright ("cancel that attack"): RRG 1.8 "Cancel" (p. 11), "the
+        // canceled effect [is] replaced with no effect" and "is not considered to have occurred", so the attack has no
+        // end for a delayed effect to follow, and the held effects are dropped with the frame. Rhino's Charge then
+        // stays attached. No ruling found speaks to this; it is the reading of the two RRG entries, open to the owner.
+        if (frame.endedEarly && pushEndEffects(ctx, frame)) return;
         // RRG "Cancel": the canceled effect is not considered to have occurred, so no responses.
         emit(ctx, { type: "triggerEvent", event: frame.event, phase: "cancelled" });
         // A replaced discard from a hand or a deck did not discard its card (docs/phase7-wave9.md §4.1 Q20).
         if (frame.event.kind === "cardBeingDiscarded") wouldDiscardNotMade(ctx, frame.event);
+        // A replaced attack or thwart of a labeled ability: the ability waiting beneath resolves no effect
+        // (docs/phase7-wave10.md §3.21). A replaced basic power pushed nothing, so there is nothing to undo.
+        if (frame.event.kind === "characterWouldAct" && frame.event.abilityFrameId) {
+          updateFrame(ctx, frame.event.abilityFrameId, (f) =>
+            f.kind === "ability" ? { ...f, wouldAct: "replaced" as const } : f,
+          );
+        }
         // A replaced deal of a named card left it where it was (docs/phase7-wave9.md §3.45).
         if (frame.event.kind === "encounterCardBeingDealt" && frame.event.named) {
           namedEncounterDealNotMade(ctx, { ...frame.event, named: frame.event.named });
@@ -337,7 +376,10 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         return;
       }
       setFrame(ctx, { ...frame, stage: "responses" });
-      if (applyEvent(ctx, frame) === false) {
+      const happened = applyEvent(ctx, frame) !== false;
+      // The event has occurred. A card its own change put into play entered with it, not after it (`entered-since.ts`).
+      updateFrame(ctx, frame.frameId, (f) => forgetEnteredWhileApplying(f, frame.event.enteredPlaySince));
+      if (!happened) {
         // The event found nothing to do (a defeat whose character was healed first):
         // it didn't happen, so nothing responds to it.
         updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, stage: "done" } : f));
@@ -382,6 +424,8 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         );
         return;
       }
+      // A card that enters play by being revealed: the responses to its entering wait for the end of its reveal.
+      if (holdResponsesForReveal(ctx, frame, event)) return;
       // How many forced responses this event triggers, reported to a `bind` ("If that scheme's 'Forced Response'
       // ability is not triggered this way"). Only recorded when there are some, so other results are unchanged.
       const forcedResponses = candidatesFor(ctx.state, ctx.deps, event, "response", true).length;
@@ -420,15 +464,8 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       if (stepDeferredResponses(ctx, frame)) return;
       // Handed-over conditions this frame's own response window never gathered (it found nothing to do, or deferred).
       if (openJoinedResponses(ctx, frame)) return;
-      if (frame.endEffects.length > 0) {
-        // "At the end of this attack": run after the response window, before the event is gone.
-        setFrame(ctx, { ...frame, endEffects: [] });
-        const event = withResults(frame.event, frame.vars);
-        for (const deferred of [...frame.endEffects].reverse()) {
-          pushEffects(ctx, { ...deferred, event, eventFrameId: null });
-        }
-        return;
-      }
+      // "At the end of this attack": run after the response window, before the event is gone.
+      if (pushEndEffects(ctx, frame)) return;
       reportResults(ctx, frame, true);
       expireEventLastingEffects(ctx, frame.frameId);
       popFrame(ctx);
@@ -439,6 +476,22 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       return;
     }
   }
+}
+
+/**
+ * Pushes the "at the end of this attack / activation" effects held on `frame` (`endEffects`), first held resolving
+ * first, and empties the list; false when there are none. The frame stays on the stack beneath them and is resolved
+ * again afterwards. Called where the event ends: its `done` stage, and the cancel path of an activation that ended
+ * before it resolved because its enemy left play (`endedEarly`), never of one cancelled outright.
+ */
+function pushEndEffects(ctx: Ctx, frame: Frame<"event">): boolean {
+  if (frame.endEffects.length === 0) return false;
+  setFrame(ctx, { ...frame, endEffects: [] });
+  const event = withResults(frame.event, frame.vars);
+  for (const deferred of [...frame.endEffects].reverse()) {
+    pushEffects(ctx, { ...deferred, event, eventFrameId: null });
+  }
+  return true;
 }
 
 /**
@@ -581,6 +634,42 @@ function stepDeferredResponses(ctx: Ctx, frame: Frame<"event">): boolean {
 }
 
 /**
+ * The response window of a card's `cardEntersPlay` waits while that card is being revealed: the resolved event is
+ * handed to its reveal frame (`Frame<"reveal">.heldResponses`), which opens the window once every step of the reveal
+ * is done and, for a minion, its quickstrike and teamwork have resolved (`announceRevealFinished`). False, with
+ * nothing done, for any other event, and for a card that enters play with no reveal of its own in progress (put into
+ * play, a cost's entry, a flip), whose window opens as it always did.
+ *
+ * RRG 1.8 "Reveal" (p. 38): "Responses (both forced and non-forced) to any step of the revealing of an encounter card
+ * are not resolved until after all steps of the reveal process have been completed." FAQ "Widow's Bite (#10)" (p. 60):
+ * "Quickstrike and the 'Response' on Widow's Bite have the same timing trigger. Keywords have timing priority over
+ * 'Response' abilities, so Quickstrike resolves first." The owner's answer 32B (2026-10-12) built this for a minion;
+ * answer 35B (same day) for every card a reveal puts into play, since the sentence is about "an encounter card": a
+ * side scheme, an environment, an attachment (whenever in its reveal it attaches), an obligation, and a player card
+ * revealed off the encounter deck.
+ *
+ * Not moved: the event's interrupts ("when a minion would enter play / engage"), which resolved before this; its apply
+ * step, where toughness places its tough status card as the minion enters play (RRG 1.8 "Toughness", p. 45; the
+ * owner's answer 33A); and lasting "each time …" effects, which are not Response abilities and resolve here as before.
+ */
+function holdResponsesForReveal(ctx: Ctx, frame: Frame<"event">, event: TriggerEvent): boolean {
+  if (event.kind !== "cardEntersPlay" || frame.responsesWith !== undefined) return false;
+  if ((frame.joinedResponses ?? []).length > 0) return false;
+  const reveal = ctx.state.stack.find(
+    (f) => f.kind === "reveal" && f.instanceId === event.instanceId && !f.newFace && f.stage !== "done",
+  );
+  if (!reveal) return false;
+  setFrame(ctx, { ...frame, event, stage: "done" });
+  updateFrame(ctx, reveal.frameId, (f) =>
+    f.kind === "reveal" ? { ...f, heldResponses: [...(f.heldResponses ?? []), event] } : f,
+  );
+  for (const effect of [...eachTimeEffectsFor(ctx.state, ctx.deps, event)].reverse()) {
+    pushEffects(ctx, { effects: effect.effects, ...effect.scope, event, eventFrameId: frame.frameId });
+  }
+  return true;
+}
+
+/**
  * A frame pushed by `pushEventsSharingResponses` hands its resolved event to the later frame whose response window it
  * shares (RRG 1.8 "Triggering Condition", p. 45). False when it shares none, or that frame is no longer on the stack
  * (then it opens its own window, as any event does).
@@ -634,7 +723,7 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
   switch (event.kind) {
     case "dealDamage": {
       // The response window reads the frame's event: it carries the target as it took the damage.
-      const stamped = asDamaged(ctx.state, event);
+      const stamped = asDamaged(ctx.state, withUsedStat(ctx.state, event));
       if (stamped !== event)
         updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, event: stamped } : f));
       stampAttackTarget(ctx, stamped);
@@ -686,8 +775,14 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
           activation,
           reason: leftPlay ? "leftPlay" : "dashedStat",
         });
-        // The activation does not happen: no boost card, no responses, and a `bind` reports `made` 0.
-        setFrame(ctx, { ...frame, stage: "apply", cancelled: true });
+        // The activation does not happen: no boost card, no responses, and a `bind` reports `made` 0. One whose enemy
+        // left play began and has ended (`endedEarly`): its "at the end of this attack" effects still resolve.
+        setFrame(ctx, {
+          ...frame,
+          stage: "apply",
+          cancelled: true,
+          ...(leftPlay ? { endedEarly: true as const } : {}),
+        });
         return;
       }
       return event.kind === "enemyAttack"
@@ -775,6 +870,11 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
     case "basicRecovery":
       // REC as it is now, so an interrupt that changed it first counts (docs/phase7-wave6.md §3.40).
       healRecovery(ctx, event.characterInstanceId);
+      return;
+    case "characterWouldAct":
+      // Nothing replaced the basic power: it is made now (docs/phase7-wave10.md §3.21). A labeled ability resolves
+      // from its own frame, beneath this one.
+      if (event.basic) resumeBasicPower(ctx, event.basic);
       return;
     case "cardEntersPlay":
       // The keywords that resolve as a card enters play are this event's change, so an "Interrupt: when X enters
@@ -867,7 +967,7 @@ function beginOneDefeat(
   const villain = villainOf(ctx.state, id);
   if (villain) {
     if (villain.defeated) return false;
-    const choice = defeatVillainStage(ctx, id);
+    const choice = defeatVillainStage(ctx, id, event.ignoreWhenDefeated === true);
     if (choice && !ctx.state.outcome) pushFrames(ctx, [choice]);
     return true;
   }
@@ -881,7 +981,8 @@ function beginOneDefeat(
   }
   // Permanent (docs/phase7-wave5.md §4.1 Q46): an effect that says "defeat" is its card's ability; reaching zero hit
   // points is the game's rule, with no source card, whatever dealt the damage.
-  const sourceId = event.byEffect === true ? event.sourceInstanceId : undefined;
+  // An attack's defeat names the attacker as its source and the ability's card as `viaInstanceId`.
+  const sourceId = event.byEffect === true ? (event.viaInstanceId ?? event.sourceInstanceId) : undefined;
   const sourceCardId = sourceId ? getInstance(ctx.state, sourceId)?.cardId : undefined;
   if (permanentStopsLeaving(ctx.state, ctx.deps, id, sourceCardId)) {
     emit(ctx, { type: "leavePlayBlocked", instanceId: id, reason: "permanent" });
@@ -921,6 +1022,7 @@ function beginOneDefeat(
       ...(event.parentFrameId ? { spilledFromFrameId: event.parentFrameId } : {}),
       ...(event.overkill.viaInstanceId ? { viaInstanceId: event.overkill.viaInstanceId } : {}),
       ...(event.overkill.ranged ? { ranged: true as const } : {}),
+      ...(event.overkill.usedStat ? { usedStat: event.overkill.usedStat } : {}),
     };
   }
   return {
@@ -932,6 +1034,50 @@ function beginOneDefeat(
     ...(sourceCardId !== undefined ? { sourceCardId } : {}),
     ...(spill ? { spill } : {}),
   };
+}
+
+/**
+ * The defeated ally's or minion's own When Defeated abilities, in card order (RRG 1.8 "When Defeated Abilities", p. 48).
+ * None for a defeat that ignores them (`ignoreWhenDefeated`; RRG 1.8 "Ignore", p. 23: an ignored ability is treated
+ * "as not being in effect or present"): the card then goes straight to its leaving step.
+ */
+export function whenDefeatedFrames(
+  ctx: Ctx,
+  event: Extract<TriggerEvent, { kind: "characterDefeated" }>,
+  actingPlayerId: PlayerId | null,
+): readonly StackFrame[] {
+  if (event.ignoreWhenDefeated === true) return [];
+  return gameAbilityFrames(ctx, event.instanceId, ["whenDefeated"], event, undefined, actingPlayerId);
+}
+
+/**
+ * `EffectSpec setDefeatDestination` from the defeated card's own When Defeated ability (docs/phase7-wave10.md §3.10):
+ * the leaving step that waits for that ability takes `to`, whether the card was defeated alone (`leaveAfterWhenDefeated`)
+ * or with others (`defeatedTogether`, whose members leave from one step). Nothing changes once the card has left.
+ */
+export function redirectPendingDefeat(ctx: Ctx, id: InstanceId, to: DefeatPlacement): void {
+  const own = (effect: EffectSpec): EffectSpec => {
+    if (effect.kind === "discardFromPlay" && effect.defeated === true) return { ...effect, insteadTo: to };
+    if (effect.kind === "if") return { ...effect, then: effect.then.map(own) };
+    return effect;
+  };
+  const together = (effect: EffectSpec): EffectSpec =>
+    effect.kind === "defeatedTogether"
+      ? {
+          ...effect,
+          members: effect.members.map((member) =>
+            member.event.instanceId === id && member.defeated
+              ? { ...member, defeated: { ...member.defeated, insteadTo: to } }
+              : member,
+          ),
+        }
+      : effect;
+  for (const frame of [...ctx.state.stack]) {
+    if (frame.kind !== "effects") continue;
+    if (frame.defeatedLeaving === id) setFrame(ctx, { ...frame, effects: frame.effects.map(own) });
+    else if (frame.effects.some((effect) => effect.kind === "defeatedTogether"))
+      setFrame(ctx, { ...frame, effects: frame.effects.map(together) });
+  }
 }
 
 /** A defeated ally's or minion's leaving step (`leaveAfterWhenDefeated`), with the destination its defeat read. */
@@ -957,7 +1103,7 @@ function applyDefeat(ctx: Ctx, event: Extract<TriggerEvent, { kind: "characterDe
   const id = event.instanceId;
   const frames: StackFrame[] = [
     ...(begun.spill ? [eventFrame(ctx, begun.spill)] : []),
-    ...gameAbilityFrames(ctx, id, ["whenDefeated"], event, undefined, begun.actingPlayerId),
+    ...whenDefeatedFrames(ctx, event, begun.actingPlayerId),
     leaveAfterWhenDefeated(ctx, id, begun.printedId, defeatLeaveSpec(begun), begun.controllerId, begun.sourceCardId),
   ];
   pushFrames(ctx, frames);
@@ -976,9 +1122,16 @@ function attackPierces(ctx: Ctx, event: DamageEvent): boolean {
   return (
     event.fromAttack &&
     event.notAttacked !== true &&
-    (event.piercing === true || (source !== null && hasKeyword(ctx.state, source, "piercing", ctx.deps)))
+    (event.piercing === true || (source !== null && hasKeyword(ctx.state, source, "piercing", ctx.deps))) &&
+    // "Attacks against them lose piercing" (docs/phase7-wave10.md §3.18): read here, where piercing is applied, so
+    // the loss holds whatever stamped the keyword on this damage and whenever its rule came into force.
+    !attackLost(ctx, event, "piercing")
   );
 }
+
+/** Whether attacks do not have `keyword` against this damage's target (`attacksLoseKeywords`, wave 10 §3.18). */
+const attackLost = (ctx: Ctx, event: DamageEvent, keyword: AttackKeyword): boolean =>
+  lostAttackKeywords(ctx.state, ctx.deps, event.targetInstanceId).includes(keyword);
 
 /**
  * RRG 1.8 "Piercing" (p. 32): "Before this attack deals damage to a character, discard each tough status card from that
@@ -1007,7 +1160,9 @@ function damageAttackInfo(ctx: Ctx, event: DamageEvent): DamageAttackInfo | unde
     event.notAttacked === true
       ? []
       : ATTACK_KEYWORDS.filter(
-          (name) => event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps)),
+          (name) =>
+            (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps))) &&
+            !attackLost(ctx, event, name),
         );
   return { attackerInstanceId: source, cardInstanceId: event.viaInstanceId ?? null, keywords };
 }
@@ -1155,14 +1310,17 @@ export function announceDamagePrevented(ctx: Ctx, event: Extract<TriggerEvent, {
 /**
  * The excess damage one `dealDamage` event deals: the damage the target takes beyond its remaining hit points, plus any
  * `excessDamageBonus` ("When your hero's attack deals any amount of excess damage, increase that amount by 1", Follow
- * Through; docs/phase7-wave3.md §3.18), added only when there is some.
+ * Through; docs/phase7-wave3.md §3.18), added only when there is some. The same bonus raises the excess of the damage
+ * dealt when that has some, independently of this value (`excessAsDealtOf`, owner answer 42B).
  *
  * RRG 1.8 "Overkill" (p. 31, revised in 1.8): "If a card ability counts excess damage dealt, that ability counts the
  * same value of excess damage that is calculated when resolving the overkill keyword", and overkill deals "any damage
  * on that [character] beyond its hit points". So excess is measured on the damage *taken*, after constant reductions,
  * and a tough status, "cannot take damage" or a prevention leaves none. This supersedes rulings Jan 26, 2026 (3) and
  * Feb 8, 2026 (2), which measured it on the damage dealt (user decision 2026-09-25; PLAN.md's Overkill note): Hercules's
- * 6 against Thumbelina (3 HP, takes 1 less) spills 2 and Prince of Power heals 2, not 3.
+ * 6 against Thumbelina (3 HP, takes 1 less) spills 2, and an ability counting excess damage counts 2. The one exception
+ * is a card the owner has ruled counts the damage dealt (Prince of Power heals 3 there, owner answer 31B, 2026-10-12),
+ * which reads the separate value `excessAsDealtOf` and leaves this one as it is.
  *
  * The same number with or without overkill: an attack without it (Into the Fray, "Murdered You!", Radioactive Buildup's
  * "excess damage dealt by Thunderball") counts what overkill would have spilled. It is measured when the damage lands,
@@ -1177,6 +1335,64 @@ export function excessDamageOf(
 ): number {
   if (maxHp === undefined || taken <= 0) return 0;
   const measured = taken - Math.max(0, maxHp - damageBefore);
+  if (measured <= 0) return 0;
+  const source = event.sourceInstanceId;
+  return measured + (event.fromAttack && source !== null ? excessDamageBonus(ctx.state, ctx.deps, source) : 0);
+}
+
+/**
+ * The excess of the damage one `dealDamage` event **dealt**, where `excessDamageOf` measures the damage **taken**: the
+ * amount dealt (`dealDamage.dealt`) beyond the target's remaining hit points. A second value beside `excessDealt`,
+ * never a replacement for it: overkill, excess placed as threat, a defeat's `excessDamage` and every ability that
+ * counts "excess damage" read the damage taken (RRG 1.8 "Overkill", p. 31; owner decision 2026-09-25). This one is read
+ * only by an ability the owner has ruled counts the damage dealt (owner answer 31B, 2026-10-12, docs/phase7-wave10.md
+ * §4.0: "heal 1 damage … for each point of excess damage dealt to that enemy by that attack").
+ *
+ * February 8, 2026 - Ruling 2: 6 dealt to a minion with 3 hit points that takes 1 less from each attack is "excess
+ * dealt: 6 - 3 = 3" and "excess taken: 5 - 3 = 2". RRG 1.8 "Excess Damage" (p. 19): "any amount of damage that is
+ * dealt to a character beyond that character's remaining hit points". "Damage" (p. 14): "When the amount of damage an
+ * effect deals is modified, the amount of damage the character takes is similarly modified. When the amount of damage a
+ * character takes is modified (such as by damage being prevented), the amount of damage dealt is not modified."
+ *
+ * What "dealt" is here is what `dealDamage.dealt` already is for "after X deals damage" (owner ruling 2026-10-07,
+ * docs/dealt-vs-taken-audit.md): the amount as it reached the damage-dealing process, after anything that changed what
+ * the effect deals (DEF, an ATK modifier, "increase that damage"), before anything that changes what the target takes.
+ * The ruling covers only the first line below; the rest follow p. 14's sentence and "Prevent" (p. 35: "the amount of
+ * damage that character 'takes' is reduced, but the amount of damage 'dealt' is not reduced"), and ruling January 26,
+ * 2026 (3): "Excess damage can be dealt even if the target does not take that damage."
+ *
+ * - **A constant reduction or a cap on damage taken** ("takes 1 less", "cannot take more than N"): not subtracted.
+ * - **A tough status card**: it prevents the damage (RRG 1.8 "Tough", p. 44), so the damage was dealt in full and
+ *   its excess is counted, though nothing was taken and nothing spills.
+ * - **"Cannot take damage"** and **"prevent all damage"** rules: the same; dealt, not taken.
+ * - **A "prevent N of that damage" interrupt, or a "reduce that damage to N" one**: the same (`dealt` keeps the
+ *   amount from before the interrupt), down to a full prevention.
+ * - **A constant that raises or doubles the damage taken** ("takes +1 damage", "double the damage this minion
+ *   takes"): not added either, by the same sentence, so here this value is *lower* than the excess taken.
+ * - **Damage of 0 as it would be dealt** (a defense that covers the attack): nothing was dealt, no excess.
+ * - **No modifier of damage taken at all**: equal to `excessDamageOf`.
+ *
+ * `excessDamageBonus` ("When your hero's attack deals any amount of excess damage, increase that amount by 1", Follow
+ * Through) answers either excess (owner answer 42B, 2026-10-12; before it, answer A kept it on the excess taken
+ * alone). Its condition is "any amount of excess damage", and there are two measures of that amount, so each is
+ * raised exactly when it is itself above 0:
+ * - this value, whenever the damage dealt has excess, whether or not any was taken (4 dealt to a 3-hit-point minion
+ *   that takes 1 less: 1 becomes 2; 6 dealt into a tough status card: 3 becomes 4);
+ * - `excessDamageOf`, as before, whenever the damage taken has excess.
+ * A measure at 0 is not "any amount" and stays 0: the bonus never makes excess taken out of excess dealt, so with only
+ * the damage dealt in excess nothing spills by overkill and no ability counting the excess taken counts anything (RRG
+ * 1.8 "Overkill", p. 31: the spill is the "damage on that [character] beyond its hit points"; the card raises an
+ * amount of excess, it deals no damage of its own). Nor the reverse: 3 dealt to a minion that takes 1 more is 1
+ * excess taken, raised to 2, and still no excess dealt (answer 40A).
+ */
+export function excessAsDealtOf(
+  ctx: Ctx,
+  event: Extract<TriggerEvent, { kind: "dealDamage" }>,
+  damageBefore: number,
+  maxHp: number | undefined,
+): number {
+  if (maxHp === undefined) return 0;
+  const measured = (event.dealt ?? event.amount) - Math.max(0, maxHp - damageBefore);
   if (measured <= 0) return 0;
   const source = event.sourceInstanceId;
   return measured + (event.fromAttack && source !== null ? excessDamageBonus(ctx.state, ctx.deps, source) : 0);
@@ -1202,6 +1418,17 @@ export function asDamaged(state: GameState, event: DamageEvent): DamageEvent {
       ...(statuses !== undefined ? { statuses: { ...statuses } } : {}),
     },
   };
+}
+
+/**
+ * The damage event carrying the stat its attack was made with (`dealDamage.usedStat`, docs/phase7-wave10.md §3.17),
+ * as it is applied: a player's attack stamped it already, and damage of an enemy's attack is stamped here, while the
+ * attack it belongs to is still on the stack to be read (`damageUsedStat`). Unchanged for any other damage.
+ */
+export function withUsedStat(state: GameState, event: DamageEvent): DamageEvent {
+  if (event.usedStat !== undefined) return event;
+  const usedStat = damageUsedStat(state, event);
+  return usedStat === null ? event : { ...event, usedStat };
 }
 
 /**
@@ -1240,18 +1467,29 @@ export function applyDamage(
     ctx,
     event.toughPierced !== undefined ? piercedBeforeInterrupts(event) : pierceForDamage(ctx, event),
   );
-  if (event.amount <= 0) return;
   // RRG 1.8 "In Play and Out of Play" (p. 23): abilities "only interact with … cards that are in play". Damage waiting
   // on the stack for a card that has since left play (an ally's consequential damage after Speed Demon's attack
   // defeated it, docs/phase7-wave4.md §4 Q20) is not dealt, rather than left on the discarded card.
-  if (!cardsInPlay(ctx.state).includes(event.targetInstanceId)) return;
+  const inPlay = cardsInPlay(ctx.state).includes(event.targetInstanceId);
+  // The excess of the damage as dealt (`excessAsDealtOf`), measured before anything below keeps the target from
+  // taking it, an interrupt that prevented all of it included (`amount` 0, `dealt` positive).
+  const hitPoints = inPlay ? characterProfile(ctx.state, event.targetInstanceId, ctx.deps)?.maxHp : undefined;
+  const damageBefore = getInstance(ctx.state, event.targetInstanceId)?.damage ?? 0;
+  const excessAsDealt = excessAsDealtOf(ctx, event, damageBefore, hitPoints);
+  if (excessAsDealt > 0) {
+    addFrameVars(ctx, frameId, { [EXCESS_AS_DEALT_RESULT]: excessAsDealt });
+    addFrameVars(ctx, event.parentFrameId, { [EXCESS_AS_DEALT_RESULT]: excessAsDealt });
+  }
+  if (event.amount <= 0) return;
+  if (!inPlay) return;
   const source = event.sourceInstanceId;
   // The attacker's own keyword, or one granted to this attack alone and stamped on the event (`attackKeywordsOf`).
   // It does not apply to attack damage dealt to a character the attack is not against (`notAttacked`, §3.36, §4.1 Q18).
   const attackKeyword = (name: "overkill"): boolean =>
     event.fromAttack &&
     event.notAttacked !== true &&
-    (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps)));
+    (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps))) &&
+    !attackLost(ctx, event, name);
 
   // RRG "Cannot": "cannot take damage" beats everything, including tough (which then isn't used). RRG 1.8 "Tough"
   // (p. 44) replaces damage the character "would take", and one that cannot take it would take none, so the status
@@ -1417,6 +1655,9 @@ export function applyDamage(
           ...(event.ranged === true || (source !== null && hasKeyword(ctx.state, source, "ranged", ctx.deps))
             ? { ranged: true as const }
             : {}),
+          // …and the stat it was made with: overkill damage of an attack that used ATK triggers "uses their ATK to
+          // attack and damage" on the character it spills to (rulings January 11, 2026 (1) and (2); wave 10 §3.17).
+          ...(damageUsedStat(ctx.state, event) === "atk" ? { usedStat: "atk" as const } : {}),
         }
       : undefined,
     defeatedByPlayerId: sourcePlayerOf(ctx.state, event),
@@ -1546,7 +1787,12 @@ function playerAttackOverkillRecipient(state: GameState, event: DamageEvent): In
  */
 function applyRetaliate(ctx: Ctx, event: Extract<TriggerEvent, { kind: "characterAttacked" }>): void {
   // Ranged printed on the attacker, or granted to this attack alone ("each of your [Arrow] attacks gain ranged").
-  if (event.ranged === true || hasKeyword(ctx.state, event.attackerInstanceId, "ranged", ctx.deps)) return;
+  // …unless attacks lose ranged against the attacked character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18).
+  if (
+    (event.ranged === true || hasKeyword(ctx.state, event.attackerInstanceId, "ranged", ctx.deps)) &&
+    !lostAttackKeywords(ctx.state, ctx.deps, event.targetInstanceId).includes("ranged")
+  )
+    return;
   const inPlay = cardsInPlay(ctx.state);
   if (!inPlay.includes(event.targetInstanceId) || !inPlay.includes(event.attackerInstanceId)) return;
   const amount = keywordTotal(ctx.state, event.targetInstanceId, "retaliate", ctx.deps);
@@ -1989,12 +2235,21 @@ function applyPlayerAttack(ctx: Ctx, attack: Extract<TriggerEvent, { kind: "atta
   // amount is computed (ATK, or the effect's amount with its `cardEffectBonus`), to this attack only.
   const extra = attackFrame?.kind === "event" ? (attackFrame.vars.extraDamage ?? 0) : 0;
   const amount = Math.max(0, computed + extra);
+  // "Uses their ATK to attack and damage" (docs/phase7-wave10.md §3.17): the attack in progress records the stat its
+  // damage is dealt with, and that damage carries it (ruling December 17, 2025 (2) #3).
+  const usedStat = useThw ? "thw" : attackUsesAtk(event, undefined) ? "atk" : undefined;
+  if (usedStat !== undefined && usedStat !== event.usedStat) {
+    updateFrame(ctx, frameId, (f) =>
+      f.kind === "event" && f.event.kind === "attack" ? { ...f, event: { ...f.event, usedStat } } : f,
+    );
+  }
   const keywords = attackKeywordsOf(ctx.state, ctx.deps, {
     attackerInstanceId: event.attackerInstanceId,
     viaInstanceId: event.sourceInstanceId ?? null,
     basic: event.basic === true,
     ...(event.keywords ? { keywords: event.keywords } : {}),
     ...(attackFrame?.kind === "event" ? { vars: attackFrame.vars } : {}),
+    targetInstanceId: event.targetInstanceId,
   });
   // The guard minions this attack got past (docs/phase7-wave6.md §3.8, §4.1 Q6), announced once the attack finishes.
   recordKeywordsIgnored(
@@ -2009,11 +2264,15 @@ function applyPlayerAttack(ctx: Ctx, attack: Extract<TriggerEvent, { kind: "atta
     sourceInstanceId: event.attackerInstanceId,
     fromAttack: true,
     parentFrameId: frameId,
-    overkill: event.overkill === true || keywords.includes("overkill"),
+    overkill:
+      keywords.includes("overkill") ||
+      (event.overkill === true &&
+        !lostAttackKeywords(ctx.state, ctx.deps, event.targetInstanceId).includes("overkill")),
     viaInstanceId: event.sourceInstanceId ?? null,
     // Only set when true, so an attack with no granted keyword logs exactly as it always has.
     ...(keywords.includes("piercing") ? { piercing: true } : {}),
     ...(keywords.includes("ranged") ? { ranged: true as const } : {}),
+    ...(usedStat === "atk" ? { usedStat } : {}),
   };
   const attacked: Extract<TriggerEvent, { kind: "characterAttacked" }> = {
     kind: "characterAttacked",
@@ -2071,6 +2330,7 @@ function applyEnemyAttacksEnemy(
   const keywords = attackKeywordsOf(ctx.state, ctx.deps, {
     attackerInstanceId: attacker,
     ...(attackFrame?.kind === "event" ? { vars: attackFrame.vars } : {}),
+    targetInstanceId: target,
   });
   const amount = Math.max(0, profile.atk + (attackFrame?.kind === "event" ? (attackFrame.vars.atkBonus ?? 0) : 0));
   emit(ctx, {

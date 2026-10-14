@@ -349,12 +349,19 @@ describe(`${VIEW} (Bird's-Eye View 53004): remove 3 threat from a scheme, an opt
     expect(threatOf(state, staged.id)).toBe(3);
     expect(threatOf(state, state.mainScheme.instanceId)).toBe(10);
   });
-  it("crisis: it is a thwart, so the main scheme loses nothing while Crowd Control is in play (3 and 3 + 2 both stop)", () => {
-    for (const discard of [false, true]) {
+  it("crisis: it is a thwart, so the main scheme is not a valid target while Crowd Control is in play and loses nothing", () => {
+    // RRG 1.8 "Target" (p. 43): a target that cannot be thwarted is not a valid target for a thwart-labeled ability, so
+    // only Crowd Control is offered; the removal (3, or 3 + 2) lands on it and the main scheme keeps its threat.
+    for (const [discard, removed] of [
+      [false, 3],
+      [true, 5],
+    ] as const) {
       const staged = encounterCardInVillainArea(withThreat(10, TWO), CROWD, 8);
-      const { state } = playEvent(staged.state, "53004", { discard, target: staged.state.mainScheme.instanceId });
+      const { state, seen } = playEvent(staged.state, "53004", { discard });
+      expect(seen[0]!.kind).toBe("chooseTarget");
+      expect(seen[0]!.labels).toEqual(["Crowd Control"]);
       expect(threatOf(state, state.mainScheme.instanceId)).toBe(10);
-      expect(threatOf(state, staged.id)).toBe(8);
+      expect(threatOf(state, staged.id)).toBe(8 - removed);
     }
   });
 });

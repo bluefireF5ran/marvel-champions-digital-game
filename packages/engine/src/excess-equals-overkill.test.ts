@@ -5,8 +5,9 @@
  * reductions (user decision 2026-09-25; PLAN.md's Overkill note; `resolve/event.ts` `excessDamageOf`).
  *
  * FFG's Feb 8 example, with synthetic cards: Hercules attacks Thumbelina (3 HP, "reduce the damage she takes by 1") for 6
- * with Golden Mace's overkill. She takes 5; overkill spills 5 − 3 = 2 onto the villain; Prince of Power, counting excess
- * damage dealt, now also reads 2 (the ruling said 3).
+ * with Golden Mace's overkill. She takes 5; overkill spills 5 − 3 = 2 onto the villain; an ability counting excess
+ * damage dealt (`excessDealt`) also reads 2. Prince of Power itself is the one exception since owner answer 31B
+ * (2026-10-12): it reads the separate `excessAsDealt` (3, as the ruling said), `excess-as-dealt.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -49,7 +50,7 @@ const recordExcess: EffectSpec = {
   counterType: "excess",
   amount: { kind: "var", name: "hit.excessDealt" },
 };
-/** Golden Mace's 6 ATK with overkill, counting excess damage dealt as Prince of Power does. */
+/** Golden Mace's 6 ATK with overkill, counting excess damage dealt as every card but Prince of Power does. */
 const MACE = actionEvent("mace", [
   { kind: "attack", target: theMinion, amount: n(6), overkill: true, bind: "hit" },
   recordExcess,

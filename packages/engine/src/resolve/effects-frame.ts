@@ -4,7 +4,13 @@ import { displayNameOf } from "../visibility.js";
 import type { AbilityId } from "@mc/content";
 import { announceDeckTops } from "../deck-top.js";
 import { positionsOf, rearrangeable, rearrangeCards } from "./rearrange.js";
-import { type EngineDeps, GRANTED_BY_SLOT, labeledResolvedVar, resolvableAs } from "../abilities.js";
+import {
+  BORROWED_BOOST_ICONS_SLOT,
+  type EngineDeps,
+  GRANTED_BY_SLOT,
+  labeledResolvedVar,
+  resolvableAs,
+} from "../abilities.js";
 import {
   cardsInPlayFromZone,
   hostChoicesForEffectPlay,
@@ -135,8 +141,9 @@ import {
   reachOf,
 } from "../select.js";
 import type { EffectSpec, PlayerRef, StatusName, ValueSpec } from "../spec.js";
-import type { StackFrame, TriggerCandidate } from "../stack.js";
+import type { Bindings, StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
+import { executePayAttackCost } from "../attack-cost.js";
 import { executeSettleCostDamage } from "../cost-damage.js";
 import { executePayEncounterLookDiscard } from "../encounter-look-cost.js";
 import { executeSettleEnemyAttackCost } from "../enemy-attack-cost.js";
@@ -148,6 +155,7 @@ import { executeSettleReadyCardsCost } from "../ready-cards-cost.js";
 import { executeDefeatedTogether } from "./defeated-together.js";
 import { executeSearchCollection } from "./collection.js";
 import { announceAbilityResolved } from "./ability.js";
+import { noteDeckDiscardsTaken } from "./deck-discard.js";
 import { settleDeclaredDefenderCost } from "./enemy-activation.js";
 import { executeAccuse } from "./accusation.js";
 import { executeReportFact } from "./report-fact.js";
@@ -155,6 +163,7 @@ import { executeBasicPowerBy } from "./basic-power-by.js";
 import { resolveTeamwork } from "./enter-play.js";
 import { effectChoiceAuthority, simultaneousOrderer } from "../villain/authority.js";
 import { applyEffect, putIntoPlayHostSlot, threatRemoverOf } from "./apply-effect.js";
+import { applyFindCard, findCandidates } from "./find.js";
 import { putIntoPlayHostCandidates } from "./reveal.js";
 import { controllerOfArea, joinGameArea } from "./game-areas.js";
 import { damageGroupFrame } from "./damage-group.js";
@@ -182,10 +191,10 @@ import {
   attackChoiceContext,
   attackTargetAllowed,
   canDealDamageTo,
-  canRemoveThreatFrom,
-  canThwartScheme,
+  divisionCanRemoveThreat,
   isRequiredChoice,
   isRequiredSearch,
+  optionLacksValidTarget,
   readsDeck,
   slotTargetValid,
   UNRESOLVED_VAR,
@@ -251,6 +260,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
           : parent,
       );
     }
+    // A response to a deck discard: the cards it took away are recorded as its (box-heroes B3.3).
+    noteDeckDiscardsTaken(ctx, frame);
     // The ability these effects are has now resolved (RRG 1.8 "Resolve", p. 37).
     announceAbilityResolved(ctx, frame);
     return;
@@ -297,6 +308,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   if (beginLabelAttack(ctx, frame, effect, context)) return;
   if (openLabelAttack(ctx, frame, effect, context)) return;
   if (effect.kind === "chooseCards") return executeChooseCards(ctx, frame, effect, context);
+  // docs/phase7-wave10-hero-packs.md H3.4: a find that chooses among every card that matches.
+  if (effect.kind === "findCard" && effect.choose) return executeFindWithChoice(ctx, frame, effect, context);
   if (effect.kind === "lookAt") return executeLookAt(ctx, frame, effect, context);
   if (effect.kind === "chooseOne") return executeChooseOne(ctx, frame, effect, context);
   if (effect.kind === "forEachCard" || effect.kind === "forEachCardPass")
@@ -325,6 +338,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   // docs/phase7-wave5.md §4.1 Q27: a basic thwart's additional cost is settled, and the thwart carried out or not.
   if (effect.kind === "settleBasicThwartCost") return executeSettleBasicThwartCost(ctx, frame, effect);
   if (effect.kind === "settleCostDamage") return executeSettleCostDamage(ctx, frame, effect);
+  // docs/phase7-wave10-hero-packs.md H3.16: an additional cost to attack an enemy is paid as the attack is made.
+  if (effect.kind === "payAttackCost") return executePayAttackCost(ctx, frame, effect);
   // docs/phase7-wave6.md §3.54: "look at the top 2 cards of the encounter deck, discard 1 of those cards →".
   if (effect.kind === "payEncounterLookDiscard") return executePayEncounterLookDiscard(ctx, frame, effect);
   // docs/phase7-wave7.md §3.19 (b): "attached villain attacks you →", settled once the attack has resolved.
@@ -795,12 +810,7 @@ function divisionCanAffect(
   context: EffectContext,
 ): boolean {
   if (what === "damage") return canDealDamageTo(ctx.state, ctx.deps, id, frame.selfInstanceId);
-  const scheme = getInstance(ctx.state, id);
-  if (scheme === undefined || scheme.threat <= 0) return false;
-  // A "(thwart)" ability's division is a thwart (`EffectContext.thwartLabeled`): patrol and `cannotThwart` count too.
-  return context.thwartLabeled
-    ? canThwartScheme(ctx.state, ctx.deps, id, context)
-    : canRemoveThreatFrom(ctx.state, ctx.deps, id, frame.selfInstanceId);
+  return divisionCanRemoveThreat(ctx.state, ctx.deps, id, context);
 }
 
 /** `EffectSpec divide` (docs/phase7-wave2.md §3.7): see there. */
@@ -836,10 +846,11 @@ function executeDivide(
   // A "(thwart)" ability's division offers only the schemes its player can thwart, "up to" or not (RRG 1.8 "Target",
   // p. 43: "A target that cannot be thwarted is not a valid target for a thwart-labeled ability"; owner decision,
   // 2026-10-03): not the main scheme under an engaged patrol minion or a crisis icon.
-  const candidates = effect.upTo
-    ? matched.filter((id) => divisionCanAffect(ctx, what, id, frame, context))
-    : what === "threat" && context.thwartLabeled
-      ? matched.filter((id) => canThwartScheme(ctx.state, ctx.deps, id, context))
+  // A division of threat offers only schemes holding threat it can take, "up to" or not: a scheme with none is no
+  // target for a removal (RRG 1.8 "Target", p. 42; `holdsThreat`, rules QA finding F1).
+  const candidates =
+    effect.upTo || what === "threat"
+      ? matched.filter((id) => divisionCanAffect(ctx, what, id, frame, context))
       : matched;
   const [chooser] = resolvePlayers(ctx.state, effect.chooser, context);
   // "Up to" (docs/phase7-wave3.md §3.41): how many is the chooser's, so even a single candidate is asked.
@@ -1825,6 +1836,20 @@ function choseNothing(
   });
 }
 
+/**
+ * A search with nothing to decide, resolved without a prompt: a search that must find a card (`isRequiredSearch`),
+ * made by "the enemy team" (`chooser: enemyTeamDecider`, MC56 p. 6), that finds exactly one. RRG 1.8 "Search" (p. 39):
+ * "If the player finds a card that satisfies the criteria of the search, the player adds that card to the game area
+ * indicated"; "If a player finds multiple cards that satisfy the criteria of a search, the player chooses among those
+ * options." With one find there is no choice to give the first player on the enemy team's behalf.
+ *
+ * Kept to the enemy team's searches: a player's own search with one find still shows its prompt, as every required
+ * choice with one candidate does (the engine's standing convention, which the campaign setup searches of waves 5 and 8
+ * and Hugin and Munin's search, wave 9, are tested against). The card found is logged as any pick is (`targetChosen`).
+ */
+const forcedEnemyTeamSearch = (effect: Extract<EffectSpec, { kind: "chooseCards" }>): boolean =>
+  effect.chooser.kind === "enemyTeamDecider" && isRequiredSearch(effect);
+
 function executeChooseCards(
   ctx: Ctx,
   frame: Frame<"effects">,
@@ -1859,7 +1884,7 @@ function executeChooseCards(
   const values: Record<string, number> = {};
   if (limit) {
     candidates = candidates.filter((id) => {
-      const value = printedCostOf(ctx.state, cardOf(ctx.state, id));
+      const value = printedCostOf(ctx.state, cardOf(ctx.state, id), id);
       if (value > limit.atMost) return false;
       values[id] = value;
       return true;
@@ -1869,6 +1894,12 @@ function executeChooseCards(
   const max = Math.min(effect.max, candidates.length, fitting);
   if (!chooser || max === 0) {
     choseNothing(ctx, frame, effect, candidates.length === 0);
+    return;
+  }
+  // One card found by a search the enemy team must make: nothing to choose, so no prompt (`forcedEnemyTeamSearch`).
+  if (forcedEnemyTeamSearch(effect) && candidates.length === 1) {
+    emit(ctx, { type: "targetChosen", slot: effect.slot, instanceIds: candidates });
+    setFrame(ctx, { ...frame, cursor: frame.cursor + 1, bindings: { ...frame.bindings, [effect.slot]: candidates } });
     return;
   }
   requestChoice(ctx, {
@@ -1886,6 +1917,48 @@ function executeChooseCards(
     frameId: frame.frameId,
   });
 }
+
+/**
+ * `EffectSpec findCard` with `choose` (docs/phase7-wave10-hero-packs.md H3.4; RRG 1.8 "Find", p. 19, and "Search",
+ * p. 39: "If a player finds multiple cards that satisfy the criteria of a search, the player chooses among those
+ * options"). With two or more candidates the player resolving the ability picks one, each option carrying the area its
+ * card is in (`ChoiceOption.zone`); an offered card in a deck is face-visible while the choice is open, as a searched
+ * card is (`visibility.ts` `offeredByOpenChoice`). With one candidate, or nobody to ask, the first is found with no prompt.
+ * The find then resolves as any other (`applyFindCard`), and the effects after it wait for what it started (a reveal).
+ */
+function executeFindWithChoice(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "findCard" }>,
+  context: EffectContext,
+): void {
+  const candidates = findCandidates(ctx, effect, context).map((found) => found.id);
+  const [chooser] = resolvePlayers(ctx.state, { kind: "controller" }, context);
+  if (frame.answer === null && candidates.length > 1 && chooser) {
+    requestChoice(ctx, {
+      playerId: chooser,
+      prompt: { kind: "chooseCards", slot: effect.bind ?? FIND_CHOICE_SLOT },
+      options: cardOptions(ctx, candidates).map((option, i) => {
+        const zone = locateCard(ctx.state, candidates[i]!);
+        return zone ? { ...option, zone } : option;
+      }),
+      minSelections: 1,
+      maxSelections: 1,
+      frameId: frame.frameId,
+    });
+    return;
+  }
+  const [answered] = (frame.answer ?? []).map((id) => asInstanceId(id)).filter((id) => candidates.includes(id));
+  const picked = answered ?? candidates[0];
+  if (frame.answer !== null && picked)
+    emit(ctx, { type: "targetChosen", slot: effect.bind ?? FIND_CHOICE_SLOT, instanceIds: [picked] });
+  const next = { ...frame, answer: null, cursor: frame.cursor + 1 };
+  setFrame(ctx, next);
+  applyFindCard(ctx, effect, context, next, applyEffect, picked);
+}
+
+/** The slot a find's pick is logged under when the find binds none. */
+const FIND_CHOICE_SLOT = "find";
 
 /**
  * `EffectSpec lookAt` (RRG 1.8 "Look, Looked-At", p. 27): the viewer looks at the cards and nothing moves. The first
@@ -1985,8 +2058,12 @@ const zoneKey = (state: GameState, id: InstanceId): string => JSON.stringify(loc
  * The first visit fixes the set and replaces the frame's effect by a `forEachCardPass` holding the waiting cards with
  * their zones. Every later visit (the frame is re-read after each pass, the cursor still here) drops the cards that
  * are no longer in that zone, asks the chooser which of two or more waiting cards is next, and pushes that card's pass
- * as a frame of its own that hands nothing back: a pass's bindings are its own instance's. The cursor moves on once
- * no card is waiting.
+ * as a frame of its own: a pass's bindings are its own instance's, and no pass sees another's. The cursor moves on
+ * once no card is waiting.
+ *
+ * With `bind`, the loop's frame counts the passes in `<bind>.count` and each pass hands what it holds back under
+ * `<bind>.` as it finishes (vars summed, slots joined: `returnBindingsPrefix`), so the effects after the loop can read
+ * what the passes did together. A pass starts without the `<bind>.` names the earlier passes handed back.
  */
 function executeForEachCard(
   ctx: Ctx,
@@ -1994,10 +2071,15 @@ function executeForEachCard(
   effect: Extract<EffectSpec, { kind: "forEachCard" | "forEachCardPass" }>,
   context: EffectContext,
 ): void {
-  const replaceWith = (pass: EffectSpec | null, answer: Frame<"effects">["answer"] = frame.answer) =>
+  const countVar = effect.bind === undefined ? null : `${effect.bind}.count`;
+  /** The loop frame's vars with `<bind>.count` raised by `passes` (set to 0 as the loop begins). */
+  const counted = (passes: number): Frame<"effects">["vars"] =>
+    countVar === null ? frame.vars : { ...frame.vars, [countVar]: (frame.vars[countVar] ?? 0) + passes };
+  const replaceWith = (pass: EffectSpec | null, answer: Frame<"effects">["answer"] = frame.answer, passes = 0) =>
     setFrame(ctx, {
       ...frame,
       answer,
+      vars: counted(passes),
       ...(pass
         ? { effects: [...frame.effects.slice(0, frame.cursor), pass, ...frame.effects.slice(frame.cursor + 1)] }
         : { cursor: frame.cursor + 1 }),
@@ -2034,8 +2116,12 @@ function executeForEachCard(
   }
   const answered = frame.answer?.[0];
   const next = waiting.find((card) => card.instanceId === answered) ?? waiting[0]!;
-  replaceWith({ ...effect, waiting: waiting.filter((card) => card !== next) }, null);
+  replaceWith({ ...effect, waiting: waiting.filter((card) => card !== next) }, null, 1);
   emit(ctx, { type: "targetChosen", slot: effect.slot, instanceIds: [next.instanceId] });
+  // What earlier passes handed back (`<bind>.…`) is the loop's, not this pass's.
+  const prefix = effect.bind === undefined ? null : `${effect.bind}.`;
+  const own = <T>(record: Readonly<Record<string, T>>): Readonly<Record<string, T>> =>
+    prefix === null ? record : Object.fromEntries(Object.entries(record).filter(([key]) => !key.startsWith(prefix)));
   pushEffects(ctx, {
     effects: effect.effects,
     selfInstanceId: frame.selfInstanceId,
@@ -2044,10 +2130,11 @@ function executeForEachCard(
     controllerId: frame.controllerId,
     event: frame.event,
     eventFrameId: frame.eventFrameId,
-    bindings: { ...frame.bindings, [effect.slot]: [next.instanceId] },
-    vars: frame.vars,
+    bindings: { ...own(frame.bindings), [effect.slot]: [next.instanceId] },
+    vars: own(frame.vars),
     scopedPlayerId: frame.scopedPlayerId,
     byPlayer: frame.byPlayer === true,
+    ...(effect.bind !== undefined ? { returnBindingsTo: frame.frameId, returnBindingsPrefix: effect.bind } : {}),
   });
 }
 
@@ -2073,7 +2160,13 @@ function executeChooseOne(
     .map((option, index) => ({ option, index }))
     .filter(({ option }) => !option.condition || evaluate(ctx.state, option.condition, context))
     // An option to spend resources is offered only to a player who can pay it (`EffectSpec spendResources.required`).
-    .filter(({ option }) => option.effects.every((step) => requiredSpendPayable(ctx, step, context)));
+    .filter(({ option }) => option.effects.every((step) => requiredSpendPayable(ctx, step, context)))
+    // RRG 1.8 "Choose (Option)" (p. 12): an option that requires a target and has no valid one cannot be chosen
+    // ("Remove 2 threat from a scheme" with no threat on any scheme). Read once, before the choice is asked: the
+    // answer is checked against the options that were offered.
+    .filter(
+      ({ option }) => frame.answer !== null || !optionLacksValidTarget(ctx.state, ctx.deps, option.effects, context),
+    );
   const count = effect.count ?? 1;
   if (count > 1) return executeChooseSeveral(ctx, frame, effect, context, available, count);
   const pickedIndex =
@@ -2135,7 +2228,8 @@ function executeChooseSeveral(
   const [chooser] = resolvePlayers(ctx.state, effect.chooser, context);
   const picks = effect.allowRepeat ? count : Math.min(count, available.length);
   if (frame.answer === null) {
-    if (!chooser || picks === 0) {
+    // No option left to choose (none can be resolved, even partly): the choice resolves to nothing.
+    if (!chooser || picks === 0 || available.length === 0) {
       setFrame(ctx, { ...frame, cursor: frame.cursor + 1 });
       return;
     }
@@ -3070,6 +3164,15 @@ function executeResolveSpecials(
               targetInstanceId: attacked.identity.instanceId,
             }
           : frame.event;
+  // A borrowed Boost ability (docs/phase7-wave10.md §3.11) is marked as one, with the boost cards whose count the
+  // icons it gains join: none (question 10, answer A, the default), or the card resolving this effect (B).
+  const borrowedBoost: Bindings =
+    trigger === "boost"
+      ? {
+          [BORROWED_BOOST_ICONS_SLOT]:
+            effect.borrowedBoostIcons === "joinActivation" && frame.selfInstanceId ? [frame.selfInstanceId] : [],
+        }
+      : {};
   const frames = ordered.map(
     (step, index): StackFrame =>
       ({
@@ -3079,7 +3182,7 @@ function executeResolveSpecials(
           eventFor(step),
           null,
           // "Then, discard [the granting card]": the card a granted ability names (`GRANTED_BY_SLOT`).
-          step.grantedBy ? { [GRANTED_BY_SLOT]: [step.grantedBy] } : {},
+          step.grantedBy ? { [GRANTED_BY_SLOT]: [step.grantedBy] } : borrowedBoost,
           { "sequence.step": index + 1, "sequence.final": index === ordered.length - 1 ? 1 : 0 },
         ),
         ...returnTo,

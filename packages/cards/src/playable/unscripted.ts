@@ -1,5 +1,5 @@
 /**
- * Wave 9 content that is in the card pool but not playable yet, and the one place that says so.
+ * Content that is in the card pool but not playable yet, and the one place that says so.
  *
  * Gating is by encounter set, in one list: `UNSCRIPTED_ENCOUNTER_SET_IDS`. A listed set is left out of the playable
  * encounter sets (so no modular pick, no extra-set pick and no table setup can name it), a scenario that uses one of
@@ -18,6 +18,7 @@ export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set([]);
 /**
  * Gated sets whose every ability is scripted but which are held back for another reason, each with that reason. The
  * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
+ * Empty: All Versus All left with the Hercules pack, which joined the playable pool.
  */
 export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {};
 

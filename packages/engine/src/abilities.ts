@@ -155,6 +155,19 @@ export interface EventPattern {
    */
   readonly targetHadAttachment?: TargetQuery;
   /**
+   * "After another card is revealed **that gives 1 or more heroes the Unregistered trait**" (Hunting Rebel Heroes, `cw`
+   * 56097b; docs/phase7-wave10.md §3.16): the revealed card carries a constant grant of this trait that reaches at
+   * least one card in play (`cardRevealed.grantedTo`), whether or not that card already had the trait (owner decision,
+   * question 12 = A, provisional). A `cardRevealed` response only: the grant is read once the reveal has completed,
+   * with the card in play. Any other event never matches. The cards reached are `TargetRef grantedTo`.
+   */
+  readonly grantsTrait?: Trait;
+  /**
+   * With `grantsTrait`: one of the cards the grant reaches must match ("1 or more **heroes**" is a hero-form identity),
+   * read with this card as `self`. Without `grantsTrait` it is never read.
+   */
+  readonly grantedToIs?: TargetQuery;
+  /**
    * The event's player (its first player subject, `eventPlayer`) must be one of these, resolved with this card as
    * `self`: "After **the engaged player** generates any number of resources" (M.O.R.B.I.U.S., `spdr` 31027 errata, RRG
    * 1.8 p. 68) is `{ kind: "engagedWith", of: { kind: "self" } }`. An encounter card's `playerIs: "controller"` matches
@@ -556,6 +569,41 @@ export type AbilityTriggerSpec =
       readonly playableTopOfDeck?: { readonly player: PlayerRef; readonly costReduction?: number };
       /** "As an additional cost for Wonder Man to attack, you must discard 1 card." Costs on this character's own basic powers. */
       readonly basicPowerCosts?: readonly { readonly power: "attack" | "thwart"; readonly cost: AbilityCost }[];
+      /**
+       * "As an additional cost to play this upgrade, search the encounter deck and discard pile for a minion and put it
+       * into play engaged with you. Attach Hunted to that minion and stun it." (Hunted, `cw` 56007;
+       * docs/phase7-wave10-box-heroes.md B3.1): this ability's `AbilityDefinition.cost` is added to the cost of playing
+       * its card, read from the card wherever it is played from (`additionalPlayCostOf`).
+       *
+       * - **Paid with the play or not at all.** RRG 1.8 "Cost" (p. 14): "A player must pay all additional costs
+       *   simultaneously with the cost that is being added to … if they cannot pay for all of the costs at once, then
+       *   they do not pay any of the costs". It is planned and paid with the card's resource cost and, for an event,
+       *   its Action's own cost (a component both name is the Action's). A card whose additional cost cannot be paid
+       *   cannot be played and `legalActions` lists it illegal with the cost's reason (owner decision 2026-10-11,
+       *   box-heroes question 17 = A, provisional).
+       * - **Its picks** are the play command's `costChoices`, as an Action's cost picks are, and are bound on the play's
+       *   frame.
+       * - **A `conditional` component** ("As an additional cost to play this card, if you do not have the Eternal
+       *   trait, confuse your identity", Gilgamesh, `hercules` 59025) is decided for the player playing the card each
+       *   time the play is priced, offered or paid (`playCostWith`): `you` is that player, `self` the card. As for any
+       *   conditional cost only the picked branch is checked, so a branch that cannot be paid (an identity that cannot
+       *   be given another confused status card, RRG 1.8 "Status Cards", p. 41) leaves the card unplayable. Its pick
+       *   is not recorded as `cost.condition`. Resources and an either/or choice are not supported in this cost.
+       * - **What paying it triggers resolves before the card enters play** (RRG 1.8 "Cost Arrow Icon", p. 14; ruling
+       *   February 28, 2026 - Ruling 1: "Any abilities triggered by paying a cost resolve immediately before the effect
+       *   following the arrow resolves"): the cost's steps sit above the play's frame.
+       * - **`attachToSlot`**: the played upgrade enters play attached to the card the cost bound to this slot, not to a
+       *   printed "attach to" host or its controller's identity; the play command names no host. If that card is not
+       *   in play as the upgrade would enter, the upgrade has no host and is discarded (RRG 1.8 "Attach To", p. 8).
+       * - **The ability's `effects`** resolve as the card enters play, before its "enters play" windows, with the
+       *   cost's bindings and its player as "you" ("… and stun it"). Not when the card had no host.
+       *
+       * Read for a play only: a card put into play is not played and pays no cost (RRG 1.8 "Play, Put into Play",
+       * p. 32). A play command and a play an effect makes (paying or ignoring the resource cost, with a pick only
+       * when it is forced) read it; an Interrupt or Response event played from its timing window does not (no card
+       * prints one).
+       */
+      readonly additionalCostToPlay?: { readonly attachToSlot?: string };
     };
 
 /**
@@ -609,7 +657,17 @@ export interface StatModifierSpec {
 
 /** "X gains [keyword]" while the granting card is in play. */
 export interface KeywordGrantSpec {
-  readonly keyword: KeywordInstance;
+  /** The keyword granted (or, with `loses`, lost). Absent when `keywordsOf` names where the keywords come from. */
+  readonly keyword?: KeywordInstance;
+  /**
+   * "Each Avenger minion gains the printed keywords of each other Avenger minion." (Earth's Mightiest Heroes, `cw`
+   * 56077; docs/phase7-wave10.md §3.12): each card `target` matches gains every keyword printed on each *other* card
+   * in play this query matches (from the granting card's point of view; the gaining card is never its own source).
+   * Printed keywords only (`printedKeywordsOf`: the showing face, none through a blank), so grants never feed each
+   * other. A keyword with a number or a parameter is gained as printed, and two sources of one numbered keyword are
+   * two instances, which add (RRG 1.8 "Keywords", p. 26). Not with `value` or `loses`.
+   */
+  readonly keywordsOf?: TargetQuery;
   readonly target: TargetQuery;
   readonly while?: Predicate;
   /**
@@ -725,6 +783,17 @@ export type RuleSpec =
    * characters are barred). Threat moved off the scheme is removed from it (RRG 1.8 "Move", p. 30) and is bound the
    * same way; threat moved onto it, threat prevented, and an effect that defeats or discards the scheme without
    * removing threat are not removals and are untouched.
+   *
+   * `exceptThwartBy` is the narrower exception (docs/phase7-wave10-hero-packs.md H3.6): "Threat cannot be removed from
+   * attached scheme **except by Hercules's thwarts**" (Embody Pathos, `hercules` 59003) is `{ target: <the attached
+   * scheme>, exceptThwartBy: <Hercules> }`. Unlike `exceptBy` it binds every removal, a character's or not (RRG 1.8
+   * "'Cannot'", p. 11), and lets through only a thwart whose thwarting character matches (with "you" as the rule
+   * card's speaker): that character's basic thwart, and a "(thwart)"-labeled ability or event, which is a thwart made
+   * by its player's identity whichever card the label is on (RRG 1.8 "Labeled Ability", p. 26). Not let through: an
+   * unlabeled removal, on that character's own card or event included; another character's thwart (an ally's, another
+   * player's identity's); an encounter card's removal; threat moved off the scheme. The scheme is not a legal target
+   * of a basic thwart or thwart ability the rule stops. It may be combined with `player`, which then scopes whose
+   * removals are bound, as above.
    */
   | {
       readonly kind: "threatCannotBeRemoved";
@@ -733,6 +802,7 @@ export type RuleSpec =
       readonly by?: "thwart";
       readonly player?: PlayerRef;
       readonly exceptBy?: TargetQuery;
+      readonly exceptThwartBy?: TargetQuery;
     }
   /**
    * "While Baron Zemo is engaged with you, you cannot thwart." `player` is resolved with "you" as the rule card's
@@ -921,6 +991,32 @@ export type RuleSpec =
       readonly by: PlayerRef;
       readonly while?: Predicate;
     }
+  /**
+   * "While paying costs on attached card, any player may help pay those costs." (docs/phase7-wave10-hero-packs.md
+   * H3.19; owner answer 21B, an interpretation: no ruling names the card.) While the rule is in force, the cost of an
+   * ability printed on a card in play that `card` matches is paid as a group, the way an alliance card's is (RRG 1.8
+   * "Alliance", p. 6: "any player may contribute to paying those costs"; neither text limits "costs" to resources):
+   *
+   * - **Still one payment, by the player using the ability** (RRG 1.8 "Cost", p. 13). Who may trigger the ability is
+   *   untouched (an obligation's holder, an attachment's host's controller, RRG 1.8 pp. 8, 30); the rule opens the
+   *   paying only. Types, overpayment and every "paid with" reader see the whole payment; each helper's spending is
+   *   announced as theirs (`resourcesSpent`, one per player).
+   * - **Resources**: every player's hand cards and resource abilities are sources, each read from its own player's
+   *   point of view (their form, limit and discard pile), exactly as for an alliance card (`paidAsGroup`).
+   * - **A part paid with a card** may take another player's card: a discard from hand (`discardFromHand`) from any
+   *   hand, a card in play to exhaust, discard, return or damage (`InPlayCostPick`) under any player's control.
+   * - **A part worded "you" with no card named** ("take 2 damage", "discard the top card of your deck"; the
+   *   `DelegableCostPart` list) may be handed whole to one other player in the command (`CostSelection.paidBy`).
+   * - **A part that names the user's own card stays with the user**: "exhaust your hero" (`exhaustIdentity`), counters
+   *   on or healing of their identity, and everything the ability's own card does to itself ("exhaust this card",
+   *   "discard this card"). No command can hand those over.
+   *
+   * Only a card in play is named, so nothing played from a hand is paid for under this rule. A constant like any
+   * other: off while its `while` is false, under a blank text box and once its card has left play.
+   *
+   * Read by `costsPayableByAnyPlayer` (`rules.ts`), which `paidAsGroup` and `planCost` consult.
+   */
+  | { readonly kind: "costsPayableByAnyPlayer"; readonly card: TargetQuery; readonly while?: Predicate }
   /**
    * "You take the first turn during the player phase. (When your turn is done, play proceeds in player order, starting
    * with the first player. You do not take another turn.)" (Field Commander, `cyclops` 33004; docs/phase7-wave6.md
@@ -1143,6 +1239,27 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "Max 3 cards tucked here." (Ionic Physiology, `wonder_man` 58002; docs/phase7-wave10-hero-packs.md §H3.12;
+   * `tuck-limit.ts`): each card in play matching `card` (the rule's own card: `{ self: true }`) has at most `max` cards
+   * tucked under it, faceup or facedown. `max` is read at each tuck with the rule's card as `self`. The Wonder Man
+   * insert, clarification 1: a card is tucked there only while fewer than three are; ruling March 6, 2026 (4), step
+   * 3: "trigger Ionic Physiology to tuck Leading Blow (if under 3 cards)".
+   *
+   * - **Every tuck is bound**, not one ability's: `tuckCards` by any card, a tuck sent there by `replaceTuckHost`, and
+   *   a leaving card sent there by `replaceLeaveDestination`.
+   * - **A `tuckCards` tucks what there is room for**, in the order it names its cards. Each card left over stays
+   *   where it was and is logged (`GameEvent cardNotTucked`, reason `limit`); it is not imminent, so no "would be
+   *   tucked" interrupt answers it.
+   * - **With no room it tucks nothing and did not resolve**: the text after a "Then" is skipped (`preThenUnresolved`,
+   *   cause `tuckRefused`; RRG 1.8 "'Then'", p. 44). A tuck that fit at least one card resolved.
+   * - **An ability that only tucks under a full card cannot be initiated** (`abilityTargetFault`, fault `tuckFull`):
+   *   every effect of it is such a `tuckCards` or a `then`, so nothing of it could resolve.
+   * - A leaving card that finds no room makes the move the tuck replaced, as it does when the host has left play.
+   * - Cards already over the limit when the rule comes into force stay; nothing is discarded. "Discard all but 4" is
+   *   a state check on the card that says so (Silk, docs/phase7-wave9.md §3.39), not this rule.
+   */
+  | { readonly kind: "tuckLimit"; readonly card: TargetQuery; readonly max: ValueSpec; readonly while?: Predicate }
+  /**
    * "Any player in your pod can attack The Mangog as if it were in their game area." / "… can thwart Door Between
    * Worlds as if it were in their game area." (`tt` 55041, 55046; docs/phase7-wave9.md §3.67; MC55 pp. 16–17). The
    * exception MC55 p. 12 allows to "cards and components in one game area cannot affect another game area".
@@ -1213,6 +1330,26 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "Attached character gains retaliate 1 and **attacks against them lose piercing**" (Cap's Shield, `cw` 56143;
+   * docs/phase7-wave10.md §3.18): while it applies, an attack does not have these keywords against a character
+   * matching `target`, whatever gave them: the attacker's printed or granted keyword, the card making the attack
+   * ("this attack gains piercing"), a grant made during the attack, or an `attackKeywords` rule. RRG 1.8 "Lose" (p. 27):
+   * "A lost characteristic cannot be regained while the ability causing it to be lost is in effect, even if a new
+   * effect would cause the characteristic to be gained", so a loss beats every gain, as a card's lost keyword does.
+   *
+   * Scoped to the attacked character, since RRG 1.8 words each keyword by what the attack does to it: "Piercing"
+   * (p. 32) discards the tough status cards of the character the attack deals damage to, "Overkill" (p. 31) spills
+   * the excess of the character it defeats, "Ranged" (p. 35) ignores that character's retaliate. The same attack
+   * keeps the keyword against any other character. Read by `attackKeywordsOf` when it is given the attacked
+   * character, and again as the damage is dealt (`lostAttackKeywords`).
+   */
+  | {
+      readonly kind: "attacksLoseKeywords";
+      readonly keywords: readonly AttackKeyword[];
+      readonly target: TargetQuery;
+      readonly while?: Predicate;
+    }
+  /**
    * "You cannot play hero-specific cards." (Depowered): `player` cannot play cards matching `cards`. FAQ "Depowered
    * (#20)" (RRG 1.8 p. 60): Invocation cards "are merely resolved, not played", so a resolve is not blocked.
    */
@@ -1237,8 +1374,21 @@ export type RuleSpec =
    * Not covered: an encounter card that is *revealed* and would enter play by its own reveal. No printed rule of this
    * kind names an encounter card, and the RRG gives no disposition for one (the unique rule's "it is discarded" is that
    * rule's own). Decide it when a card needs it.
+   *
+   * `player`: "You cannot have more than 1 Shapeshift upgrade in play." (Teddy Altman, `cw` 56029b;
+   * docs/phase7-wave10-box-heroes.md B3.4), a constant on an identity face with `while` "you control one". The rule
+   * then stops a matching card only from being played or put into play **under the control of** a player the ref
+   * names ("you" is the rule's speaker), and nobody else's card. Ruling January 11, 2026 - Ruling 1: the ability
+   * "prevents playing another Shapeshift upgrade while already having one in play (cannot play a second and discard
+   * down)". An entry that names no controlling player is not stopped by a rule with `player`. The refusal names the
+   * rule's card (`enterPlayBarMessage`).
    */
-  | { readonly kind: "cannotEnterPlay"; readonly cards: TargetQuery; readonly while?: Predicate }
+  | {
+      readonly kind: "cannotEnterPlay";
+      readonly cards: TargetQuery;
+      readonly while?: Predicate;
+      readonly player?: PlayerRef;
+    }
   /**
    * "Players cannot trigger 'Alter-Ego Action' abilities on obligations." (Corrupted Timestream): an action ability of a
    * card matching `on`, with that form label (absent: any), cannot be triggered.
@@ -1611,6 +1761,27 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "As an additional cost to attack [an enemy], you must discard 1 card from your hand."
+   * (docs/phase7-wave10-hero-packs.md H3.16.) A cost a rule adds to every attack a player makes against an enemy
+   * `target` matches (read from the rule's card): a basic attack by a hero or an ally, an `attack` effect, and an
+   * "(attack)"-labeled ability alike. `cost` is paid by the attacking character's controller, with the rule's card as
+   * its source, as the attack is made against that enemy; an enemy that player cannot pay for cannot be attacked by
+   * their characters. Damage that is not an attack owes nothing. Several rules on one enemy are each paid. The rules,
+   * the timing and what is not charged are in `attack-cost.ts`.
+   *
+   * `cost`: parts `planCost` checks and `payCost` pays at once, without resources (a discard from hand; the payer
+   * picks which cards when there is a choice). `@mc/cards`' validator refuses the others.
+   *
+   * Scoped by the enemy attacked, where `additionalPowerCost` is scoped by the character using a basic power and
+   * `basicPowerCosts` by the character whose own power it is; all three add up on one basic attack.
+   */
+  | {
+      readonly kind: "additionalAttackCost";
+      readonly target: TargetQuery;
+      readonly cost: AbilityCost;
+      readonly while?: Predicate;
+    }
+  /**
    * "Treat the printed resource of each card in your hand as if it were [energy]." (Haywire, `ironheart` 29038;
    * docs/phase7-wave5.md §3.20): every printed resource icon of each card in the hand of each player `player` names
    * (read from the rule's speaker, the identity it is attached to) counts as one `as` resource, wild included — for
@@ -1768,6 +1939,10 @@ export type RuleSpec =
    * `attacker` deals — the excess reported to "for each point of excess damage" (Into the Fray) and "after you deal
    * excess damage" (Rocket Raccoon), and the overkill damage that spills on. Modeled as a constant, not an optional
    * interrupt: see docs/phase7-wave3.md §3.18 and §4 Q10.
+   *
+   * It applies to each measure of the attack's excess that is above 0 (owner answer 42B, 2026-10-12): the excess of
+   * the damage taken (`excessDealt`, what overkill spills) and the excess of the damage dealt (`excessAsDealt`), each
+   * on its own. With only the damage dealt in excess, only that number goes up and nothing spills (`excessAsDealtOf`).
    */
   | {
       readonly kind: "excessDamageBonus";
@@ -2610,6 +2785,28 @@ export interface AbilityCost {
   /** "Heal 1 damage from Captain Marvel →": the controller's identity must have that much damage to heal. */
   readonly healIdentity?: number;
   /**
+   * "Heal 2 damage from an enemy → confuse that enemy" (docs/phase7-wave10-hero-packs.md H3.17): the payer picks one
+   * character in play matching `query` (read with the payer as "you" and the ability's card as "self") and `amount`
+   * damage is healed from it as the cost. The pick is in `costChoices[slot]` (forced, and so omittable, with one
+   * candidate) and is bound to `slot` for the effects ("that enemy"). See `heal-cost.ts`.
+   *
+   * - **A candidate holds at least `amount` damage and can be healed by this card** (`RuleSpec cannotBeHealed`): a
+   *   cost is paid in full or not at all (RRG 1.8 "Cost", p. 14: "A player cannot pay the original cost or any of the
+   *   additional costs individually"; `healIdentity` reads its identity the same way).
+   * - **Any character the query names, an enemy included.** RRG 1.8 "Cost" (p. 14) has a player pay "with cards and/or
+   *   game elements they control"; a cost whose text names the character it is paid on ("an enemy", "a friendly
+   *   character") is paid on that character, as `dealDamage.choose` and an attach cost's host are.
+   * - **What the effect needs of the pick goes in `query`.** RRG 1.8 "Cost" (p. 14): "An ability's cost cannot be paid
+   *   if that ability's effect requires one or more targets and there is not at least one valid target", and "Target"
+   *   (p. 43): "The cost of an ability or game function is not considered when determining if that ability or game
+   *   function can affect a target." So the heal does not make a character a valid pick; the effect must be able to
+   *   affect it: "confuse that enemy" is `{ categories: ["enemy"], canTakeStatus: "confused" }`, which leaves out a
+   *   stalwart enemy, one that "cannot be confused", and one with no room for another confused status card.
+   * - With no candidate the cost cannot be paid and the ability is not offered (RRG 1.8 "Initiating Abilities", p. 24,
+   *   steps 3 and 5). `legalActions` offers one variant per candidate.
+   */
+  readonly healCharacter?: { readonly slot: string; readonly query: TargetQuery; readonly amount: number };
+  /**
    * "Discard [this card] →" (Cosmic Flight, Tenacity, Energy Channel). The
    * card's counters are snapshotted into vars `self.counters.<type>` first, so
    * "for each counter here" still reads them after the discard. Its threat and
@@ -2777,6 +2974,11 @@ export interface AbilityCost {
    */
   readonly attach?: AttachCost;
   /**
+   * "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost (Hunted,
+   * `cw` 56007; docs/phase7-wave10-box-heroes.md B3.1). See `EncounterSearchIntoPlayCost`.
+   */
+  readonly searchEncounterIntoPlay?: EncounterSearchIntoPlayCost;
+  /**
    * "… and deal 2 damage to that character →" (Energy Transfer): `amount` damage from the ability's card to each card
    * `target` names (read with the cost's own picks bound, so `{ kind: "slot", slot: attach.to.slot }` is the host just
    * picked), as part of the cost. docs/phase7-wave6.md §3.49.
@@ -2859,7 +3061,8 @@ export type ResolvableAbilityKind =
   | "whenDefeated"
   | "forcedResponse"
   | "forcedInterrupt"
-  | "preparation";
+  | "preparation"
+  | "boost";
 
 /** The ability labels a `RuleSpec grantsLabeledAbility` can give to other cards (docs/phase7-wave9.md §3.3). */
 export type GrantableAbilityLabel = Extract<ResolvableAbilityKind, "preparation">;
@@ -2871,6 +3074,16 @@ export type GrantableAbilityLabel = Extract<ResolvableAbilityKind, "preparation"
  * ability still names that card if it leaves play first. Absent on a printed ability.
  */
 export const GRANTED_BY_SLOT = "_grantedBy";
+
+/**
+ * The binding slot that marks a "Boost" ability as borrowed: resolved on a card in play by another card's instruction
+ * (`EffectSpec resolveSpecials` with `trigger: "boost"`; docs/phase7-wave10.md §3.11), not by its card being turned up
+ * as a boost card. Bound on that ability's frame, so it reaches every effect of it, nested ones included. Its cards
+ * are the boost cards whose count the icons that ability gains join (`EffectSpec adjustBoostCount`): none under the
+ * default `borrowedBoostIcons: "nothing"`, the instructing card under `"joinActivation"` (§4.0, question 10). Absent
+ * on an ability resolving for its own boost card.
+ */
+export const BORROWED_BOOST_ICONS_SLOT = "_borrowedBoostIcons";
 
 /**
  * The result an attack records for the labeled abilities resolved during it (docs/phase7-wave9.md §3.2): how many
@@ -2921,6 +3134,37 @@ export interface AttachCost {
   readonly to: { readonly slot: string; readonly query: TargetQuery };
   /** The attached card, bound to this slot for the effects ("you gain each of the attached character's traits"). */
   readonly bind?: string;
+}
+
+/**
+ * `AbilityCost.searchEncounterIntoPlay` (docs/phase7-wave10-box-heroes.md B3.1; `encounter-search-cost.ts`): the payer
+ * searches the active encounter deck's `zones` for one card matching `query` and puts it into play, a minion engaged
+ * with them.
+ *
+ * - **Candidates.** The cards of those piles matching `query` (the payer as `you`, the ability's card as `self`) that
+ *   could enter play in the payer's area (the unique rule and "cannot enter play", as `TargetQuery.canEnterPlay`
+ *   reads them), the deck's in deck order and then the discard pile's. Set-aside cards are not searched. RRG 1.8
+ *   "Cost" (p. 14) has a cost that "requires a game element that is not in play" use only the payer's "own
+ *   out-of-play areas"; the card names the encounter deck and its discard pile, and a card's text takes precedence
+ *   over the Rules Reference ("The Golden Rules", p. 4).
+ * - **The pick.** RRG 1.8 "Search" (p. 39): the player chooses among the cards that satisfy the search. One card,
+ *   named in `costChoices[slot]` and bound to `slot` for the rest of the cost and for the effects; with exactly one
+ *   candidate the pick is forced and may be omitted. `legalActions` offers one variant per candidate.
+ * - **Payable only with a candidate** (owner decision 2026-10-11, box-heroes question 17 = A, provisional; RRG 1.8
+ *   "Cost", p. 13: paid in full or not at all): with none the ability or play is not offered and no deck is shuffled.
+ * - **Paid** in a step above the frame being paid for (RRG 1.8 "Cost Arrow Icon", p. 14): each searched deck is
+ *   shuffled (RRG 1.8 "Search", p. 39: "upon completion of that game step … shuffle that entire deck", so before
+ *   anything the card's entry triggers; a deck shuffled with the card still in it and then one card short is in as
+ *   random an order as one shuffled after), then the card is put into play as `EffectSpec putIntoPlay` does it: not
+ *   revealed, so no When Revealed and no surge (RRG 1.8 "Play, Put into Play", p. 32; "When Revealed", p. 48),
+ *   announced as entering play and engaging, with quickstrike and teamwork after it (owner decision 2026-10-11,
+ *   box-heroes question 18 = A, provisional; ruling February 28, 2026 - Ruling 1, and Ruling 4's "Quickstrike
+ *   triggers upon engagement" for a minion that is not revealed). Those resolve before the frame paid for.
+ */
+export interface EncounterSearchIntoPlayCost {
+  readonly slot: string;
+  readonly query: TargetQuery;
+  readonly zones: readonly ("deck" | "discard")[];
 }
 
 /** `AbilityCost.damageCards`: an `InPlayCostPick` whose picks each take `amount` damage. */
@@ -3129,7 +3373,17 @@ export interface AbilityLimit {
    *   NOT SETTLED by a ruling: whether "per card" also joins two payments made for one card (its play, and later the
    *   cost of an ability it prints). Each payment is counted on its own here (the spec's reading, reported with it).
    */
-  readonly per?: "aspectOfEventCard" | "player" | "triggeringEvent" | "paidCard";
+  /**
+   * - `"eventPlayer"`: "Forced Interrupt: When a player reveals a treachery, place 1 threat here. **(Limit once per
+   *   phase per player.)**" (Cut Off Support 56063b, Open Rebellion 56172b, `cw`; docs/phase7-wave10.md §3.14). RRG 1.8
+   *   "Limit" (pp. 26-27). One count for each player the triggering event belongs to: its player subject
+   *   (`eventSubjects(event).players[0]`, the player `PlayerRef eventPlayer` names; for a reveal, the revealing
+   *   player). `"player"` keys by the ability's controller, and an encounter card's forced ability has none of its
+   *   own, so that key would not tell the players apart. The key does not depend on who resolves the ability. An
+   *   event with no player subject shares one count (`none`), as does an ability used with no triggering event; the
+   *   DSL validator allows it on an interrupt or a response only.
+   */
+  readonly per?: "aspectOfEventCard" | "player" | "eventPlayer" | "triggeringEvent" | "paidCard";
 }
 
 /**
@@ -3201,10 +3455,54 @@ export interface AbilityDefinition {
   readonly limit?: AbilityLimit;
   readonly label?: readonly AbilityLabel[];
   readonly effects: readonly EffectSpec[];
+  /**
+   * How many of the leading `effects` are the ability's printed cost, written as effects because paying them resolves
+   * as effects do: "Discard cards from the top of the encounter deck until a minion is discarded and put that minion
+   * into play engaged with you → remove 3 threat from the main scheme" has two. They resolve exactly as before; the
+   * number is read only where the rules tell a cost from an effect. RRG 1.8 "Cost" (p. 13): "An ability's cost cannot
+   * be paid if that ability's effect requires one or more targets and there is not at least one valid target", so a
+   * cost effect is no part of its own that could make the ability initiable (`abilityTargetFault`): with no threat on
+   * the scheme the ability cannot be initiated and the minion is not put into play. Absent: none.
+   */
+  readonly costEffects?: number;
   /** Resource abilities only. Defaults to 1 wild resource. */
   readonly generates?: ResourceGeneration;
   /** Resource abilities only: "generate a [wild] resource for an event" — usable only while paying for a matching card. */
   readonly generatesFor?: TargetQuery;
+  /**
+   * Resource abilities only: "Resource: Generate a [energy] resource **to overpay for a card**. (Limit once per card.)"
+   * (Mr. Hollywood, `wonder_man` 58009; docs/phase7-wave10-hero-packs.md H3.14). What the ability generates may join a
+   * payment only as overpayment. RRG 1.8 "Cost" (p. 13): "Resources generated beyond the specified cost are considered
+   * to have been overpaid for that cost and were not paid for that cost."
+   *
+   * - **Never toward the cost.** The rest of the payment must cover the whole cost by itself (`pricePlay` judges the
+   *   payment without these resources); a payment that needs them to reach the cost is refused with
+   *   `insufficient_resources`. At a cost of 0 the ability alone is a legal payment.
+   * - **Always overpaid.** They are in `overpaid.total` and in `overpaid.<type>` (a wild in every type, which the
+   *   player may name it as: January 17, 2026 - Ruling 4 (1)), and in `paid.total` / `paid.<type>`, which count
+   *   everything the payment generated. They are in none of the views of what was paid for the cost: `paid.count`,
+   *   `paid.as.<type>`, `paid.cards.*`, the X of a "spend X resources" cost, a chosen-size cost's size.
+   * - **Only while a card is being played** (owner decision, 2026-10-12, hero-packs Q20 = A): the ability is not
+   *   offered for, and is refused in, any other payment (an ability's cost, an obligation's "spend … resources", a
+   *   basic power's or a form change's additional cost), which is where "overpaid for this card" is never read.
+   * - The ability is otherwise a resource ability like any other: its own cost, form, `while`, limit and
+   *   `generatesFor` apply, and it is announced as generated (`resourcesGenerated`) with the payment.
+   *
+   * Not read on a `whenSpent` trigger (a card spent from hand generates toward the cost by the rules of spending it).
+   */
+  readonly overpayOnly?: true;
+  /**
+   * On the ability a card with a printed X cost (`specialCost: "X"`) triggers when it is played: the least X the
+   * player may name (`playCard.x`). Absent: 0, the least value of any X (RRG 1.8 "Non-Numerical Variable", p. 30).
+   *
+   * Written where the ability does something to X chosen things and nothing else ("Choose X schemes. Remove 2 threat
+   * from each chosen scheme"): at X = 0 it would choose nothing and change nothing, so the card cannot be played that
+   * way (the owner's answer 52B, 2026-10-13, docs/phase7-wave10.md §4.0; RRG 1.8 "Choose (Game Element)", p. 12, and
+   * "Target", p. 42). A play that names a lower X, or none, is refused with `invalid_choice` (`pricePlay`), whoever
+   * starts it: a play command, a card played by an effect, an interrupt or response played in a window.
+   * `minimumChosenX` reads it for a client's X picker. A positive whole number, on an action, interrupt or response.
+   */
+  readonly minX?: number;
   /**
    * Star-Lord, "What could go wrong?" (`stld` 17001a): "Interrupt: When you play a card from your hand, deal yourself 1
    * facedown encounter card → reduce the cost to play that card by 3. (Limit once per round.)" On an `interrupt` trigger
@@ -3253,6 +3551,18 @@ export interface AbilityDefinition {
    * response: the DSL's `validateDefinition` rejects any other ability marked this way.
    */
   readonly activeIn?: "hand" | "victoryDisplay" | "discard" | "tucked";
+  /**
+   * On a response to cards discarded from a deck (`cardDiscardedFromDeck`): the cards this ability takes away from
+   * where their discard left them are still counted by the ability that discarded them. "Forced Response: After any
+   * number of cards are discarded from the top of a player's deck, place those cards facedown under this scheme."
+   * (Skrull Business, `cw` 56056; docs/phase7-wave10-box-heroes.md B3.3.) Without it a card a response took away is
+   * dropped from the discarding ability's set of the cards "discarded this way" (docs/phase7-wave7.md §4.1 Q32);
+   * with it that set and its totals stay as they were, so "for each different resource icon on the discarded cards"
+   * and "if that card's printed resource has …" read the printed icons of the cards now under the scheme. Owner
+   * decision, 2026-10-11, box-heroes question 14 = A (provisional); no ruling names these cards. Logged as
+   * `deckDiscardStillCounted`.
+   */
+  readonly discardsStayCounted?: true;
   /**
    * "This effect cannot be canceled." on a "When Revealed" ability (the Cosmic Entities, `mts` 21042/21048/21054/21060:
    * "When Revealed: Deal 2 damage to the villain and remove this card from the game. This effect cannot be canceled.";

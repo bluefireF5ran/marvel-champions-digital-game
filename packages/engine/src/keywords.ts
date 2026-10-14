@@ -10,9 +10,11 @@ import {
   fixedMainSchemeStage,
   mainSchemeStageOf,
   mainSchemeStateOf,
+  perPlayerCountAt,
   villainStageOf,
+  playerCardOwnerOf,
 } from "./query.js";
-import { cannotHaveStatus, grantedAttackKeywords, statusLimit } from "./rules.js";
+import { cannotHaveStatus, grantedAttackKeywords, lostAttackKeywords, statusLimit } from "./rules.js";
 import {
   cardsInPlay,
   categoriesOf,
@@ -151,7 +153,7 @@ function scanGrantedKeywords(state: GameState, deps: EngineDeps, id: InstanceId)
   // "In expert mode, this card gains surge" on a treachery (Surprise!, `sm` 27112; docs/phase7-wave5.md §3.11): an
   // encounter card's grants to itself are read wherever it is, since a revealed treachery is never in play — the
   // `revealCannotBeCanceled` reading of the card's own text (docs/phase7-wave4.md §3.14).
-  const ownText = !inPlay.includes(id) && getInstance(state, id)?.ownerId === null ? [id] : [];
+  const ownText = !inPlay.includes(id) && playerCardOwnerOf(state, id) === null ? [id] : [];
   // `constantSources`: the cards in play, and a card in the victory display whose text works there (§3.50 of wave 7).
   for (const sourceId of [...constantSources(state, deps), ...ownText]) {
     for (const ref of constantAbilityRefs(state, sourceId, deps)) {
@@ -169,6 +171,16 @@ function scanGrantedKeywords(state: GameState, deps: EngineDeps, id: InstanceId)
       for (const grant of definition.trigger.keywordGrants) {
         if (grant.while && !evaluate(state, grant.while, context)) continue;
         if (!matchesQuery(state, id, grant.target, context)) continue;
+        if (grant.keywordsOf) {
+          // "Gains the printed keywords of each other [trait] minion" (docs/phase7-wave10.md §3.12): printed
+          // keywords only, so two cards granting to each other never chain.
+          for (const other of inPlay) {
+            if (other === id || !matchesQuery(state, other, grant.keywordsOf, context)) continue;
+            granted.push(...printedKeywordsOf(state, other, deps));
+          }
+          continue;
+        }
+        if (!grant.keyword) continue;
         if (grant.loses) {
           (lost ??= new Set()).add(grant.keyword.name);
           continue;
@@ -239,7 +251,7 @@ export function hasGrantedPermanent(state: GameState, id: InstanceId, deps: Engi
           deps: DEFAULT_DEPS,
         };
         for (const grant of definition.trigger.keywordGrants) {
-          if (grant.keyword.name !== "permanent" || grant.loses) continue;
+          if (grant.keyword?.name !== "permanent" || grant.loses) continue;
           if (grant.while && !evaluate(state, grant.while, context)) continue;
           if (matchesQuery(state, id, grant.target, context)) return true;
         }
@@ -315,8 +327,8 @@ export function keywordTotal(
     if (keyword.name !== name) continue;
     total += keyword.value;
     // "Hinder 2[per_hero]": RRG 1.8 "Per Player Icon" (p. 32) multiplies by the players who started the scenario
-    // (docs/phase7-wave3.md §1.3).
-    if (keyword.name === "hinder") total += (keyword.perPlayer ?? 0) * state.startingPlayerCount;
+    // (docs/phase7-wave3.md §1.3), those on the card's team (`perPlayerCountAt`).
+    if (keyword.name === "hinder") total += (keyword.perPlayer ?? 0) * perPlayerCountAt(state, id);
   }
   return total;
 }
@@ -346,6 +358,12 @@ export interface AttackKeywordContext {
   readonly keywords?: readonly AttackKeyword[];
   /** The attack/activation event frame's vars, where `modifyAttack` records a grant made mid-activation. */
   readonly vars?: Readonly<Record<string, number>>;
+  /**
+   * The character the attack is against, when the caller knows it: the keywords attacks lose against that character
+   * are left out (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18). Absent: what the attack has against a
+   * character with no such rule, which is what "when you make a ranged attack" reads.
+   */
+  readonly targetInstanceId?: InstanceId | null;
 }
 
 /**
@@ -357,6 +375,9 @@ export interface AttackKeywordContext {
  * 3. `modifyAttack.keywords` during the activation, recorded as a var named after the keyword on the attack's own
  *    event frame ("the attack gains piercing", Crossfire's boost) — the same var `overkill` has always used;
  * 4. a constant `attackKeywords` rule in play ("each of your [Arrow] attacks gain ranged", Hawkeye's Bow).
+ *
+ * Less the keywords attacks lose against `targetInstanceId` ("attacks against them lose piercing", Cap's Shield;
+ * `attacksLoseKeywords`): a loss beats every source above (RRG 1.8 "Lose", p. 27).
  */
 export function attackKeywordsOf(
   state: GameState,
@@ -365,12 +386,14 @@ export function attackKeywordsOf(
 ): readonly AttackKeyword[] {
   const via = attack.viaInstanceId ?? null;
   const fromRules = grantedAttackKeywords(state, deps, attack.attackerInstanceId, via, attack.basic === true);
+  const lost = attack.targetInstanceId ? lostAttackKeywords(state, deps, attack.targetInstanceId) : [];
   return ATTACK_KEYWORDS.filter(
     (name) =>
-      hasKeyword(state, attack.attackerInstanceId, name, deps) ||
-      attack.keywords?.includes(name) === true ||
-      (attack.vars?.[name] ?? 0) > 0 ||
-      fromRules.includes(name),
+      !lost.includes(name) &&
+      (hasKeyword(state, attack.attackerInstanceId, name, deps) ||
+        attack.keywords?.includes(name) === true ||
+        (attack.vars?.[name] ?? 0) > 0 ||
+        fromRules.includes(name)),
   );
 }
 

@@ -42,6 +42,13 @@ export interface MainSchemeStage {
   readonly stageNumber: number;
   /** The stage's own title when it differs from the card's (Klaw's stage 2 is "Secret Rendezvous"). */
   readonly name?: string;
+  /**
+   * A stable key for the stage: the id of its printed B face (`56063b`; docs/phase7-wave10.md §1.2). A card holding
+   * several stages of one number (Civil War's `registration` and `resistance`, four stage 1s and four stage 2s) is
+   * addressed by it, since a stage's index changes when the data is re-emitted. Set on every stage of such a card; absent
+   * on a card whose stage numbers are unique. Unique within the card.
+   */
+  readonly printedCardId?: CardId;
   /** Branching stages (e.g. "2a"/"2b") share a `stageNumber` and differ by letter. */
   readonly stageLetter?: string;
   /** Threat placed on this stage when it becomes active. */

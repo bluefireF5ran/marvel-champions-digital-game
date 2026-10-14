@@ -38,6 +38,7 @@ import type {
   TraitGrantSpec,
   TriggerEventKind,
   TypedResource,
+  ZoneId,
 } from "@mc/engine";
 import { GRANTED_BY_SLOT, POD_MOMENT } from "@mc/engine";
 import { flatten, ifThen, type EffectArg } from "./effects.js";
@@ -111,6 +112,20 @@ export interface AbilityOptions {
    * declaration could change it. Without this the payment records no types and both readers read nothing.
    */
   readonly readsPaidTypes?: PaidTypesRead;
+  /**
+   * On the ability of a card with a printed X cost: the least X the player may name (`AbilityDefinition.minX`).
+   * `{ minX: 1 }` for "Choose X schemes. Remove 2 threat from each chosen scheme" (Everywhere All at Once 58018),
+   * which at X = 0 would choose nothing and do nothing (the owner's answer 52B, 2026-10-13).
+   */
+  readonly minX?: number;
+  /**
+   * How many of the leading effects are the printed cost, written as effects because paying them resolves as effects
+   * do (`AbilityDefinition.costEffects`): `{ costEffects: 2 }` for "Discard cards from the top of the encounter deck
+   * until you discard a minion. Put that minion into play engaged with you → remove 3 threat from the main scheme"
+   * (Looking for Trouble 16043). They are no part of the effect, so they do not keep the card playable when the effect
+   * has no valid target (RRG 1.8 "Cost", p. 13).
+   */
+  readonly costEffects?: number;
 }
 type Args = readonly (AbilityOptions | EffectArg)[];
 
@@ -164,6 +179,8 @@ function build(
     ...(generates !== undefined ? { generates } : {}),
     ...(options.playCostReduction ? { playCostReduction: options.playCostReduction } : {}),
     ...(options.readsPaidTypes ? { readsPaidTypes: options.readsPaidTypes } : {}),
+    ...(options.minX !== undefined ? { minX: options.minX } : {}),
+    ...(options.costEffects !== undefined ? { costEffects: options.costEffects } : {}),
   };
 }
 
@@ -246,6 +263,13 @@ export const forcedAction = (...args: Args): AbilityDefinition => {
  * card from the game and the campaign pool." (War Cry, `mut_gen` 32180); "… You may flip this card." (Psi-Knife,
  * `psylocke` 41002a). The card paid for is slot `paidFor` ("That event deals 1 additional damage", Cybernetic Arm).
  * docs/phase7-wave4.md §3.30.
+ *
+ * `overpayOnly`: "Resource: Generate a [energy] resource **to overpay for a card**. (Limit once per card.)" (Mr.
+ * Hollywood, `wonder_man` 58009; docs/phase7-wave10-hero-packs.md H3.14) is `resource({ energy: 1 }, { overpayOnly:
+ * true, limit: oncePerPaidCard })`. The resource never goes toward the cost: the rest of the payment must cover it,
+ * and a payment that needs this resource to reach the cost is refused. It is always overpaid (`overpaid.total`,
+ * `overpaid.<type>`), which is what "for each [energy] resource you overpaid for this card" reads. Offered only while
+ * a card is being played (hero-packs Q20 = A), never for an ability's cost. RRG 1.8 "Cost" (p. 13).
  */
 export const resource = (
   generates: ResourceGeneration,
@@ -257,10 +281,12 @@ export const resource = (
     readonly repeatable?: boolean;
     /** Spent, not generated: "after … generates resources" does not see it (docs/phase7-wave5.md §4.1 Q5). */
     readonly spentAsIfResource?: boolean;
+    /** "… to overpay for a card": never toward the cost, always overpaid (hero-packs H3.14). */
+    readonly overpayOnly?: boolean;
   } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => {
-  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, ...rest } = options;
+  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, overpayOnly, ...rest } = options;
   const definition = build(
     {
       kind: "resource",
@@ -274,7 +300,7 @@ export const resource = (
     effects,
     generates,
   );
-  return generatesFor ? { ...definition, generatesFor } : definition;
+  return { ...definition, ...(generatesFor ? { generatesFor } : {}), ...(overpayOnly ? { overpayOnly: true } : {}) };
 };
 /**
  * "Interrupt: When you spend this card, [cost] → generate …" on a card spent from hand (Organizational Support, `aos`
@@ -282,7 +308,12 @@ export const resource = (
  * printed resources on each card exhausted this way"). A resource trigger with `whenSpent`: used only by the payment
  * entry that spends the card (`Payment.whenSpent`), once, by the player spending it, with what it generates joining
  * that payment. `generates` may read the cost's picks by slot, as a resource ability's does
- * (`printedResourcesOf(query(…, { inSlot: "exhausted" }))`).
+ * (`printedResourcesOf(query(…, { inSlot: "exhausted" }))`), and the damage a chosen damage cost takes: "When you
+ * spend this card, take up to 3 damage → this card generates 1 additional [energy] resource for each damage taken this
+ * way" (Energy Siphon, `wonder_man` 58006; docs/phase7-wave10-hero-packs.md H3.14) is
+ * `whenSpentGenerate(generatesAmount("energy", varOf("cost.damageSelf")), { form: "hero", cost: takeAnyDamageCost(3,
+ * { min: 1 }) })`. The amount is named in the payment entry (`costSelection.damageSelf`), one payment option per
+ * amount; the damage is taken before the card paid for resolves.
  */
 export const whenSpentGenerate = (
   generates: ResourceGeneration,
@@ -310,7 +341,7 @@ export const countersAsResource = (counterType: string, generates: ResourceGener
 /** "Hero Resource:" */
 export const heroResource = (
   generates: ResourceGeneration,
-  options: AbilityOptions & { readonly generatesFor?: TargetQuery } = {},
+  options: AbilityOptions & { readonly generatesFor?: TargetQuery; readonly overpayOnly?: boolean } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => resource(generates, { ...options, form: "hero" }, ...effects);
 
@@ -738,6 +769,22 @@ export const gainsTraitsOf = (
 ): ConstantPart => ({
   traitGrants: [{ traitsOf, target, ...(opts.while ? { while: opts.while } : {}) }],
 });
+/**
+ * "Each Avenger minion gains the printed keywords of each other Avenger minion." (Earth's Mightiest Heroes, `cw`
+ * 56077; docs/phase7-wave10.md §3.12) → `constant(gainsKeywordsOf(query("minion", { trait: AVENGER }), query("minion",
+ * { trait: AVENGER })))`. Each card `target` matches gains every keyword **printed** on each other card in play
+ * `keywordsOf` matches; "each other" is built in (a card is never its own source), and printed only means grants never
+ * chain. Traits in either query are read live, so a minion given the trait counts on both ends. A numbered keyword is
+ * gained as printed and adds to the card's own (Retaliate 1 twice is retaliate 2). Toughness, Quickstrike and
+ * Teamwork act as a card enters play, so they do nothing for a minion already there.
+ */
+export const gainsKeywordsOf = (
+  keywordsOf: TargetQuery,
+  target: TargetQuery,
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => ({
+  keywordGrants: [{ keywordsOf, target, ...(opts.while ? { while: opts.while } : {}) }],
+});
 export const rule = (r: RuleSpec): ConstantPart => ({ rules: [r] });
 /**
  * "Any player can attack this card as if it were a minion." (Encased in Ice, `winter` 54035; docs/phase7-wave9.md
@@ -768,6 +815,19 @@ export const counterLimit = (
   opts: { readonly while?: Predicate } = {},
 ): ConstantPart =>
   rule({ kind: "counterLimit", card, counterType, max: amount(max), ...(opts.while ? { while: opts.while } : {}) });
+/**
+ * "Max 3 cards tucked here." (Ionic Physiology, `wonder_man` 58002; docs/phase7-wave10-hero-packs.md §H3.12) →
+ * `constant(tuckLimit(3))`. The card (default: this card) has at most `max` cards tucked under it, whoever tucks them:
+ * a `tuckCards` under it tucks the first cards there is room for and logs the rest as not tucked; with no room it
+ * tucks nothing, so an `andThen(...)` after it is skipped, and an ability whose only effects are that tuck and its
+ * `andThen` is not offered. "Choose one" beside another option needs the option's own `condition`
+ * (`lessThan(countInRef(tuckedUnder(self)), 3)`): an option is not judged the way an ability is.
+ */
+export const tuckLimit = (
+  max: Amount,
+  card: TargetQuery = { self: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "tuckLimit", card, max: amount(max), ...(opts.while ? { while: opts.while } : {}) });
 /**
  * "Any player in your pod can attack The Mangog as if it were in their game area." (`tt` 55041) →
  * `constant(reachableFromPod("attack"))`; "… can thwart Door Between Worlds as if it were in their game area." (55046)
@@ -966,6 +1026,20 @@ export const spendableFromTucked = (
     ...(opts.while ? { while: opts.while } : {}),
   });
 /**
+ * "While paying costs on attached card, any player may help pay those costs." (Coordinated Effort, `wonder_man` 58032;
+ * docs/phase7-wave10-hero-packs.md H3.19, owner answer 21B) → `constant(costsPayableByAnyPlayer())`. While the
+ * constant is active, the cost of an ability printed on the card (default: the card this one is attached to) is paid as a
+ * group, the way an alliance card's is: every player's hand cards and resource abilities are payment sources, a
+ * discard from hand or a card in play the cost picks may be another player's, and a part worded "you" with no card
+ * named ("take 2 damage", "discard the top card of your deck") may be handed whole to another player
+ * (`costSelection.paidBy`). A part that names the user's own card ("exhaust your hero", "exhaust this card") stays
+ * with the player using the ability, and who may trigger the ability is unchanged. It names cards in play only.
+ */
+export const costsPayableByAnyPlayer = (
+  card: TargetQuery = { hostOfSelf: true },
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "costsPayableByAnyPlayer", card, ...(opts.while ? { while: opts.while } : {}) });
+/**
  * "Falcon does not exhaust to defend until the end of the phase." (Draw Their Fire, `falcon` 53011;
  * docs/phase7-wave9.md §3.47): the rule itself, for `applyRuleUntil(doesNotExhaustToDefend(YOUR_HERO), "endOfPhase")`
  * in an ability's effects. `character` is who it covers, read with the ability's controller as "you". While it lasts
@@ -1042,6 +1116,26 @@ export const additionalPowerCost = (
   opts: { readonly while?: Predicate } = {},
 ): ConstantPart =>
   rule({ kind: "additionalPowerCost", character, powers, resources, ...(opts.while ? { while: opts.while } : {}) });
+/**
+ * "As an additional cost to attack Grim Reaper, you must discard 1 card from your hand"
+ * (docs/phase7-wave10-hero-packs.md H3.16) → `constant(additionalAttackCost(query("enemy", { name: "Grim Reaper" }),
+ * discardFromHandCost(1, 1)))`. Every attack a player makes against an enemy `target` matches pays `cost`: a basic
+ * attack by a hero or an ally, an `attack` effect and an "(attack)" ability alike, paid by the attacking character's
+ * controller as the attack is made against that enemy (before its "when … attacks" window, before an "(attack)"
+ * ability's damage to it). An enemy that player cannot pay for is one their characters cannot attack: no legal target
+ * of a basic attack, not offered to a "choose an enemy" of an "(attack)" ability, skipped by "each enemy". An ability's
+ * one attack pays once per enemy however many instances of damage it deals (RRG 1.8 "Attack (Player Ability Type)",
+ * p. 10). Damage that is not an attack owes nothing.
+ *
+ * `cost` is a discard of a fixed number of cards from hand, `discardFromHandCost(n, n)` (a `filter` may narrow which);
+ * the payer picks the cards when there is a choice. Nothing else is paid as an attack is made, and the validator
+ * refuses it.
+ */
+export const additionalAttackCost = (
+  target: TargetQuery,
+  cost: AbilityCost,
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart => rule({ kind: "additionalAttackCost", target, cost, ...(opts.while ? { while: opts.while } : {}) });
 /**
  * "While there are no other [Symbiote] environments in play, this card is considered a [Symbiote] environment"
  * (Festering Mass, `sm` 27124; docs/phase7-wave5.md §3.9): `constant(countsAs({ self: true }, ["environment"], {
@@ -1194,6 +1288,27 @@ export const onlyCharacterRemovesThreat = (
   opts: { readonly while?: Predicate } = {},
 ): ConstantPart =>
   rule({ kind: "threatCannotBeRemoved", target, exceptBy: character, ...(opts.while ? { while: opts.while } : {}) });
+/**
+ * "Threat cannot be removed from attached scheme except by Hercules's thwarts." (Embody Pathos, `hercules` 59003;
+ * docs/phase7-wave10-hero-packs.md H3.6): `constant(onlyThwartsRemoveThreat(query("sideScheme", { hostOfSelf: true }),
+ * query("identity", { name: "Hercules" })))`, a `threatCannotBeRemoved` with `exceptThwartBy`. Narrower than
+ * `onlyCharacterRemovesThreat`: every removal is stopped (RRG 1.8 "'Cannot'", p. 11), an encounter card's and a
+ * support's included, except a thwart made by a character matching `thwarter`: its basic thwart, and a
+ * "(thwart)"-labeled ability or event of its player, which is a thwart by that player's identity (RRG 1.8 "Labeled
+ * Ability", p. 26). An unlabeled removal on that character's own cards, an ally's thwart and another player's thwart
+ * remove nothing, and the scheme is not a legal target of a basic thwart or thwart ability the rule stops.
+ */
+export const onlyThwartsRemoveThreat = (
+  target: TargetQuery,
+  thwarter: TargetQuery,
+  opts: { readonly while?: Predicate } = {},
+): ConstantPart =>
+  rule({
+    kind: "threatCannotBeRemoved",
+    target,
+    exceptThwartBy: thwarter,
+    ...(opts.while ? { while: opts.while } : {}),
+  });
 /**
  * "The villain cannot take damage unless the attacker or attack has the [AERIAL] trait, or the attack has ranged."
  * (Out of Reach, `next_evol` 40153; docs/phase7-wave7.md §3.30): `constant(takesDamageOnlyFromAttacks(query("villain"),
@@ -1440,6 +1555,19 @@ export const inVictoryDisplay = (definition: AbilityDefinition): AbilityDefiniti
  */
 export const inDiscard = (definition: AbilityDefinition): AbilityDefinition => ({ ...definition, activeIn: "discard" });
 /**
+ * On a response to cards discarded from a deck: the cards it takes away are still counted by the ability that
+ * discarded them (`AbilityDefinition.discardsStayCounted`; docs/phase7-wave10-box-heroes.md B3.3, question 14 = A,
+ * provisional). Skrull Business (`cw` 56056) places the discarded cards facedown under itself, and Super Skrull's
+ * "if that card's printed resource has …" and You're Coming With Me!'s "for each different resource icon on the
+ * discarded cards" still read them. Without it the card is dropped from that ability's set (wave 7 §4.1 Q32: a card
+ * its own response, or another card's, took away). `validateDefinition` rejects it on anything but a response to a
+ * discard from a deck.
+ */
+export const stillCountedByDiscarder = (definition: AbilityDefinition): AbilityDefinition => ({
+  ...definition,
+  discardsStayCounted: true,
+});
+/**
  * "Forced Response: After a player card effect discards this card from under an identity, that identity takes 2
  * damage." (Hunting the Spider-Bride, `silk` 52031): the response is the card's own answer to its discard from under
  * another card, read from the card where that discard left it, and nowhere else (`AbilityDefinition.activeIn`,
@@ -1585,11 +1713,22 @@ export const cannotChooseToDiscard: ConstantPart = { rules: [{ kind: "cannotChoo
  * `cannotEnterPlay(query("ally", { name: "…" }))`: a scenario rule (`GameSetupConfig.scenarioRuleSpecs`, or a campaign
  * node's `scenarioRuleSpecs`), matched by title so every printing is covered. The card cannot be played or put into
  * play; it may still be drawn, discarded and spent as a resource.
+ *
+ * `player`: "You cannot have more than 1 Shapeshift upgrade in play." (Teddy Altman, `cw` 56029b;
+ * docs/phase7-wave10-box-heroes.md B3.4) → on the alter-ego face, `constant(rule(cannotEnterPlay(query("upgrade", {
+ * trait: SHAPESHIFT }), { while: exists(query("upgrade", { trait: SHAPESHIFT, controller: "you" })), player: you
+ * })))`. With `player` the rule stops a matching card from being played or put into play under that player's control
+ * only; with one such upgrade in play a second cannot be played, and nothing is discarded (ruling January 11, 2026 -
+ * Ruling 1). On a face it works only while that face is up. The refused play's message names the card the rule is on.
  */
-export const cannotEnterPlay = (cards: TargetQuery, opts: { readonly while?: Predicate } = {}): RuleSpec => ({
+export const cannotEnterPlay = (
+  cards: TargetQuery,
+  opts: { readonly while?: Predicate; readonly player?: PlayerRef } = {},
+): RuleSpec => ({
   kind: "cannotEnterPlay",
   cards,
   ...(opts.while ? { while: opts.while } : {}),
+  ...(opts.player ? { player: opts.player } : {}),
 });
 export const focusedMainScheme = (): ConstantPart => rule({ kind: "focusedMainScheme", scheme: { kind: "host" } });
 /**
@@ -1844,6 +1983,20 @@ export const attacksGainKeywords = (
       ...(opts.basicOnly ? { basicOnly: true } : {}),
     },
   ],
+});
+/**
+ * "Attached character gains retaliate 1 and **attacks against them lose piercing**" (Cap's Shield, `cw` 56143;
+ * docs/phase7-wave10.md §3.18): `constant(gainsKeywordX("retaliate", 1, { hostOfSelf: true }),
+ * attacksLoseKeywords(["piercing"], { target: { hostOfSelf: true } }))`. While the card is in play, no attack has the
+ * keyword against a character matching `target`, whatever gave it: the attacker's own keyword, "this attack gains
+ * piercing" on the card making the attack, a grant made during the attack, or `attacksGainKeywords` (RRG 1.8 "Lose",
+ * p. 27: a loss beats a gain). The same attack keeps the keyword against any other character.
+ */
+export const attacksLoseKeywords = (
+  keywords: readonly AttackKeyword[],
+  opts: { readonly target: TargetQuery; readonly while?: Predicate },
+): ConstantPart => ({
+  rules: [{ kind: "attacksLoseKeywords", keywords, target: opts.target, ...(opts.while ? { while: opts.while } : {}) }],
 });
 /** "Double the number of resources this card generates while paying for an [aspect] card." */
 export const doublesResourcesWhilePayingFor = (whilePayingFor: TargetQuery): ConstantPart => ({
@@ -2182,7 +2335,10 @@ export const takeDamageCost = (n: number | ValueSpec): AbilityCost => ({ damageS
  * "Take any amount of damage up to your remaining hit points →" (Maximum Effort 44004, "Yoo-Hoo!" 44006;
  * docs/phase7-wave7.md §3.79): the payer picks the amount, from `min` (default 0: §4.1 Q46 = B, 0 damage may be
  * chosen) to `max`, as the cost is paid. The text after the arrow reads the pick as `varOf("cost.damageSelf")`. Only
- * amounts the identity could take in full are offered (RRG 1.8 "Cost", p. 14).
+ * amounts the identity could take in full are offered (RRG 1.8 "Cost", p. 14). A command may name the amount up front
+ * (`costSelection.damageSelf`), and is then not asked. On a resource ability used in a payment (`resource`,
+ * `whenSpentGenerate`) the amount is always the payment's: each amount is its own payment option, `generates` reads
+ * it as `varOf("cost.damageSelf")`, and an entry naming none takes the least (hero-packs H3.14).
  */
 export const takeAnyDamageCost = (max: Amount, opts: { readonly min?: Amount } = {}): AbilityCost => ({
   damageSelf: { choose: { min: amount(opts.min ?? 0), max: amount(max) } },
@@ -2204,6 +2360,21 @@ export const chooseCardCost = (
 export const damageThisCardCost = (n: number): AbilityCost => ({ damageThisCard: n });
 /** "Heal N damage from [your identity] →" */
 export const healYourIdentityCost = (n: number): AbilityCost => ({ healIdentity: n });
+/**
+ * "Heal 2 damage from an enemy → confuse that enemy" (docs/phase7-wave10-hero-packs.md H3.17): the payer picks one
+ * character in play matching `q` that holds at least `n` damage and can be healed by this card, and `n` damage is
+ * healed from it as the cost. The pick is bound to `opts.bind` (default `"healed"`) for the effects: "that enemy" is
+ * `chosen("healed")`. Any player's character and an enemy alike.
+ *
+ * Put what the effect needs of the pick in `q`. The heal is the cost, and a cost does not make a card a valid target
+ * (RRG 1.8 "Target", p. 43), while a cost cannot be paid without a valid target for the effect ("Cost", p. 14):
+ * "→ confuse that enemy" is `healCost({ ...query("enemy"), ...canTakeStatus("confused") }, 2)`, which leaves out a
+ * stalwart enemy and one that already holds the confused status card it has room for. Only on an action.
+ * `AbilityCost.healCharacter`.
+ */
+export const healCost = (q: TargetQuery, n: number, opts: { readonly bind?: string } = {}): AbilityCost => ({
+  healCharacter: { slot: opts.bind ?? "healed", query: q, amount: n },
+});
 /**
  * "Take N indirect damage →" (Kinetic Armor, `sm` 27149): divided among the characters you control, before the
  * effects. Offered only while your characters can take all of it (none with a tough status card counts), and if any
@@ -2477,6 +2648,45 @@ export const attachCost = (
   attach: { card, to: { slot, query: to }, ...(opts.bind !== undefined ? { bind: opts.bind } : {}) },
 });
 /**
+ * "Search the encounter deck and discard pile for a minion and put it into play engaged with you" as a cost (Hunted,
+ * `cw` 56007; docs/phase7-wave10-box-heroes.md B3.1): the payer picks one card of the active encounter deck's `zones`
+ * matching `q` into `slot` (forced with one candidate), the deck is shuffled when it was searched, and the card is put
+ * into play under the payer without being revealed, a minion engaged with them; what its entry triggers (quickstrike)
+ * resolves before the effects. With nothing to find the cost cannot be paid and the ability or play is not offered
+ * (box-heroes question 17 = A). `AbilityCost.searchEncounterIntoPlay`.
+ */
+export const searchEncounterIntoPlayCost = (
+  q: TargetQuery,
+  slot: string,
+  zones: readonly ("deck" | "discard")[] = ["deck", "discard"],
+): AbilityCost => ({ searchEncounterIntoPlay: { slot, query: q, zones } });
+/**
+ * "As an additional cost to play this upgrade, [cost]. Attach Hunted to that minion and stun it." (Hunted, `cw` 56007;
+ * docs/phase7-wave10-box-heroes.md B3.1): a constant read from the card being played. `cost` is planned and paid with
+ * the card's resource cost, its picks named in the play command's `costChoices`; a card whose additional cost cannot
+ * be paid cannot be played. `attachTo`: the played upgrade enters play attached to the card the cost bound to that
+ * slot, and is discarded if that card is no longer in play. `effects` resolve as the card enters play, with the
+ * cost's slots bound: `additionalCostToPlay(searchEncounterIntoPlayCost(query("minion"), "hunted"), { attachTo:
+ * "hunted" }, stun(chosen("hunted")))`.
+ *
+ * The cost may have a `costIf` part, picked by the board for the player playing the card: "As an additional cost to
+ * play this card, if you do not have the Eternal trait, confuse your identity" (Gilgamesh, `hercules` 59025) is
+ * `additionalCostToPlay(costIf(youHaveTrait(ETERNAL), {}, giveStatusCost(yourIdentity, "confused")))`. Only the picked
+ * branch is checked, so the card cannot be played while that branch cannot be paid. No resources and no `eitherCost`.
+ */
+export const additionalCostToPlay = (
+  cost: AbilityCost,
+  opts: { readonly attachTo?: string } = {},
+  ...effects: readonly EffectArg[]
+): AbilityDefinition => ({
+  trigger: {
+    kind: "constant",
+    additionalCostToPlay: opts.attachTo !== undefined ? { attachToSlot: opts.attachTo } : {},
+  },
+  cost,
+  effects: flatten(effects),
+});
+/**
  * "… and deal 2 damage to that character →" (Energy Transfer; docs/phase7-wave6.md §3.49): `n` damage from this card to
  * each card `target` names, read with the cost's own picks bound (`chosen(slot)` of an `attachCost`), before the
  * effects. Dealing damage as a cost is paid even if the damage is prevented (RRG 1.8 "Cost", p. 14), so nothing about
@@ -2519,6 +2729,15 @@ export const oncePerRound: AbilityLimit = { count: 1, period: "round" };
 export const oncePerRoundPerPlayer: AbilityLimit = { count: 1, period: "round", per: "player" };
 /** "(Limit once per phase.)" (Super Speed, Quicksilver 14001a). */
 export const oncePerPhase: AbilityLimit = { count: 1, period: "phase" };
+/**
+ * "(Limit once per phase per player.)" on a forced interrupt or response (Cut Off Support 56063b, Open Rebellion
+ * 56172b, `cw`; docs/phase7-wave10.md §3.14): counted separately for each player the triggering event belongs to (the
+ * player who reveals the treachery), whoever resolves the ability. `oncePerRoundPerPlayer` counts by the player using
+ * a shared card's action instead. "Forced Interrupt: When a player reveals a treachery, place 1 threat here." is
+ * `forcedInterrupt(on.encounterCardRevealed(query("treachery")), { limit: oncePerPhasePerEventPlayer },
+ * placeThreat(1, self))`.
+ */
+export const oncePerPhasePerEventPlayer: AbilityLimit = { count: 1, period: "phase", per: "eventPlayer" };
 /**
  * "(Max 1 per event.)", "(Max 1 per attack.)", "(Max 1 per basic power use.)" (Web-Bracelet, Ghost Kick, Phantom Flip,
  * `sm`; docs/phase7-wave5.md §3.14): one use per triggering event instance, shared by every copy of the card's title
@@ -2833,6 +3052,26 @@ export const on = {
   youRevealEncounterCard: (what?: TargetQuery): EventPattern =>
     pattern("cardRevealed", { playerIs: "controller" }, what ? { targetIs: what } : {}),
   /**
+   * "After another card is revealed that gives 1 or more heroes the Unregistered trait" (Hunting Rebel Heroes, `cw`
+   * 56097b; docs/phase7-wave10.md §3.16): any player's reveal of a card whose constant ability grants `t` to at least
+   * one card in play, heard once every step of the reveal has completed (RRG 1.8 "Reveal", p. 38). `to`: one of the
+   * cards it is given to must match ("1 or more **heroes**" is `query("hero")`). `another` leaves out this card's own
+   * reveal. A card that already had the trait counts as given it (owner decision, question 12 = A, provisional). A
+   * response only. "Those heroes" are `grantedTo(t, query("hero"))`:
+   * `forcedResponse(on.cardRevealedGranting(t, { to: query("hero"), another: true }), dealDamage(2, grantedTo(t,
+   * query("hero"))))`.
+   */
+  cardRevealedGranting: (
+    t: Trait,
+    opts: { readonly to?: TargetQuery; readonly another?: boolean } = {},
+  ): EventPattern =>
+    pattern(
+      "cardRevealed",
+      { grantsTrait: t },
+      opts.to ? { grantedToIs: opts.to } : {},
+      opts.another ? { targetIs: { self: false } } : {},
+    ),
+  /**
    * "After you resolve a treachery" (Spider-Man Noir, `spdr` 31015): a treachery you revealed has resolved — one or
    * more of its abilities, surge and incite included, resolved (RRG 1.8 "Resolve", p. 37); a cancelled one has not
    * (FAQ "Spider-Man Noir (#15)", p. 63). Heard after reveal step 4 and before any surge card is revealed; "that
@@ -3076,8 +3315,15 @@ export const on = {
    * the window (docs/phase7-wave5.md §3.13). Leaving is any departure (defeat, discard, hand, deck, victory display,
    * removal). An interrupt sees the card still in play, with its attachments and counters, and a response sees it gone
    * (§4.1 Q17); a query's traits are the card's as it left.
+   *
+   * `to`: only a departure that ends there (`TriggerEvent cardLeavesPlay.to`, a zone kind or any of several). "After a
+   * labor card **is added to the victory display**" (Atonement, Hercules 59001a; docs/phase7-wave10-hero-packs.md
+   * H3.7) is `on.leavesPlay(query([], { trait: LABOR }), { to: "victoryDisplay" })`: a Victory X attachment whose
+   * host is defeated and a Victory X uses card whose last counter is removed (RRG 1.8 "Victory X", p. 46), and never
+   * the same card discarded to its deck. A card moved by a replacement ("… instead") is heard where it really went.
    */
-  leavesPlay: (who: Who): EventPattern => pattern("cardLeavesPlay", asTarget(who)),
+  leavesPlay: (who: Who, opts: { readonly to?: ZoneId["kind"] | readonly ZoneId["kind"][] } = {}): EventPattern =>
+    pattern("cardLeavesPlay", asTarget(who), opts.to === undefined ? {} : { eventIs: { to: opts.to } }),
   /**
    * "When a character flips" (MojoMania 1B, `mojo` 39025b): a hero's change of form (`formChanged`, the identity as its
    * target) and a villain's or other character's flip (`cardFlipped`), both flips (RRG 1.8 "Flip", p. 20; docs/phase7-
@@ -3268,6 +3514,18 @@ export const on = {
    */
   youDiscardFromYourDeck: (): EventPattern => pattern("cardDiscardedFromDeck", { playerIs: "controller" }),
   /**
+   * "After any number of cards are discarded from the top of a player's deck" (Skrull Business, `cw` 56056;
+   * docs/phase7-wave10-box-heroes.md B3.3), on a card in play: the cards one effect or one cost discarded from any
+   * player's deck, answered once for all of them (`EventPattern.together`; RRG 1.8 "Triggering Condition", p. 45).
+   * "Those cards" are `eventTargetsTogether`, and the deck's player is `eventPlayer`. Every discard off the top of a
+   * player's deck counts, by any card's effect or cost; a discard from a hand, from play or from the encounter deck
+   * does not. The card whose discard emptied the deck is read in the new deck, as for `youDiscardFromYourDeck`.
+   *
+   * → `stillCountedByDiscarder(forcedResponse(on.aPlayerDiscardsFromTheirDeck(), tuckCards(cards(
+   * eventTargetsTogether), self, true)))`.
+   */
+  aPlayerDiscardsFromTheirDeck: (): EventPattern => pattern("cardDiscardedFromDeck", { together: true }),
+  /**
    * "After a [card] is discarded from the top of the encounter deck" (Serpent Solutions, `falcon` 53031;
    * docs/phase7-wave9.md §3.43 (b)): each card an effect or a cost discards off the top of an encounter deck, by any
    * card: `discardEncounterCards`, `discardEncounterUntil`, a `discardTopOfEncounterDeckCost` or
@@ -3451,6 +3709,19 @@ export const on = {
    * (§4.1 Q20; "after you recover" is `basicPowerUsed` narrowed to `power: "recover"`).
    */
   basicRecovery: (who: Who): EventPattern => pattern("basicRecovery", asTarget(who)),
+  /**
+   * "When attached character would … thwart, or attack" (Tangled Up, `cw` 56181; docs/phase7-wave10.md §3.21) →
+   * `forcedInterrupt(on.characterWouldAct("host"), instead(discard(self)))`. One point for a player
+   * character's attack or thwart however it is made: a basic attack or thwart of that character, or an attack- or
+   * thwart-labeled ability of the player whose identity it is (an event included), announced once its costs are paid
+   * and before anything of it resolves. `instead(...)` replaces the whole use: nothing is dealt or removed, the
+   * character has not attacked or thwarted, and what was paid stays paid (the character exhausted, the event
+   * discarded). `act` narrows it to one of the two. A stunned attack or a confused thwart does not reach it (the
+   * status card is discarded first), and neither does a defense, a recovery, or an attack or thwart an unlabeled
+   * effect has a character make. The "would scheme" third of the sentence is an enemy's, on `on.enemySchemes`.
+   */
+  characterWouldAct: (who: Who, opts: { readonly act?: "attack" | "thwart" } = {}): EventPattern =>
+    pattern("characterWouldAct", asTarget(who), opts.act ? { eventIs: { act: opts.act } } : {}),
   /** "When attached character would ready" (Frozen in Time; docs/phase7-wave2.md §3.11). */
   cardReadying: (what: Who): EventPattern => pattern("cardReadying", asTarget(what)),
   /**

@@ -185,14 +185,28 @@ describe("matrix over the whole card pool: every identity against every unique c
     ).sort();
     expect(untouched).toMatchInlineSnapshot(`
       [
+        "Black Panther (Shuri) [hero 51001a] x Black Panther [minion 56155]: no match",
+        "Black Panther (T'Challa) [hero 01040a] x Black Panther [minion 56155]: no match",
         "Black Widow (Natasha Romanoff) [hero 08001a] x Black Widow [minion 50148]: no match",
         "Black Widow (Natasha Romanoff) [hero 08001a] x Black Widow [villain 50064]: no match",
         "Captain America (Steve Rogers) [hero 03001a] x Captain America [upgrade 53023]: no match",
+        "Captain America (Steve Rogers) [hero 03001a] x Captain America [villain 56137]: no match",
+        "Captain Marvel (Carol Danvers) [hero 01010a] x Captain Marvel [villain 56092]: no match",
+        "Falcon (Sam Wilson) [hero 53001a] x Falcon [minion 56150]: no match",
         "Gamora (Gamora) [hero 18001a] x Gamora [minion 22028]: match (RRG)",
+        "Hercules (Hercules) [hero 59001a] x Hercules [minion 56151]: match (RRG)",
+        "Iron Man (Tony Stark) [hero 01029a] x Iron Man [villain 56059]: no match",
         "Magneto (Erik Lehnsherr) [hero 49001a] x Magneto [villain 32138]: no match",
+        "Maria Hill (Maria Hill) [hero 50001a] x Maria Hill [minion 56083]: match (RRG)",
         "Nebula (Nebula) [hero 22001a] x Nebula [minion 18026]: match (RRG)",
         "Nebula (Nebula) [hero 22001a] x Nebula [villain 16088]: match (RRG)",
+        "Spectrum (Monica Rambeau) [hero 21001a] x Spectrum [minion 56156]: no match",
+        "Spider-Man (Miles Morales) [hero 27030a] x Spider-Man [minion 56180]: no match",
+        "Spider-Man (Peter Parker) [hero 01001a] x Spider-Man [minion 56180]: no match",
+        "Spider-Woman (Jessica Drew) [hero 04031a] x Spider-Woman [villain 56168]: no match",
+        "Venom (Flash Thompson) [hero 20001a] x Venom [minion 56087]: no match",
         "Venom (Flash Thompson) [hero 20001a] x Venom [villain 27073]: no match",
+        "Wasp (Nadia Van Dyne) [hero 13001a] x Wasp [minion 56074]: no match",
       ]
     `);
   });

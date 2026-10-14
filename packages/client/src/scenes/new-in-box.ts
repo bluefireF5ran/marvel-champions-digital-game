@@ -47,7 +47,10 @@ const ROW_TITLE_TYPE: TypeSpec = typeRole.rowTitle;
 const ROW_DETAIL_TYPE: TypeSpec = typeRole.body;
 const ARROW_WIDTH = 64;
 
-/** The pages the player has unlocked right now (`?unlock=all` opens every one). */
+/**
+ * The pages the player has unlocked right now (`?unlock=all` opens every one). Every box has a row on the unlock path
+ * (`new-in-box-model.test.ts` checks it), so a locked box has no page on a fresh profile.
+ */
 export function openBoxPages(): readonly BoxPage[] {
   return boxPages((unlockKey) => unlocks().waveLock(unlockKey) === null);
 }
@@ -180,6 +183,16 @@ export class NewInBoxScene extends Phaser.Scene {
             ensureVisible: () => this.#region?.scrollIntoView(content.scrollIndexByStop.get(linkId)!),
           });
         }
+      });
+    }
+
+    if (page.notice && content.noticeRect) {
+      const notice = content.noticeRect;
+      this.#captureInto(container, () => {
+        this.add.text(notice.x, viewport.y + notice.y, page.notice!, {
+          ...textStyle(ROW_DETAIL_TYPE, surface.ink.hex, ink.secondary),
+          wordWrap: { width: notice.width },
+        });
       });
     }
 

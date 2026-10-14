@@ -53,6 +53,7 @@ import {
   leavePlayAtOnce,
 } from "../effects.js";
 import { ANY_COUNTER, anyCounterPickOf, anyCounterTake, landingCounterType } from "../counter-types.js";
+import { BORROWED_BOOST_ICONS_SLOT } from "../abilities.js";
 import { EngineInvariantError } from "../errors.js";
 import { boundCardTotals, recountDeckDiscardIcons } from "./deck-discard.js";
 import { resolveTuck, tuckInsteadOfLeaving, tuckOrAnnounce } from "./tuck.js";
@@ -90,6 +91,7 @@ import {
   turnInProgress,
   villainOf,
   isScheme,
+  playerCardOwnerOf,
 } from "../query.js";
 import {
   AFFECTED_SLOT,
@@ -110,7 +112,7 @@ import {
   resolveValue,
   sourcePlayerOf,
 } from "../select.js";
-import type { EffectSpec, PlayerRef, StatName } from "../spec.js";
+import type { DefeatPlacement, EffectSpec, PlayerRef, StatName } from "../spec.js";
 import { type GameState, NO_STATUSES } from "../state.js";
 import {
   currentActivationFrameId,
@@ -195,7 +197,13 @@ import {
   revealMainSchemeStages,
 } from "./game-areas.js";
 import { emitSharedEvent, resolveInGroup } from "./pod.js";
-import { announceDamagePrevented, readyOrAnnounce, threatRemovalBlocked, thwartBlockedOn } from "./event.js";
+import {
+  announceDamagePrevented,
+  readyOrAnnounce,
+  redirectPendingDefeat,
+  threatRemovalBlocked,
+  thwartBlockedOn,
+} from "./event.js";
 import {
   abilityAttackDamage,
   abilityAttackOf,
@@ -236,7 +244,7 @@ import {
   engagementOf,
   playerSideSchemeEntersPlay,
   engageInPlayMinion,
-  quickstrikeAttack,
+  quickstrikeFrame,
   rotateEngagement,
   teamworkFrame,
 } from "./enter-play.js";
@@ -289,7 +297,7 @@ function admitUniqueEntry(
     const card = cardOf(ctx.state, id);
     // "[A title] cannot enter play during this game" (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43): the
     // effect does nothing to the card, whatever its type, and it stays where it was. A card in play is not entering.
-    if (card && !cardsInPlay(ctx.state).includes(id) && cannotEnterPlay(ctx.state, ctx.deps, id)) {
+    if (card && !cardsInPlay(ctx.state).includes(id) && cannotEnterPlay(ctx.state, ctx.deps, id, forPlayer)) {
       emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId: forPlayer, reason: "cannotEnterPlay" });
       continue;
     }
@@ -302,7 +310,7 @@ function admitUniqueEntry(
     // A player card nobody owns yet is still a player card (a set-aside linked card, RRG 1.8 "Linked (Card Title)",
     // p. 27; docs/phase7-wave7.md §3.75): the attempt has no effect and it stays where it was.
     const isPlayerCard =
-      getInstance(ctx.state, id)?.ownerId !== null || (isPlayerCardType(card) && cardBackOf(card) === "player");
+      playerCardOwnerOf(ctx.state, id) !== null || (isPlayerCardType(card) && cardBackOf(card) === "player");
     emit(ctx, {
       type: "uniqueEntryBlocked",
       instanceId: id,
@@ -536,9 +544,19 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             ...(effect.ignoreTough ? { ignoreTough: true } : {}),
             ...(namedBy(effect.by) === null ? { noPlayer: true } : {}),
             ...ofAttack?.damage,
+            // "Deal damage … equal to your ATK" as an attack's damage (docs/phase7-wave10.md §3.17).
+            ...(effect.usesAtk && (effect.fromAttack === true || ofAttack) ? { usedStat: "atk" as const } : {}),
           };
         });
       if (attack) noteAttackedByAbility(ctx, attack.frameId, attacked);
+      // The ability's attack used ATK once an instruction built from it has dealt damage as that attack (§3.17).
+      if (attack && events.some((event) => event.usedStat === "atk")) {
+        updateFrame(ctx, attack.frameId, (f) =>
+          f.kind === "event" && f.event.kind === "attack" && f.event.usedStat === undefined
+            ? { ...f, event: { ...f.event, usedStat: "atk" } }
+            : f,
+        );
+      }
       // One effect dealing damage to several characters ("each character", "two enemies") deals it simultaneously:
       // ruling, June 2, 2026 (2) answer 1 ("Damage is dealt simultaneously; resolve damage steps for both enemies at
       // the same time"), with RRG 1.8 "Damage" (p. 14) giving the steps. So every target is dealt its damage before
@@ -676,6 +694,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
             basic: false,
             overkill: effect.overkill === true,
             ...(effect.keywords && effect.keywords.length > 0 ? { keywords: effect.keywords } : {}),
+            ...(effect.usesAtk ? { usedStat: "atk" as const } : {}),
             sourceInstanceId: frame.selfInstanceId,
             ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
           })),
@@ -684,7 +703,12 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       if (attackOf !== undefined) {
         for (const id of pushed) updateFrame(ctx, id, (f) => (f.kind === "event" ? { ...f, attackOf } : f));
         if (begun !== undefined) {
-          const made = { amount, overkill: effect.overkill === true, keywords: effect.keywords ?? [] };
+          const made = {
+            amount,
+            overkill: effect.overkill === true,
+            keywords: effect.keywords ?? [],
+            usesAtk: effect.usesAtk === true,
+          };
           resumeBegunAttack(ctx, attackOf, attacker, begun.target, made, reportTo(effect.bind));
         }
       }
@@ -735,6 +759,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           targetInstanceId: player.identity.instanceId,
           playerId: controllerOf(ctx.state, attacker)!,
           basic: false,
+          // "Resolve her ATK against you": the attack deals the attacker's ATK (docs/phase7-wave10.md §3.17).
+          usedStat: "atk",
           sourceInstanceId: frame.selfInstanceId,
           ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
         },
@@ -1226,9 +1252,24 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "setDefeatDestination": {
       // docs/phase7-wave3.md §3.45: "return it to its owner's hand instead of discarding it", from an interrupt to the
       // defeat. The defeat still happens; `applyDefeat` sends the card here instead of its discard pile.
+      // An enemy's boost cards (docs/phase7-wave10.md §3.10): the first card named in play, read now for the player
+      // resolving this; with none the defeat keeps the destination it had.
+      let to: DefeatPlacement;
+      if (typeof effect.to === "object" && "kind" in effect.to) {
+        const inPlay = cardsInPlay(ctx.state);
+        const [holder] = targets(effect.to.enemy).filter((id) => inPlay.includes(id));
+        if (holder === undefined) return;
+        to = { boostCardOf: holder };
+      } else to = effect.to;
       const target = frame.eventFrameId ? findFrame(ctx.state, frame.eventFrameId) : undefined;
-      if (target?.kind !== "event" || target.event.kind !== "characterDefeated" || target.cancelled) return;
-      setFrame(ctx, { ...target, event: { ...target.event, destination: effect.to } });
+      if (target?.kind === "event") {
+        if (target.event.kind !== "characterDefeated" || target.cancelled) return;
+        setFrame(ctx, { ...target, event: { ...target.event, destination: to } });
+        return;
+      }
+      // The defeated card's own When Defeated ability: its leaving step waits below (RRG 1.8 p. 48).
+      if (frame.event?.kind === "characterDefeated" && frame.event.instanceId === frame.selfInstanceId)
+        redirectPendingDefeat(ctx, frame.event.instanceId, to);
       return;
     }
     case "cancelConsequentialDamage": {
@@ -1384,9 +1425,13 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           : (f.kind === "enemyAttack" || f.kind === "enemyScheme") &&
             (f.boost?.step === "count" || f.boost?.step === "ability"),
       );
+      // Inside a borrowed Boost ability: the boost cards whose count its gained icons join (often none).
+      const borrowedFor = effect.kind === "adjustBoostCount" ? context.bindings[BORROWED_BOOST_ICONS_SLOT] : undefined;
       if (counting?.kind === "event") {
         const event = counting.event;
         if (event.kind !== "boostIconsCounting") return;
+        // A card effect's count is of no activation's boost card: a borrowed ability's icons never join it.
+        if (borrowedFor) return;
         if (effect.kind === "adjustBoostCount") {
           const countAdjust = (event.countAdjust ?? 0) + value(effect.delta);
           setFrame(ctx, { ...counting, event: { ...event, countAdjust } });
@@ -1400,6 +1445,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const boost = procedure?.boost;
       if (!procedure || !boost) return;
       if (effect.kind === "adjustBoostCount") {
+        // Icons a borrowed Boost ability gains (docs/phase7-wave10.md §3.11, question 10) join this count only when
+        // its `resolveSpecials` named this boost card (`borrowedBoostIcons: "joinActivation"`); by default none.
+        if (borrowedFor && !borrowedFor.includes(boost.instanceId)) return;
         setFrame(ctx, {
           ...procedure,
           boost: { ...boost, countAdjust: (boost.countAdjust ?? 0) + value(effect.delta) },
@@ -1549,23 +1597,41 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // `byEffect`, and the rules that stop a defeat (cannotBeDefeated, permanent) still do.
       const inPlay = cardsInPlay(ctx.state);
       const defeatingPlayer = frame.controllerId;
+      // In an "(attack)" ability a player uses, the enemies this defeats are attacked by the identity and the defeat is
+      // that attack's (RRG 1.8 "Attack (Player Ability Type)", p. 10; `attack-ability.ts`, "A defeat instruction"):
+      // guard is read for each, and a cancelled attack defeats no enemy.
+      const ability = abilityAttackOf(ctx.state, ctx.deps, frame);
+      const attack = ability?.waiting;
+      const attacked: Extract<TriggerEvent, { kind: "characterAttacked" }>[] = [];
+      const named = targets(effect.target)
+        .filter((id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"))
+        // "Cannot be defeated again" (FAQ "Malice (#199)", RRG 1.8 p. 64): no defeat, so no window for one either.
+        .filter((id) => !cannotBeDefeatedAgain(ctx.state, id))
+        // Nor for a card already defeated, in play only until its When Defeated abilities resolve (`alreadyDefeated`).
+        .filter((id) => !alreadyDefeated(ctx.state, id));
+      const defeats = (ability ? skipUnattackable(ctx, ability, frame.selfInstanceId, named) : named).map((id) => {
+        const ofAttack = attack ? abilityAttackDamage(ctx.state, ctx.deps, attack, id) : null;
+        if (ofAttack) attacked.push(ofAttack.attacked);
+        return {
+          kind: "characterDefeated" as const,
+          instanceId: id,
+          byEffect: true as const,
+          ...(effect.ignoreWhenDefeated === true ? { ignoreWhenDefeated: true as const } : {}),
+          ...(defeatingPlayer ? { defeatedByPlayerId: defeatingPlayer } : {}),
+          ...(frame.selfInstanceId ? { sourceInstanceId: frame.selfInstanceId } : {}),
+          ...(attack && ofAttack
+            ? {
+                sourceInstanceId: attack.event.attackerInstanceId,
+                viaInstanceId: frame.selfInstanceId,
+                fromAttack: true as const,
+                parentFrameId: attack.frameId,
+              }
+            : {}),
+        };
+      });
+      if (attack) noteAttackedByAbility(ctx, attack.frameId, attacked);
       // Several allies and minions defeated by this one effect are defeated together (docs/phase7-wave5.md §4.1 Q49).
-      pushDefeats(
-        ctx,
-        targets(effect.target)
-          .filter((id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"))
-          // "Cannot be defeated again" (FAQ "Malice (#199)", RRG 1.8 p. 64): no defeat, so no window for one either.
-          .filter((id) => !cannotBeDefeatedAgain(ctx.state, id))
-          // Nor for a card already defeated, in play only until its When Defeated abilities resolve (`alreadyDefeated`).
-          .filter((id) => !alreadyDefeated(ctx.state, id))
-          .map((id) => ({
-            kind: "characterDefeated" as const,
-            instanceId: id,
-            byEffect: true as const,
-            ...(defeatingPlayer ? { defeatedByPlayerId: defeatingPlayer } : {}),
-            ...(frame.selfInstanceId ? { sourceInstanceId: frame.selfInstanceId } : {}),
-          })),
-      );
+      pushDefeats(ctx, defeats);
       return;
     }
     case "removeCounters": {
@@ -1857,7 +1923,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         if (
           card &&
           card.type !== "minion" &&
-          getInstance(ctx.state, id)?.ownerId === null &&
+          playerCardOwnerOf(ctx.state, id) === null &&
           !unownedPlayerCard(ctx.state, id) &&
           !cardsInPlay(ctx.state).includes(id)
         ) {
@@ -1924,11 +1990,11 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           instanceId: id,
           playerId: attached.includes(id) ? (controllerOf(ctx.state, id) ?? controller) : controller,
         }));
-      for (const id of entering) {
-        const quickstrike = quickstrikeAttack(ctx, id);
-        if (quickstrike) entered.push(quickstrike);
-      }
       const frames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
+      for (const id of entering) {
+        const quickstrike = quickstrikeFrame(ctx, id);
+        if (quickstrike) frames.push(quickstrike);
+      }
       // Teamwork (trait) after quickstrike, checked as it resolves (docs/phase7-wave6.md §3.1, `resolveTeamwork`).
       for (const id of entering) {
         const teamwork = teamworkFrame(ctx, id);
@@ -1993,9 +2059,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       bound([id]);
       // Announced as the minion it now is (§4.1 Q43 = A), in the order `putIntoPlay` announces a minion.
       const entered: TriggerEvent[] = [{ kind: "cardEntersPlay", instanceId: id, playerId }];
-      const quickstrike = quickstrikeAttack(ctx, id);
-      if (quickstrike) entered.push(quickstrike);
       const frames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
+      const quickstrike = quickstrikeFrame(ctx, id);
+      if (quickstrike) frames.push(quickstrike);
       const teamwork = teamworkFrame(ctx, id);
       if (teamwork) frames.push(teamwork);
       frames.push(...engagedEvent(ctx, id).map((event) => eventFrame(ctx, event)));
@@ -2505,6 +2571,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       for (const id of targets(effect.villain))
         if (villainOf(ctx.state, id)) swapVillain(ctx, id, { pool: effect.with, dial: effect.dial });
       return;
+    case "competitiveOnly":
+      return;
     case "raiseMoment": {
       // docs/phase7-wave8.md §3.39: one moment per player named, each the "you" of their own, in player order. Logged
       // always; on the stack only when an ability could answer (`heard`), so an unanswered moment changes nothing else.
@@ -2746,6 +2814,23 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       } else if (target.event.kind === "placeThreat") {
         emit(ctx, { type: "threatPrevented", schemeInstanceId: target.event.schemeInstanceId, amount: prevented });
       }
+      return;
+    }
+    case "reduceDamageTo": {
+      const target = frame.eventFrameId ? findFrame(ctx.state, frame.eventFrameId) : undefined;
+      const pending =
+        target?.kind === "event" && target.event.kind === "dealDamage" && !target.cancelled ? target.event : null;
+      const cap = Math.max(0, value(effect.amount));
+      const reduced = pending ? Math.max(0, pending.amount - cap) : 0;
+      if (effect.bind)
+        addFrameVars(ctx, frame.frameId, {
+          [`${effect.bind}.amount`]: reduced,
+          [`${effect.bind}.made`]: reduced > 0 ? 1 : 0,
+        });
+      if (!pending || target?.kind !== "event" || reduced <= 0) return;
+      // Reduced like a prevention: the amount left to take goes down, the amount dealt stays (RRG 1.8 "Prevent", p. 35).
+      setFrame(ctx, { ...target, event: { ...pending, amount: cap, dealt: pending.dealt ?? pending.amount } });
+      emit(ctx, { type: "damageCapped", targetInstanceId: pending.targetInstanceId, amount: reduced });
       return;
     }
     case "increaseDamage": {
@@ -3473,12 +3558,14 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const inPlay = new Set(cardsInPlay(ctx.state));
       // "Reveal and attach … here" (`heldBy`, docs/phase7-wave9.md §4.1 Q26): the reveal places its minion on this card.
       const [holder] = effect.heldBy ? targets(effect.heldBy) : [];
+      // "Treating each [per player] on it as 1" (docs/phase7-wave10-hero-packs.md H3.5): carried by each reveal.
+      const reading = effect.perPlayerAs !== undefined ? { perPlayerAs: effect.perPlayerAs } : {};
       const frames: StackFrame[] = [];
       for (const id of revealing) {
         // A card faceup in play is revealed where it is and does not enter play (RRG 1.8 "Find", p. 19; ruling June 25,
         // 2026 (5); `Frame<"reveal">.foundInPlay`, `resolve/reveal.ts`). A facedown one is not in play as itself.
         if (inPlay.has(id) && getInstance(ctx.state, id)?.faceup === true) {
-          frames.push({ ...revealFrame(ctx, playerId, id, frame.frameId, "elsewhere"), foundInPlay: true });
+          frames.push({ ...revealFrame(ctx, playerId, id, frame.frameId, "elsewhere"), foundInPlay: true, ...reading });
           continue;
         }
         // Park it with the revealing player's dealt cards while it resolves (out of the deck/discard it came from).
@@ -3491,6 +3578,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         frames.push({
           ...revealFrame(ctx, playerId, id, frame.frameId, "elsewhere"),
           ...(holder ? { heldBy: holder } : {}),
+          ...reading,
         });
       }
       // Each deck the find looked through is shuffled once the card is out of it, as `findCard` does (RRG 1.8
@@ -3704,11 +3792,16 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           updateInstance(ctx, id, (i) => ({ ...i, damage: 0, statuses: NO_STATUSES, counters: {}, exhausted: false }));
         tucking.push(id);
       }
+      // The cards it names are out of its reach (removed from the game, or gone from the zone it takes them from): the
+      // tuck did not resolve, so a "Then" after it is not attempted (RRG 1.8 "'Then'", p. 44).
+      if (tucking.length === 0 && effect.cards.kind === "ref" && targets(effect.cards.ref).length > 0)
+        markPreThenUnresolved(ctx, frame.frameId, "tuckNamedNoCard");
       // Each tuck opens its "would be tucked" window when an ability hears it (docs/phase7-wave9.md §3.40 (a)).
       tuckOrAnnounce(ctx, tucking, host, {
         sourceInstanceId: frame.selfInstanceId,
         sourceCardId: leaveSourceOf(ctx, frame),
         facedown: effect.facedown === true,
+        effectFrameId: frame.frameId,
       });
       return;
     }
@@ -3777,10 +3870,30 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "reorderCards":
       throw new EngineInvariantError(`${effect.kind} is handled before applyEffect`);
     case "reduceNextCardCost": {
-      const amount = value(effect.amount);
+      // "To 0" (docs/phase7-wave10-hero-packs.md H3.10): the amount is not read.
+      const amount = effect.toZero ? 0 : value(effect.amount);
       // Signed: a positive amount reduces, a negative one increases ("costs N additional resources"). 0 does nothing.
-      if (amount === 0) return;
+      if (amount === 0 && !effect.toZero) return;
       if (effect.duration === "turn" && !turnInProgress(ctx.state)) return;
+      const toZero = effect.toZero ? { toZero: true as const } : {};
+      if (effect.cards) {
+        // One reduction for each card named, bound to that card (H3.11). "The next card that player plays" is a
+        // timing point of a player, not of a card, so that duration makes nothing here (the DSL validator refuses it).
+        if (effect.duration === "untilPlayed") return;
+        const until =
+          effect.duration === "phase" ? "endOfPhase" : effect.duration === "turn" ? "endOfTurn" : "endOfRound";
+        const [maker] = resolvePlayers(ctx.state, effect.player, context);
+        for (const id of targets(effect.cards)) {
+          const playerId = maker ?? getInstance(ctx.state, id)?.ownerId;
+          if (!playerId) continue;
+          addLastingEffect(
+            ctx,
+            { kind: "costReduction", playerId, amount, cardInstanceId: id, ...toZero },
+            { kind: until },
+          );
+        }
+        return;
+      }
       const filter = effect.cardFilter ? { cardFilter: effect.cardFilter } : {};
       // By destination, and for whoever plays next (docs/phase7-wave8.md §3.35): one effect, not one per player.
       const where = {
@@ -3791,7 +3904,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       for (const playerId of effect.anyPlayer ? players.slice(0, 1) : players) {
         addLastingEffect(
           ctx,
-          { kind: "costReduction", playerId, amount, ...filter, ...where },
+          { kind: "costReduction", playerId, amount, ...filter, ...where, ...toZero },
           effect.duration === "untilPlayed"
             ? { kind: "untilCardPlayed", playerId, ...filter }
             : {

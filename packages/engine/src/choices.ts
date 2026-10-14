@@ -1,6 +1,6 @@
 import type { AbilityId, CardId, EvidenceCombination } from "@mc/content";
 import type { InPlayCostMode } from "./abilities.js";
-import type { ChoiceId, FrameId, InstanceId, PlayerId } from "./ids.js";
+import type { ChoiceId, FrameId, InstanceId, PlayerId, TeamId } from "./ids.js";
 import type { ReportedFact, ReportedFactAnswer } from "./outside-facts.js";
 import type { ResourcePool, ResourceRequirement, ResourceType, TypedResource } from "./resources.js";
 import type { PairLimit, StatusName } from "./spec.js";
@@ -45,6 +45,14 @@ export type ChoicePrompt =
   | { readonly kind: "orderEnemies"; readonly activation: "attack" | "scheme" }
   /** RRG "Simultaneous Resolution": the first player orders same-trigger effects. */
   | { readonly kind: "orderTriggers"; readonly event: TriggerEvent; readonly timing: WindowTiming }
+  /**
+   * A revealed minion with both quickstrike and teamwork, as its reveal finishes (the owner's answer 34B, 2026-10-12):
+   * the two keywords are forced responses with the same timing (RRG 1.8 "Quickstrike", p. 36; "Teamwork (Trait)",
+   * p. 43), so the first player chooses which resolves first ("Forced", p. 20; "Simultaneous Resolution", p. 40). The options are
+   * `quickstrike` and `teamwork`, each `ref` the minion `instanceId`; both are selected, in the order they resolve.
+   * Not asked when only one of the two would do anything.
+   */
+  | { readonly kind: "orderKeywords"; readonly instanceId: InstanceId }
   /**
    * RRG 1.8 "Each Player" (p. 17): "If the effect does not specify what order the players resolve the effect in,
    * the first player decides the order." Ordering which players receive dealt encounter cards (ruling, Jan 26, 2026
@@ -457,6 +465,13 @@ export interface ChoiceOption {
   readonly optionId: string;
   readonly label: string;
   readonly ref: ChoiceRef;
+  /**
+   * Where the offered card is, on the pick of a find that chooses among cards in several game areas (`EffectSpec
+   * findCard.choose`; docs/phase7-wave10-hero-packs.md H3.4): in play (a play area, the villain area, an attachment's
+   * host), a set-aside area, a hand, a discard pile or a deck. Absent on every other option, and for a card with no
+   * zone (a villain, a main scheme).
+   */
+  readonly zone?: ZoneId;
 }
 
 /**
@@ -471,8 +486,33 @@ export interface ChoiceOption {
  *   (RRG "First Player").
  * - `firstPlayerOrders`: effects that would resolve simultaneously; the first
  *   player orders them (RRG "First Player", "Simultaneous Resolution").
+ * - `enemyTeam`: the card gives the choice to "the enemy team" (docs/competitive-mode-plan.md §3.4, §4 task 7). MC56
+ *   p. 6, cooperative play: "Any rule or ability that refers to 'the enemy team' refers to the players. Resolve these
+ *   abilities using the grim rule: Imagine what an opponent would do if it were their choice." The addressed player is
+ *   `enemyTeamDecider` (`select.ts`): the first player in a cooperative game (owner decision, 2026-10-11), a player of
+ *   the other team when there are two. The choice carries `onBehalfOf`. The engine offers every legal option and
+ *   ranks none: what an opponent would pick is the player's to judge.
  */
-export type DecisionAuthority = "player" | "firstPlayerTargets" | "firstPlayerOrders";
+export type DecisionAuthority = "player" | "firstPlayerTargets" | "firstPlayerOrders" | "enemyTeam";
+
+/** The one-line instruction of a choice made with the `enemyTeam` authority, for a client to show. */
+export const ENEMY_TEAM_CHOICE_INSTRUCTION = "Choose as the enemy team would.";
+/** The rule that instruction rests on, quoted: MC56 p. 6 (cooperative play). */
+export const ENEMY_TEAM_CHOICE_RULE = "Imagine what an opponent would do if it were their choice.";
+
+/**
+ * Whose choice the addressed player is making when it is not their own to make freely: the team the card gave it to.
+ *
+ * - `teamId`: the enemy team. In a cooperative game that is the one team, the addressed player's own (MC56 p. 6); with
+ *   two teams it is the addressed player's team, which is the other team to the player the card is resolving for.
+ * - `facingPlayerId`: the player the effect is resolving for ("you", then "that player"), whose enemy team this is;
+ *   null when the effect resolves for no player.
+ */
+export interface ChoiceBehalf {
+  readonly kind: "enemyTeam";
+  readonly teamId: TeamId;
+  readonly facingPlayerId: PlayerId | null;
+}
 
 /**
  * The engine never calls back into a client. When the rules need input it
@@ -499,4 +539,6 @@ export interface PendingChoice {
   readonly soleDecider: boolean;
   /** Whose decision this is by rule; anything but `player` is made on the encounter side's behalf. */
   readonly authority: DecisionAuthority;
+  /** Present exactly when `authority` is `enemyTeam`: the team this choice is made for, and against whom. */
+  readonly onBehalfOf?: ChoiceBehalf;
 }

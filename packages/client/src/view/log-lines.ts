@@ -15,10 +15,13 @@
  */
 
 import {
+  activeVillain,
   cardOf,
   cardTypeName,
   getCard,
   getInstance,
+  isOwnedEncounterCard,
+  tuckLimitOf,
   type EngineDeps,
   type GameEvent,
   type GameState,
@@ -27,7 +30,11 @@ import {
 } from "@mc/engine";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
-import { cardName, faceUpName, formWords, playerName, seatName } from "./names.js";
+import { foeWord } from "./foe-words.js";
+import { cardName, faceUpName, formWords, optionLabelOf, playerName, seatName } from "./names.js";
+
+/** A line that opens with a card named only as far as the table may see it ("a facedown card") starts with a capital. */
+const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
 export type StatusName = "stunned" | "confused" | "tough";
 
@@ -273,6 +280,45 @@ function describe(
       if (event.from.kind === "scenarioPlayArea") {
         return { text: `${card(event.instanceId)} leaves the ${event.from.name} area.`, voice: "villain" };
       }
+      // docs/phase7-wave10.md §3.15: a defeated ally goes facedown under the main scheme. Seen when it was defeated.
+      if (
+        event.to.kind === "tucked" &&
+        burst?.events.some((other) => other.type === "characterDefeated" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: `${cardOf(state, event.instanceId)?.name ?? "A card"} was defeated and placed facedown under ${faceUpName(state, event.to.hostInstanceId)}.`,
+          voice: "villain",
+        };
+      }
+      // docs/phase7-wave10-hero-packs.md H3.12 (Ionic Physiology): a card tucked under another card, and one leaving
+      // from under it (the basic attack discards them). A defeated ally's tuck is worded above; a spent tucked card
+      // has its own line (`tuckedCardSpent`).
+      if (
+        event.to.kind === "tucked" &&
+        event.from.kind !== "tucked" &&
+        !burst?.events.some((other) => other.type === "cardNotTucked" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: cap(`${card(event.instanceId)} is tucked under ${faceUpName(state, event.to.hostInstanceId)}.`),
+          voice: "player",
+        };
+      }
+      if (
+        event.from.kind === "tucked" &&
+        event.to.kind === "discard" &&
+        !burst?.events.some((other) => other.type === "tuckedCardSpent" && other.instanceId === event.instanceId)
+      ) {
+        return {
+          text: cap(
+            `${card(event.instanceId)} is discarded from under ${faceUpName(state, event.from.hostInstanceId)}.`,
+          ),
+          voice: "player",
+        };
+      }
+      // A Labor card (an encounter card a player owns, H3.1) that is defeated or completed reaches the victory display.
+      if (event.to.kind === "victoryDisplay" && isOwnedEncounterCard(state, event.instanceId)) {
+        return { text: cap(`${card(event.instanceId)} goes to the victory display.`), voice: "player" };
+      }
       // A minion a card held (Thunderbolt Backup's end-of-round swap) comes off it and engages a player: the engine
       // records only the move, so without this line the swap read as one minion being held and nothing else.
       if (
@@ -297,7 +343,10 @@ function describe(
         voice: "scenario",
       };
     case "villainAdded":
-      return { text: `${card(event.instanceId)} joins the fight as another villain.`, voice: "villain" };
+      return {
+        text: `${card(event.instanceId)} joins the fight as another ${foeWord(cardOf(state, event.instanceId), { lower: true })}.`,
+        voice: "villain",
+      };
     case "villainRemoved":
       return { text: `${card(event.instanceId)} leaves the game.`, voice: "villain" };
     case "villainSetAside":
@@ -306,8 +355,8 @@ function describe(
       return {
         text:
           event.reason === "swap"
-            ? `${getCard(state, event.fromCardId)?.name ?? "The villain"} swaps to ${getCard(state, event.toCardId)?.name ?? "another card"}.`
-            : `${getCard(state, event.toCardId)?.name ?? "Another villain"} takes the place of ${getCard(state, event.fromCardId)?.name ?? "the defeated villain"}.`,
+            ? `${getCard(state, event.fromCardId)?.name ?? `The ${foeWord(getCard(state, event.fromCardId), { lower: true })}`} swaps to ${getCard(state, event.toCardId)?.name ?? "another card"}.`
+            : `${getCard(state, event.toCardId)?.name ?? `Another ${foeWord(getCard(state, event.toCardId), { lower: true })}`} takes the place of ${getCard(state, event.fromCardId)?.name ?? `the defeated ${foeWord(getCard(state, event.fromCardId), { lower: true })}`}.`,
         voice: "villain",
       };
     case "scenarioDeckReset":
@@ -315,6 +364,47 @@ function describe(
     case "separateDeckReset":
       return {
         text: `${possessive(event.playerId)} ${event.name} deck was empty: its discard pile is shuffled back into it.`,
+        voice: "player",
+      };
+    // RRG 1.8 FAQ "Hercules Hero Pack - Labor Cards" (p. 65): a revealed attachment that found nothing to attach to.
+    case "revealedCardDiscarded":
+      return {
+        text: cap(
+          `${card(event.instanceId)} had nothing to attach to when ${who(event.playerId)} revealed it, so it is discarded.`,
+        ),
+        voice: "villain",
+      };
+    // docs/phase7-wave10-box-heroes.md B3.1 (Hunted): the board shows nothing change for the upgrade, so say why.
+    case "playedUpgradeHasNoHost":
+      return {
+        text: cap(`${card(event.instanceId)} has nothing to attach to, so it is discarded. What was paid stays paid.`),
+        voice: "player",
+      };
+    // docs/phase7-wave10-hero-packs.md H3.12: "Max 3 cards tucked here."
+    case "cardNotTucked": {
+      const limit = tuckLimitOf(state, deps, event.hostInstanceId);
+      return {
+        text: cap(
+          `${card(event.instanceId)} is not tucked under ${faceUpName(state, event.hostInstanceId)}: it holds ${limit === null ? "no more" : `at most ${limit}`}.`,
+        ),
+        voice: "player",
+      };
+    }
+    // RRG 1.8 "Interrupt" (p. 25): the damage changed under it, so it does not initiate (owner decision 29B).
+    case "interruptConditionLapsed":
+      return {
+        text: cap(`${card(event.instanceId)}'s interrupt does not resolve: the damage it was to answer has changed.`),
+        voice: "player",
+      };
+    // docs/phase7-wave10-box-heroes.md B3.3 (Skrull Business): taken away from the discard, still counted as discarded.
+    case "deckDiscardStillCounted":
+      return {
+        text:
+          event.takenByInstanceId === null
+            ? cap(`${card(event.instanceId)} was taken from the discard pile and still counts as discarded.`)
+            : cap(
+                `${card(event.instanceId)} was taken by ${card(event.takenByInstanceId)} and still counts as discarded.`,
+              ),
         voice: "player",
       };
     case "returnedToSeparateDeck":
@@ -336,7 +426,7 @@ function describe(
       return { text: `${who(event.playerId)} ${verb(event.playerId, "take", "takes")} a turn.`, voice: "player" };
     case "formChanged":
       return {
-        text: `${who(event.playerId)} ${event.byEffect ? "was flipped" : "flipped"} to ${event.to === "hero" ? "hero" : "alter-ego"} form.`,
+        text: `${who(event.playerId)} ${event.byEffect ? verb(event.playerId, "were flipped", "was flipped") : "flipped"} to ${event.to === "hero" ? "hero" : "alter-ego"} form.`,
         voice: "player",
       };
     case "cardPlayed":
@@ -666,7 +756,10 @@ function describe(
     case "schemeDefeated":
       return { text: `${card(event.instanceId)} was cleared.`, voice: "player" };
     case "villainStageAdvanced":
-      return { text: `The villain advances to stage ${event.stageIndex + 1}.`, voice: "villain" };
+      return {
+        text: `The ${foeWord(cardOf(state, event.instanceId), { lower: true })} advances to stage ${event.stageIndex + 1}.`,
+        voice: "villain",
+      };
     // The Wrecking Crew's active counter moving to another villain (`state.activeVillainId`) is otherwise silent —
     // no damage, threat or status marks it — so without a line here the board's other three panels lit up ACTIVE
     // for no reason the log ever gave.
@@ -675,7 +768,7 @@ function describe(
         text:
           event.reason === "nextInRow"
             ? `The active counter moves along the row to ${card(event.to)}.`
-            : `The active villain is now ${card(event.to)}.`,
+            : `The active ${foeWord(cardOf(state, event.to), { lower: true })} is now ${card(event.to)}.`,
         voice: "villain",
       };
     // The Collector flipping between its finite front and ∞ back (docs/phase7-wave3.md §3.1) — `hitPointsReset`
@@ -697,12 +790,58 @@ function describe(
     // on a value that has only ever had one shape.
     case "controllerChanged":
       return { text: `${card(event.instanceId)} now follows the first player, ${who(event.to)}.`, voice: "scenario" };
-    case "mainSchemeAdvanced":
-      return { text: `The main scheme advances to stage ${event.stageIndex + 1}.`, voice: "villain" };
+    case "mainSchemeAdvanced": {
+      // The stage's printed number: its index is not that on a card holding several stages of one number, or when the
+      // main scheme deck is chosen stages of the card (docs/phase7-wave10.md §3.2).
+      const scheme = cardOf(state, event.schemeInstanceId ?? state.mainScheme.instanceId);
+      const printed = scheme?.type === "main_scheme" ? scheme.stages[event.stageIndex]?.stageNumber : undefined;
+      return { text: `The main scheme advances to stage ${printed ?? event.stageIndex + 1}.`, voice: "villain" };
+    }
     case "mainSchemeCompleted":
       return { text: `The main scheme is complete.`, voice: "loss" };
-    case "encounterCardRevealed":
+    // docs/phase7-wave10.md §3.2: the stages picked for this game, by name, in the order they are played.
+    case "mainSchemeStagesChosen": {
+      const scheme = cardOf(state, event.schemeInstanceId);
+      const stages = scheme?.type === "main_scheme" ? scheme.stages : [];
+      const names = event.order.map(
+        (index) => stages[index]?.name ?? `stage ${stages[index]?.stageNumber ?? index + 1}`,
+      );
+      return { text: `Main scheme stages for this game: ${names.join(", then ")}.`, voice: "scenario" };
+    }
+    // docs/phase7-wave10.md §3.19 (MC56 p. 20): a permanent attachment (Cap's Shield) whose holder left play moves on.
+    case "permanentAttachmentRehosted":
+      return {
+        text:
+          event.fromInstanceId === null
+            ? `${card(event.instanceId)} is attached to ${faceUpName(state, event.hostInstanceId)}.`
+            : `${card(event.instanceId)} moves from ${faceUpName(state, event.fromInstanceId)} to ${faceUpName(state, event.hostInstanceId)}.`,
+        voice: "villain",
+      };
+    // docs/phase7-wave10.md §3.10: a defeated minion given to a foe as a facedown boost card. It was seen when it was
+    // defeated, so its name is said; a boost card dealt from a deck is never named.
+    case "boostCardDealt": {
+      if (!event.outsideActivation) return null;
+      const seen = burst?.events.some(
+        (other) => other.type === "characterDefeated" && other.instanceId === event.instanceId,
+      );
+      return {
+        text: seen
+          ? `${cardOf(state, event.instanceId)?.name ?? "A card"} was given to ${faceUpName(state, event.enemyInstanceId)} as a facedown boost card.`
+          : `${faceUpName(state, event.enemyInstanceId)} was dealt a facedown boost card.`,
+        voice: "scenario",
+      };
+    }
+    case "encounterCardRevealed": {
+      // A Labor card is an encounter card its owner's identity holds in a separate deck (H3.1): say which deck.
+      const owned = getInstance(state, event.instanceId);
+      if (isOwnedEncounterCard(state, event.instanceId) && owned?.home.kind === "separateDeck" && owned.ownerId) {
+        return {
+          text: `${who(event.playerId)} revealed ${card(event.instanceId)} from ${owned.ownerId === viewer ? "your" : `${who(owned.ownerId)}'s`} ${owned.home.name} deck.`,
+          voice: "villain",
+        };
+      }
       return { text: `${who(event.playerId)} revealed ${card(event.instanceId)}.`, voice: "villain" };
+    }
     case "surgeTriggered":
       return {
         // Owner decision 22B: a surge deals a facedown encounter card that waits for the reveal step.
@@ -726,6 +865,23 @@ function describe(
       };
     case "overkillSpilled":
       return { text: `Overkill: ${event.amount} damage spills to ${card(event.toInstanceId)}.`, voice: "player" };
+    // MC56 p. 6: a choice the first player made for "the enemy team" (the grim rule). The chosen names come from the
+    // matching `choiceRequested` earlier in the same burst; without it the line says only who decided.
+    case "choiceResolved": {
+      if (!event.onBehalfOf) return null;
+      const requested = burst?.events.find(
+        (other) => other.type === "choiceRequested" && other.choice.choiceId === event.choiceId,
+      );
+      const options = requested?.type === "choiceRequested" ? requested.choice.options : null;
+      if (!options)
+        return { text: `The enemy team's choice was decided by ${who(event.playerId)}.`, voice: "scenario" };
+      const chosen = event.selectedOptionIds.map((id) => {
+        const option = options.find((o) => o.optionId === id);
+        return option ? optionLabelOf(state, option) : id;
+      });
+      const named = chosen.length === 0 ? "nothing" : chosen.join(chosen.length === 2 ? " and " : ", ");
+      return { text: `The enemy team (decided by ${who(event.playerId)}) chose ${named}.`, voice: "scenario" };
+    }
     case "firstPlayerChanged":
       return {
         text: `${who(event.playerId)} ${verb(event.playerId, "are", "is")} the first player.`,
@@ -759,7 +915,11 @@ function describe(
       return { text: `A facedown ${event.as} entered play engaged with ${who(event.playerId)}.`, voice: "villain" };
     case "gameEnded":
       return {
-        text: outcomeText(event.outcome, card),
+        text: outcomeText(
+          event.outcome,
+          card,
+          foeWord(cardOf(state, activeVillain(state).instanceId), { lower: true }),
+        ),
         // A concession is neither a win nor a defeat (the RRG has no concede rule; see `GameOutcome`), so it takes
         // the neutral voice rather than being colored as a loss.
         voice: event.outcome.result === "win" ? "win" : event.outcome.result === "conceded" ? "scenario" : "loss",
@@ -978,7 +1138,7 @@ function describe(
     // docs/phase7-wave8.md §3.7: villains laid out in a row, left to right.
     case "villainRowSet":
       return {
-        text: `Villains in a row, left to right: ${event.order.map((id) => card(id)).join(", ")}.`,
+        text: `${foeWord(event.order[0] ? cardOf(state, event.order[0]) : undefined, { plural: true })} in a row, left to right: ${event.order.map((id) => card(id)).join(", ")}.`,
         voice: "scenario",
       };
     // docs/phase7-wave8.md §3.39 / §3.71: a raised moment is bookkeeping, except one that carries a count of cards
@@ -1125,6 +1285,18 @@ function describe(
         text: `${card(event.characterInstanceId)} does not defend: the extra cost was not paid.`,
         voice: "player",
       };
+    // docs/phase7-wave10-hero-packs.md H3.16: an extra cost to attack one enemy (Brother vs. Brother). The discard
+    // itself has no line, so this one says why a card left the hand.
+    case "additionalAttackCostPaid":
+      return {
+        text: `${who(event.playerId)} paid the extra cost of ${card(event.sourceInstanceId)} to attack ${card(event.targetInstanceId)}.`,
+        voice: "player",
+      };
+    case "additionalAttackCostNotPaid":
+      return {
+        text: `The extra cost of ${card(event.sourceInstanceId)} to attack ${card(event.targetInstanceId)} was not paid.`,
+        voice: "player",
+      };
 
     // §3.29 (b): Baron Zemo's accusation. The guess and the mole are open to every player (the pile was turned faceup
     // just before `moleIdentified`), so the board members may be named.
@@ -1244,6 +1416,33 @@ function describe(
         text: `${who(event.playerId)} ${verb(event.playerId, "spend", "spends")} ${card(event.instanceId)} from under ${card(event.hostInstanceId)}.`,
         voice: "player",
       };
+    // A card spent from a hand that is not the acting player's, while a card is played or an ability used: another
+    // player is helping pay (an Alliance card, Coordinated Effort's "any player may help pay"). Every other hand
+    // discard (a cost the player pays, an effect) stays silent here, as it always did.
+    case "cardDiscardedFromHand": {
+      const step = state.step;
+      const active = step.phase === "player" && step.kind === "turn" ? step.activePlayerId : null;
+      const paying = burst?.events.some((other) => other.type === "cardPlayed" || other.type === "abilityResolved");
+      if (!paying || active === null || event.playerId === active) return null;
+      return {
+        text: `${who(event.playerId)} ${verb(event.playerId, "discard", "discards")} ${card(event.instanceId)} to help pay.`,
+        voice: "player",
+      };
+    }
+    // Hero packs H3.19: another player pays a part of a cost in the user's place (Coordinated Effort).
+    case "costPartPaidBy": {
+      const parts = {
+        damageSelf: "the damage",
+        indirectDamage: "the indirect damage",
+        discardFromDeck: "the discard from the deck",
+        discardRandomFromHand: "the random discard from hand",
+        dealEncounterCards: "the encounter card dealt",
+      } as const;
+      return {
+        text: `${who(event.helperId)} ${verb(event.helperId, "help", "helps")} pay for ${card(event.sourceInstanceId)}: ${parts[event.part]}.`,
+        voice: "player",
+      };
+    }
     // §3.41: a reveal replaced by other reveals (each logs its own `encounterCardRevealed`).
     case "revealReplaced":
       return {
@@ -1293,7 +1492,9 @@ function plainRuleText(text: string): string {
 
 /** A card's type as a word for a log sentence: "minion", "villain", "side scheme". */
 function typeWord(state: GameState, id: InstanceId): string {
-  return (cardOf(state, id)?.type ?? "card").replace(/_/g, " ");
+  const card = cardOf(state, id);
+  if (card?.type === "villain") return foeWord(card, { lower: true });
+  return (card?.type ?? "card").replace(/_/g, " ");
 }
 
 /**
@@ -1388,12 +1589,13 @@ const outcomeText = (
     readonly causeInstanceId?: InstanceId;
   },
   card: (id: InstanceId) => string,
+  foe = "villain",
 ): string => {
   switch (outcome.reason) {
     case "villainDefeated":
-      return "The villain is defeated. You win.";
+      return `The ${foe} is defeated. You win.`;
     case "allVillainsDefeated":
-      return "Every villain is defeated. You win.";
+      return `Every ${foe} is defeated. You win.`;
     case "mainSchemeCompleted":
       return "The main scheme completed. You lose.";
     case "playerConceded":

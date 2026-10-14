@@ -56,7 +56,7 @@ import {
 } from "../../view/in-play-cost-choice.js";
 import { inPlayCostPanelOf, seatOptionsOf, seatPanelOf } from "../../view/pick-panels.js";
 import { focusOrder, type FocusTarget } from "../../view/focus.js";
-import { undoOf, type UndoOffer } from "../../view/undo.js";
+import { undoOf, undoneSummary, UNDO_REASONS, type UndoOffer } from "../../view/undo.js";
 import {
   abilityActionsFor,
   legalEntriesOf,
@@ -69,8 +69,10 @@ import {
   allianceHelpersOf,
   beginPayment,
   paymentView,
+  setPaymentX,
   toggleCostReduction,
   togglePayment,
+  type PaymentState,
   type PaymentView,
 } from "../../view/payment-model.js";
 import { targetingPanelOf, type TargetingPanel, type TargetingSource } from "../../view/targeting-panel.js";
@@ -78,8 +80,24 @@ import { hintsFor, type Hint, type HintTrigger } from "../../view/guide-hints.js
 import { guidePrefs } from "../../guide/guide-store.js";
 import { GuideGateHolder, type GuideGate } from "./guide-gate.js";
 import { BASIC_TO_KIND, basicKindOf, retarget, type Selection } from "./selection.js";
-import { costPickSlot, needsPlayAim, playAimPrompt } from "../../view/play-aim.js";
+import {
+  costPickSlot,
+  needsPlayAim,
+  paymentAimOf,
+  playAimPrompt,
+  searchedPickFor,
+  type SearchedPickView,
+} from "../../view/play-aim.js";
 import { actionAbilityCost } from "../../view/cost-choice-model.js";
+import { refusedAbilityLine } from "../../view/ability-refusal.js";
+import {
+  consentHelpersOf,
+  costHelpPromptsFor,
+  costPartDid,
+  withCostHelpAnswers,
+  withEntryPayers,
+  type CostHelpPrompt,
+} from "../../view/cost-help-model.js";
 import {
   paymentIntoOf,
   playDestinationChoice,
@@ -87,6 +105,9 @@ import {
   type PlayDestinationChoice,
   type PlayDestinationOption,
 } from "../../view/play-destination.js";
+
+const optionalSelection = (selection: CostSelection | undefined): { readonly costSelection?: CostSelection } =>
+  selection ? { costSelection: selection } : {};
 
 /** The scenario play area a hand play is aimed at (`playCard.into`), or undefined for the player's own area. */
 const intoOf = (entry: LegalAction): string | undefined =>
@@ -151,6 +172,8 @@ export interface AllianceHelpView {
   readonly playerId: PlayerId;
   readonly heroName: string;
   readonly cardNames: readonly string[];
+  /** The parts of the cost this helper is asked to pay ("the damage"); empty when only cards are used. */
+  readonly partNames: readonly string[];
   readonly remaining: number;
   readonly total: number;
 }
@@ -230,9 +253,20 @@ function thwartStat(state: GameState, action: LegalAction, id: InstanceId): stri
   return suffix === null ? statSuffix(state, id, "THW") : ` ${suffix}`;
 }
 
+/** How long a notice beside Undo stays, and the pause after an undo in which another is ignored. */
+const UNDO_NOTICE_MS = 3500;
+const UNDO_COOLDOWN_MS = 350;
+
 export class BoardController {
   readonly #host: BoardControllerHost;
   #selection: Selection = { kind: "idle" };
+  #undoHover = false;
+  #undoFocus = false;
+  #undoNotice: string | null = null;
+  #undoNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while an undo's rewind is in flight; `#undoSettledAt` is when the last one finished. */
+  #undoing = false;
+  #undoSettledAt = 0;
   /**
    * Set when the board is showing a replayed state rather than the live
    * session — the minimal safe seam S7 leaves for W4's "jump to a moment"
@@ -317,7 +351,11 @@ export class BoardController {
     }
     if (this.#selection.kind === "paying") {
       return focusOrder(
-        { kind: "paying", sources: this.#selection.payment.query.sources.map((source) => source.instanceId) },
+        {
+          kind: "paying",
+          sources: this.#selection.payment.query.sources.map((source) => source.instanceId),
+          ...(this.#selection.payment.xRange ? { x: true as const } : {}),
+        },
         marks,
       );
     }
@@ -334,7 +372,11 @@ export class BoardController {
     if (this.#selection.kind === "choosingController") {
       return focusOrder({ kind: "targeting", targets: this.#seatTiles(this.#selection.controllers) }, marks);
     }
-    if (this.#selection.kind === "choosingAbility" || this.#selection.kind === "choosingDestination") {
+    if (
+      this.#selection.kind === "choosingAbility" ||
+      this.#selection.kind === "choosingDestination" ||
+      this.#selection.kind === "choosingSearched"
+    ) {
       const { action } = this.#selection.entry;
       return focusOrder({ kind: "targeting", targets: action.kind === "playCard" ? [action.instanceId] : [] }, marks);
     }
@@ -399,6 +441,10 @@ export class BoardController {
     }
     if (focus.kind === "confirm") {
       void this.confirmInPlayCost();
+      return;
+    }
+    if (focus.kind === "xLess" || focus.kind === "xMore") {
+      this.stepX(focus.kind === "xMore" ? 1 : -1);
       return;
     }
     if (focus.kind === "undo") {
@@ -476,7 +522,11 @@ export class BoardController {
       this.chooseSource(id);
       return true;
     }
-    if (this.#selection.kind === "choosingAbility" || this.#selection.kind === "choosingDestination") {
+    if (
+      this.#selection.kind === "choosingAbility" ||
+      this.#selection.kind === "choosingDestination" ||
+      this.#selection.kind === "choosingSearched"
+    ) {
       // The card being asked about goes back on a second tap; the bar's buttons are the only way to answer.
       const { action } = this.#selection.entry;
       if (action.kind === "playCard" && action.instanceId === id) this.cancel();
@@ -643,7 +693,7 @@ export class BoardController {
     // payment decision; only a free one goes straight to the engine.
     if (action.needsPayment && this.#openPayment(action, id)) return;
     const { game } = appSession().store.state;
-    await this.#dispatch(game ? retarget(game, action.example, id) : action.example);
+    await this.#send(game ? retarget(game, action.example, id) : action.example);
   }
 
   /**
@@ -724,6 +774,20 @@ export class BoardController {
     return { subject: cardName(game, action.instanceId), options: this.#selection.options };
   }
 
+  /** The searched-minion list: the card being played and each minion the search found, with its area, or null. */
+  searchedPick(): SearchedPickView | null {
+    return this.#selection.kind === "choosingSearched" ? this.#selection.pick : null;
+  }
+
+  /** The list's answer: the play goes on with that minion in the cost's slot, as a board pick would. */
+  async chooseSearched(instanceId: InstanceId): Promise<void> {
+    if (this.#readOnly || this.#selection.kind !== "choosingSearched") return;
+    const { entry, pick, controllerId, confirmFree } = this.#selection;
+    if (!pick.options.some((option) => option.instanceId === instanceId)) return;
+    this.#selection = { kind: "idle" };
+    await this.#playAs(entry, controllerId, confirmFree, instanceId);
+  }
+
   /** The "Where?" bar: the ally being played and each place it may go, with its price there, or null when not open. */
   destinationChoice(): DestinationChoiceView | null {
     return this.#selection.kind === "choosingDestination" ? this.#selection.choice : null;
@@ -745,6 +809,7 @@ export class BoardController {
   }
 
   async #playEntry(entry: LegalAction, confirmFree: boolean): Promise<void> {
+    if (this.#tryOpenCostHelp(entry, { play: { confirmFree } })) return;
     // "Discard X cards from your hand" (Shield Toss, `03006`) is a real
     // decision the engine's `example` only guessed the minimum answer to —
     // see `#tryOpenDiscardChoice`. Checked before the controller picker below
@@ -813,6 +878,13 @@ export class BoardController {
   ): Promise<void> {
     const { game } = appSession().store.state;
     if (target === null && needsPlayAim(entry) && game) {
+      // A search cost (Hunted): its candidates are in the encounter deck, not on the board, so a list asks.
+      const pick = searchedPickFor(game, POOL_DEPS, entry);
+      if (pick) {
+        this.#selection = { kind: "choosingSearched", entry, pick, controllerId, confirmFree };
+        this.#host.redraw();
+        return;
+      }
       this.#selection = {
         kind: "targeting",
         action: entry,
@@ -837,7 +909,12 @@ export class BoardController {
     }
     if (this.#tryOpenCostChoice(entry, target, controllerId)) return;
     if (this.#tryOpenInPlayCost(entry, target, controllerId)) return;
-    if (entry.needsPayment && this.#openPayment(entry, target, controllerId, undefined, undefined, destinationNote)) {
+    // A pick for a cost that searches the encounter deck (Hunted) is a cost choice, not a host (`view/play-aim.ts`).
+    const aim = game ? paymentAimOf(game, POOL_DEPS, entry.action, target) : { target };
+    if (
+      entry.needsPayment &&
+      this.#openPayment(entry, aim.target, controllerId, undefined, aim.costChoices, destinationNote)
+    ) {
       return;
     }
     if (confirmFree) {
@@ -846,7 +923,7 @@ export class BoardController {
       return;
     }
     const aimed = target !== null && game ? retarget(game, entry.example, target) : entry.example;
-    await this.#dispatch(withController(aimed, controllerId));
+    await this.#send(withController(aimed, controllerId));
   }
 
   /** Every `useAbility` entry `legalActions` currently lists for one card, in order. */
@@ -882,6 +959,7 @@ export class BoardController {
    * `legalActions` and `paymentFor` already did.
    */
   #useAbility(entry: UsableAbilityAction): void {
+    if (this.#tryOpenCostHelp(entry, "ability")) return;
     if (this.#tryOpenDiscardChoice(entry)) return;
     if (entry.targets.length > 1) {
       const { game } = appSession().store.state;
@@ -903,7 +981,7 @@ export class BoardController {
     if (this.#tryOpenCostChoice(entry, target, null)) return;
     if (this.#tryOpenInPlayCost(entry, target, null)) return;
     if (entry.needsPayment && this.#openPayment(entry, target)) return;
-    void this.#dispatch(entry.example);
+    void this.#send(entry.example);
   }
 
   /**
@@ -932,6 +1010,18 @@ export class BoardController {
         ? (abilityShortLabelOf(game, instanceId, abilities[0]!.action.abilityId, POOL_DEPS) ?? "use")
         : `${abilities.length} abilities — tap to see`;
     return `▶ ${text}`;
+  }
+
+  /**
+   * Why an ability on this card cannot be used right now, one line each, for the abilities the engine refused because a
+   * printed condition is unmet (New Labors of Hercules with a Labor card in play). The card's own strips carry them.
+   */
+  refusedAbilityLines(instanceId: InstanceId): readonly string[] {
+    if (this.#readOnly) return [];
+    const ids = this.#host.marks()?.refusedAbilities?.get(instanceId);
+    const { game, perspectiveId } = appSession().store.state;
+    if (!ids || !game || perspectiveId === null) return [];
+    return ids.map((id) => refusedAbilityLine(game, instanceId, perspectiveId, id, POOL_DEPS, ids.length > 1));
   }
 
   /**
@@ -980,8 +1070,7 @@ export class BoardController {
     if (this.#readOnly) return;
     const view = this.discardChoiceView();
     if (!view?.command) return;
-    this.#selection = { kind: "idle" };
-    await this.#dispatch(view.command);
+    await this.#send(view.command);
   }
 
   /**
@@ -1006,7 +1095,7 @@ export class BoardController {
       target,
       POOL_DEPS,
       controllerId,
-      costSelection,
+      withEntryPayers(entry, costSelection),
       costChoices,
       entry.example.type === "playCard" ? entry.example.abilityId : undefined,
       intoOf(entry),
@@ -1106,13 +1195,13 @@ export class BoardController {
       {
         target,
         ...(controllerId ? { controllerId } : {}),
-        ...(costSelection ? { costSelection } : {}),
+        ...optionalSelection(withEntryPayers(action, costSelection)),
         costChoices,
         ...paymentIntoOf({ into: intoOf(action) ?? null }),
       },
       POOL_DEPS,
     );
-    if (attempt.ok) await this.#dispatch(attempt.command);
+    if (attempt.ok) await this.#send(attempt.command);
     else this.#host.redraw();
   }
 
@@ -1147,12 +1236,12 @@ export class BoardController {
       {
         target,
         ...(controllerId ? { controllerId } : {}),
-        costSelection,
+        ...optionalSelection(withEntryPayers(action, costSelection)),
         ...paymentIntoOf({ into: intoOf(action) ?? null }),
       },
       POOL_DEPS,
     );
-    if (attempt.ok) await this.#dispatch(attempt.command);
+    if (attempt.ok) await this.#send(attempt.command);
   }
 
   /** Tapping a card during payment spends it, if the engine listed it as spendable. */
@@ -1191,7 +1280,23 @@ export class BoardController {
   /** Spends or un-spends one source. The engine re-judges the whole selection. */
   #togglePayment(optionId: string): void {
     if (this.#selection.kind !== "paying") return;
+    // The view decides what is held (an overpay-only source before the cost is covered), never this scene.
+    if (this.paymentView()?.sources.find((source) => source.optionId === optionId)?.lockedReason) return;
     this.#selection = { kind: "paying", payment: togglePayment(this.#selection.payment, optionId) };
+    this.#host.redraw();
+  }
+
+  /** The X picker's minus (-1) and plus (+1): the payment is priced again at the new X, the picked sources kept where valid. */
+  stepX(delta: number): void {
+    if (this.#readOnly || this.#selection.kind !== "paying") return;
+    const { payment } = this.#selection;
+    if (payment.x === undefined) return;
+    const { game, perspectiveId } = appSession().store.state;
+    if (!game || perspectiveId === null) return;
+    this.#selection = {
+      kind: "paying",
+      payment: setPaymentX(game, perspectiveId, payment, payment.x + delta, POOL_DEPS),
+    };
     this.#host.redraw();
   }
 
@@ -1244,41 +1349,45 @@ export class BoardController {
     if (this.#selection.kind !== "paying") return;
     const payment = this.paymentView();
     if (!payment?.command) return;
-    // An alliance payment that spends another seat's card (RRG 1.8 "Alliance", p. 6): each of those players
-    // approves their own contribution before the command goes anywhere (docs/phase7-wave4.md §4 Q10). Hot-seat —
-    // `allianceHelpersOf`'s own doc comment on why this is a same-device prompt, not a network request.
-    const { store } = appSession();
-    const { game, perspectiveId } = store.state;
-    if (game && perspectiveId !== null) {
-      const helpers = allianceHelpersOf(game, perspectiveId, this.#selection.payment);
-      if (helpers.length > 0) {
-        this.#selection = {
-          kind: "confirmingAllianceHelp",
-          payment: this.#selection.payment,
-          helpers: helpers.map((helper) => helper.playerId),
-          approved: [],
-        };
-        this.#host.redraw();
-        return;
-      }
+    // A payment that spends another seat's card (RRG 1.8 "Alliance", p. 6) or hands one of them a part of the cost
+    // (`costSelection.paidBy`): each of those players agrees to their own share before the command goes anywhere
+    // (docs/phase7-wave4.md §4 Q10). Hot-seat: `allianceHelpersOf`'s own doc comment on why this is a same-device prompt.
+    await this.#send(payment.command, this.#selection.payment);
+  }
+
+  /**
+   * Sends a command, after each other player it takes something from has agreed: their hand or resource cards a
+   * payment spends (`allianceHelpersOf`), the cards it names as cost picks, and the parts of the cost handed to them
+   * (`consentHelpersOf`). A command that touches only the payer's own things goes straight out.
+   */
+  async #send(command: Command, payment: PaymentState | null = null): Promise<void> {
+    const { game, perspectiveId } = appSession().store.state;
+    const helpers =
+      game && perspectiveId !== null
+        ? consentHelpersOf(game, perspectiveId, command, payment ? allianceHelpersOf(game, perspectiveId, payment) : [])
+        : [];
+    if (helpers.length === 0) {
+      this.#selection = { kind: "idle" };
+      await this.#dispatch(command);
+      return;
     }
-    this.#selection = { kind: "idle" };
-    await this.#dispatch(payment.command);
+    this.#selection = { kind: "confirmingAllianceHelp", payment, command, helpers, approved: [] };
+    this.#host.redraw();
   }
 
   /** The helper currently being asked, or null outside that mode — `#drawAllianceHelpBar`'s own input. */
   allianceHelpView(): AllianceHelpView | null {
     if (this.#selection.kind !== "confirmingAllianceHelp") return null;
-    const { game, perspectiveId } = appSession().store.state;
-    if (!game || perspectiveId === null) return null;
-    const { payment, helpers, approved } = this.#selection;
-    const playerId = helpers[approved.length];
-    if (playerId === undefined) return null;
-    const contributions = allianceHelpersOf(game, perspectiveId, payment).find((h) => h.playerId === playerId);
+    const { game } = appSession().store.state;
+    if (!game) return null;
+    const { helpers, approved } = this.#selection;
+    const helper = helpers[approved.length];
+    if (helper === undefined) return null;
     return {
-      playerId,
-      heroName: seatIdentityName(game, playerId),
-      cardNames: (contributions?.instanceIds ?? []).map((id) => cardName(game, id)),
+      playerId: helper.playerId,
+      heroName: seatIdentityName(game, helper.playerId),
+      cardNames: helper.instanceIds.map((id) => cardName(game, id)),
+      partNames: helper.parts.map(costPartDid),
       remaining: helpers.length - approved.length,
       total: helpers.length,
     };
@@ -1287,50 +1396,139 @@ export class BoardController {
   /** The current helper hands the controller back: their contribution is approved. Sends the command once every helper has approved. */
   async approveAllianceHelp(): Promise<void> {
     if (this.#readOnly || this.#selection.kind !== "confirmingAllianceHelp") return;
-    const { payment, helpers, approved } = this.#selection;
-    const playerId = helpers[approved.length];
-    if (playerId === undefined) return;
-    const nextApproved = [...approved, playerId];
+    const { payment, command, helpers, approved } = this.#selection;
+    const helper = helpers[approved.length];
+    if (helper === undefined) return;
+    const nextApproved = [...approved, helper.playerId];
     if (nextApproved.length < helpers.length) {
-      this.#selection = { kind: "confirmingAllianceHelp", payment, helpers, approved: nextApproved };
+      this.#selection = { kind: "confirmingAllianceHelp", payment, command, helpers, approved: nextApproved };
       this.#host.redraw();
       return;
     }
-    const { store } = appSession();
-    const { game, perspectiveId } = store.state;
-    if (!game || perspectiveId === null) {
-      this.#selection = { kind: "idle" };
-      this.#host.redraw();
-      return;
-    }
-    const view = paymentView(game, perspectiveId, payment, "", POOL_DEPS);
     this.#selection = { kind: "idle" };
-    if (view.command) await this.#dispatch(view.command);
-    else this.#host.redraw();
+    await this.#dispatch(command);
   }
 
   /**
    * The current helper says no. RRG 1.8 "Alliance" (p. 6) makes each contribution that player's own choice, so
    * declining doesn't end the play — it returns the payer to payment selection with the same picks, so they can
-   * choose different cards to spend instead (docs/phase7-wave4.md §4 Q10).
+   * choose different cards to spend instead (docs/phase7-wave4.md §4 Q10). A command with no payment to go back to
+   * (an ability with no resource cost, a discard pick) is dropped, and the player starts the use again.
    */
   declineAllianceHelp(): void {
     if (this.#readOnly || this.#selection.kind !== "confirmingAllianceHelp") return;
-    this.#selection = { kind: "paying", payment: this.#selection.payment };
+    const { payment } = this.#selection;
+    this.#selection = payment ? { kind: "paying", payment } : { kind: "idle" };
     this.#host.redraw();
   }
 
   /**
+   * Opens the "who pays?" questions of an ability whose cost any player may help pay (`LegalAction.costHelp`). False
+   * when there is nothing to ask (no shareable part, or only the user can pay it), so the use goes on as before.
+   * The answered entry is what `#playEntry` / `#useAbility` continue with, so the question is asked once.
+   */
+  #tryOpenCostHelp(
+    entry: LegalAction,
+    resume: "ability" | { readonly play: { readonly confirmFree: boolean } },
+  ): boolean {
+    if (!entry.costHelp || this.#helpAnswered.has(entry)) return false;
+    const { game } = appSession().store.state;
+    if (!game) return false;
+    const prompts = costHelpPromptsFor(game, entry, POOL_DEPS);
+    if (prompts.length === 0) return false;
+    this.#selection = { kind: "choosingCostHelp", entry, prompts, answers: [], resume };
+    this.#host.redraw();
+    return true;
+  }
+
+  /** Entries whose questions are answered: asked once per use, not again at each later step. */
+  readonly #helpAnswered = new WeakSet<LegalAction>();
+
+  /** The question open now ("Who takes the damage?") with who can answer it, or null outside that mode. */
+  costHelpView(): CostHelpPrompt | null {
+    if (this.#selection.kind !== "choosingCostHelp") return null;
+    return this.#selection.prompts[this.#selection.answers.length] ?? null;
+  }
+
+  /** Answers the open question: `payerId` pays that part. The last answer carries the use on. */
+  async chooseCostHelper(payerId: PlayerId): Promise<void> {
+    if (this.#readOnly || this.#selection.kind !== "choosingCostHelp") return;
+    const { entry, prompts, answers, resume } = this.#selection;
+    const prompt = prompts[answers.length];
+    if (!prompt || !prompt.options.some((option) => option.playerId === payerId)) return;
+    const next = [...answers, [prompt.part, payerId] as const];
+    if (next.length < prompts.length) {
+      this.#selection = { ...this.#selection, answers: next };
+      this.#host.redraw();
+      return;
+    }
+    const answered = withCostHelpAnswers(entry, next);
+    this.#helpAnswered.add(answered);
+    this.#selection = { kind: "idle" };
+    if (resume === "ability") this.#useAbility(answered as UsableAbilityAction);
+    else await this.#playEntry(answered, resume.play.confirmFree);
+  }
+
+  /**
    * Undo (`view/undo.ts`): what the action bar's Undo button offers right now, or null when it isn't offered at all
-   * (someone else's turn, an off-turn seat on show, a choice open).
+   * (someone else's turn, an off-turn seat on show, a choice open). While any selection is open (a payment, a cost
+   * choice, the cost-help prompt, the consent walk, an aim, the X stepper, the Hunted sheet, a which-one sheet) it is
+   * offered greyed with the reason "finish or cancel what you're doing first": Escape / Cancel closes the selection
+   * and only that, so Undo never does both (the QA's F2: Z cancelled a payment and took the move before it back).
    */
   undoOffer(): UndoOffer | null {
     const { game, perspectiveId, commandTrail, offTurnSeat } = appSession().store.state;
     if (!game || !perspectiveId || offTurnSeat !== null) return null;
-    return undoOf(commandTrail, game, perspectiveId);
+    const offer = undoOf(commandTrail, game, perspectiveId);
+    if (offer && this.#selection.kind !== "idle") return { kind: "unavailable", reason: UNDO_REASONS.selecting };
+    return offer;
   }
 
-  /** Takes back the active hero's last move this turn, when `undoOffer` allows it. Closes whatever mode was open. */
+  /**
+   * The line the board draws beside Undo, or null: the notice of a press / Z / an undo just made, else the reason
+   * Undo is greyed while the pointer is on it or the keyboard focus is.
+   */
+  undoWhy(): string | null {
+    if (this.#undoNotice) return this.#undoNotice;
+    if (!this.#undoHover && !this.#undoFocus) return null;
+    const offer = this.undoOffer();
+    return offer?.kind === "unavailable" ? offer.reason : null;
+  }
+
+  /** The pointer entered or left the Undo button. No redraw: the bar toggles its own label (a redraw would destroy the button under the pointer). */
+  setUndoHover(over: boolean): void {
+    this.#undoHover = over;
+  }
+
+  /** Keyboard focus moved onto or off the Undo button (the board redraws right after). */
+  setUndoFocus(on: boolean): void {
+    this.#undoFocus = on;
+  }
+
+  /** Shows `text` beside Undo for a few seconds. */
+  #noteUndo(text: string): void {
+    if (this.#undoNoticeTimer !== null) clearTimeout(this.#undoNoticeTimer);
+    this.#undoNotice = text;
+    this.#undoNoticeTimer = setTimeout(() => {
+      this.#undoNoticeTimer = null;
+      this.#undoNotice = null;
+      this.#host.redraw();
+    }, UNDO_NOTICE_MS);
+    this.#host.redraw();
+  }
+
+  /** Stops the notice timer when the board goes away. */
+  dispose(): void {
+    if (this.#undoNoticeTimer !== null) clearTimeout(this.#undoNoticeTimer);
+    this.#undoNoticeTimer = null;
+    this.#undoNotice = null;
+  }
+
+  /**
+   * Takes back the active hero's last move this turn, when `undoOffer` allows it, and says what it took back
+   * ("Undid: played Backflip"). A press (or Z, or Enter) while it is greyed says why instead. One undo at a time: a
+   * second press while one is in flight, or in the moment after one, is ignored, so two undos are two deliberate steps.
+   */
   async undo(): Promise<void> {
     if (this.#readOnly) return;
     // A guided step teaching one control keeps Undo inert, the same as any other control it doesn't name.
@@ -1339,9 +1537,21 @@ export class BoardController {
       return;
     }
     const offer = this.undoOffer();
-    if (offer?.kind !== "available") return;
-    this.#selection = { kind: "idle" };
-    await appSession().store.rewindTo(offer.target);
+    if (!offer) return;
+    if (offer.kind === "unavailable") {
+      this.#noteUndo(offer.reason);
+      return;
+    }
+    if (this.#undoing || Date.now() < this.#undoSettledAt + UNDO_COOLDOWN_MS) return;
+    this.#undoing = true;
+    try {
+      const { game } = appSession().store.state;
+      const what = game ? undoneSummary(offer.command, (id) => cardName(game, id)) : "last move";
+      if (await appSession().store.rewindTo(offer.target)) this.#noteUndo(`Undid: ${what}`);
+    } finally {
+      this.#undoing = false;
+      this.#undoSettledAt = Date.now();
+    }
   }
 
   async dispatchExample(kind: BasicAction): Promise<void> {

@@ -5,6 +5,7 @@ import {
   isResourcesChoice,
   hearsEncounterDeckDiscard,
   MOMENT_PREFIX,
+  PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
   UNRESOLVED_VAR,
   type AbilityCost,
@@ -67,7 +68,9 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkEncounterDeckDiscard(definition, problems);
   checkSchemeDivert(definition, problems);
   checkCardTotals(definition, problems);
+  checkFinds(definition, problems);
   checkPreparations(definition, problems);
+  checkBorrowedBoosts(definition, problems);
   checkAttackPrevention(definition, problems);
   checkRearranges(definition, problems);
   checkRandomPicks(definition, "definition", problems);
@@ -75,16 +78,68 @@ export function validateDefinition(definition: AbilityDefinition): readonly stri
   checkHiddenPiles(definition, problems);
   checkCampaignLogReads(definition, "definition", problems);
   checkPlays(definition, problems);
+  checkNextCardCost(definition, problems);
+  checkOwnerZones(definition, "definition", problems);
+  checkCollectionSearches(definition, "definition", problems);
   checkTuckReplacement(definition, problems);
   checkAttachReplacement(definition, problems);
   checkLeaveReplacement(definition, problems);
+  checkBoostCardDestination(definition, problems);
+  checkTraitReveal(definition, problems);
+  checkAttackUsedAtk(definition, problems);
+  checkAttackKeywordLoss(definition, "definition", problems);
   checkCounterDivision(definition, problems);
   checkSpendX(definition, problems);
   checkPod(definition, problems);
+  checkCompetitiveOnly(definition.effects, false, problems);
   checkCost(definition, problems);
+  checkAttackCostRules(definition, problems);
+  checkSharedCostRules(definition, problems);
   checkScaled(definition, "definition", problems);
   checkBindings(definition, problems);
   return problems;
+}
+
+/**
+ * `RuleSpec costsPayableByAnyPlayer` (docs/phase7-wave10-hero-packs.md H3.19): the rule names the cards whose
+ * abilities' costs any player may help pay. A query with no clause matches every card in play, which would open every cost on
+ * the table to every player; no card prints that, so the slip (`costsPayableByAnyPlayer({})`) is rejected.
+ */
+function checkSharedCostRules(definition: AbilityDefinition, problems: string[]): void {
+  const trigger = definition.trigger;
+  if (trigger.kind !== "constant") return;
+  for (const rule of trigger.rules ?? []) {
+    if (rule.kind !== "costsPayableByAnyPlayer") continue;
+    if (Object.keys(rule.card).length === 0)
+      problems.push(
+        "costsPayableByAnyPlayer: the rule names the card whose costs are shared (default: the attached card); an empty query names every card in play",
+      );
+  }
+}
+
+/**
+ * `RuleSpec additionalAttackCost` (docs/phase7-wave10-hero-packs.md H3.16): the cost is paid in a step of its own as
+ * the attack is made (engine `attack-cost.ts`), where only a discard of a fixed number of cards from hand is asked
+ * and paid. Resources, a pick among cards in play and every other cost part have no way to be asked there.
+ */
+function checkAttackCostRules(definition: AbilityDefinition, problems: string[]): void {
+  const trigger = definition.trigger;
+  if (trigger.kind !== "constant") return;
+  for (const rule of trigger.rules ?? []) {
+    if (rule.kind !== "additionalAttackCost") continue;
+    const parts = Object.keys(rule.cost);
+    const discard = rule.cost.discardFromHand;
+    if (parts.length !== 1 || !discard) {
+      problems.push(
+        "additionalAttackCost: the cost is a discard from hand (discardFromHandCost(n, n)); nothing else is paid as an attack is made",
+      );
+      continue;
+    }
+    if (!Number.isInteger(discard.min) || discard.min < 1 || discard.max !== discard.min)
+      problems.push("additionalAttackCost: the discard is of a fixed number of cards, at least 1 (min equal to max)");
+    if (discard.bind !== undefined || discard.combined !== undefined)
+      problems.push("additionalAttackCost: the discard has no bind and no combined threshold (nothing reads them)");
+  }
 }
 
 /**
@@ -146,6 +201,37 @@ function checkPod(definition: AbilityDefinition, problems: string[]): void {
 }
 
 /**
+ * `competitiveOnly` stands for printed text a cooperative game never resolves (docs/phase7-wave10.md §3.4), so it sits
+ * only where the game mode has already been asked: in the `then` of an `if` on `inCompetitiveMode()` (or the
+ * `otherwise` of one on the cooperative mode), at any depth. Anywhere else a cooperative game would reach it and
+ * silently do nothing. It carries the printed sentence, which is what lists it.
+ */
+function checkCompetitiveOnly(effects: readonly EffectSpec[], competitive: boolean, problems: string[]): void {
+  for (const effect of effects) {
+    if (effect.kind === "competitiveOnly") {
+      if (effect.text.trim() === "") problems.push("competitiveOnly: give the printed text it stands for");
+      if (!competitive)
+        problems.push("competitiveOnly: only in the competitive branch of an if on inCompetitiveMode()");
+    }
+    if (effect.kind === "if" && effect.condition.kind === "gameMode") {
+      const whenTrue = effect.condition.is === "competitive";
+      checkCompetitiveOnly(effect.then, competitive || whenTrue, problems);
+      checkCompetitiveOnly(effect.otherwise ?? [], competitive || !whenTrue, problems);
+      continue;
+    }
+    for (const list of nestedLists(effect)) checkCompetitiveOnly(list, competitive, problems);
+  }
+}
+
+/**
+ * The printed text of every `competitiveOnly` marker in an ability, in script order: the competitive clauses the
+ * script names and does not resolve (docs/phase7-wave10.md §3.4).
+ */
+export function competitiveOnlyTexts(definition: AbilityDefinition): readonly string[] {
+  return allEffects(definition.effects).flatMap((effect) => (effect.kind === "competitiveOnly" ? [effect.text] : []));
+}
+
+/**
  * "After a card is discarded from the top of the encounter deck" (docs/phase7-wave9.md §3.43 (b)): the engine gives it
  * a response window only, the deck is no player's (so `playerIs` never matches), and no card answers its own discard
  * from an encounter deck (`inDiscard` is a player deck's).
@@ -198,6 +284,9 @@ function checkCost(definition: AbilityDefinition, problems: string[]): void {
   // The engine asks for the player a cost deals to only as an action is initiated (`AbilityCost.dealEncounterCardsTo`).
   if (definition.trigger.kind !== "action" && looks.some((part) => part.dealEncounterCardsTo))
     problems.push("cost dealEncounterCardsTo: only on an action (a window cannot ask which player is dealt the card)");
+  // The engine asks which character a cost heals only as an action is initiated (`AbilityCost.healCharacter`).
+  if (definition.trigger.kind !== "action" && looks.some((part) => part.healCharacter))
+    problems.push("cost healCharacter: only on an action (a window cannot ask which character is healed)");
   // "Each player exhausts their identity and takes 1 damage →" (`AbilityCost.eachPlayer`, docs/phase7-wave9.md §3.58).
   for (const part of looks) {
     const each = part.eachPlayer;
@@ -379,10 +468,22 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     problems.push("cost damageCards: amount must be a whole number of at least 1");
   // docs/phase7-wave6.md §3.49: "attach it to a character other than Rogue and deal 2 damage to that character →".
   if (cost.attach && cost.attach.to.slot === "") problems.push("cost attach: needs a slot for the host");
+  // docs/phase7-wave10-box-heroes.md B3.1: "search the encounter deck and discard pile for a minion and put it into play".
+  if (cost.searchEncounterIntoPlay) {
+    if (cost.searchEncounterIntoPlay.slot === "")
+      problems.push("cost searchEncounterIntoPlay: needs a slot for the card found");
+    if (cost.searchEncounterIntoPlay.zones.length === 0)
+      problems.push("cost searchEncounterIntoPlay: names the encounter deck, its discard pile or both");
+  }
   if (cost.attach?.bind === "") problems.push("cost attach: bind needs a slot name");
   const dealt = cost.dealDamage?.amount;
   if (dealt !== undefined && (!Number.isInteger(dealt) || dealt < 1))
     problems.push("cost dealDamage: amount must be a whole number of at least 1");
+  // docs/phase7-wave10-hero-packs.md H3.17: "heal 2 damage from an enemy →".
+  const healed = cost.healCharacter;
+  if (healed && (!Number.isInteger(healed.amount) || healed.amount < 1))
+    problems.push("cost healCharacter: amount must be a whole number of at least 1");
+  if (healed && healed.slot === "") problems.push("cost healCharacter: needs a slot for the character healed");
   const dealtTo = cost.dealEncounterCardsTo;
   if (dealtTo && (!Number.isInteger(dealtTo.count) || dealtTo.count < 1))
     problems.push("cost dealEncounterCardsTo: count must be a whole number of at least 1");
@@ -407,8 +508,10 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     ...(cost.encounterLookDiscard ? [cost.encounterLookDiscard.slot] : []),
     ...(cost.discardFromEncounterDeck ? [cost.discardFromEncounterDeck.slot] : []),
     ...(cost.attach ? [cost.attach.to.slot, ...(cost.attach.bind ? [cost.attach.bind] : [])] : []),
+    ...(cost.searchEncounterIntoPlay ? [cost.searchEncounterIntoPlay.slot] : []),
     ...(cost.dealDamage?.choose ? [cost.dealDamage.choose.slot] : []),
     ...(cost.dealEncounterCardsTo ? [cost.dealEncounterCardsTo.slot] : []),
+    ...(cost.healCharacter ? [cost.healCharacter.slot] : []),
     ...inPlayPicksOf(cost).flatMap(({ pick }) => [pick.slot, ...(pick.bindHosts ? [pick.bindHosts] : [])]),
   ];
   if (new Set(slots).size !== slots.length)
@@ -520,13 +623,40 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
   if ((trigger.kind === "interrupt" || trigger.kind === "response") && trigger.on)
     problems.push(...unlistedAlternativeKinds(trigger.on));
   if (trigger.kind === "response" && trigger.on) problems.push(...unreadDamage(trigger.on));
-  if (trigger.kind === "constant" && definition.effects.length > 0) problems.push("a constant ability has no effects");
+  // An additional cost to play (box-heroes B3.1) is the one constant with a cost, and with effects: they resolve as its
+  // card enters play.
+  const additionalPlayCost = trigger.kind === "constant" ? trigger.additionalCostToPlay : undefined;
+  if (trigger.kind === "constant" && definition.effects.length > 0 && !additionalPlayCost)
+    problems.push("a constant ability has no effects");
+  if (additionalPlayCost) {
+    if (!definition.cost) problems.push("an additional cost to play needs the cost");
+    const slot = additionalPlayCost.attachToSlot;
+    if (slot !== undefined && definition.cost?.searchEncounterIntoPlay?.slot !== slot)
+      problems.push(`an additional cost to play attaches to a slot its cost puts into play (${slot})`);
+    // A conditional part is the board's pick, made for the player playing the card (engine `playCostWith`). Resources
+    // and an either/or choice would need the play's payment and its command to carry them, in a branch as outside one.
+    const parts = definition.cost ? costVariants(definition.cost) : [];
+    if (parts.some((part) => part.resources !== undefined || part.either))
+      problems.push("an additional cost to play has no resources or either/or part");
+  }
+  // docs/phase7-wave10.md §3.12: a keyword grant names one keyword, or the cards whose printed keywords are gained.
+  if (trigger.kind === "constant") {
+    for (const grant of trigger.keywordGrants ?? []) {
+      if ((grant.keyword === undefined) === (grant.keywordsOf === undefined))
+        problems.push("a keyword grant needs exactly one of keyword and keywordsOf");
+      else if (grant.keywordsOf !== undefined && (grant.value !== undefined || grant.loses))
+        problems.push("a keywordsOf grant gains keywords as printed: no value, no loses");
+    }
+  }
   if (definition.generates !== undefined && trigger.kind !== "resource")
     problems.push("only resource abilities generate resources");
   // The one limit a constant carries is its `playableTopOfDeck` permission's "once per phase" (docs/phase7-wave8.md
   // §3.49), counted when a card is played under it.
   const permissionLimit = trigger.kind === "constant" && trigger.playableTopOfDeck !== undefined;
-  if (trigger.kind === "constant" && (definition.cost || (definition.limit && !permissionLimit) || definition.label))
+  if (
+    trigger.kind === "constant" &&
+    ((definition.cost && !additionalPlayCost) || (definition.limit && !permissionLimit) || definition.label)
+  )
     problems.push("a constant ability has no cost, limit or label");
   if (permissionLimit && definition.limit?.per === "triggeringEvent")
     problems.push("a playableTopOfDeck limit is per turn, phase or round, not per triggering event");
@@ -546,12 +676,31 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
         "a repeatable resource ability needs a fixed spendCounters cost only, and no limit but one per card paid for",
       );
   }
+  // docs/phase7-wave10.md §3.14: the count is kept for the triggering event's player, so there must be an event.
+  if (definition.limit?.per === "eventPlayer" && trigger.kind !== "interrupt" && trigger.kind !== "response")
+    problems.push("a limit per event player is a triggered ability's: an interrupt or a response");
   // docs/phase7-wave9.md §3.46 (a): "(Limit once per card.)" counts a resource ability's uses in one payment.
   if (definition.limit?.per === "paidCard") {
     if (trigger.kind !== "resource") problems.push("a limit per card paid for is a resource ability's");
     else if (trigger.whenSpent) problems.push("a when-spent ability is used once with its card: no limit per card");
     else if (definition.limit.count > 1 && !trigger.repeatable)
       problems.push("a resource ability used more than once per card paid for must be repeatable");
+  }
+  // docs/phase7-wave10-hero-packs.md H3.14: "generate a resource to overpay for a card" is read in a payment, from a
+  // resource ability on a card in play that generates (a card spent from hand, or a counter spent "as if it were a
+  // resource", goes toward the cost by its own rule).
+  if (definition.overpayOnly) {
+    if (trigger.kind !== "resource") problems.push("overpayOnly is a resource ability's");
+    else if (trigger.whenSpent) problems.push("a when-spent ability generates with its card: it cannot be overpayOnly");
+    else if (trigger.spentAsIfResource)
+      problems.push("a counter spent as if it were a resource is not generated: it cannot be overpayOnly");
+  }
+  // The least X of a printed X cost (the owner's answer 52B, 2026-10-13): read from the ability a play triggers.
+  if (definition.minX !== undefined) {
+    if (!Number.isInteger(definition.minX) || definition.minX < 1)
+      problems.push("minX is a whole number of at least 1 (leave it out for an X that may be 0)");
+    if (trigger.kind !== "action" && trigger.kind !== "interrupt" && trigger.kind !== "response")
+      problems.push("minX is read from the ability a played card triggers: an action, interrupt or response");
   }
   // docs/phase7-wave7.md §3.50: the engine reads a constant's stat modifiers, trait grants, keyword grants and
   // `activeRules` rules from the victory display, and nothing else from there.
@@ -588,6 +737,15 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
         "only a response to the card's own discard from its deck works from the discard pile (inDiscard needs response(on.thisDiscardedFromYourDeck(), …))",
       );
     if (definition.cost) problems.push("an ability used from the discard pile has no cost");
+  }
+  // docs/phase7-wave10-box-heroes.md B3.3: the mark is read only when a response to a deck discard finishes.
+  if (definition.discardsStayCounted) {
+    const kinds =
+      trigger.kind === "response" ? (typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on) : [];
+    if (!kinds.includes("cardDiscardedFromDeck"))
+      problems.push(
+        "stillCountedByDiscarder needs a response to cards discarded from a deck (on.aPlayerDiscardsFromTheirDeck(), …)",
+      );
   }
   // docs/phase7-wave9.md §3.40 (b): the engine offers a card that was tucked only its response to its own discard
   // from under a card, and nothing out of play pays a cost.
@@ -659,6 +817,23 @@ function checkCardTotals(definition: AbilityDefinition, problems: string[]): voi
 }
 
 /**
+ * `perPlayerAs` on `revealCard` and `findCard` (docs/phase7-wave10-hero-packs.md H3.5): what each per player icon on
+ * the card is treated as while it is revealed. A whole number of at least 0, and on a find only with `to: "reveal"`.
+ */
+function checkFinds(definition: AbilityDefinition, problems: string[]): void {
+  const whole = (n: number): boolean => Number.isInteger(n) && n >= 0;
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind === "revealCard" && effect.perPlayerAs !== undefined && !whole(effect.perPlayerAs))
+      problems.push("revealCard perPlayerAs: a whole number of at least 0");
+    if (effect.kind !== "findCard") continue;
+    if (effect.perPlayerAs !== undefined) {
+      if (effect.to !== "reveal") problems.push('findCard perPlayerAs: only a find with `to: "reveal"` reveals a card');
+      if (!whole(effect.perPlayerAs)) problems.push("findCard perPlayerAs: a whole number of at least 0");
+    }
+  }
+}
+
+/**
  * `resolveSpecials` with `trigger: "preparation"` (docs/phase7-wave9.md §3.2): the card is out of play, in the
  * encounter discard pile, so it is named with `of` (`cards` reads cards in play only and would find nothing). The "as
  * if" floor and the When Revealed keywords belong to other kinds.
@@ -671,6 +846,27 @@ function checkPreparations(definition: AbilityDefinition, problems: string[]): v
     if (effect.asIf) problems.push("resolveSpecials preparation: `asIf` is not read for a Preparation ability");
     if (effect.includeKeywords)
       problems.push("resolveSpecials preparation: `includeKeywords` is for When Revealed abilities");
+  }
+}
+
+/**
+ * `resolveSpecials` with `trigger: "boost"` (docs/phase7-wave10.md §3.11): `borrowedBoostIcons` is that kind's own
+ * option and takes one of its two names (question 10: `"nothing"`, the default, or `"joinActivation"`). The "as if"
+ * floor and the When Revealed keywords belong to other kinds.
+ */
+function checkBorrowedBoosts(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind !== "resolveSpecials") continue;
+    const option: unknown = effect.borrowedBoostIcons;
+    if (effect.trigger !== "boost") {
+      if (option !== undefined) problems.push('resolveSpecials: `borrowedBoostIcons` is for `trigger: "boost"`');
+      continue;
+    }
+    if (option !== undefined && option !== "nothing" && option !== "joinActivation")
+      problems.push('resolveSpecials boost: `borrowedBoostIcons` is "nothing" or "joinActivation"');
+    if (effect.asIf) problems.push("resolveSpecials boost: `asIf` is not read for a Boost ability");
+    if (effect.includeKeywords)
+      problems.push("resolveSpecials boost: `includeKeywords` is for When Revealed abilities");
   }
 }
 
@@ -758,6 +954,130 @@ function checkSpendX(definition: AbilityDefinition, problems: string[]): void {
   }
 }
 
+/**
+ * A defeat destination that is an enemy's boost cards (`setDefeatDestination(boostCardOf(…))`, docs/phase7-wave10.md
+ * §3.10) is read in the two places a defeat's destination can still change: the defeated card's own When Defeated
+ * ability, and an interrupt whose one triggering condition is a character's defeat. Anywhere else the effect does
+ * nothing, which for "give this card … as a facedown boost card" is a card silently discarded.
+ */
+function checkBoostCardDestination(definition: AbilityDefinition, problems: string[]): void {
+  const gives = allEffects(definition.effects).some(
+    (effect) => effect.kind === "setDefeatDestination" && typeof effect.to === "object" && "kind" in effect.to,
+  );
+  if (!gives) return;
+  const trigger = definition.trigger;
+  if (trigger.kind === "whenDefeated") return;
+  const kinds =
+    trigger.kind === "interrupt" ? (typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on) : [];
+  if (kinds.length !== 1 || kinds[0] !== "characterDefeated")
+    problems.push(
+      "setDefeatDestination boostCardOf needs a When Defeated ability or an interrupt on a character's defeat (interrupt(on.defeated(…), …))",
+    );
+}
+
+/**
+ * "A card is revealed that gives … the [trait] trait" (`EventPattern.grantsTrait`, docs/phase7-wave10.md §3.16): what
+ * a revealed card gives is read once its reveal has completed, so the pattern is a response's and hears `cardRevealed`
+ * alone; `grantedToIs` narrows that read and means nothing without it. "Those heroes" (`TargetRef grantedTo`) are read
+ * off that event, so the ref belongs to an ability whose pattern asks for the same trait: anywhere else it names no card.
+ */
+function checkTraitReveal(definition: AbilityDefinition, problems: string[]): void {
+  const trigger = definition.trigger;
+  const asked = new Set<string>();
+  const visit = (pattern: EventPattern): void => {
+    if (pattern.grantedToIs !== undefined && pattern.grantsTrait === undefined)
+      problems.push(
+        "a pattern's grantedToIs narrows grantsTrait: name the trait (on.cardRevealedGranting(trait, { to }))",
+      );
+    if (pattern.grantsTrait !== undefined) {
+      asked.add(pattern.grantsTrait);
+      const kinds = kindsOfPattern(pattern);
+      if (trigger.kind !== "response" || kinds.length !== 1 || kinds[0] !== "cardRevealed")
+        problems.push(
+          "a pattern's grantsTrait is read after a card is revealed: a response on cardRevealed alone (response(on.cardRevealedGranting(…), …))",
+        );
+    }
+    for (const alternative of pattern.anyOf ?? []) visit(alternative);
+  };
+  if ((trigger.kind === "interrupt" || trigger.kind === "response") && trigger.on !== undefined) visit(trigger.on);
+  const seen = new Set<string>();
+  const refs = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) refs(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    const record = value as Readonly<Record<string, unknown>>;
+    if (record.kind === "grantedTo" && typeof record.trait === "string") seen.add(record.trait);
+    for (const item of Object.values(record)) refs(item);
+  };
+  refs(definition.effects);
+  for (const named of seen) {
+    if (!asked.has(named))
+      problems.push(
+        `grantedTo("${named}") reads the revealed card of on.cardRevealedGranting("${named}", …): this ability's trigger does not ask for that trait`,
+      );
+  }
+}
+
+/** The events `Predicate attackUsedAtk` can read (docs/phase7-wave10.md §3.17). */
+const ATTACK_USED_ATK_EVENTS: readonly string[] = ["dealDamage", "attack", "enemyAttack", "enemyAttacksEnemy"];
+
+/**
+ * "Uses their ATK to attack and damage" (`attackUsedAtk()`, docs/phase7-wave10.md §3.17) is read from the damage or
+ * attack an ability answers, so it is false anywhere else: only an interrupt or response whose pattern hears nothing
+ * but damage and attacks may ask it. `usesAtk` on a `dealDamage` that is never an attack's (`fromAttack: false`) says
+ * nothing and is a slip.
+ */
+function checkAttackUsedAtk(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind === "dealDamage" && effect.usesAtk && effect.fromAttack === false)
+      problems.push("dealDamage: usesAtk marks an attack's damage; this instruction is fromAttack: false");
+  }
+  if (!readsKind(definition, (kind) => kind === "attackUsedAtk")) return;
+  const trigger = definition.trigger;
+  const heard =
+    (trigger.kind === "interrupt" || trigger.kind === "response") && trigger.on !== undefined
+      ? [trigger.on, ...(trigger.on.anyOf ?? [])].flatMap(kindsOfPattern)
+      : [];
+  if (heard.length === 0 || heard.some((kind) => !ATTACK_USED_ATK_EVENTS.includes(kind)))
+    problems.push(
+      "attackUsedAtk reads the damage or attack an ability answers: only in an interrupt or response on dealDamage, attack, enemyAttack or enemyAttacksEnemy",
+    );
+}
+
+const ATTACK_KEYWORD_NAMES: readonly string[] = ["piercing", "ranged", "overkill"];
+
+/**
+ * "Attacks against them lose piercing" (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18), wherever the rule is
+ * written (a constant, or a rule an effect applies for a time): it names at least one attack keyword, each once, and
+ * only the three an attack can have (RRG 1.8 "Piercing", p. 32; "Ranged", p. 35; "Overkill", p. 31). A character's own
+ * keyword is lost with `losesKeyword`.
+ */
+function checkAttackKeywordLoss(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => checkAttackKeywordLoss(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (record.kind === "attacksLoseKeywords") {
+    const keywords = Array.isArray(record.keywords) ? (record.keywords as readonly unknown[]) : [];
+    if (keywords.length === 0) problems.push(`${path}: attacksLoseKeywords names at least one attack keyword`);
+    if (new Set(keywords).size !== keywords.length)
+      problems.push(`${path}: attacksLoseKeywords names each keyword once`);
+    for (const keyword of keywords) {
+      if (typeof keyword !== "string" || !ATTACK_KEYWORD_NAMES.includes(keyword))
+        problems.push(
+          `${path}: attacksLoseKeywords takes piercing, ranged or overkill, not ${JSON.stringify(keyword)} (a character's own keyword is lost with losesKeyword)`,
+        );
+    }
+    if (typeof record.target !== "object" || record.target === null || Object.keys(record.target).length === 0)
+      problems.push(`${path}: attacksLoseKeywords names the attacked character (target)`);
+  }
+  for (const [key, item] of Object.entries(record)) checkAttackKeywordLoss(item, `${path}.${key}`, problems);
+}
+
 function checkLeaveReplacement(definition: AbilityDefinition, problems: string[]): void {
   if (!allEffects(definition.effects).some((effect) => effect.kind === "replaceLeaveDestination")) return;
   const trigger = definition.trigger;
@@ -783,6 +1103,76 @@ function checkPlays(definition: AbilityDefinition, problems: string[]): void {
     if (effect.from === "deck" && effect.card)
       problems.push("playFromHand from deck: the card is picked from the searched deck, so `card` is not read");
   }
+}
+
+/**
+ * `reduceNextCardCost` (docs/phase7-wave10-hero-packs.md H3.10, H3.11). "To 0" is for a play to the player's own area:
+ * a reduction by destination is an amount (`into`, docs/phase7-wave8.md §3.35). A reduction bound to the cards a ref
+ * names (`cards`) is used by each card's own next play, so it has no filter, destination or "any player" of its own,
+ * and it ends at a phase, turn or round: "the next card that player plays" (`untilPlayed`) is a player's timing point.
+ */
+function checkNextCardCost(definition: AbilityDefinition, problems: string[]): void {
+  for (const effect of allEffects(definition.effects)) {
+    if (effect.kind !== "reduceNextCardCost") continue;
+    if (effect.toZero && effect.into)
+      problems.push("reduceNextCardCost: a cost is reduced to 0 for a play to the player's own area, not with `into`");
+    if (!effect.cards) continue;
+    if (effect.duration === "untilPlayed")
+      problems.push("reduceNextCardCost cards: a reduction bound to cards ends at a phase, turn or round");
+    if (effect.cardFilter || effect.into || effect.anyPlayer)
+      problems.push(
+        "reduceNextCardCost cards: the ref names the cards, so cardFilter, into and anyPlayer are not read",
+      );
+  }
+}
+
+/**
+ * `searchCollection` with `identitySpecificToUnseated` (docs/phase7-wave10-hero-packs.md H3.18): the field reads a
+ * card's identity set icon, which the card data carries in the field `aspects` reads, and it never matches an identity
+ * card, the one card `heroTitleNotInPlay` matches. Beside either the search would find no card, silently. It names no
+ * card type either, so the printed type ("ally") is `categories`; without it every card of the identity's set matches.
+ */
+function checkCollectionSearches(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => checkCollectionSearches(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Readonly<Record<string, unknown>>;
+  const filter = record.kind === "searchCollection" ? (record.filter as Readonly<Record<string, unknown>>) : undefined;
+  if (filter?.identitySpecificToUnseated !== undefined) {
+    if (filter.aspects !== undefined)
+      problems.push(
+        `${path}: identitySpecificToUnseated with aspects matches no card (an identity-specific card's aspect is its identity's set)`,
+      );
+    if (filter.heroTitleNotInPlay !== undefined)
+      problems.push(
+        `${path}: identitySpecificToUnseated with heroTitleNotInPlay matches no card (an identity card is not a card of its own set)`,
+      );
+    if (!Array.isArray(filter.categories) || filter.categories.length === 0)
+      problems.push(
+        `${path}: identitySpecificToUnseated names no card type: give the printed one as categories ("ally")`,
+      );
+  }
+  for (const [key, item] of Object.entries(record)) checkCollectionSearches(item, `${path}.${key}`, problems);
+}
+
+const OWNER_ZONES: readonly string[] = ["hand", "deck", "discard"];
+
+/**
+ * `cardsFrom(zone, ref)` (`CardSelector ref.ownerZone`, docs/phase7-wave10-hero-packs.md H3.12): the zone is one of a
+ * player's own out-of-play zones. Any other word would match no card, and the ability would silently never resolve.
+ */
+function checkOwnerZones(value: unknown, path: string, problems: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => checkOwnerZones(item, `${path}[${index}]`, problems));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (record.kind === "ref" && record.ownerZone !== undefined && !OWNER_ZONES.includes(record.ownerZone as string))
+    problems.push(`${path}: ownerZone is hand, deck or discard, not ${JSON.stringify(record.ownerZone)}`);
+  for (const [key, item] of Object.entries(record)) checkOwnerZones(item, `${path}.${key}`, problems);
 }
 
 /**
@@ -1107,12 +1497,53 @@ function checkRefs(value: unknown, scope: Scope, where: string, problems: string
     const reported = { ...scope, prefixes: new Set([...scope.prefixes, "attack.", "thwart."]) };
     checkRefs((consequential as { if: unknown }).if, reported, where, problems);
   }
+  // The team words (docs/competitive-mode-plan.md §4 task 5): a leader is a card and a team is players.
+  if ((record.kind === "leader" || record.kind === "team") && record.of !== "yours" && record.of !== "enemy")
+    problems.push(`${where}: ${record.kind} is of "yours" or "enemy"`);
+  const playerOfKind = record.kind === "others" || record.kind === "nextAfter";
   for (const [key, item] of Object.entries(record)) {
+    const kind = typeof item === "object" && item !== null ? (item as { kind?: unknown }).kind : undefined;
+    if (kind === "leader" && (PLAYER_FIELDS.has(key) || (key === "of" && playerOfKind)))
+      problems.push(`${where}: ${key} needs a player, and a leader is a card (yourTeam / enemyTeam name players)`);
+    if (kind === "team" && TARGET_FIELDS.has(key))
+      problems.push(`${where}: ${key} needs a card, and a team is players (identityOf(team) names their identities)`);
+    if (kind === "enemyTeamDecider" && TARGET_FIELDS.has(key))
+      problems.push(`${where}: ${key} needs a card, and enemyTeamChooses is the player who chooses for the enemy team`);
     if (key === "effects" || key === "then" || key === "otherwise" || key === "with" || key === "options") continue;
     if (key === "consequential") continue;
     checkRefs(item, scope, where, problems);
   }
 }
+
+/** Spec fields that only ever hold a `PlayerRef`, and ones that only ever hold a `TargetRef` (engine `spec.ts`). */
+const PLAYER_FIELDS: ReadonlySet<string> = new Set([
+  "player",
+  "players",
+  "chooser",
+  "controller",
+  "seat",
+  "against",
+  "owner",
+  "deckOwner",
+  "viewer",
+  "controlledBy",
+  "engagedWithPlayer",
+  "inPlayAreaOf",
+]);
+const TARGET_FIELDS: ReadonlySet<string> = new Set([
+  "target",
+  "targets",
+  "card",
+  "cards",
+  "character",
+  "enemy",
+  "enemies",
+  "villain",
+  "scheme",
+  "attacker",
+  "minion",
+  "attachTo",
+]);
 
 function bindsOf(effect: EffectSpec, scope: Scope): void {
   switch (effect.kind) {
@@ -1241,6 +1672,7 @@ function bindsOf(effect: EffectSpec, scope: Scope): void {
     case "divide":
     // `<bind>.amount` prevented, `<bind>.made` set shuffled in (docs/phase7-wave4.md §3.20, §3.18).
     case "preventDamage":
+    case "reduceDamageTo":
     case "shuffleInSetAsideModularSet":
       if (effect.bind) scope.prefixes.add(`${effect.bind}.`);
       return;
@@ -1294,7 +1726,8 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
       return;
     }
     // "For each character you control, … that character" (RRG 1.8 "'For Each'", p. 20): the pass's card is read under
-    // `slot` inside the repeated effects only, and nothing a pass binds is handed to the effects after the loop.
+    // `slot` inside the repeated effects only, and nothing a pass binds is handed to the effects after the loop,
+    // unless the loop has a `bind`: then the passes' binds come back under `<bind>.` (`<bind>.count` among them).
     if (effect.kind === "forEachCard") {
       if (effect.slot.length === 0) problems.push(`${where}: forEachCard needs a slot name for the pass's card`);
       if (scope.slots.has(effect.slot))
@@ -1307,6 +1740,10 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         prefixes: new Set(scope.prefixes),
       };
       walk(effect.effects, pass, `${where}/0`, problems);
+      if (effect.bind !== undefined) {
+        if (effect.bind.length === 0) problems.push(`${where}: forEachCard bind needs a name`);
+        scope.prefixes.add(`${effect.bind}.`);
+      }
       return;
     }
     // A block resolved in a group's game area (docs/phase7-wave9.md §3.67) may be sent to another group, which has
@@ -1349,6 +1786,9 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
       problems.push(`${where}: a held minion is attached faceup (as: "heldMinion" with facedown)`);
     if (effect.kind === "attach" && effect.as === "captive" && effect.facedown === true)
       problems.push(`${where}: a captive ally is attached faceup (as: "captive" with facedown)`);
+    // The flag is the literal `true` or absent, so a serialized definition has one form (the engine reads `=== true`).
+    if (effect.kind === "defeat" && effect.ignoreWhenDefeated !== undefined && effect.ignoreWhenDefeated !== true)
+      problems.push(`${where}: ignoreWhenDefeated is true or absent`);
     // One trait, or the traits of a character (docs/phase7-wave6.md §3.50), never both or neither.
     if (effect.kind === "grantTraitUntil" && (effect.trait === undefined) === (effect.traitsOf === undefined))
       problems.push(`${where}: needs exactly one of trait and traitsOf`);
@@ -1389,10 +1829,12 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
   // granting card from a slot the engine binds as it resolves (`grantingCard`).
   if (trigger.kind === "preparation") scope.slots.add(GRANTED_BY_SLOT);
   // A `conditional` cost (docs/phase7-wave3.md §3.49) binds what either branch binds, and `cost.condition`.
-  if (definition.cost?.conditional) scope.vars.add("cost.condition");
+  // Not on an additional cost to play: its pick is made as the play is priced and is not recorded (`playCostWith`).
+  const additionalPlayCost = trigger.kind === "constant" && trigger.additionalCostToPlay !== undefined;
+  if (definition.cost?.conditional && !additionalPlayCost) scope.vars.add("cost.condition");
   // A resource ability's effects resolve with the payment, the card paid for bound to `paidFor` (engine
   // `announceResourcesSpent`; docs/phase7-wave4.md §3.30, wave 6 §3.30).
-  if (definition.trigger.kind === "resource") scope.slots.add("paidFor");
+  if (definition.trigger.kind === "resource") scope.slots.add(PAID_FOR_SLOT);
   for (const cost of definition.cost ? costVariants(definition.cost) : []) {
     if (cost.discardFromHand) {
       scope.slots.add("discard");
@@ -1411,6 +1853,8 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
       scope.slots.add(cost.attach.to.slot);
       if (cost.attach.bind) scope.slots.add(cost.attach.bind);
     }
+    // docs/phase7-wave10-box-heroes.md B3.1: the card a search cost put into play.
+    if (cost.searchEncounterIntoPlay) scope.slots.add(cost.searchEncounterIntoPlay.slot);
     // docs/phase7-wave6.md §3.54: the cards discarded, their number and their boost icons.
     for (const component of [cost, ...(cost.either ?? [])]) {
       const look = component.encounterLookDiscard;
@@ -1447,6 +1891,7 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
     if (cost.either) scope.vars.add("cost.branch");
     if (cost.dealDamage?.choose) scope.slots.add(cost.dealDamage.choose.slot);
     if (cost.dealEncounterCardsTo) scope.slots.add(cost.dealEncounterCardsTo.slot);
+    if (cost.healCharacter) scope.slots.add(cost.healCharacter.slot);
     for (const { pick } of inPlayPicksOf(cost)) {
       scope.slots.add(pick.slot);
       if (pick.bindHosts) scope.slots.add(pick.bindHosts);
@@ -1468,6 +1913,8 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
         if (typeof amount !== "number") checkRefs(amount, reading, `constant modifiers[${index}] amount`, problems);
       });
     }
+    // The effects of an additional cost to play resolve with its cost's slots bound (box-heroes B3.1).
+    if (definition.trigger.additionalCostToPlay) walk(definition.effects, scope, "effects", problems);
     return;
   }
   walk(definition.effects, scope, "effects", problems);

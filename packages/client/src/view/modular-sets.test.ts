@@ -158,6 +158,7 @@ describe("groups, sections and the phone's folded list", () => {
       "NeXt Evolution",
       "Age of Apocalypse",
       "Agents of S.H.I.E.L.D.",
+      "Civil War",
     ]);
     expect(options.find((o) => o.id === "longshot")).toMatchObject({ kind: "extra", groupId: "extras" });
   });

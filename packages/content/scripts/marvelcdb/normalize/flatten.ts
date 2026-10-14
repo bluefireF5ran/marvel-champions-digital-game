@@ -61,6 +61,37 @@ export function applyTypeCorrections(
 }
 
 /**
+ * Applies `PackCuration.setRecodes`: re-files the named top-level records (and their nested back faces) under the
+ * curated set code and name. A missing code, or a record already in the target set, is an error, so a MarvelCDB fix
+ * upstream is noticed instead of leaving a dead entry.
+ */
+export function applySetRecodes(raw: readonly RawCard[], curation: PackCuration, errors: string[]): readonly RawCard[] {
+  const recodes = curation.setRecodes ?? [];
+  if (recodes.length === 0) return raw;
+  const target = new Map<string, { setCode: string; setName: string }>();
+  for (const rc of recodes) {
+    for (const code of rc.codes) {
+      const rec = raw.find((r) => r.code === code);
+      if (!rec) errors.push(`set recode of ${code}: no such top-level record`);
+      else if (rec.card_set_code === rc.setCode) errors.push(`set recode of ${code}: already in set ${rc.setCode}`);
+      else if (target.has(code)) errors.push(`set recode of ${code}: listed twice`);
+      else target.set(code, { setCode: rc.setCode, setName: rc.setName });
+    }
+  }
+  const move = (r: RawCard, to: { setCode: string; setName: string }): RawCard => ({
+    ...r,
+    card_set_code: to.setCode,
+    card_set_name: to.setName,
+  });
+  return raw.map((r) => {
+    const to = target.get(r.code);
+    if (!to) return r;
+    const top = move(r, to);
+    return r.linked_card ? { ...top, linked_card: move(r.linked_card, to) } : top;
+  });
+}
+
+/**
  * Applies `PackCuration.addedRecords` then `linkOverrides` (both errors-not-silence, see their types). Returns the
  * input unchanged when the curation has neither.
  */

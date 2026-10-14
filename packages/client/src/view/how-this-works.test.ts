@@ -6,7 +6,9 @@ import { cardInspectModel } from "./inspect-model.js";
 describe("how this works notes", () => {
   test("every note belongs to a card in the pool", () => {
     const poolBases = new Set(POOL_CARDS.map((card) => baseCardId(card.id as string)));
-    for (const id of HOW_THIS_WORKS_IDS) expect(poolBases.has(id), `${id} is not a pool card`).toBe(true);
+    // The Labor deck's cards (59002 to 59004) are separate-deck cards, which POOL_CARDS does not hold yet.
+    for (const id of HOW_THIS_WORKS_IDS.filter((i) => i !== "59003"))
+      expect(poolBases.has(id), `${id} is not a pool card`).toBe(true);
   });
 
   test("every note is one short paraphrase, without dashes or British spellings", () => {
@@ -85,6 +87,47 @@ describe("how this works notes", () => {
     expect(note("50034a")).toMatch(/same attack/); // Q17, A
     expect(note("50132")).toMatch(/identity/);
     expect(note("50134")).toMatch(/identity/);
+  });
+
+  test("the wave 10 notes sit on the cards the mechanics are on, and say what the owner decided", () => {
+    const byId = new Map(POOL_CARDS.map((card) => [card.id as string, card]));
+    const named = (id: string) => byId.get(id)?.name;
+    expect(named("56084")).toBe("Life Model Decoy");
+    expect(named("56196")).toBe("Darkforce");
+    expect(named("56190")).toBe("Iron Fist");
+    expect(named("56008")).toBe("Tooth and Claw");
+    expect(named("56007")).toBe("Hunted");
+    expect(named("56002")).toBe("Moon Knight");
+    expect(named("56038")).toBe("Armored Defense");
+    expect(named("56016")).toBe("Coup de Grâce");
+    expect(named("58002")).toBe("Ionic Physiology");
+    const note = (id: string) => howThisWorksFor(byId.get(id));
+    expect(note("56084")).toBe(
+      "Their leader is the enemy leader. The enemy team attaches it to a minion or that leader, one per character. It is discarded when it stops an attack's damage.",
+    ); // question 13, A
+    expect(note("56196")).toMatch(/removes no threat.*still discarded/); // question 11, A
+    expect(note("56190")).toMatch(/activates against you/);
+    expect(note("56008")).toMatch(/both may hit the same enemy/); // Q16, A
+    expect(note("56007")).toMatch(/attacks you first.*Then Hunted attaches and it is stunned/); // Q18, A
+    expect(note("56002")).toMatch(/attacks you first.*stunned and confused/); // Q18, A
+    expect(note("56038")).toMatch(/even if the damage defeated the attacker.*cancelled/);
+    expect(note("56016")).toMatch(/only its When Defeated abilities/);
+    expect(note("58002")).toMatch(/up to three/);
+    expect(HOW_THIS_WORKS_IDS).toContain("59003"); // Embody Pathos: FAQ p. 65, owed a pool card to show on
+    expect(howThisWorksFor({ id: "59003" } as never)).toMatch(/bottom of the Labor deck/);
+  });
+
+  test("a card that names competitive mode says it does not apply yet, from its own text", () => {
+    const byId = new Map(POOL_CARDS.map((card) => [card.id as string, card]));
+    const note = (id: string) => howThisWorksFor(byId.get(id));
+    const otherwise = "Competitive mode is not in this game yet, so only the Otherwise part applies.";
+    expect(note("56080")).toBe(otherwise); // Drafted
+    expect(byId.get("56080")?.name).toBe("Drafted");
+    const names = [...byId.values()].filter(
+      (card) => "text" in card && /competitive mode/i.test(card.text.current) && !/Contents:/.test(card.text.current),
+    );
+    expect(names.length).toBeGreaterThan(2);
+    for (const card of names) expect(howThisWorksFor(card), card.id as string).toMatch(/^Competitive mode is not in/);
   });
 
   test("a card with no tricky wording has no note, and no card means no note", () => {

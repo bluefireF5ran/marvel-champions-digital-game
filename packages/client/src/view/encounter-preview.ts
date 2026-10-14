@@ -35,6 +35,7 @@
  * is tested against — but the shape doesn't assume it stays that way.
  */
 import type { AnyCard, CardId, CardType, EncounterSet, HeroIdentityCard } from "@mc/content";
+import { maskSetRows, type BlindReveal } from "./civil-war-blind.js";
 import { qualifiedHeroName } from "./hero-names.js";
 import type { CardPool, GameSetupConfig } from "@mc/engine";
 
@@ -117,12 +118,14 @@ function breakdownOf(
  * config `EngineSessionCore.start` would hand to `createGame`. `pool` is the
  * card pool it was built against (`CORE_CARDS`/`WAVE1_CARDS`, or the app's
  * `POOL_CARDS`); `encounterSets` supplies display names for `bySet`
- * (`CORE_ENCOUNTER_SETS`/`WAVE1_ENCOUNTER_SETS`).
+ * (`CORE_ENCOUNTER_SETS`/`WAVE1_ENCOUNTER_SETS`). `blind` (`blindRevealOf`; a Civil War game played blind) hides the
+ * name of every modular set that has not turned up, keeping its count.
  */
 export function encounterDeckPreviewOf(
   config: GameSetupConfig,
   pool: CardPool,
   encounterSets: readonly EncounterSet[],
+  blind: BlindReveal | null = null,
 ): EncounterDeckPreview {
   const byId = new Map(cardsOf(pool).map((card) => [card.id as string, card]));
   const setNames = new Map(encounterSets.map((set) => [set.id as string, set.name]));
@@ -186,5 +189,9 @@ export function encounterDeckPreviewOf(
     }
   }
 
-  return { decks, nemesisSetsHeldBack, obligationsShuffledIn };
+  return {
+    decks: blind ? decks.map((deck) => ({ ...deck, bySet: maskSetRows(deck.bySet, blind) })) : decks,
+    nemesisSetsHeldBack,
+    obligationsShuffledIn,
+  };
 }

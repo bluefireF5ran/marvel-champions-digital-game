@@ -49,6 +49,39 @@ describe("titleMenuLayout", () => {
     expect(layout.menuPanel).toEqual({ x: 0, y: 0, width: 390, height: 844 });
   });
 
+  test("Civil War! is one more row directly under Campaign, absent (null) until the box is open", () => {
+    const closed = titleMenuLayout({ width: 1280, height: 1000, continuable: false });
+    const open = titleMenuLayout({ width: 1280, height: 1000, continuable: false, civilWar: true });
+    expect(closed.civilWar).toBeNull();
+    expect(open.civilWar).not.toBeNull();
+    expect(open.civilWar!.y).toBeGreaterThan(open.campaign.y + open.campaign.height - 1);
+    expect(open.extras.y).toBeGreaterThan(open.civilWar!.y);
+    expect(titleMenuLayoutRects(closed)).toHaveLength(titleMenuLayoutRects(open).length - 1);
+  });
+
+  for (const size of [
+    { width: 390, height: 844 },
+    { width: 360, height: 800 },
+    { width: 360, height: 740 },
+    { width: 1024, height: 768 },
+    { width: 1440, height: 900 },
+  ]) {
+    test(`every row (Continue, Civil War!, the update banner) shows without overlap, on screen, at ${size.width}x${size.height}`, () => {
+      const layout = titleMenuLayout({ ...size, continuable: true, civilWar: true, update: true });
+      const rects = titleMenuLayoutRects(layout);
+      for (let i = 0; i < rects.length; i++) {
+        for (let j = i + 1; j < rects.length; j++) expect(rectsOverlap(rects[i]!, rects[j]!)).toBe(false);
+      }
+      for (const rect of rects) {
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.y).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(size.width);
+        expect(rect.y + rect.height).toBeLessThanOrEqual(size.height);
+      }
+      expect(layout.footer.y + layout.footer.height).toBeLessThanOrEqual(size.height);
+    });
+  }
+
   test("continuable adds exactly one row above New game", () => {
     const without = titleMenuLayout({ width: 1280, height: 1000, continuable: false });
     const withContinue = titleMenuLayout({ width: 1280, height: 1000, continuable: true });
@@ -90,7 +123,7 @@ describe("titleMenuLayout", () => {
   });
 
   test("the banner's buttons are touch-sized, inside it, and leave the text its room", () => {
-    // 390 and 1280 fit one row; a 360 phone and a portrait tablet's art panel stack the buttons under the text.
+    // 1280 fits one row; a phone and a portrait tablet's art panel stack the buttons under the text.
     for (const [width, height] of [
       [390, 844],
       [360, 780],
@@ -109,6 +142,16 @@ describe("titleMenuLayout", () => {
           expect(button.y + button.height).toBeLessThanOrEqual(banner.y + banner.height);
         }
         if (actions === 2) expect(rectsOverlap(parts.buttons[0]!, parts.buttons[1]!)).toBe(false);
+        // The close button is touch-sized, inside the banner, and clear of the text and every action button.
+        const close = parts.dismiss;
+        expect(close.width).toBeGreaterThanOrEqual(44);
+        expect(close.height).toBeGreaterThanOrEqual(44);
+        expect(close.x).toBeGreaterThanOrEqual(banner.x);
+        expect(close.x + close.width).toBeLessThanOrEqual(banner.x + banner.width);
+        expect(close.y).toBeGreaterThanOrEqual(banner.y);
+        expect(close.y + close.height).toBeLessThanOrEqual(banner.y + banner.height);
+        for (const button of parts.buttons) expect(rectsOverlap(close, button), `${width}`).toBe(false);
+        expect(parts.text.x + parts.textWidth).toBeLessThanOrEqual(close.x);
         // The two lines of text (32px tall, 116 wide at most) clear every button.
         const text = { x: parts.text.x, y: parts.text.y, width: 116, height: 32 };
         expect(parts.textWidth).toBeGreaterThanOrEqual(text.width);

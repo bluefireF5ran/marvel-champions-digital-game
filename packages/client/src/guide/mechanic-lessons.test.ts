@@ -1554,3 +1554,188 @@ describe("Baron Zemo: the accusation", () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Wonder Man: Ionic Physiology", () => {
+  const ionic = (t: Awaited<ReturnType<typeof run>>) =>
+    Object.values(t.state().instances).find((i) => i.cardId === "58002")!;
+
+  test("opens as Simon Williams with Ionic Physiology attached and nothing tucked", async () => {
+    const t = await run("wonderMan");
+    expect(t.me().identity.form).toBe("alterEgo");
+    expect(ionic(t).attachedTo).toBe(t.me().identity.instanceId);
+    expect(ionic(t).tucked).toEqual([]);
+    expect(
+      t
+        .me()
+        .hand.map((id) => t.state().instances[id]!.cardId)
+        .sort(),
+    ).toEqual(["58005", "58023", "58016", "58017", "58007", "58024"].sort());
+  });
+
+  test("walks flip, an overpaid Starstruck (stuns), the tuck and a basic attack that discards it to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("wonderMan", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("flip");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+
+    const play = t.controller.view();
+    expect(play.step?.id).toBe("starstruck");
+    expect(play.anchor).toEqual({ kind: "card", code: "58005" });
+    expect(currentStep(t.controller.state)?.copy.payWith?.map((p) => p.kind === "handCard" && p.code)).toEqual([
+      "58023",
+    ]);
+    t.dispatch({
+      type: "playCard",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.handId("58005"),
+      payment: [{ fromHand: t.handId("58023") }],
+      attachToInstanceId: null,
+    });
+    // The attack's target, then Ionic Physiology's Response: the step waits for the tuck itself.
+    t.choose(/Rhino/);
+    const rhino = t.state().villains[0]!;
+    expect(t.state().instances[rhino.instanceId]!.statuses.stunned).toBe(1); // overpaid with [energy]
+    expect(t.controller.view().step?.id).toBe("tuck");
+    accept(t, /Ionic Physiology/);
+    expect(ionic(t).tucked).toHaveLength(1);
+
+    expect(t.controller.view().step?.id).toBe("attack");
+    const before = t.state().instances[rhino.instanceId]!.damage;
+    t.dispatch({
+      type: "basicAttack",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      attackerInstanceId: t.me().identity.instanceId,
+      targetInstanceId: activeVillain(t.state() as never).instanceId,
+    });
+    t.settle(/./);
+    expect(t.state().instances[rhino.instanceId]!.damage - before).toBe(2); // ATK 1 plus the tucked card
+    expect(ionic(t).tucked).toEqual([]);
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Hercules: Labor and Gift", () => {
+  const byCode = (t: Awaited<ReturnType<typeof run>>, code: string) =>
+    Object.values(t.state().instances).find((i) => i.cardId === code)!;
+  const inHand = (t: Awaited<ReturnType<typeof run>>, code: string) =>
+    t.me().hand.filter((id) => t.state().instances[id]!.cardId === code);
+
+  test("opens as Hercules with Embody Pathos on top of a facedown Labor deck and a Gift deck", async () => {
+    const t = await run("hercules");
+    expect(t.me().identity.form).toBe("alterEgo");
+    const names = (deck: string) => t.me().separateDecks[deck]!.deck.map((id) => t.state().instances[id]!.cardId);
+    expect(names("Labor")[0]).toBe("59003");
+    expect(names("Gift")[0]).toBe("59005");
+    expect(
+      t
+        .me()
+        .hand.map((id) => t.state().instances[id]!.cardId)
+        .sort(),
+    ).toEqual(["59009", "59011", "59024", "59024", "59024", "59023"].sort());
+  });
+
+  test("walks the Labor, the finish, Atonement's Gift and the discounted Gift of Battle to completion", async () => {
+    const onComplete = vi.fn();
+    const t = await run("hercules", onComplete);
+    t.controller.primary();
+    expect(t.controller.view().step?.id).toBe("new-labors");
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.me().identity.instanceId,
+      abilityId: "59001b.new-labors-of-hercules" as never,
+      payment: [],
+    });
+    t.settle(/Bomb Scare/);
+    const scheme = byCode(t, "59003").attachedTo!;
+    expect(t.state().instances[scheme]!.cardId).toBe("01109");
+
+    expect(t.controller.view().step?.id).toBe("flip");
+    t.dispatch({ type: "changeForm", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    const finish = t.controller.view();
+    expect(finish.step?.id).toBe("finish-labor");
+    expect(finish.anchor).toEqual({ kind: "action", id: "thwart" });
+    const thwart = () =>
+      t.dispatch({
+        type: "basicThwart",
+        playerId: MECHANIC_TRYIT_PLAYER_ID,
+        thwarterInstanceId: t.me().identity.instanceId,
+        schemeInstanceId: scheme,
+      });
+    thwart(); // assault: ATK 3 of 9 threat
+    t.settle(/./);
+    expect(t.state().instances[scheme]!.threat).toBe(6);
+    t.dispatch({
+      type: "playCard",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.handId("59011"),
+      payment: inHand(t, "59024").map((fromHand) => ({ fromHand })),
+      attachToInstanceId: null,
+    });
+    t.settle(/Bomb Scare/);
+    expect(t.state().instances[scheme]!.threat).toBe(2);
+    expect(t.controller.view().step?.id).toBe("finish-labor");
+
+    // Round 2: the villain phase first (no defense), then the last 2 threat.
+    t.dispatch({ type: "endTurn", playerId: MECHANIC_TRYIT_PLAYER_ID });
+    t.settle(/No defense/);
+    expect(t.state().round).toBe(2);
+    expect(t.controller.view().step?.id).toBe("finish-labor");
+    thwart();
+    expect(t.state().victoryDisplay.map((id) => t.state().instances[id]!.cardId)).toContain("59003");
+    expect(t.controller.view().step?.id).toBe("atonement");
+    accept(t, /Hercules/); // Atonement
+    accept(t, /Nemean Lion Skin/);
+    accept(t, /Do not flip/);
+    expect(byCode(t, "59005").attachedTo).toBe(t.me().identity.instanceId);
+
+    const gift = t.controller.view();
+    expect(gift.step?.id).toBe("gift-of-battle");
+    expect(gift.anchor).toEqual({ kind: "card", code: "59009" });
+    t.dispatch({
+      type: "playCard",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.handId("59009"),
+      payment: inHand(t, "59023")
+        .slice(0, 2)
+        .map((fromHand) => ({ fromHand })), // cost 3 less the one Gift card
+      attachToInstanceId: null,
+    });
+    t.settle(/Rhino/);
+
+    expect(t.controller.view().step?.id).toBe("result");
+    t.controller.primary();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  test("revealing the Labor attaches it to a side scheme and earns no Gift yet", async () => {
+    const t = await run("hercules");
+    t.controller.primary();
+    t.dispatch({
+      type: "useAbility",
+      playerId: MECHANIC_TRYIT_PLAYER_ID,
+      cardInstanceId: t.me().identity.instanceId,
+      abilityId: "59001b.new-labors-of-hercules" as never,
+      payment: [],
+    });
+    t.settle(/Bomb Scare/);
+    expect(byCode(t, "59005").attachedTo).toBeNull();
+  });
+});
+
+/** Takes the optional trigger (or option) whose label matches `label`: `choose` leaves an optional choice empty. */
+function accept(t: Awaited<ReturnType<typeof run>>, label: RegExp): void {
+  const choice = t.state().pendingChoice!;
+  const option = choice.options.find((o) => label.test(o.label));
+  if (!option) throw new Error(`no option matches ${label}: ${choice.options.map((o) => o.label).join(" | ")}`);
+  t.dispatch({
+    type: "resolveChoice",
+    playerId: choice.playerId,
+    choiceId: choice.choiceId,
+    selectedOptionIds: [option.optionId],
+  });
+}

@@ -18,6 +18,7 @@ import { EngineInvariantError } from "./errors.js";
 import type { EncounterDeckId, InstanceId, PlayerId } from "./ids.js";
 import { baseOverride, statBonus } from "./modifiers.js";
 import { podOf, type SharedPodState } from "./pod.js";
+import { perPlayerCount } from "./team.js";
 import { EMPTY_POOL, printedResources, type ResourcePool } from "./resources.js";
 import type { SchemeValueName } from "./spec.js";
 import type {
@@ -46,9 +47,11 @@ export const scale = (value: ScalingValue, playerCount: number, groupCount = 1):
  * scenario in its pod (MC55 p. 4: "that icon multiplies the value it is next to by the number of groups in the
  * respective pod"; docs/phase7-wave9.md §3.65). The pod's neutral cards are not read here: their values are scaled once,
  * at setup, with the whole game's counts (`SharedPodState`).
+ *
+ * `at` is the card the value is printed on, whose team's players the per player icon counts (`perPlayerCountAt`).
  */
-export const scaleIn = (state: GameState, value: ScalingValue): number =>
-  scale(value, state.startingPlayerCount, podOf(state).groupsInPodAtStart);
+export const scaleIn = (state: GameState, value: ScalingValue, at: InstanceId | null = null): number =>
+  scale(value, perPlayerCountAt(state, at), podOf(state).groupsInPodAtStart);
 
 export const getInstance = (state: GameState, id: InstanceId): CardInstance | undefined => state.instances[id];
 
@@ -76,10 +79,11 @@ export const cardOf = (state: GameState, id: InstanceId): AnyCard | undefined =>
  * (`CostedCard.costPerPlayer`) is its numeral times the number of players who started the scenario, whoever has been
  * eliminated since (RRG 1.8 "Per Player Icon", p. 32), and that product is the printed cost a rule or another card
  * reads (ruling of Aug 3, 2026, 5). Every reader of a card's cost goes through here; a printed X or — is stored as 0.
+ * `at` is the instance being read, whose team's players the icon counts (`perPlayerCountAt`).
  */
-export function printedCostOf(state: GameState, card: AnyCard | undefined): number {
+export function printedCostOf(state: GameState, card: AnyCard | undefined, at: InstanceId | null = null): number {
   if (!card || !("cost" in card) || typeof card.cost !== "number") return 0;
-  return card.costPerPlayer ? card.cost * state.startingPlayerCount : card.cost;
+  return card.costPerPlayer ? card.cost * perPlayerCountAt(state, at) : card.cost;
 }
 
 /**
@@ -92,10 +96,11 @@ export function printedCostOf(state: GameState, card: AnyCard | undefined): numb
  *
  * A value printed with the per group icon (`MinionCard.hpPerGroup`) is its numeral times the groups that began the
  * scenario in this group's pod (MC55 p. 4; docs/phase7-wave9.md §3.65): 1 with no pod and in Single Group Mode.
+ * `at` is the minion being read, whose team's players the per player icon counts (`perPlayerCountAt`).
  */
-export function printedMinionHp(state: GameState, card: MinionCard): number {
+export function printedMinionHp(state: GameState, card: MinionCard, at: InstanceId | null = null): number {
   if (card.hpPerGroup) return card.hp * podOf(state).groupsInPodAtStart;
-  return card.hpPerPlayer ? card.hp * state.startingPlayerCount : card.hp;
+  return card.hpPerPlayer ? card.hp * perPlayerCountAt(state, at) : card.hp;
 }
 
 /**
@@ -475,6 +480,33 @@ export function cardBackOf(card: AnyCard): "encounter" | "player" {
 /** A player card type (RRG 1.8 "Player Card", p. 33), whatever its back or owner. */
 export const isPlayerCardType = (card: AnyCard): boolean => PLAYER_CARD_TYPES.has(card.type);
 
+/**
+ * An encounter card a player owns: a card of an identity's separate deck of encounter cards (Hercules's Labor deck,
+ * `IdentitySeparateDeck.cardFamily: "encounter"`; docs/phase7-wave10-hero-packs.md H3.1). RRG 1.8 "Ownership and
+ * Control" (p. 31): "A card's owner is the player whose deck contained the card at the start of setup", so the
+ * Hercules player owns it; it is an encounter card all the same (an attachment or an obligation, with an encounter
+ * back), so no player controls it and every rule about "an encounter card" reads it as one. Read from the card's type
+ * and its home, never from a card's name.
+ *
+ * Everywhere else in the engine "has an owner" and "is a player's card" are the same fact. A reader that means the
+ * second asks `playerCardOwnerOf`.
+ */
+export function isOwnedEncounterCard(state: GameState, id: InstanceId): boolean {
+  const instance = getInstance(state, id);
+  if (!instance || instance.ownerId === null || instance.home.kind !== "separateDeck") return false;
+  const card = state.cardPool[instance.cardId];
+  return card !== undefined && !PLAYER_CARD_TYPES.has(card.type);
+}
+
+/**
+ * The player whose card this is, as a player's card: its owner, or null for every encounter card, one a player owns
+ * included (`isOwnedEncounterCard`). `CardInstance.ownerId` stays the answer to "whose deck does it go back to".
+ */
+export function playerCardOwnerOf(state: GameState, id: InstanceId): PlayerId | null {
+  const owner = getInstance(state, id)?.ownerId ?? null;
+  return owner !== null && isOwnedEncounterCard(state, id) ? null : owner;
+}
+
 export function homeEncounterDeckId(state: GameState, id: InstanceId): EncounterDeckId {
   const home = getInstance(state, id)?.home;
   if (home?.kind === "encounterDeck" && state.encounterDecks[home.deckId]) return home.deckId;
@@ -630,6 +662,30 @@ export function areaOfCard(state: GameState, id: InstanceId): GameAreaState | nu
   }
 }
 
+/**
+ * The number a per player icon on this card multiplies by (RRG 1.8 "Per Player Icon", p. 32): the players who started
+ * the scenario on the team whose game area the card is in (`perPlayerCount`; MC56 p. 20). The players who started the
+ * scenario when no card is named, in a game with one team, and for a card in no team's area (`areaOfCard` null).
+ */
+export const perPlayerCountAt = (state: GameState, id: InstanceId | null | undefined): number =>
+  perPlayerReading(state, id) ?? perPlayerCount(state, id ? areaOfCard(state, id) : null);
+
+/**
+ * What each per player icon on this card is being treated as, or null when it is read as printed: the card is being
+ * revealed by "reveal it, treating each [per player] on it as 1" (`EffectSpec revealCard.perPlayerAs`, Embody Pathos
+ * `hercules` 59003; docs/phase7-wave10-hero-packs.md H3.5). The reading lives on the card's reveal frame
+ * (`Frame<"reveal">.perPlayerAs`), so it covers what the reveal does (starting threat, hinder, the card's When
+ * Revealed) and ends with it (the owner's answer to question 19 = A, 2026-10-11, provisional). Every per player value
+ * of a card is read through here: a printed one by `perPlayerCountAt`, one in the card's own abilities by `ValueSpec
+ * perPlayer` (`select.ts`).
+ */
+export function perPlayerReading(state: GameState, id: InstanceId | null | undefined): number | null {
+  if (!id) return null;
+  for (const frame of state.stack)
+    if (frame.kind === "reveal" && frame.instanceId === id && frame.perPlayerAs !== undefined) return frame.perPlayerAs;
+  return null;
+}
+
 /** Every main scheme instance in play: the central (or only) one, then each area's own, in area order. */
 export function mainSchemeStates(state: GameState): readonly MainSchemeState[] {
   return [
@@ -704,7 +760,7 @@ export function mainSchemeValue(
   // Time 2B; docs/phase7-wave2.md §3.4).
   if (stage.dashedValues?.includes(field)) return 0;
   const id = scheme.instanceId;
-  const printed = stage.printedX?.includes(field) ? 0 : scaleIn(state, stage[field]);
+  const printed = stage.printedX?.includes(field) ? 0 : scaleIn(state, stage[field], id);
   return Math.max(0, (baseOverride(state, deps, id, field) ?? printed) + statBonus(state, deps, id, field));
 }
 
@@ -713,16 +769,31 @@ export function startingThreatOf(state: GameState, id: InstanceId, deps: EngineD
   const scheme = mainSchemeStateOf(state, id);
   if (scheme) return mainSchemeValue(state, "startingThreat", deps, scheme);
   const card = cardOf(state, id);
-  const printed = card && "startingThreat" in card ? scaleIn(state, card.startingThreat) : 0;
+  const printed = card && "startingThreat" in card ? scaleIn(state, card.startingThreat, id) : 0;
   return Math.max(
     0,
     (baseOverride(state, deps, id, "startingThreat") ?? printed) + statBonus(state, deps, id, "startingThreat"),
   );
 }
 
+/**
+ * How many stages the main scheme deck holds: the stages of its walk order when it has one (chosen at setup,
+ * docs/phase7-wave10.md §3.2, or shuffled), else every stage of the card.
+ */
 export function mainSchemeStageCount(state: GameState, scheme: MainSchemeState = state.mainScheme): number {
   const card = mustCard(state, scheme.cardId);
-  return card.type === "main_scheme" ? card.stages.length : 0;
+  if (card.type !== "main_scheme") return 0;
+  return scheme.stageOrder?.length ?? card.stages.length;
+}
+
+/**
+ * Where a main scheme's current stage sits in its deck, from 1 (`mainSchemeStageCount` is the last): its place in the
+ * walk order when it has one, else its index in the card. What "stage N of M" shows; the printed number is the
+ * stage's own `stageNumber`.
+ */
+export function mainSchemeStagePosition(state: GameState, scheme: MainSchemeState = state.mainScheme): number {
+  const at = scheme.stageOrder?.indexOf(scheme.stageIndex) ?? -1;
+  return (at >= 0 ? at : scheme.stageIndex) + 1;
 }
 
 /** A minion in play: a minion card, or a card facedown as a minion (a facedown Drone). */
@@ -887,7 +958,7 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
       def: 0,
       rec: 0,
       sch: 0,
-      maxHp: printedMinionHp(state, card),
+      maxHp: printedMinionHp(state, card, id),
     };
   }
 
@@ -929,7 +1000,7 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
       def: 0,
       rec: 0,
       sch: statValue(card.sch),
-      maxHp: printedMinionHp(state, card),
+      maxHp: printedMinionHp(state, card, id),
     };
   }
   if (card.type === "villain" && isVillain(state, id)) {
@@ -946,7 +1017,7 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
       // A face printed with ∞ (RRG 1.8 "Hit Points", p. 22): damage is still dealt and taken, but "will never cause its
       // remaining hit points to reach zero", so the defeat sweep's `damage >= maxHp` can never hold. Infinity is never
       // stored in state: only `damage` is, and this is recomputed on each read (docs/phase7-wave3.md §3.1).
-      maxHp: stage.infiniteHp ? Number.POSITIVE_INFINITY : scaleIn(state, stage.hp),
+      maxHp: stage.infiniteHp ? Number.POSITIVE_INFINITY : scaleIn(state, stage.hp, id),
     };
   }
   return undefined;

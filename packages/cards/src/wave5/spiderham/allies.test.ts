@@ -176,8 +176,10 @@ describe("Lady Spider (ally, 30012)", () => {
     const hero = runWave5(spiderHamVsRhino(2), toHero(P1));
     const { state: withLady, id: lady } = playFromHand(hero, "30012", 4, accepting());
     const { state: staged, id: scheme } = encounterCardInVillainArea(withLady, "01107", 5);
+    // The main scheme holds no threat at the start, so give it some or it is no target for the removal (RRG 1.8 "Target", p. 42).
+    const loaded = patchInstance(staged, staged.mainScheme.instanceId, { threat: 3 });
     const atTarget = settle(
-      runWave5(staged, ladyThwarts(lady, scheme)),
+      runWave5(loaded, ladyThwarts(lady, scheme)),
       accepting(LADY_SPIDER_RESPONSE),
       (s) => s.pendingChoice?.prompt.kind === "chooseTarget",
       WAVE5_DEPS,

@@ -28,6 +28,7 @@ import {
   sharedMainSchemes,
   showingResources,
   villainOf,
+  playerCardOwnerOf,
 } from "./query.js";
 import {
   activeAbilityRefs,
@@ -195,6 +196,43 @@ export function cannotTakeDamage(
   });
 }
 
+/**
+ * Whether a player's attack deals its damage with the attacker's ATK (docs/phase7-wave10.md §3.17; ruling December
+ * 17, 2025 (2) #3): a basic attack (a divided one's shares are split from ATK), an attack with no amount of its own
+ * ("resolve her ATK against you", Old Rivals) and one marked as built from ATK (`usedStat`, from `attack.usesAtk`).
+ * Not a basic attack made with THW instead ("uses their THW instead of their ATK", `modifyBasicPower.useStat`, a var
+ * on the attack's frame). The label-only attack of an "(attack)" ability deals no damage of its own: it used ATK once
+ * one of that ability's damage instructions marked `usesAtk` has dealt its damage as this attack (`usedStat`).
+ */
+export function attackUsesAtk(
+  event: Extract<TriggerEvent, { kind: "attack" }>,
+  vars: Readonly<Record<string, number>> | undefined,
+): boolean {
+  if (event.usedStat !== undefined) return event.usedStat === "atk";
+  if (event.labeled) return false;
+  const ownAmount = (event.amount ?? null) !== null;
+  if (event.basic === true && !ownAmount && (vars?.useThw ?? 0) > 0) return false;
+  return event.basic === true || !ownAmount;
+}
+
+/**
+ * The stat one instance of attack damage was dealt with (docs/phase7-wave10.md §3.17): its own stamp (`dealDamage.
+ * usedStat`, written as a player's attack pushes it and carried onto its overkill spill), else `"atk"` for any damage
+ * of an enemy's attack, read from the attack this damage belongs to or spilled from: an enemy attacks with its ATK
+ * (RRG 1.8 "Attack (Enemy Activation)", p. 9), whatever form step 5's damage takes (redirected, indirect, divided,
+ * overkill). Null for damage that is not an attack's and for a flat amount.
+ */
+export function damageUsedStat(state: GameState, event: Extract<TriggerEvent, { kind: "dealDamage" }>): "atk" | null {
+  if (!event.fromAttack) return null;
+  if (event.usedStat !== undefined) return event.usedStat;
+  const attackFrameId = event.parentFrameId ?? event.spilledFromFrameId ?? null;
+  if (attackFrameId === null) return null;
+  const frame = state.stack.find((f) => f.frameId === attackFrameId);
+  return frame?.kind === "event" && (frame.event.kind === "enemyAttack" || frame.event.kind === "enemyAttacksEnemy")
+    ? "atk"
+    : null;
+}
+
 /** A player's attack on the stack: its `attack` event frame (`playerAttackInProgress`). */
 export type PlayerAttackFrame = Extract<StackFrame, { kind: "event" }> & {
   readonly event: Extract<TriggerEvent, { kind: "attack" }>;
@@ -236,11 +274,13 @@ export function canTakePlayerAttack(
     basic: basic === true,
     ...(keywords ? { keywords } : {}),
     vars: attack.vars,
+    targetInstanceId: targetId,
   });
+  const withOverkill = overkill === true && !lostAttackKeywords(state, deps, targetId).includes("overkill");
   return !cannotTakeDamage(state, deps, targetId, [attackerInstanceId, sourceInstanceId], {
     attackerInstanceId,
     cardInstanceId: sourceInstanceId,
-    keywords: overkill === true && !has.includes("overkill") ? [...has, "overkill"] : has,
+    keywords: withOverkill && !has.includes("overkill") ? [...has, "overkill"] : has,
   });
 }
 
@@ -433,6 +473,10 @@ function lastKnownFromAttack(damage: ConsequentialDamage): EffectContext["lastKn
  * removing card; null when no character performs it), read only by a rule with `exceptBy` ("Characters other than
  * Cable cannot remove threat from Technovirus Purge", docs/phase7-wave7.md §3.51): such a rule binds characters only
  * (§4.1 Q29 = A), so it never blocks a removal with no character and blocks a character's unless it matches.
+ *
+ * A rule with `exceptThwartBy` ("except by Hercules's thwarts", docs/phase7-wave10-hero-packs.md H3.6) lets through
+ * only a thwart (`byThwart`) whose thwarting character (`characterId`) matches, and blocks every other removal,
+ * whether or not a character performs it.
  */
 export const threatCannotBeRemoved = (
   state: GameState,
@@ -449,6 +493,14 @@ export const threatCannotBeRemoved = (
     if (rule.exceptBy && (characterId === null || matchesQuery(state, characterId, rule.exceptBy, context))) {
       return false;
     }
+    if (
+      rule.exceptThwartBy &&
+      byThwart &&
+      characterId !== null &&
+      matchesQuery(state, characterId, rule.exceptThwartBy, context)
+    ) {
+      return false;
+    }
     if (!rule.player) return true;
     return removerId !== null && rulePlayers(state, { player: rule.player }, active).includes(removerId);
   });
@@ -457,7 +509,8 @@ export const threatCannotBeRemoved = (
  * Whether a `threatCannotBeRemoved` rule scoped with `exceptBy` keeps this character from removing threat from the
  * scheme (docs/phase7-wave7.md §3.51): what the basic thwart command refuses on, so the scheme is not a legal target
  * of that character's basic thwart. A rule without `exceptBy`, or one that also scopes itself with `by` or `player`,
- * is left to the removal itself, as before the field.
+ * is left to the removal itself, as before the field. A rule with `exceptThwartBy` (docs/phase7-wave10-hero-packs.md
+ * H3.6) refuses the basic thwart of every character it does not name, on the same terms.
  */
 export const characterCannotRemoveThreat = (
   state: GameState,
@@ -467,11 +520,11 @@ export const characterCannotRemoveThreat = (
 ): boolean =>
   activeRules(state, deps, "threatCannotBeRemoved").some(
     ({ rule, context }) =>
-      rule.exceptBy !== undefined &&
       rule.by !== "thwart" &&
       rule.player === undefined &&
       matchesQuery(state, schemeId, rule.target, context) &&
-      !matchesQuery(state, characterId, rule.exceptBy, context),
+      ((rule.exceptBy !== undefined && !matchesQuery(state, characterId, rule.exceptBy, context)) ||
+        (rule.exceptThwartBy !== undefined && !matchesQuery(state, characterId, rule.exceptThwartBy, context))),
   );
 
 /**
@@ -550,6 +603,17 @@ export function tuckedSpender(
   if (!anyPlayer) return null;
   return state.players.find((p) => !p.eliminated && p.playerId !== playerId && spends(p.playerId))?.playerId ?? null;
 }
+
+/**
+ * "While paying costs on attached card, any player may help pay those costs" (`RuleSpec costsPayableByAnyPlayer`,
+ * docs/phase7-wave10-hero-packs.md H3.19): whether a rule in force names `id`, a card in play, so the costs of the
+ * abilities printed on it are paid as a group.
+ */
+export const costsPayableByAnyPlayer = (state: GameState, deps: EngineDeps, id: InstanceId): boolean => {
+  const rules = activeRules(state, deps, "costsPayableByAnyPlayer");
+  if (rules.length === 0 || !cardsInPlay(state).includes(id)) return false;
+  return rules.some(({ rule, context }) => matchesQuery(state, id, rule.card, context));
+};
 
 /**
  * "Attached identity cannot … recover" (`RuleSpec cannotRecover`, docs/phase7-wave6.md §3.14): this player cannot make
@@ -678,7 +742,9 @@ export function maxPerPlayerReached(state: GameState, id: InstanceId, controller
  * element" (`maxPerHost`, copies by title), and "Max 1 TRAINING upgrade per ally" counts attachments with that trait,
  * printed or gained (`maxWithTrait` with `per: "host"`, docs/phase7-wave6.md §3.28). The card never counts against
  * itself, so an attached card re-checked on its own host is not refused. Checked wherever a host is chosen
- * (`attachmentHostCandidates`, the play command), so a put-into-play obeys it as a play does.
+ * (`attachmentHostCandidates`, the play command), so a put-into-play obeys it as a play does, and so does an encounter
+ * attachment's data host at the reveal ("(Limit 1 per character.)", `AttachmentCard.playRestrictions`): a host at the
+ * limit is not legal when the card would be attached (RRG 1.8 "Attach To", p. 8).
  */
 export function attachLimitFault(
   state: GameState,
@@ -738,11 +804,12 @@ export function canHaveAttached(
 ): boolean {
   const attaching = attachmentId !== null ? getInstance(state, attachmentId) : undefined;
   const card = attachmentId !== null ? cardOf(state, attachmentId) : undefined;
-  const encounter = attaching !== undefined && attaching.ownerId === null;
+  const playerOwned = attachmentId !== null && playerCardOwnerOf(state, attachmentId) !== null;
+  const encounter = attaching !== undefined && !playerOwned;
   const from = {
     encounter,
     upgrade: card?.type === "upgrade",
-    playerCard: attaching !== undefined && attaching.ownerId !== null,
+    playerCard: attaching !== undefined && playerOwned,
   };
   return !activeRules(state, deps, "cannotHaveAttachments").some(
     ({ rule, context }) =>
@@ -922,6 +989,31 @@ export function additionalPowerCostFor(
   return resources !== null && requirementTotal(resources) > 0 ? { resources, sourceInstanceIds } : null;
 }
 
+/** One additional cost to attack an enemy: the cost and the card whose rule asks it (`additionalAttackCostsFor`). */
+export interface AttackCostOwed {
+  readonly sourceInstanceId: InstanceId;
+  readonly cost: AbilityCost;
+}
+
+/**
+ * The additional costs a player owes to attack `targetId` (`RuleSpec additionalAttackCost`,
+ * docs/phase7-wave10-hero-packs.md H3.16): one per rule in force whose `target` matches it, in rule order. Who pays,
+ * and whether they can, is `attack-cost.ts`'s.
+ */
+export function additionalAttackCostsFor(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+): readonly AttackCostOwed[] {
+  const owed: AttackCostOwed[] = [];
+  for (const { rule, context } of activeRules(state, deps, "additionalAttackCost")) {
+    if (context.selfInstanceId === null || context.selfInstanceId === undefined) continue;
+    if (!matchesQuery(state, targetId, rule.target, context)) continue;
+    owed.push({ sourceInstanceId: context.selfInstanceId, cost: rule.cost });
+  }
+  return owed;
+}
+
 /** How many additional times this player resolves each When Revealed ability they reveal (Media Coverage). */
 export const whenRevealedRepeats = (state: GameState, deps: EngineDeps, playerId: PlayerId): number =>
   activeRules(state, deps, "repeatWhenRevealed")
@@ -1024,6 +1116,19 @@ export function grantedAttackKeywords(
   return granted;
 }
 
+/**
+ * The `AttackKeyword`s attacks do not have against this character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18;
+ * RRG 1.8 "Lose", p. 27: a loss holds whatever would give the keyword). Empty with no such rule in force.
+ */
+export function lostAttackKeywords(state: GameState, deps: EngineDeps, targetId: InstanceId): readonly AttackKeyword[] {
+  const lost: AttackKeyword[] = [];
+  for (const { rule, context } of activeRules(state, deps, "attacksLoseKeywords")) {
+    if (!matchesQuery(state, targetId, rule.target, context)) continue;
+    for (const keyword of rule.keywords) if (!lost.includes(keyword)) lost.push(keyword);
+  }
+  return lost;
+}
+
 /** Whether a basic thwart against this scheme may use ATK instead of THW (`thwartWithAtk`). */
 export const mayThwartWithAtk = (state: GameState, deps: EngineDeps, schemeId: InstanceId): boolean =>
   activeRules(state, deps, "thwartWithAtk").some(({ rule, context }) =>
@@ -1048,9 +1153,54 @@ export const cannotPlayCard = (state: GameState, deps: EngineDeps, playerId: Pla
  * Whether a rule stops this card from entering play (`RuleSpec cannotEnterPlay`, docs/phase7-wave8.md §3.43): the one
  * answer for a play, for an effect that puts a card into play and for a choice of a card to put into play. About a
  * card out of play; the callers ask it only for a card that would enter play.
+ *
+ * `forPlayer`: the player the card would enter play under the control of. A rule limited to some players
+ * (`cannotEnterPlay.player`, docs/phase7-wave10-box-heroes.md B3.4) stops the card only for them, and never an entry
+ * that names no player.
  */
-export const cannotEnterPlay = (state: GameState, deps: EngineDeps, id: InstanceId): boolean =>
-  activeRules(state, deps, "cannotEnterPlay").some(({ rule, context }) => matchesQuery(state, id, rule.cards, context));
+export const cannotEnterPlay = (
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  forPlayer: PlayerId | null = null,
+): boolean => enterPlayBar(state, deps, id, forPlayer) !== undefined;
+
+/** The first `cannotEnterPlay` rule in force that keeps this card out of play for `forPlayer` (`cannotEnterPlay`). */
+function enterPlayBar(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  forPlayer: PlayerId | null,
+): ActiveRule<"cannotEnterPlay"> | undefined {
+  return activeRules(state, deps, "cannotEnterPlay").find((active) => {
+    const { rule, context } = active;
+    if (rule.player !== undefined) {
+      if (forPlayer === null || !resolvePlayers(state, rule.player, context).includes(forPlayer)) return false;
+    }
+    return matchesQuery(state, id, rule.cards, context);
+  });
+}
+
+/**
+ * Why this card cannot enter play, for a refused play or cost: null when no `cannotEnterPlay` rule stops it. A rule
+ * printed on a card names that card, by the face an identity shows ("Teddy Altman: Winged Shape cannot enter play");
+ * a scenario's rule keeps the campaign instruction's own words.
+ */
+export function enterPlayBarMessage(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  forPlayer: PlayerId | null = null,
+): string | null {
+  const bar = enterPlayBar(state, deps, id, forPlayer);
+  if (!bar) return null;
+  const name = cardOf(state, id)?.name ?? id;
+  const sourceId = bar.context.selfInstanceId;
+  if (!sourceId || !getInstance(state, sourceId)) return `${name} cannot enter play during this game`;
+  const seat = state.players.find((player) => player.identity.instanceId === sourceId);
+  const source = seat ? identityFace(state, seat).face.faceName : cardOf(state, sourceId)?.name;
+  return source ? `${source}: ${name} cannot enter play` : `${name} cannot enter play during this game`;
+}
 
 /** Whether an action ability with this form label on this card cannot be triggered (`cannotTriggerActions`). */
 export const cannotTriggerAction = (

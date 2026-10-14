@@ -288,6 +288,15 @@
  * Damage that is not the attack's gets none of it: an instruction marked `fromAttack: false`, damage to the ability's
  * own player, damage to a card that is not an enemy.
  *
+ * **A defeat instruction** ("Hero Action (attack): Defeat a non-Elite minion with an upgrade attached", Coup de Grâce,
+ * `cw` 56016; docs/phase7-wave10-box-heroes.md B3.2) is read as a damage instruction is: p. 10, "resolving that ability
+ * is considered to attack the specified target". An enemy an `EffectSpec defeat` of an "(attack)" ability names is
+ * attacked by the identity (`characterAttacked`, with the attack's "when … attacks" window before it and "after …
+ * attacks" after), guard is read for it, a cancelled attack defeats no enemy, and the defeat is the attack's: made by
+ * the attacker (`characterDefeated.sourceInstanceId`, with the ability's card as `viaInstanceId`), marked `fromAttack`
+ * and counted in the attack's `defeated` result, so "when you attack and defeat attached minion" answers it. A defeat
+ * is not damage: an attack moved onto another character in its window does not move the defeat.
+ *
  * **Guard restricts attack targeting, checked per enemy as it would be attacked** (owner ruling Q49; RRG 1.8 "Guard",
  * p. 21: "that player cannot use cards they control to attack a villain"; "Attack (Player Ability Type)", p. 10: "Hero
  * and ally attacks can target any enemy, unless a card ability (such as guard) is preventing that enemy from being
@@ -316,6 +325,7 @@ import { type Ctx, emit, findFrame, updateFrame } from "../ctx.js";
 import type { AbilityDefinition, EngineDeps } from "../abilities.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { attackKeywordsOf } from "../keywords.js";
+import { lostAttackKeywords } from "../rules.js";
 import {
   canAttack,
   cardsInPlay,
@@ -749,7 +759,9 @@ export function skipUnattackable(
   });
 }
 
-/** The enemies in play a damage instruction of a label-only attack names right now; null for any other instruction. */
+/**
+ * The cards a damage or defeat instruction of a label-only attack names right now; null for any other instruction.
+ */
 function namedByAttackInstruction(
   state: GameState,
   effect: EffectSpec,
@@ -757,6 +769,8 @@ function namedByAttackInstruction(
 ): readonly InstanceId[] | null {
   if (effect.kind === "dealDamage")
     return isAttackInstruction(effect) ? resolveRef(state, effect.target, context) : null;
+  // "Hero Action (attack): Defeat a … minion" (file header, "A defeat instruction"): the enemy it defeats is attacked.
+  if (effect.kind === "defeat") return resolveRef(state, effect.target, context);
   if (effect.kind === "divide" && effect.what === "damage") return selectTargets(state, effect.among, context);
   return null;
 }
@@ -1050,7 +1064,13 @@ export function resumeBegunAttack(
   rootId: FrameId,
   attackerId: InstanceId,
   target: InstanceId,
-  made: { readonly amount: number; readonly overkill: boolean; readonly keywords: AttackKeywords },
+  made: {
+    readonly amount: number;
+    readonly overkill: boolean;
+    readonly keywords: AttackKeywords;
+    /** `attack.usesAtk` of the instruction taking the attack over (docs/phase7-wave10.md §3.17). */
+    readonly usesAtk?: boolean;
+  },
   reportTo: ReportTarget | null,
 ): void {
   const waiting = begunAttackWaiting(ctx.state, rootId, attackerId);
@@ -1067,6 +1087,7 @@ export function resumeBegunAttack(
       amount: made.amount,
       overkill: made.overkill,
       ...(made.keywords.length > 0 ? { keywords: made.keywords } : {}),
+      ...(made.usesAtk ? { usedStat: "atk" as const } : {}),
     },
   };
   ctx.state = {
@@ -1099,7 +1120,9 @@ export function openLabelAttack(
 ): boolean {
   if (effect.kind === "dealDamage") {
     if (!isAttackInstruction(effect)) return false;
-  } else if (effect.kind !== "divide" || effect.what !== "damage" || frame.answer !== null) return false;
+  } else if (effect.kind !== "defeat") {
+    if (effect.kind !== "divide" || effect.what !== "damage" || frame.answer !== null) return false;
+  }
   if (frame.controllerId === null || !isLabelOnlyAttack(ctx.deps, frame)) return false;
   const rootId = abilityRootFrameId(ctx.state, frame);
   const root = findFrame(ctx.state, rootId);
@@ -1109,7 +1132,7 @@ export function openLabelAttack(
   if (identity === undefined) return false;
   const inPlay = cardsInPlay(ctx.state);
   const named =
-    effect.kind === "dealDamage"
+    effect.kind === "dealDamage" || effect.kind === "defeat"
       ? resolveRef(ctx.state, effect.target, context)
       : selectTargets(ctx.state, effect.among, context);
   const [first] = named.filter(
@@ -1245,7 +1268,11 @@ export function abilityAttackDamage(
     basic: false,
     ...(event.keywords ? { keywords: event.keywords } : {}),
     vars: attack.vars,
+    targetInstanceId: targetId,
   });
+  const overkill =
+    keywords.includes("overkill") ||
+    (event.overkill === true && !lostAttackKeywords(state, deps, targetId).includes("overkill"));
   return {
     // "This attack deals N additional damage" (`modifyAttack.extraDamage` on the attack's frame) increases each
     // instance of the attack's damage (RRG 1.8 "Attack (Player Ability Type)", p. 10; owner ruling Q53): the attack's
@@ -1257,7 +1284,7 @@ export function abilityAttackDamage(
       fromAttack: true,
       parentFrameId: attack.frameId,
       viaInstanceId: event.sourceInstanceId ?? null,
-      ...(event.overkill === true || keywords.includes("overkill") ? { overkill: true } : {}),
+      ...(overkill ? { overkill: true } : {}),
       ...(keywords.includes("piercing") ? { piercing: true } : {}),
       ...(keywords.includes("ranged") ? { ranged: true as const } : {}),
     },

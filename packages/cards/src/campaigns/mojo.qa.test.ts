@@ -10,8 +10,9 @@
  *   greedy driver cannot win these games unaided): MaGog starts with 4 ratings counters on The Challengers, Spiral on
  *   her CORNERED side at stage II with 14 damage, Mojo at stage II with 17 damage. Everything after that is played, and
  *   every outcome here is the driver's own (no outcome is overridden). The campaign seed (33) is the first of the seeds
- *   1-80 whose three staged games the driver wins (56 is the other); seeds 17, 41, 42 and 47 win scenario 1 and lose
- *   scenario 2. It was 10 until 0 damage stopped opening a damage window (owner ruling 2026-10-06): in that game's
+ *   1-80 whose three staged games the driver wins (56 is the other); seeds 41 and 42 win scenario 1 and lose
+ *   scenario 2 (17 and 47 did too, until a removal of threat could no longer target a scheme with no threat, RRG 1.8
+ *   "Target" p. 42: Surveillance Team stopped being spent on the empty main scheme and the driver won scenario 2). It was 10 until 0 damage stopped opening a damage window (owner ruling 2026-10-06): in that game's
  *   first villain phase Spider-Man's defense covered MaGog's attack and the driver spent Backflip on the 0 damage.
  * - **A real lost-and-retried scenario**: scenario 2 really lost, folded as a loss with the log intact and the checked-off
  *   sets unchanged, and the retry starts a new real game.
@@ -205,7 +206,8 @@ describe("a full MojoMania campaign: a real game at every node, the log checked 
 
 describe("a lost scenario is retried with the log intact (insert p. 4)", () => {
   it("scenario 2 really lost: nothing is checked off, the history keeps the loss, and the retry is a new real game", () => {
-    let log = newLog(STANDARD, SOLO_SEATS, 17);
+    // Seed 42 (41 until the hazard and acceleration icons of mojo 39036 and 39064 were counted: MaGog then won on 41).
+    let log = newLog(STANDARD, SOLO_SEATS, 42);
     const s1 = playNode(log, "magog");
     expect(s1.outcome).toBe("win");
     log = finish(s1.composed, resultOf(s1), recordLast).log;

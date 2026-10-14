@@ -444,6 +444,10 @@ export function stubAttachment(spec: {
   readonly boostIcons?: number;
   readonly keywords?: readonly KeywordInstance[];
   readonly abilities?: readonly AbilityReference[];
+  /** "Of the enemy team's choice" (`AttachmentCard.hostChosenBy`). */
+  readonly hostChosenBy?: AttachmentCard["hostChosenBy"];
+  /** "(Limit N per character.)" (`AttachmentCard.playRestrictions`). */
+  readonly maxPerHost?: number;
 }): AttachmentCard {
   return {
     ...base(spec.id, spec.name ?? spec.id),
@@ -456,6 +460,8 @@ export function stubAttachment(spec: {
     abilities: spec.abilities ?? [],
     ...(spec.attachesTo ? { attachesTo: spec.attachesTo } : {}),
     ...(spec.statModifiers ? { statModifiers: spec.statModifiers } : {}),
+    ...(spec.hostChosenBy ? { hostChosenBy: spec.hostChosenBy } : {}),
+    ...(spec.maxPerHost !== undefined ? { playRestrictions: { maxPerHost: spec.maxPerHost } } : {}),
   };
 }
 

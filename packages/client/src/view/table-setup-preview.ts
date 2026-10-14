@@ -53,8 +53,10 @@ import {
   type TableRules,
 } from "@mc/engine";
 import { POOL_DEPS } from "../content/pool.js";
+import type { BlindReveal } from "./civil-war-blind.js";
 import { encounterDeckPreviewOf, type EncounterDeckPreview } from "./encounter-preview.js";
 import { encounterDeckSizeText } from "./modular-summary.js";
+import { foeWord } from "./foe-words.js";
 import { hasRandomVillain, randomVillainLabel } from "./random-villain.js";
 import { difficultyOptionsFor, type SetupDifficulty } from "./setup-draft.js";
 import { aspectName } from "./aspect-stamp.js";
@@ -82,6 +84,10 @@ export interface AddedSetPreview {
 export interface TableSetupPreview {
   readonly playerCount: number;
   readonly villainName: string;
+  /** "Villain", or "Leader" for a Civil War scenario (`foeWord`). */
+  readonly foeWord: string;
+  /** The plural, lower case, for "3 villains". */
+  readonly foeWordPlural: string;
   /** True when the opening villain is drawn at random (`Scenario.randomVillainName`): `villainName` is that label and the HP and stage are left off. */
   readonly villainIsRandom: boolean;
   /** Sets the engine adds at the deal because of what the seats chose (the same test `createGame` runs). */
@@ -179,6 +185,8 @@ export interface CompositionRow {
   readonly count: number;
   /** The one row this section draws in Hero Red text, never a fill (the screen's single red fill is "Deal it out") — the obligations row, since it's the one line in "what's shuffled in" that isn't a set the table chose. */
   readonly red: boolean;
+  /** Printed in place of the count: "hidden" for the type breakdown of a blind Civil War build. */
+  readonly shown?: string;
 }
 
 /**
@@ -236,6 +244,12 @@ export function whatsInThereRowsOf(encounterDeck: EncounterDeckPreview): readonl
   return rows;
 }
 
+/** A blind build (owner answer 24A) hides the stage 2 scheme and the set list until each turns up; the deck's type mix would give the hidden sets away in part, so it reads "hidden" too. */
+export const BLIND_TYPE_MIX_SHOWN = "hidden";
+export function blindWhatsInThereRows(rows: readonly CompositionRow[]): readonly CompositionRow[] {
+  return rows.map((row) => ({ ...row, shown: BLIND_TYPE_MIX_SHOWN }));
+}
+
 export interface NemesisStandby {
   readonly sentence: string;
   readonly totalCards: number;
@@ -277,7 +291,7 @@ function setAsideValue(names: readonly string[]): string {
 export function gameSummaryRowsOf(preview: TableSetupPreview, tableRules?: TableRules): readonly GameSummaryRow[] {
   return [
     {
-      label: "Villain",
+      label: preview.foeWord,
       value: preview.villainIsRandom
         ? `${preview.villainName} · random`
         : preview.villainCount > 1
@@ -359,6 +373,8 @@ export function tableSetupPreviewOf(
   cardsById: ReadonlyMap<string, AnyCard>,
   encounterSets: readonly EncounterSet[],
   deps: EngineDeps = POOL_DEPS,
+  /** A Civil War game started blind (`blindRevealOf`): the deck's unrevealed modular sets print under the hidden word. */
+  blind: BlindReveal | null = null,
 ): TableSetupPreview {
   const playerCount = config.players.length;
   const stageRange = stageRangeFor(scenario, difficulty, config.villainStartStageIndex);
@@ -380,7 +396,7 @@ export function tableSetupPreviewOf(
             ),
           }
         : { ...config, encounterDeck: [...config.encounterDeck, ...shuffledIn] };
-  const encounterDeck = encounterDeckPreviewOf(deckConfig, [...cardsById.values()], encounterSets);
+  const encounterDeck = encounterDeckPreviewOf(deckConfig, [...cardsById.values()], encounterSets, blind);
   const firstStage = mainScheme.stages[0]!;
   const villainCard = cardsById.get(scenario.villainCardId as string);
   const villainSide =
@@ -400,6 +416,8 @@ export function tableSetupPreviewOf(
   return {
     playerCount,
     villainName: randomVillainLabel(scenario, cardsById) ?? villainSide?.name ?? villainCard?.name ?? scenario.name,
+    foeWord: foeWord(scenario, { cardsById, plural: false }),
+    foeWordPlural: foeWord(scenario, { cardsById, plural: true, lower: true }),
     villainIsRandom,
     addedSets,
     villainCount: scenario.multipleVillains ? scenario.multipleVillains.villains.length : 1,

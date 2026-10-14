@@ -12,7 +12,7 @@ import { countedResourcesOf, DECK_DISCARDS_PREFIX } from "../select.js";
 import type { Bindings } from "../stack.js";
 import type { DeckDiscard } from "../state.js";
 import { TAKEN_AWAY_SUFFIX, type TriggerEvent } from "../trigger-events.js";
-import { addFrameSlots, pushEventsSharingResponses } from "./frames.js";
+import { addFrameSlots, type Frame, pushEventsSharingResponses } from "./frames.js";
 import { heard } from "./triggers.js";
 
 /**
@@ -138,6 +138,29 @@ export function announceDeckDiscards(ctx: Ctx): boolean {
 }
 
 /**
+ * A response to a deck discard has finished resolving (its effects frame is done): each watched card that is no
+ * longer where its discard left it, and that no earlier response was recorded as taking, was taken by this one
+ * (`DeckDiscard.takenBy`). Whether the discarding ability still counts it is that ability's
+ * `discardsStayCounted` (docs/phase7-wave10-box-heroes.md B3.3, question 14 = A), read by `settleDeckDiscards` when
+ * the window closes. Nothing is recorded outside a window, or for a frame that is not an ability's own effects.
+ */
+export function noteDeckDiscardsTaken(ctx: Ctx, frame: Frame<"effects">): void {
+  const windows = ctx.state.deckDiscardWindows;
+  if (!windows || !frame.announceResolved || frame.event?.kind !== "cardDiscardedFromDeck") return;
+  const stillCounted = ctx.deps.abilities[frame.announceResolved.abilityId]?.discardsStayCounted === true;
+  let changed = false;
+  const noted = windows.map((window) => ({
+    ...window,
+    discards: window.discards.map((discard) => {
+      if (discard.takenBy || deckDiscardStillThere(ctx.state, discard)) return discard;
+      changed = true;
+      return { ...discard, takenBy: { instanceId: frame.announceResolved!.instanceId, stillCounted } };
+    }),
+  }));
+  if (changed) ctx.state = { ...ctx.state, deckDiscardWindows: noted };
+}
+
+/**
  * Closes each deck-discard response window whose opening frame has left the stack (`GameState.deckDiscardWindows`):
  * every response to those discards has resolved. A card no longer where its discard left it was taken away by a
  * response, its own or another card's, and is dropped from the discarding ability's bound set before that ability
@@ -160,6 +183,27 @@ export function settleDeckDiscards(ctx: Ctx): void {
   for (const discard of closed.flatMap((window) => window.discards)) {
     if (!discard.boundOn || deckDiscardStillThere(ctx.state, discard)) continue;
     const { frameId } = discard.boundOn;
+    // Taken by a response that leaves it counted (`AbilityDefinition.discardsStayCounted`, box-heroes B3.3,
+    // question 14 = A): the set and its totals are untouched.
+    if (discard.takenBy?.stillCounted) {
+      const takenByInstanceId = discard.takenBy.instanceId;
+      for (const slot of [discard.boundOn.slot, ...(discard.boundOn.also ?? [])]) {
+        const holder = findFrame(ctx.state, frameId);
+        const holds =
+          holder !== undefined &&
+          (holder.kind === "effects" || holder.kind === "ability" || holder.kind === "playCard") &&
+          holder.bindings[slot]?.includes(discard.instanceId) === true;
+        if (!holds) continue;
+        emit(ctx, {
+          type: "deckDiscardStillCounted",
+          playerId: discard.playerId,
+          instanceId: discard.instanceId,
+          slot,
+          takenByInstanceId,
+        });
+      }
+      continue;
+    }
     // Each set of the frame that holds the card: its "discarded this way" slot, and a `discardDeckUntil`'s set of
     // every card it discarded (`DeckDiscard.boundOn.also`, docs/phase7-wave8.md §3.71).
     for (const slot of [discard.boundOn.slot, ...(discard.boundOn.also ?? [])]) {

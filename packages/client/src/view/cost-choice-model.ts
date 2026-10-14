@@ -130,6 +130,7 @@ export function describeCost(
   }
   if (cost.damageSelf) parts.push(`take ${cost.damageSelf} damage`);
   if (cost.healIdentity) parts.push(`heal ${cost.healIdentity} damage from your identity`);
+  if (cost.healCharacter) parts.push(`heal ${cost.healCharacter.amount} damage from a character you choose`);
   return parts.length > 0 ? parts.join(", ") : "pay this cost";
 }
 

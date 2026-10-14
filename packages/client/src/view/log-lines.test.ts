@@ -3,7 +3,7 @@
  * so it is exercised against the shapes the engine actually emits.
  */
 
-import { activeVillain } from "@mc/engine";
+import { activeVillain, cardOf } from "@mc/engine";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { GameEvent, GameState, PlayerId } from "@mc/engine";
 import { POOL_DEPS } from "../content/pool.js";
@@ -94,6 +94,40 @@ describe("game log", () => {
     for (const event of noisy) {
       expect(logLine(event, played.state, played.viewer, POOL_DEPS), event.type).toBeNull();
     }
+  });
+
+  test("the enemy is a villain in a Rhino game's lines and a leader once its card is printed as one", () => {
+    const id = activeVillain(played.state).instanceId;
+    const card = cardOf(played.state, id)!;
+    const leaderState = {
+      ...played.state,
+      cardPool: { ...played.state.cardPool, [card.id]: { ...card, printedType: "leader" } },
+    } as unknown as GameState;
+    const lines = (state: GameState) =>
+      [
+        logLine({ type: "villainStageAdvanced", stageIndex: 1, instanceId: id }, state, played.viewer, POOL_DEPS),
+        logLine({ type: "villainAdded", instanceId: id } as never, state, played.viewer, POOL_DEPS),
+        logLine({ type: "villainRowSet", order: [id] }, state, played.viewer, POOL_DEPS),
+        logLine(
+          { type: "gameEnded", outcome: { result: "win", reason: "villainDefeated" } } as never,
+          state,
+          played.viewer,
+          POOL_DEPS,
+        ),
+      ].map((beat) => beat?.text);
+    const name = cardName(played.state, id);
+    expect(lines(played.state)).toEqual([
+      "The villain advances to stage 2.",
+      `${name} joins the fight as another villain.`,
+      `Villains in a row, left to right: ${name}.`,
+      "The villain is defeated. You win.",
+    ]);
+    expect(lines(leaderState)).toEqual([
+      "The leader advances to stage 2.",
+      `${name} joins the fight as another leader.`,
+      `Leaders in a row, left to right: ${name}.`,
+      "The leader is defeated. You win.",
+    ]);
   });
 
   test("a temporary discard reads as its keyword, not engine plumbing", () => {

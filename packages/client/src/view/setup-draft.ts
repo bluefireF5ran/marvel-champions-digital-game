@@ -112,6 +112,21 @@ export interface SetupDraft {
   readonly deckSwaps: readonly DeckSwap[];
   /** Cards the player chose to keep as a resource instead of replacing them; dropped with `deckSwaps`. */
   readonly keptConflicts: readonly KeptConflict[];
+  /**
+   * A Civil War leader's builder picks beside `modularSetIds` (docs/phase7-wave10-client.md 6.5); `null` for every other
+   * scenario. `setScenario` and `initialSetupDraft` fill it for a scenario whose offer has main scheme stages.
+   */
+  readonly civilWar: CivilWarDraft | null;
+}
+
+/** The picks only a Civil War scenario has. The modular sets are the draft's own `modularSetIds` (`null` is the four recommended). */
+export interface CivilWarDraft {
+  /** One `printedCardId` per stage number, stage 1 then stage 2; the offer's recommended pair until the player picks. */
+  readonly stageIds: readonly string[];
+  /** The builder's blind option: sets and stages stay hidden in play until revealed. */
+  readonly blind: boolean;
+  /** True while the picks are what the Random button rolled and the player has not edited; stored so "New random scenario" can be offered after the game. */
+  readonly random?: boolean;
 }
 
 /** RRG: 1–4 players. */
@@ -145,7 +160,14 @@ export function initialSetupDraft(options: InitialSetupDraftOptions): SetupDraft
     towerDefenseSetupDamage: false,
     deckSwaps: [],
     keptConflicts: [],
+    civilWar: defaultCivilWar(options.scenarioId, false),
   };
+}
+
+/** The recommended pair for a Civil War leader, or `null` for a scenario whose stages are not a choice. */
+function defaultCivilWar(scenarioId: string, blind: boolean): CivilWarDraft | null {
+  const stages = offerOf({ scenarioId, difficulty: "standard", modularSetIds: null, civilWar: null }).mainSchemeStages;
+  return stages ? { stageIds: stages.recommended, blind } : null;
 }
 
 /**
@@ -207,7 +229,23 @@ export function setScenario(draft: SetupDraft, scenario: Scenario | undefined, s
     easierStart: false,
     setAsideModularSetIds: null,
     towerDefenseSetupDamage: false,
+    // A different leader's stage picks never carry over (they may be the other side's); the same leader keeps its own.
+    civilWar:
+      scenarioId === draft.scenarioId ? draft.civilWar : defaultCivilWar(scenarioId, draft.civilWar?.blind ?? false),
   };
+}
+
+/** Picks one stage of a Civil War scenario by stage number (1 or 2); anything the offer does not list is dropped by `reconcileWithOffer`. */
+export function setMainSchemeStage(draft: SetupDraft, stageNumber: number, printedCardId: string): SetupDraft {
+  if (!draft.civilWar) return draft;
+  const stageIds = [...draft.civilWar.stageIds];
+  stageIds[stageNumber - 1] = printedCardId;
+  return reconcileKeepingEasierStart({ ...draft, civilWar: { ...draft.civilWar, stageIds } });
+}
+
+/** The builder's blind option. */
+export function setCivilWarBlind(draft: SetupDraft, blind: boolean): SetupDraft {
+  return draft.civilWar ? { ...draft, civilWar: { ...draft.civilWar, blind } } : draft;
 }
 
 /**
@@ -545,6 +583,14 @@ export function toSessionConfig(
       ? { horsemanSides: options.horsemanSides as HorsemanSides }
       : {}),
     ...(options.easierStart ? { easierStart: true } : {}),
+    ...(options.civilWar
+      ? {
+          ...(options.civilWar.stageIds.length > 0 ? { mainSchemeStageIds: options.civilWar.stageIds } : {}),
+          gameMode: "cooperative" as const,
+          ...(options.civilWar.blind ? { blind: true } : {}),
+          ...(options.civilWar.random ? { randomScenario: true } : {}),
+        }
+      : {}),
     ...(setAsideModularSetIds ? { setAsideModularSetIds } : {}),
     ...(draft.extraModularSetIds.length > 0 ? { extraModularSetIds: draft.extraModularSetIds } : {}),
     ...(draft.towerDefenseSetupDamage ? { setupOptions: { towerDefenseSetupDamage: true } } : {}),

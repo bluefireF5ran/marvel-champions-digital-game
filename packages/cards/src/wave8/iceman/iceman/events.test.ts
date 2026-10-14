@@ -626,11 +626,14 @@ describe("Chill Out! (46011)", () => {
     expect(accepted(staged.state, play(P1, staged.id, []))).toBe(false);
     expect(accepted(run(staged.state, picker(), endTurn()).state, playCommand(staged))).toBe(false);
   });
-  it("a scheme with no threat is still a legal choice: nothing is removed and the copy is still attached", () => {
+  it("a scheme with no threat is not offered (RRG 1.8 Target, p. 42): nothing is removed, but the copy is still attached", () => {
+    // The thwart cannot affect a scheme holding no threat, so no scheme is a valid target and none is offered. The event
+    // is still playable because its other part, attaching the set-aside Frostbite to an enemy, has a valid target.
     const staged = inHand(heroGame(), CHILL);
     const s = patchInstance(staged.state, staged.state.mainScheme.instanceId, { threat: 0 });
     const { state, seen } = playStaged({ ...staged, state: s });
-    expect(seen.map((p) => p.kind)).toEqual(["chooseTarget", "chooseTarget"]);
+    expect(seen.map((p) => p.kind)).toEqual(["chooseTarget"]);
+    expect(seen[0]!.options).not.toContain(state.mainScheme.instanceId);
     expect(inst(state, state.mainScheme.instanceId).threat).toBe(0);
     expect(frostbiteOn(state, villainOf(state))).toBe(1);
   });

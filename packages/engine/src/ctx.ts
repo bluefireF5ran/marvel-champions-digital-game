@@ -18,7 +18,8 @@ import {
   separateDeckDefinition,
   zoneContents as zoneOf,
 } from "./query.js";
-import type { ChoiceOption, ChoicePrompt, DecisionAuthority, PendingChoice } from "./choices.js";
+import type { ChoiceBehalf, ChoiceOption, ChoicePrompt, DecisionAuthority, PendingChoice } from "./choices.js";
+import { teamOf } from "./team.js";
 import type { CardInstance, GameState, GameStep, PlayerState, ZoneId } from "./state.js";
 import { describeFrame, type StackFrame } from "./stack.js";
 import type { EngineDeps } from "./abilities.js";
@@ -27,6 +28,7 @@ import { resetSeparateDeckIfEmpty } from "./resolve/separate-decks.js";
 import { syncTreatedAs } from "./treat-as.js";
 import { announceDeckTops } from "./deck-top.js";
 import { shownCardId } from "./hidden-reverse.js";
+import { movesIntoPlay, noteEnteredPlay } from "./entered-since.js";
 
 /**
  * Working context for one command. `state` is replaced (never mutated) by each
@@ -284,6 +286,9 @@ export function relocateCard(ctx: Ctx, id: InstanceId, to: ZoneId, position: Zon
   }
   const target = zoneOf(ctx.state, to);
   ctx.state = setZone(ctx.state, to, position === "top" ? [id, ...target] : [...target, id]);
+  // A card coming into play did not see what has already occurred: it answers none of the conditions still waiting
+  // for their response window (RRG 1.8 "Triggering Condition", p. 45; the owner's answer 43B, `entered-since.ts`).
+  if (movesIntoPlay(from, to)) ctx.state = noteEnteredPlay(ctx.state, id);
 
   let instance = mustInstance(ctx.state, id);
   const attachedTo = to.kind === "attachment" ? to.hostInstanceId : null;
@@ -428,6 +433,23 @@ const perilOnStack = (state: GameState, deps: EngineDeps): boolean =>
     return id !== null && hasKeyword(state, id, "peril", deps);
   });
 
+/**
+ * What a choice with the `enemyTeam` authority is made on behalf of (`ChoiceBehalf`). The addressed player is
+ * `enemyTeamDecider`, a player of the enemy team, so that team is theirs; the player it is made against is the one the
+ * asking effects frame resolves for, read as `contextTeam` reads it, or the player revealing the card when a reveal
+ * asks (an attachment's host "of the enemy team's choice", `AttachmentCard.hostChosenBy`).
+ */
+function enemyTeamBehalf(state: GameState, decider: PlayerId, frameId: FrameId | null): ChoiceBehalf {
+  const frame = frameId ? state.stack.find((candidate) => candidate.frameId === frameId) : undefined;
+  const facingPlayerId =
+    frame?.kind === "effects"
+      ? (frame.controllerId ?? frame.scopedPlayerId)
+      : frame?.kind === "reveal"
+        ? frame.playerId
+        : null;
+  return { kind: "enemyTeam", teamId: teamOf(state, decider).teamId, facingPlayerId };
+}
+
 export function requestChoice(
   ctx: Ctx,
   spec: {
@@ -454,6 +476,9 @@ export function requestChoice(
     ordered: spec.ordered ?? false,
     soleDecider: perilOnStack(ctx.state, ctx.deps),
     authority: spec.authority ?? "player",
+    ...(spec.authority === "enemyTeam"
+      ? { onBehalfOf: enemyTeamBehalf(ctx.state, spec.playerId, spec.frameId ?? null) }
+      : {}),
   };
   ctx.state = { ...ctx.state, pendingChoice: choice };
   emit(ctx, { type: "choiceRequested", choice });

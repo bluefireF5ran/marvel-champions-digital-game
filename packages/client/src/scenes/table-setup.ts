@@ -35,6 +35,7 @@ import { cssOf, textStyle } from "../ui/theme.js";
 import { McButton, McTextInput, dashedRect, fitText, label, paintDotGrid, sectionHeader } from "../ui/widgets.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
 import { progressionScope } from "../progression/progression-scope.js";
+import { blindRevealOf } from "../view/civil-war-blind.js";
 import { estimateWrappedLines, type Rect } from "../view/layout.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
 import { type DeckOption } from "../view/deck-list-model.js";
@@ -66,6 +67,7 @@ import {
   nemesisStandbyOf,
   tableSetupPreviewOf,
   whatsInThereRowsOf,
+  blindWhatsInThereRows,
   type CompositionRow,
   type DifficultyCard,
   type GameSummaryRow,
@@ -128,6 +130,14 @@ import {
   type TableSetupLayout,
 } from "../view/table-setup-layout.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
+import {
+  civilWarTableSummaryOf,
+  EDIT_SCENARIO_ID,
+  SUMMARY_SECTION_TITLE,
+  type CivilWarTableSummary,
+} from "../view/civil-war-table-summary.js";
+import type { BuilderContext } from "../view/civil-war-builder-model.js";
+import type { CivilWarBuilderData } from "./civil-war-builder.js";
 import { SCENES } from "./keys.js";
 import { appSession, deckStorage } from "../session.js";
 import { tableRulesOf } from "../settings.js";
@@ -158,6 +168,13 @@ interface SeatCell {
   readonly onClick: () => void;
 }
 
+/** What the Civil War summary reads: the pool, which now holds the Civil War cards, sets and scenarios. */
+const CW_SUMMARY_CONTEXT: BuilderContext = {
+  cards: CARDS_BY_ID,
+  scenarios: POOL_SCENARIOS,
+  encounterSets: POOL_ENCOUNTER_SETS,
+};
+
 /** Data every compact-row draw case needs, threaded through once rather than recomputed per row. */
 interface CompactRowData {
   readonly difficultyCards: readonly DifficultyCard[];
@@ -167,6 +184,8 @@ interface CompactRowData {
   /** The phone's labeled modular groups, by id, with whether each is showing. */
   readonly groupById: ReadonlyMap<string, { readonly group: ModularGroupSummary; readonly open: boolean }>;
   readonly modularRightLabel: string;
+  /** A Civil War build's read-only summary in place of the picker; null for every other scenario. */
+  readonly civilWarSummary: CivilWarTableSummary | null;
   readonly seatCells: readonly SeatCell[];
   readonly compositionRows: readonly CompositionRow[];
   readonly whatsInThereRows: readonly CompositionRow[];
@@ -196,6 +215,8 @@ export class TableSetupScene extends Phaser.Scene {
   /** Wide/tablet portrait: the modular grid's own scroll region when its groups are taller than its panel, and its scroll position (kept across rebuilds so a pick does not jump the grid back to the top). */
   #modularRegion: McScrollRegion | null = null;
   #modularScroll = new VariableListScroll();
+  /** The Civil War build's summary while the draft is one (it replaces the modular picker), else null. */
+  #cwSummary: CivilWarTableSummary | null = null;
   /** The modular grid's plan while it scrolls, for `ensureVisible` callbacks resolved at focus time. */
   #modularRowOfItem: readonly number[] = [];
   /** The scrolling grid's panel while it scrolls (dev hook `modularViewport`); null when the grid is drawn whole. */
@@ -289,9 +310,15 @@ export class TableSetupScene extends Phaser.Scene {
       .filter((o): o is DeckOption => o !== undefined);
     const players = seatedOptions.map((option) => corePlayerForSeat(option, this.#draft.deckSwaps));
 
-    const requiredSets = requiredEncounterSetsFor(scenario, CARDS_BY_ID);
-    const modularOptions = modularSetOptionsFor(this.#draft, scenario, CARDS_BY_ID, { scope: progressionScope() });
-    const modularCardCount = requiredSets.length + modularOptions.length;
+    // A Civil War build: the read-only summary stands in for the picker (one tile per line, then "Edit scenario").
+    this.#cwSummary = civilWarTableSummaryOf(this.#draft, CW_SUMMARY_CONTEXT);
+    const requiredSets = this.#cwSummary ? [] : requiredEncounterSetsFor(scenario, CARDS_BY_ID);
+    const modularOptions = this.#cwSummary
+      ? []
+      : modularSetOptionsFor(this.#draft, scenario, CARDS_BY_ID, { scope: progressionScope() });
+    const modularCardCount = this.#cwSummary
+      ? this.#cwSummary.rows.length + 1
+      : requiredSets.length + modularOptions.length;
     const modularCap = scenario.modularSetCount ?? 1;
 
     // The setup options this scenario offers under the draft's difficulty and modular picks (`playableScenarioOffer`).
@@ -313,19 +340,26 @@ export class TableSetupScene extends Phaser.Scene {
     let preview: TableSetupPreview | null = null;
     let previewStartStageIndex: number | undefined;
     if (players.length > 0) {
-      const config = buildScenario(
-        this.#draft.scenarioId,
-        toSessionConfig(
-          this.#draft,
-          players,
-          POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId),
-          tableRulesOf(appSession().settings),
-        ),
+      const sessionOptions = toSessionConfig(
+        this.#draft,
+        players,
+        POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId),
+        tableRulesOf(appSession().settings),
       );
+      const config = buildScenario(this.#draft.scenarioId, sessionOptions);
       previewStartStageIndex = config.villainStartStageIndex;
-      preview = tableSetupPreviewOf(config, scenario, this.#draft.difficulty, CARDS_BY_ID, POOL_ENCOUNTER_SETS);
+      preview = tableSetupPreviewOf(
+        config,
+        scenario,
+        this.#draft.difficulty,
+        CARDS_BY_ID,
+        POOL_ENCOUNTER_SETS,
+        undefined,
+        blindRevealOf(sessionOptions, null),
+      );
       compositionRows = compositionRowsOf(preview.encounterDeck);
       whatsInThereRows = whatsInThereRowsOf(preview.encounterDeck);
+      if (sessionOptions.blind) whatsInThereRows = blindWhatsInThereRows(whatsInThereRows);
       nemesisStandby = nemesisStandbyOf(preview.encounterDeck);
       gameSummaryRows = gameSummaryRowsOf(preview, tableRulesOf(appSession().settings));
       encounterDeckSize = preview.encounterDeckSize;
@@ -351,13 +385,7 @@ export class TableSetupScene extends Phaser.Scene {
         // The rect the modular tiles scroll inside (the grid's panel; on a phone, the page between header and footer):
         // a tile whose stop rect lies outside it is not on screen, whatever the rect's own coordinates say.
         modularViewport: () => this.#modularViewportRect ?? this.#compactViewport,
-        modularHeader: () =>
-          modularHeaderRightLabel(
-            scenario,
-            requiredSets.length,
-            this.#draft.seats.length,
-            pickedSetCount(modularOptions),
-          ),
+        modularHeader: () => this.#modularRightLabel(scenario, requiredSets.length, modularOptions),
         encounterDeckSize: () => encounterDeckSize,
         summary: () => gameSummaryRows.map((r) => [r.label, r.value]),
       };
@@ -377,7 +405,7 @@ export class TableSetupScene extends Phaser.Scene {
       height,
       difficultyCount: difficultyCards.length,
       modularCardCount,
-      modularSections: modularSectionsFor(requiredSets.length, modularOptions),
+      ...(this.#cwSummary ? {} : { modularSections: modularSectionsFor(requiredSets.length, modularOptions) }),
       seatCount: this.#draft.seats.length,
       compositionRows: compositionRows.length,
       whatsInThereRows: whatsInThereRows.length,
@@ -505,22 +533,18 @@ export class TableSetupScene extends Phaser.Scene {
       this.#drawTowerDefenseDamageRow(layout.towerDefenseDamageRow);
     }
 
-    const modularRight = modularHeaderRightLabel(
-      scenario,
-      requiredSets.length,
-      this.#draft.seats.length,
-      pickedSetCount(modularOptions),
-    ).toUpperCase();
+    const modularRight = this.#modularRightLabel(scenario, requiredSets.length, modularOptions).toUpperCase();
     sectionHeader(
       this,
       layout.modularHeader.x,
       layout.modularHeader.y,
       layout.modularHeader.width,
-      "Modular sets",
+      this.#cwSummary ? SUMMARY_SECTION_TITLE : "Modular sets",
       bodyColor,
       modularRight,
     );
-    this.#drawModularGrid(layout, requiredSets, modularOptions, scenario);
+    if (this.#cwSummary) this.#drawCivilWarSummary(layout, this.#cwSummary);
+    else this.#drawModularGrid(layout, requiredSets, modularOptions, scenario);
 
     // The Hood's own "choose which modular sets are in" (docs/phase7-wave4.md §2.3, §3.18): its own section right
     // under Modular sets, only for a scenario with the choice at all (`hoodOptions` empty otherwise).
@@ -703,16 +727,12 @@ export class TableSetupScene extends Phaser.Scene {
     this.#compactSeedBoxRect = null;
 
     const villainName = scenarioDetailOf(scenario, CARDS_BY_ID, POOL_ENCOUNTER_SETS).displayName;
-    const modularRightLabel = modularHeaderRightLabel(
-      scenario,
-      requiredSets.length,
-      this.#draft.seats.length,
-      pickedSetCount(modularOptions),
-    ).toUpperCase();
+    const modularRightLabel = this.#modularRightLabel(scenario, requiredSets.length, modularOptions).toUpperCase();
     // Tower Defense's own setup-damage toggle (docs/phase7-wave4.md §4 Q4): offered only for Tower Defense itself.
     const towerDefenseSetupDamageOffered = hasTowerDefenseSetupDamageOption(scenario);
 
     // The phone folds the long list by group: a row per labeled group, and only the sets of the groups showing.
+    const cw = this.#cwSummary;
     const groups = modularGroupsOf(modularOptions);
     const groupOpen = (group: ModularGroupSummary): boolean => this.#openGroups.get(group.id) ?? groupStartsOpen(group);
     const modularEntries = compactModularEntriesFor(modularOptions, groupOpen);
@@ -723,8 +743,11 @@ export class TableSetupScene extends Phaser.Scene {
       height,
       difficultyIds: difficultyCards.map((c) => c.id),
       requiredModularIds: requiredSets.map((r) => r.id as string),
-      candidateModularIds: modularOptions.map((o) => o.id),
-      candidateModularEntries: modularEntries,
+      // A Civil War build: one row per summary line, then the Edit row (`modular:<id>` like any tile).
+      candidateModularIds: cw ? [...cw.rows.map((r) => r.id), EDIT_SCENARIO_ID] : modularOptions.map((o) => o.id),
+      candidateModularEntries: cw
+        ? [...cw.rows.map((r) => r.id), EDIT_SCENARIO_ID].map((id) => ({ kind: "set" as const, id }))
+        : modularEntries,
       modularHeaderRightLabel: modularRightLabel,
       // The set choices keep their rows (a name and 44px chips each); the other options follow, as before.
       optionRows: [...setChoices, ...optionRows].map((row) => ({
@@ -768,6 +791,7 @@ export class TableSetupScene extends Phaser.Scene {
       candidateById,
       groupById,
       modularRightLabel,
+      civilWarSummary: cw,
       seatCells,
       compositionRows,
       whatsInThereRows,
@@ -813,15 +837,17 @@ export class TableSetupScene extends Phaser.Scene {
     }
     this.#syncCompactSeedInput();
 
-    this.#drawCompactFooter(layout, preview, players, villainName, pickedSetCount(modularOptions));
+    this.#drawCompactFooter(layout, preview, players, villainName, this.#pickedCount(modularOptions));
 
     this.#route?.set(
       tableSetupFocusOrder({
         difficulties: difficultyCards.map((c) => c.id),
         optionActions: optionActionsOf([...setChoices, ...optionRows]),
         hasTowerDefenseSetupDamage: towerDefenseSetupDamageOffered,
-        modularSetIds: modularOptions.map((o) => o.id),
-        modularStopIds: modularEntries.map((e) => (e.kind === "group" ? `modulargroup:${e.id}` : `modular:${e.id}`)),
+        modularSetIds: cw ? [EDIT_SCENARIO_ID] : modularOptions.map((o) => o.id),
+        modularStopIds: cw
+          ? [`modular:${EDIT_SCENARIO_ID}`]
+          : modularEntries.map((e) => (e.kind === "group" ? `modulargroup:${e.id}` : `modular:${e.id}`)),
         hoodSetIds: hoodOptions.map((o) => o.id),
         firstPlayerOptionIds: [...seatCells.map((c) => c.id), "random"],
       }),
@@ -894,10 +920,11 @@ export class TableSetupScene extends Phaser.Scene {
       return;
     }
     if (id === "header:modular") {
+      const sectionTitle = data.civilWarSummary ? SUMMARY_SECTION_TITLE : "Modular sets";
       if (!layout.modularHeaderStacked) {
-        sectionHeader(this, rect.x, rect.y + 2, rect.width, "Modular sets", surface.ink.hex, data.modularRightLabel);
+        sectionHeader(this, rect.x, rect.y + 2, rect.width, sectionTitle, surface.ink.hex, data.modularRightLabel);
       } else {
-        sectionHeader(this, rect.x, rect.y + 2, rect.width, "Modular sets", surface.ink.hex);
+        sectionHeader(this, rect.x, rect.y + 2, rect.width, sectionTitle, surface.ink.hex);
         // 26px: the Bangers heading's own line height at this size (`sectionHeader`'s own font size, 19px) — the
         // stacked right label sits directly under it, inside this row's own taller height (`modularHeaderStacked`).
         // Wraps to a second line (the row is taller for it, `stackedHeaderLabelLines`) instead of running off the
@@ -921,6 +948,10 @@ export class TableSetupScene extends Phaser.Scene {
     }
     if (id.startsWith("modular:")) {
       const setId = id.slice("modular:".length);
+      if (data.civilWarSummary) {
+        this.#drawCompactCivilWarRow(rect, data.civilWarSummary, setId);
+        return;
+      }
       const required = data.requiredById.get(setId);
       if (required) {
         this.#drawCompactRequiredRow(rect, required, data.villainName);
@@ -1393,7 +1424,12 @@ export class TableSetupScene extends Phaser.Scene {
       const rowLabel = this.add.text(rect.x + 12, y, row.label, textStyle(typeRole.body, color)).setMaxLines(1);
       fitText(rowLabel, rect.width - 80, typeRole.body.size);
       this.add
-        .text(rect.x + rect.width - 12, y, String(row.count), textStyle({ ...typeRole.emphasis, weight: 700 }, color))
+        .text(
+          rect.x + rect.width - 12,
+          y,
+          row.shown ?? String(row.count),
+          textStyle({ ...typeRole.emphasis, weight: 700 }, color),
+        )
         .setOrigin(1, 0);
       y += PANEL_ROW_HEIGHT;
     };
@@ -1846,6 +1882,104 @@ export class TableSetupScene extends Phaser.Scene {
     );
   }
 
+  /** The header's right label: a Civil War build's "Ready-made"/"Custom", else the picker's own count. */
+  #modularRightLabel(scenario: Scenario, requiredCount: number, options: readonly ModularSetOption[]): string {
+    return this.#cwSummary
+      ? this.#cwSummary.build
+      : modularHeaderRightLabel(scenario, requiredCount, this.#draft.seats.length, pickedSetCount(options));
+  }
+
+  /** How many modular sets are in the game (a Civil War build's own count, else the picker's). */
+  #pickedCount(options: readonly ModularSetOption[]): number {
+    return this.#cwSummary ? this.#cwSummary.setCount : pickedSetCount(options);
+  }
+
+  /** Back to the builder on this draft, at its review step: the picks change there, never on two screens. */
+  #editScenario = (): void => {
+    this.scale.off("resize", this.#rebuild, this);
+    goToScreen(this, SCENES.civilWarBuilder, { draft: this.#draft, step: 5 } satisfies CivilWarBuilderData);
+  };
+
+  /** Wide: one read-only tile per summary line (a name and its value), then the "Edit scenario" tile. */
+  #drawCivilWarSummary(layout: TableSetupLayout, summary: CivilWarTableSummary): void {
+    const rect = layout.modularGrid;
+    const plan = layout.modularPlan;
+    const cellAt = (index: number): Rect => {
+      const cell = plan.cells[index]!;
+      return { x: rect.x + cell.x, y: rect.y + cell.y, width: cell.width, height: cell.height };
+    };
+    summary.rows.forEach((row, index) => {
+      const cell = cellAt(index);
+      this.#cardFrame(cell, false);
+      const name = this.add.text(
+        cell.x + 10,
+        cell.y + 8,
+        row.label,
+        textStyle({ ...typeRole.sectionHeader, size: 15 }, surface.ink.hex),
+      );
+      fitText(name, cell.width - 20, 15);
+      this.#drawModularCardLabel(cell, cell.y + 8 + name.height + 4, row.value, surface.ink.hex, ink.label);
+    });
+    const cell = cellAt(summary.rows.length);
+    this.#buttons.push(
+      new McButton(this, { kind: "quiet", label: "", type: typeRole.label, rect: cell, onClick: this.#editScenario }),
+    );
+    this.#stops.set(`modular:${EDIT_SCENARIO_ID}`, { rect: cell, activate: this.#editScenario });
+    this.#cardFrame(cell, true);
+    const name = this.add.text(
+      cell.x + 10,
+      cell.y + 8,
+      summary.editLabel,
+      textStyle({ ...typeRole.sectionHeader, size: 15 }, surface.ink.hex),
+    );
+    fitText(name, cell.width - 20, 15);
+  }
+
+  /** Phone: a summary line as a paper row (name over value), or the Edit row as a tappable one. */
+  #drawCompactCivilWarRow(rect: Rect, summary: CivilWarTableSummary, rowId: string): void {
+    const h = COMPACT_MODULAR_ROW_HEIGHT;
+    const cellRect: Rect = { ...rect, height: h };
+    const row = summary.rows.find((r) => r.id === rowId);
+    const g = this.add.graphics();
+    g.fillStyle(surface.card.hex, 1).fillRect(rect.x, rect.y, rect.width, h);
+    g.lineStyle(2.5, surface.ink.hex, 1).strokeRect(rect.x + 1.25, rect.y + 1.25, rect.width - 2.5, h - 2.5);
+    if (!row) {
+      this.#buttons.push(
+        new McButton(this, {
+          kind: "quiet",
+          label: "",
+          type: typeRole.label,
+          rect: cellRect,
+          onClick: this.#editScenario,
+          clip: this.#compactClip,
+          suppressClick: this.#compactSuppressClick,
+        }),
+      );
+      this.#stops.set(
+        `modular:${EDIT_SCENARIO_ID}`,
+        this.#compactStop(cellRect, this.#editScenario, `modular:${EDIT_SCENARIO_ID}`),
+      );
+      const edit = this.add.text(
+        rect.x + 12,
+        rect.y + h / 2,
+        summary.editLabel,
+        textStyle({ ...typeRole.rowTitle, size: 13 }, surface.ink.hex),
+      );
+      edit.setOrigin(0, 0.5);
+      fitText(edit, rect.width - 24, 13);
+      return;
+    }
+    const name = this.add.text(
+      rect.x + 12,
+      rect.y + 11,
+      row.label,
+      textStyle({ ...typeRole.rowTitle, size: 13 }, surface.ink.hex),
+    );
+    fitText(name, rect.width - 24, 13);
+    const value = label(this, rect.x + 12, rect.y + 11 + 18, row.value, typeRole.label, surface.ink.hex, ink.label);
+    fitText(value, rect.width - 24, typeRole.label.size);
+  }
+
   /**
    * The Hood's own "choose which modular sets are in" (docs/phase7-wave4.md §2.3, §3.18), wide layout: the same
    * card grid `#drawModularGrid` draws for the ordinary modular picker, one card per candidate — `option.included`
@@ -2219,7 +2353,12 @@ export class TableSetupScene extends Phaser.Scene {
         .setMaxLines(1);
       fitText(rowLabel, rect.width - 60, typeRole.body.size);
       this.add
-        .text(rect.x + rect.width - 10, y, String(row.count), textStyle({ ...typeRole.emphasis, weight: 700 }, color))
+        .text(
+          rect.x + rect.width - 10,
+          y,
+          row.shown ?? String(row.count),
+          textStyle({ ...typeRole.emphasis, weight: 700 }, color),
+        )
         .setOrigin(1, 0);
       y += PANEL_ROW_HEIGHT;
     }

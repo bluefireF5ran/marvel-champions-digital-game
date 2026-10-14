@@ -34,11 +34,13 @@ import type {
   DeckContents,
   HeroIdentityCard,
   IdentitySeparateDeck,
+  OffAspectAllowance,
   PlayerCard,
   Trait,
 } from "@mc/content";
 import type { EngineDeps } from "./abilities.js";
 import type { CampaignCardFace, GrantDeckSizeRule } from "./campaign.js";
+import { printedResources } from "./resources.js";
 import { identityCardTitledAs } from "./titles.js";
 import { cardsMatch, isUnique, uniqueLabel } from "./unique.js";
 
@@ -46,14 +48,30 @@ import { cardsMatch, isUnique, uniqueLabel } from "./unique.js";
  * The first separate deck this identity brings that the engine cannot build yet, or undefined (docs/phase7-wave2.md
  * §15). Two kinds of deck of player cards are built: Doctor Strange's, with its own discard pile, and Storm's Weather
  * deck, with no discard pile that stays empty once emptied (docs/phase7-wave6.md §3.46: `noDiscardPileDeckFor` sends
- * its cards back to it). Hercules's Labor deck (encounter-backed cards) is data only, so Hercules is still refused.
+ * its cards back to it). One kind of deck of encounter cards is built: Hercules's Labor deck, with no discard pile,
+ * never refilled (docs/phase7-wave10-hero-packs.md H3.1; RRG 1.8 FAQ "Labor Cards", p. 65: a Labor card that leaves
+ * play goes to the victory display or the bottom of the Labor deck). An encounter deck with a discard pile of its own
+ * has no printed rules to follow, so it is still refused.
  */
 export function unbuildableSeparateDeck(identity: HeroIdentityCard): IdentitySeparateDeck | undefined {
   return (identity.separateDecks ?? []).find((deck) => {
-    if ((deck.cardFamily ?? "player") !== "player") return true;
+    if ((deck.cardFamily ?? "player") === "encounter")
+      return deck.discardPile !== "none" || deck.whenEmpty !== "stayEmpty";
     if (deck.discardPile === "own") return false;
     return deck.whenEmpty !== "stayEmpty";
   });
+}
+
+/**
+ * Whether `card` is one this separate deck can hold: marked as that deck's (`separateDeck`), and of the deck's family.
+ * A deck of player cards holds player deck cards; a deck of encounter cards (Hercules's Labor deck) holds encounter
+ * card types, which no player deck or encounter set ever lists (docs/phase7-wave10-hero-packs.md H1.1).
+ */
+export function isSeparateDeckCard(card: AnyCard, deck: IdentitySeparateDeck): boolean {
+  if (!("separateDeck" in card) || card.separateDeck !== deck.name) return false;
+  return (deck.cardFamily ?? "player") === "encounter"
+    ? !isPlayerDeckCard(card) && "encounterSetIds" in card
+    : isPlayerDeckCard(card);
 }
 
 export type DeckProblemCode =
@@ -111,8 +129,8 @@ export type DeckProblemCode =
    */
   | "competitive_card"
   /**
-   * The identity cannot be seated as chosen: a separate deck of a kind the engine cannot build (Hercules's Labor
-   * deck; `unbuildableSeparateDeck`, docs/phase7-wave2.md §15), or a later version of a progressing identity
+   * The identity cannot be seated as chosen: a separate deck of a kind the engine cannot build (a deck of encounter
+   * cards with a discard pile of its own; `unbuildableSeparateDeck`, docs/phase7-wave2.md §15), or a later version of a progressing identity
    * (docs/phase7-wave5.md §3.23).
    */
   | "unsupported_identity"
@@ -280,6 +298,8 @@ const indexPool = (pool: CardPool): ReadonlyMap<string, AnyCard> =>
 const copies = (n: number): string => (n === 1 ? "1 copy" : `${n} copies`);
 
 const typeName = (card: AnyCard): string => card.type.replace(/_/g, " ");
+/** The type with its indefinite article: "an attachment", "a minion". */
+const aTypeName = (card: AnyCard): string => `${/^[aeiou]/.test(card.type) ? "an" : "a"} ${typeName(card)}`;
 
 const hasPlainKeyword = (card: PlayerCard, name: "permanent"): boolean => card.keywords.some((k) => k.name === name);
 
@@ -448,12 +468,25 @@ export function copiesUpToLimit(
 const matchesOffAspectPackage = (card: PlayerCard, p: { readonly cardType: string; readonly trait: Trait }): boolean =>
   card.type === p.cardType && card.traits.includes(p.trait);
 
-const matchesOffAspectAllowance = (
-  card: PlayerCard,
-  allowance: { readonly cardType: string; readonly anyTrait?: readonly Trait[] },
-): boolean =>
+/**
+ * Whether the identity's off-aspect allowance covers `card`: its type, one of the traits when the allowance names
+ * any, and at least one printed icon of the resource type when it names one ("events with a printed [energy] resource
+ * icon", Simon Williams 58001b; docs/phase7-wave10-hero-packs.md §H3.15). A printed wild icon is wild only (RRG 1.8
+ * "Printed", p. 35).
+ */
+const matchesOffAspectAllowance = (card: PlayerCard, allowance: OffAspectAllowance): boolean =>
   card.type === allowance.cardType &&
-  (allowance.anyTrait === undefined || allowance.anyTrait.some((wanted) => card.traits.includes(wanted)));
+  (allowance.anyTrait === undefined || allowance.anyTrait.some((wanted) => card.traits.includes(wanted))) &&
+  (allowance.printedResource === undefined || printedResources(card)[allowance.printedResource] > 0);
+
+/**
+ * The cards an allowance names, as a problem message says them: "ATTACK and/or THWART event cards", "event cards with
+ * a printed energy resource".
+ */
+const allowanceKind = (allowance: OffAspectAllowance): string =>
+  `${allowance.anyTrait ? `${allowance.anyTrait.join(" and/or ")} ` : ""}${allowance.cardType.replace(/_/g, " ")} cards${
+    allowance.printedResource ? ` with a printed ${allowance.printedResource} resource` : ""
+  }`;
 
 /**
  * Whether a deck for `identity` choosing `chosenAspects` may hold `card` at all, and whether only the identity's own
@@ -586,7 +619,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
   } else if (identityCard.type !== "hero_identity") {
     add(
       "not_an_identity",
-      `${uniqueLabel(identityCard)} is a ${typeName(identityCard)} card, not an identity: a deck is built around exactly one hero identity.`,
+      `${uniqueLabel(identityCard)} is ${aTypeName(identityCard)} card, not an identity: a deck is built around exactly one hero identity.`,
       [deck.identityCardId],
     );
   } else {
@@ -707,7 +740,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
       counted += entry.quantity;
       add(
         "not_a_player_card",
-        `${name} is a ${typeName(card)} card, not a player card: encounter cards (including obligations and nemesis cards, which setup adds for you) cannot be in a player deck.`,
+        `${name} is ${aTypeName(card)} card, not a player card: encounter cards (including obligations and nemesis cards, which setup adds for you) cannot be in a player deck.`,
         [card.id],
       );
       continue;
@@ -776,7 +809,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
       } else if (card.specificTo.kind === "competitive") {
         add(
           "competitive_card",
-          `${name} is used only in competitive (team-vs-team) mode, which is not available yet.`,
+          `${name} is used only in competitive (team-vs-team) mode. Competitive mode is coming soon.`,
           [card.id],
         );
       } else if (grantedCopies(card.id) < entry.quantity) {
@@ -928,7 +961,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
             `${identityName}'s ${separate.name} deck lists card code ${entry.cardId}, which is not in the card pool, so that deck cannot be built.`,
             [entry.cardId],
           );
-        } else if (!isPlayerDeckCard(card) || card.separateDeck !== separate.name) {
+        } else if (!isSeparateDeckCard(card, separate)) {
           add(
             "missing_card_data",
             `${identityName}'s ${separate.name} deck lists ${uniqueLabel(card)}, but that card's data does not mark it as part of the ${separate.name} deck, so that deck cannot be built.`,
@@ -1007,9 +1040,15 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
         allowanceLines.push(line);
         continue;
       }
+      // An allowance by printed resource is refused by what the card prints, which a player cannot read off its
+      // aspect: the message says what the identity's rule lets in (docs/phase7-wave10-hero-packs.md §H3.15).
+      const hint =
+        allowance?.printedResource === undefined
+          ? ""
+          : ` ${identityName}'s deckbuilding rule lets in only ${allowanceKind(allowance)} from other aspects, and this card is not one.`;
       add(
         "aspect_restriction",
-        `${uniqueLabel(line.card)} is a ${aspectName(whole.classification.aspect)} card, but this deck's aspect is ${chosen.map(aspectName).join(" and ")}; beyond its identity set a deck may only use its chosen aspect and basic cards.`,
+        `${uniqueLabel(line.card)} is a ${aspectName(whole.classification.aspect)} card, but this deck's aspect is ${chosen.map(aspectName).join(" and ")}; beyond its identity set a deck may only use its chosen aspect and basic cards.${hint}`,
         [line.card.id],
       );
     }
@@ -1018,7 +1057,7 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
     if (allowance?.maxCards !== undefined && allowed > allowance.maxCards) {
       add(
         "deckbuilding_requirement",
-        `${identityName}'s deckbuilding requirement: up to ${allowance.maxCards} ${allowance.anyTrait ? `${allowance.anyTrait.join(" and/or ")} ` : ""}${allowance.cardType.replace(/_/g, " ")} cards from other aspects are allowed; this deck has ${allowed}.`,
+        `${identityName}'s deckbuilding requirement: up to ${allowance.maxCards} ${allowanceKind(allowance)} from other aspects are allowed; this deck has ${allowed}.`,
         allowanceLines.map((line) => line.card.id),
       );
     }

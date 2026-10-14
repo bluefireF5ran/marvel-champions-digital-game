@@ -737,10 +737,17 @@ describe("Star-Lord kit", () => {
         if (one.ok) expect(inst(one.state, main).threat).toBe(5);
       });
 
-      it("with no threat on any scheme, nothing can be targeted: no choice, nothing removed", () => {
-        const state = atDivide(0, 0);
-        expect(state.pendingChoice?.prompt.kind).not.toBe("divide");
-        expect(inst(state, state.mainScheme.instanceId).threat).toBe(0);
+      it("with no threat on any scheme, the event cannot be played at all (a threatless scheme is not a valid target)", () => {
+        // RRG 1.8 "Target" p. 42 and "Thwart" p. 44: a scheme with no threat is not a valid target for a removal of
+        // threat, so an event whose only part is that removal has no valid target and cannot be initiated.
+        const hero = runWave3(starLordWithOffAspectEvents(), toHero());
+        const { state: withJetBoots } = playFromHand(hero, "17008", 2);
+        const withThreat = patchInstance(withJetBoots, withJetBoots.mainScheme.instanceId, { threat: 0 });
+        const given = moveToHand(withThreat, P1, "17029");
+        const [card] = given.ids as [InstanceId];
+        const played = applyCommand(given.state, play(P1, card, payWith(given.state, P1, 3, [card])), WAVE3_DEPS);
+        expect(played.ok).toBe(false);
+        if (!played.ok) expect(played.error.code).toBe("no_valid_target");
       });
     });
   });

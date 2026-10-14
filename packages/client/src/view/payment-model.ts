@@ -18,8 +18,10 @@
 
 import type { AbilityId, ResourceIconType } from "@mc/content";
 import {
+  cardOf,
   controllerOf,
   locateCard,
+  minimumChosenX,
   paymentFor,
   playCostOf,
   tryPayment,
@@ -40,7 +42,8 @@ import {
   tryReducedPlay,
   type CostReductionOption,
 } from "./cost-reduction-model.js";
-import { faceUpName } from "./names.js";
+import { costHelpLines } from "./cost-help-model.js";
+import { cardName, faceUpName } from "./names.js";
 
 export interface PaymentState {
   readonly action: ActionRef;
@@ -61,6 +64,13 @@ export interface PaymentState {
   readonly costChoices?: CostChoices;
   /** The Action ability of a several-ability event the player chose (RRG 1.8 "Event", p. 18); each has its own cost. */
   readonly abilityId?: AbilityId;
+  /**
+   * The X the player named for a card printed with an X cost (`specialCost: "X"`), and the range the picker offers: from
+   * the engine's least (`minimumChosenX`) up to the most the player could pay for right now. Absent for every other
+   * action. `query` is always the one priced at this X.
+   */
+  readonly x?: number;
+  readonly xRange?: { readonly min: number; readonly max: number };
   /** The scenario play area an ally is played into (`view/play-destination.ts`); absent: the player's own area. */
   readonly into?: string;
   /** Why the play can only go to `into` ("Only payable at the mission"): the price note's words in place of the usual one. */
@@ -97,6 +107,12 @@ export interface PaymentSourceView extends PaymentSource {
    */
   readonly helperName: string | null;
   /**
+   * What the source's own cost takes, in words, from the amount it carries (`PaymentSource.costSelection`): "take 2
+   * damage" on Energy Siphon spent from the hand (one source per amount the engine allows), "remove 2 threat". Null for
+   * a source with no chosen amount. The tile says it so the amount is read before the card is spent.
+   */
+  readonly amountNote: string | null;
+  /**
    * Where a picked hand card falls in the order its discard pile receives the payment, from 1: the cards go one at a
    * time in the order they were picked, so the last one ends on top (RRG 1.8 "Discard", p. 16: the player chooses the
    * order of cards a singular effect discards; `payPayment` discards in payment order). Counted per discard pile, since
@@ -109,6 +125,32 @@ export interface PaymentSourceView extends PaymentSource {
    * card of your discard pile" reads next (Pepper Potts, FAQ "Pepper Potts (#33)", RRG 1.8 p. 57).
    */
   readonly onTop: boolean;
+  /**
+   * The name of the card being paid for, when that card is itself discarded after it resolves and so lands on top of
+   * this card's pile: this is the last card picked for the pile, so it ends second, under that card. An event is
+   * discarded once its effects resolve (RRG 1.8 "Event", p. 18), after the payment went to the pile. Null for every
+   * other source; such a card is never also `onTop`.
+   */
+  readonly underSubject: string | null;
+  /**
+   * What the order means for this card, in one note: set on the card tagged "on top" or "under <card>" only. The bar
+   * shows it where there is no hover (a touch layout), and a hover shows it on the card.
+   */
+  readonly orderNote: string | null;
+  /**
+   * Why this source cannot be picked yet, or null. A resource that can only be overpaid (`overpayOnly`: Mr.
+   * Hollywood) never makes the payment covered, so it is held until the rest of the picks cover the cost by themselves.
+   */
+  readonly lockedReason: string | null;
+}
+
+/** The stepper beside the requirement: the chosen X and the range the engine allows right now. */
+export interface XPicker {
+  readonly value: number;
+  readonly min: number;
+  readonly max: number;
+  /** The words a screen reader and the focus label use: "X: 2 (1 to 3)". */
+  readonly label: string;
 }
 
 export interface PaymentView {
@@ -178,6 +220,27 @@ export interface PaymentView {
    */
   readonly subjectInHand: boolean;
   /**
+   * What the picks generate beyond the cost, as a count: "Overpaid by 2" is the note the bar shows. Only while the
+   * engine accepts the selection (a payment that does not cover the cost is not overpaid, it is short), and only for a
+   * count of pips: which resources the card reads as paid and which as overpaid is the engine's, asked of the player
+   * when it matters (`paidResourcesChosen`), so no type is named. 0 when nothing is over.
+   */
+  readonly overpaid: number;
+  /** Why an overpay-only source (Mr. Hollywood) is held, with its name: "Mr. Hollywood: only to overpay…"; null when none is. */
+  readonly lockedNote: string | null;
+  /** The Pay button's words when nothing is picked on a play that costs nothing but could be overpaid; else null. */
+  readonly payLabel: string | null;
+  /** The order note of the picked card tagged "on top" or "under <card>" (`PaymentSourceView.orderNote`), or null. */
+  readonly orderNote: string | null;
+  /** "Overpaid by 2", or null. What overpaying does for the card is not exposed by the engine, so it is not said. */
+  readonly overpaidNote: string | null;
+  /**
+   * One line per other player whose hand cards the picks spend toward an alliance card: "Helped by Ana: 1 energy",
+   * from the picked sources' own pools, then one per other player who pays a part of the cost in the user's place
+   * ("Helped by Ana: the damage"; `cost-help-model.ts`). Empty for an ordinary payment.
+   */
+  readonly helperLines: readonly string[];
+  /**
    * The command to send, when the engine accepts this exact selection. Null
    * while it does not — with the engine's reason in `blockedBy`.
    */
@@ -189,6 +252,8 @@ export interface PaymentView {
    * play — the overwhelmingly common case, which draws nothing extra.
    */
   readonly costReductionOptions: readonly CostReductionOption[];
+  /** The X picker ("X" with minus and plus) for a card printed with an X cost; null for every other payment. */
+  readonly xPicker: XPicker | null;
   /** Which of `costReductionOptions` are currently named on the play. */
   readonly reductions: readonly { readonly instanceId: InstanceId; readonly abilityId: AbilityId }[];
 }
@@ -215,14 +280,34 @@ export function beginPayment(
   abilityId?: AbilityId,
   into?: string,
 ): PaymentState | null {
+  const prints = printsXCost(state, action);
+  const least = prints && action.kind === "playCard" ? minimumChosenX(state, deps, action.instanceId, abilityId) : 0;
   const query = paymentFor(
     state,
     playerId,
     action,
-    paymentContext(target, controllerId, costSelection, costChoices, abilityId, into),
+    paymentContext(target, controllerId, costSelection, costChoices, abilityId, into, prints ? least : undefined),
     deps,
   );
   if (!query) return null;
+  const range = prints
+    ? {
+        min: least,
+        max: mostX(
+          state,
+          playerId,
+          action,
+          target,
+          controllerId,
+          costSelection,
+          costChoices,
+          abilityId,
+          into,
+          least,
+          deps,
+        ),
+      }
+    : null;
   return {
     action,
     target,
@@ -231,6 +316,7 @@ export function beginPayment(
     ...(costChoices ? { costChoices } : {}),
     ...(abilityId ? { abilityId } : {}),
     ...(into !== undefined ? { into } : {}),
+    ...(range ? { x: least, xRange: range } : {}),
     query,
     picked: [],
     reductions: [],
@@ -244,14 +330,89 @@ const paymentContext = (
   costChoices?: CostChoices,
   abilityId?: AbilityId,
   into?: string,
+  x?: number,
 ) => ({
   target,
+  ...(x !== undefined ? { x } : {}),
   ...(controllerId ? { controllerId } : {}),
   ...(costSelection ? { costSelection } : {}),
   ...(costChoices ? { costChoices } : {}),
   ...(abilityId ? { abilityId } : {}),
   ...(into !== undefined ? { into } : {}),
 });
+
+/** True for a play of a card printed with an X cost (`specialCost: "X"`), whose X the player names in the pay step. */
+export function printsXCost(state: GameState, action: ActionRef): boolean {
+  if (action.kind !== "playCard") return false;
+  const card = cardOf(state, action.instanceId);
+  return !!card && "specialCost" in card && card.specialCost === "X";
+}
+
+/** The most X anyone could pay for, found the way the engine says: raise X until its pay step has no payment. */
+function mostX(
+  state: GameState,
+  playerId: PlayerId,
+  action: ActionRef,
+  target: InstanceId | null,
+  controllerId: PlayerId | null,
+  costSelection: CostSelection | undefined,
+  costChoices: CostChoices | undefined,
+  abilityId: AbilityId | undefined,
+  into: string | undefined,
+  least: number,
+  deps: EngineDeps,
+): number {
+  let best = least;
+  for (let x = least + 1; x <= least + X_PROBE_LIMIT; x += 1) {
+    const query = paymentFor(
+      state,
+      playerId,
+      action,
+      paymentContext(target, controllerId, costSelection, costChoices, abilityId, into, x),
+      deps,
+    );
+    if (!query || (poolTotal(query.requirement) > 0 && query.suggested.length === 0)) break;
+    best = x;
+  }
+  return best;
+}
+
+/** More than any hand and table can pay for; the probe stops at the first X the engine cannot be paid for anyway. */
+const X_PROBE_LIMIT = 30;
+
+/**
+ * Names a different X. The payment is priced again at that X (the engine's `paymentFor`), and the sources the player
+ * already picked stay picked wherever the engine still offers them. Clamped to the range; a no-op off an X cost.
+ */
+export function setPaymentX(
+  state: GameState,
+  playerId: PlayerId,
+  payment: PaymentState,
+  x: number,
+  deps: EngineDeps,
+): PaymentState {
+  if (!payment.xRange) return payment;
+  const next = Math.max(payment.xRange.min, Math.min(payment.xRange.max, Math.trunc(x)));
+  if (next === payment.x) return payment;
+  const query = paymentFor(
+    state,
+    playerId,
+    payment.action,
+    paymentContext(
+      payment.target,
+      payment.controllerId,
+      payment.costSelection,
+      payment.costChoices,
+      payment.abilityId,
+      payment.into,
+      next,
+    ),
+    deps,
+  );
+  if (!query) return payment;
+  const offered = new Set(query.sources.map((source) => source.optionId));
+  return { ...payment, x: next, query, picked: payment.picked.filter((id) => offered.has(id)) };
+}
 
 /** Toggles one source in or out of the payment. */
 export function togglePayment(payment: PaymentState, optionId: string): PaymentState {
@@ -295,7 +456,15 @@ export function paymentView(
     else spendable.set(source.optionId, source);
   }
 
-  const paid = picked.reduce((total, optionId) => total + poolTotal(byOption.get(optionId)?.pool), 0);
+  const countsToCost = (optionId: string) => byOption.get(optionId)?.overpayOnly !== true;
+  const paid = picked.reduce(
+    (total, optionId) => total + (countsToCost(optionId) ? poolTotal(byOption.get(optionId)?.pool) : 0),
+    0,
+  );
+  const overpayOnlyPaid = picked.reduce(
+    (total, optionId) => total + (countsToCost(optionId) ? 0 : poolTotal(byOption.get(optionId)?.pool)),
+    0,
+  );
 
   const { action } = payment;
   const subject = action.kind === "playCard" || action.kind === "useAbility" ? action.instanceId : null;
@@ -303,13 +472,13 @@ export function paymentView(
     action.kind === "playCard" ? costReductionOptionsFor(state, playerId, action.instanceId, deps) : [];
   const reductionAmount = costReductionTotal(payment.reductions, deps);
 
-  const attempt =
+  const attemptWith = (ids: readonly string[]) =>
     action.kind === "playCard" && payment.reductions.length > 0
       ? tryReducedPlay(
           state,
           playerId,
           action.instanceId,
-          picked,
+          ids,
           query.sources,
           payment.reductions,
           deps,
@@ -318,12 +487,13 @@ export function paymentView(
           payment.costSelection,
           payment.costChoices,
           payment.abilityId,
+          payment.x,
         )
       : tryPayment(
           state,
           playerId,
           payment.action,
-          picked,
+          ids,
           paymentContext(
             payment.target,
             payment.controllerId,
@@ -331,22 +501,45 @@ export function paymentView(
             payment.costChoices,
             payment.abilityId,
             payment.into,
+            payment.x,
           ),
           deps,
         );
+  const attempt = attemptWith(picked);
+  // The cost is covered when the picks that count toward it are accepted without the overpay-only ones.
+  const covered = query.sources.some((source) => source.overpayOnly)
+    ? attemptWith(picked.filter(countsToCost)).ok
+    : attempt.ok;
 
   const requirement =
     reductionAmount > 0
       ? { ...query.requirement, generic: Math.max(0, query.requirement.generic - reductionAmount) }
       : query.requirement;
-  const order = discardOrderOf(state, playerId, picked, byOption);
-  const sources = query.sources.map((source) => ({
-    ...source,
-    spent: picked.includes(source.optionId),
-    helperName: helperNameOf(state, playerId, source),
-    discardOrder: order.get(source.optionId)?.position ?? null,
-    onTop: order.get(source.optionId)?.onTop ?? false,
-  }));
+  const landing = subjectDiscardLanding(state, action);
+  const order = discardOrderOf(state, playerId, picked, byOption, landing?.pile ?? null);
+  const sources: PaymentSourceView[] = query.sources.map((source) => {
+    const place = order.get(source.optionId);
+    const underSubject = place?.underSubject && landing ? cardName(state, landing.id) : null;
+    const onTop = place?.onTop ?? false;
+    return {
+      ...source,
+      spent: picked.includes(source.optionId),
+      helperName: helperNameOf(state, playerId, source),
+      amountNote: amountNoteOf(source),
+      discardOrder: place?.position ?? null,
+      onTop,
+      underSubject,
+      orderNote: onTop ? ON_TOP_NOTE : underSubject !== null ? underNoteFor(underSubject) : null,
+      lockedReason:
+        source.overpayOnly && !picked.includes(source.optionId) && !covered
+          ? "Only to overpay: pick what pays for the card first"
+          : null,
+    };
+  });
+  // A chosen-size cost (`chosenResources`) spends up to `max` and overpays the rest; any other cost spends what it
+  // requires. Only counted once the engine accepts the selection.
+  const requiredTotal = poolTotal(requirement) + (query.chosenResources?.max ?? 0);
+  const overpaid = attempt.ok ? Math.max(0, paid - requiredTotal) + overpayOnlyPaid : 0;
   return {
     headline,
     subject,
@@ -361,9 +554,28 @@ export function paymentView(
     sources,
     tableSources: sources.filter((source) => source.kind === "resourceAbility" || source.helperName !== null),
     subjectInHand: subject !== null && locateCard(state, subject)?.kind === "hand",
+    overpaid,
+    lockedNote: ((held) => (held ? `${held.label}: ${held.lockedReason}` : null))(
+      sources.find((source) => source.lockedReason !== null),
+    ),
+    payLabel:
+      picked.length === 0 && poolTotal(requirement) === 0 && query.overpayMatters ? "Play without overpaying" : null,
+    overpaidNote: overpaid > 0 ? `Overpaid by ${overpaid}` : null,
+    orderNote: sources.find((source) => source.orderNote !== null)?.orderNote ?? null,
+    // A helper's cards, then the parts of the cost a helper pays in the user's place (`costSelection.paidBy`).
+    helperLines: [...helperLinesOf(sources), ...costHelpLines(state, playerId, payment.costSelection)],
     command: attempt.ok ? attempt.command : null,
     blockedBy: attempt.ok ? null : attempt.message,
     costReductionOptions,
+    xPicker:
+      payment.xRange && payment.x !== undefined
+        ? {
+            value: payment.x,
+            min: payment.xRange.min,
+            max: payment.xRange.max,
+            label: `X: ${payment.x} (${payment.xRange.min} to ${payment.xRange.max})`,
+          }
+        : null,
     reductions: payment.reductions,
   };
 }
@@ -419,14 +631,41 @@ export function allianceHelpersOf(
     .map((playerId) => ({ playerId, instanceIds: byPlayer.get(playerId)! }));
 }
 
-/** Whose hand an alliance helper's card sits in, by hero name; null for anything the payer holds or in play. */
 /**
- * The tag on a picked source: "spent", numbered for a discarded card ("spent 2"), and "on top" for the card its pile
- * will show last, which is why the order is worth seeing.
+ * A tile or slot narrower than this carries the compact tags (`spentTagText`, `sourceTagText`): the number alone, a
+ * marker for the card that ends first or second, one short word. A phone's strip tile is 55 to 75 px wide, where the
+ * spelled-out "spent 2 · on top" shrank to nothing or was not drawn at all.
  */
-export function spentTagText(source: Pick<PaymentSourceView, "discardOrder" | "onTop">): string {
+export const COMPACT_TAG_WIDTH = 96;
+export const isCompactTag = (width: number): boolean => width < COMPACT_TAG_WIDTH;
+
+/**
+ * The tag on a picked source: "spent", numbered for a discarded card ("spent 2"), "on top" for the card its pile will
+ * show last (the order is worth seeing), or "under <card>" when the card being paid for is discarded on top of the
+ * payment (an event). Compact: the number alone, "2▲" for on top and "2▼" for under the card being paid for.
+ */
+export function spentTagText(
+  source: Pick<PaymentSourceView, "discardOrder" | "onTop"> & { readonly underSubject?: string | null },
+  compact = false,
+): string {
   if (source.discardOrder === null) return "spent";
-  return source.onTop ? `spent ${source.discardOrder} · on top` : `spent ${source.discardOrder}`;
+  const n = source.discardOrder;
+  if (compact) return source.onTop ? `${n}▲` : source.underSubject ? `${n}▼` : `${n}`;
+  if (source.onTop) return `spent ${n} · on top`;
+  if (source.underSubject) return `spent ${n} · under ${source.underSubject}`;
+  return `spent ${n}`;
+}
+
+/**
+ * What the strip tile says about where its card comes from or what it is, apart from being spent: another hand's
+ * owner, the amount it takes, "overpay only", "from hand" or "in play". Compact: "extra" for an overpay-only source,
+ * the word that fits a narrow tile; the bar's own lock note says the whole rule.
+ */
+export function sourceTagText(source: PaymentSourceView, compact = false): string {
+  if (source.helperName !== null) return source.helperName;
+  if (source.amountNote !== null) return source.amountNote;
+  if (source.overpayOnly) return compact ? "extra" : "overpay only";
+  return source.spendsHandCard ? "from hand" : "in play";
 }
 
 /** The hover note on the "on top" card: what it means, and why the order matters. */
@@ -434,16 +673,49 @@ export const ON_TOP_NOTE =
   "Picked last, so it ends up on top of your discard pile. Pepper Potts and other cards that read the top card " +
   "use it next. To change the order, unpick a card and pick it again: it moves to the end.";
 
+/** The note on the last card picked when the card being paid for is discarded on top of it (an event, RRG 1.8 p. 18). */
+export const underNoteFor = (subjectName: string): string =>
+  `${subjectName} is discarded after it resolves, so it lands on top of your discard pile and your last pick ends ` +
+  "second. To change the order, unpick a card and pick it again: it moves to the end.";
+
+/**
+ * Where the card being paid for goes after it resolves, when that is a discard pile: an event is discarded once its
+ * effects resolve (RRG 1.8 "Event", p. 18), to its owner's pile (RRG 1.8 "Ownership and Control", p. 31), after the
+ * payment cards went there. Read from the card's own type, the engine's rule (`resolve/play-card.ts`, `discardEvent`).
+ * Null for a card that enters play, and for an ability's cost.
+ */
+function subjectDiscardLanding(
+  state: GameState,
+  action: ActionRef,
+): { readonly id: InstanceId; readonly pile: PlayerId } | null {
+  if (action.kind !== "playCard") return null;
+  if (cardOf(state, action.instanceId)?.type !== "event") return null;
+  const owner = state.instances[action.instanceId]?.ownerId;
+  return owner ? { id: action.instanceId, pile: owner } : null;
+}
+
+interface DiscardPlace {
+  readonly position: number;
+  readonly pile: PlayerId;
+  /** The last card picked for a pile nothing else lands on: left on top. */
+  readonly onTop: boolean;
+  /** The last card picked for the pile the paid-for event lands on: left second. */
+  readonly underSubject: boolean;
+}
+
 /**
  * Each picked hand card's place in its discard pile's share of the payment (`PaymentSourceView.discardOrder`), by
- * option id, and whether it is that pile's last, the one left on top.
+ * option id. `landingPile` is the pile the card being paid for is discarded to after resolving, if it is one: that
+ * pile's last payment card ends under it, so it is not "on top" there. Another pile (an alliance helper's own) keeps
+ * its own order.
  */
 function discardOrderOf(
   state: GameState,
   payerId: PlayerId,
   picked: readonly string[],
   byOption: ReadonlyMap<string, PaymentSource>,
-): ReadonlyMap<string, { readonly position: number; readonly onTop: boolean }> {
+  landingPile: PlayerId | null,
+): ReadonlyMap<string, DiscardPlace> {
   const byPile = new Map<PlayerId, string[]>();
   for (const optionId of picked) {
     const source = byOption.get(optionId);
@@ -452,20 +724,47 @@ function discardOrderOf(
     const pile = state.instances[source.instanceId]?.ownerId ?? payerId;
     byPile.set(pile, [...(byPile.get(pile) ?? []), optionId]);
   }
-  const order = new Map<string, { readonly position: number; readonly onTop: boolean }>();
-  for (const optionIds of byPile.values()) {
-    optionIds.forEach((optionId, index) =>
-      order.set(optionId, { position: index + 1, onTop: index === optionIds.length - 1 }),
-    );
+  const order = new Map<string, DiscardPlace>();
+  for (const [pile, optionIds] of byPile) {
+    optionIds.forEach((optionId, index) => {
+      const last = index === optionIds.length - 1;
+      const under = pile === landingPile;
+      order.set(optionId, { position: index + 1, pile, onTop: last && !under, underSubject: last && under });
+    });
   }
   return order;
 }
 
+/** Whose hand an alliance helper's card sits in, by hero name; null for anything the payer holds or in play. */
 function helperNameOf(state: GameState, payerId: PlayerId, source: PaymentSource): string | null {
   if (source.kind !== "handCard") return null;
   const owner = state.players.find((player) => player.hand.includes(source.instanceId));
   if (!owner || owner.playerId === payerId) return null;
   return faceUpName(state, owner.identity.instanceId) ?? "Helper";
+}
+
+/** "take 2 damage" / "remove 2 threat" from the amount a source's own cost carries; null when it carries none. */
+function amountNoteOf(source: PaymentSource): string | null {
+  const selection = source.costSelection;
+  if (!selection) return null;
+  if (selection.damageSelf !== undefined) return `take ${selection.damageSelf} damage`;
+  if (selection.removeThreat !== undefined) return `remove ${selection.removeThreat} threat`;
+  return null;
+}
+
+/** "Helped by Ana: 1 energy, 1 mental", one line per helper in seat order of first pick, from the picked sources. */
+function helperLinesOf(sources: readonly PaymentSourceView[]): readonly string[] {
+  const byHelper = new Map<string, Record<string, number>>();
+  for (const source of sources) {
+    if (!source.spent || source.helperName === null) continue;
+    const total = byHelper.get(source.helperName) ?? {};
+    for (const [type, count] of Object.entries(source.pool)) if (count > 0) total[type] = (total[type] ?? 0) + count;
+    byHelper.set(source.helperName, total);
+  }
+  return [...byHelper].map(([name, pool]) => {
+    const words = Object.entries(pool).map(([type, count]) => `${count} ${type}`);
+    return `Helped by ${name}: ${words.join(", ") || "nothing"}`;
+  });
 }
 
 /**

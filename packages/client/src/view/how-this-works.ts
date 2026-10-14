@@ -114,7 +114,7 @@ note(
 );
 note(
   [...range(32159, 32163), ...range(38029, 38033)],
-  "Teamwork: when it engages you and another minion with its trait is in play, it activates against you right away, before its When Revealed.",
+  "Teamwork: when it engages you and another minion with its trait is in play, it activates against you once its When Revealed has resolved.",
 );
 note(["32164"], "Only the When Defeated abilities resolve. The Acolyte minions stay in play.");
 note(range(32176, 32195), "One use: it leaves the game and the campaign pool for good once its effect resolves.");
@@ -478,12 +478,69 @@ note(
   "The attached character can attack only this card. At 3 damage here, the extra moves to the character and this is discarded. That is not a defeat.",
 );
 
+// Civil War (wave 10): the rulings are the owner's answers in docs/phase7-wave10.md section 4.1 and
+// docs/phase7-wave10-box-heroes.md B4.
+note(
+  ["56084"],
+  "Their leader is the enemy leader. The enemy team attaches it to a minion or that leader, one per character. It is discarded when it stops an attack's damage.",
+);
+note(
+  ["56190"],
+  "You have no leader, so Iron Fist activates against you instead of attacking your leader. As a boost card, its attack on your leader does nothing.",
+);
+note(
+  ["56196"],
+  "Cooperatively you have no leader's main scheme, so it removes no threat. It is still discarded after the leader schemes.",
+);
+note(
+  ["56008"],
+  "The two 4 damage sentences are separate, so both may hit the same enemy. It costs 1 less for each minion engaged with you, down to 0.",
+);
+note(
+  ["56007"],
+  "A minion with quickstrike attacks you first when it enters play, if you are in hero form. Then Hunted attaches and it is stunned.",
+);
+note(
+  ["56002"],
+  "A minion with quickstrike attacks you first when it enters play, if you are in hero form. Then it is stunned and confused.",
+);
+note(
+  ["56038"],
+  "You get the tough card after the attack, even if the damage defeated the attacker. If the attack is cancelled, you do not.",
+);
+note(
+  ["56016"],
+  "Defeats the minion without dealing damage and ignores only its When Defeated abilities. Victory and other cards' responses still happen.",
+);
+// Wonder Man and Hercules: only what the glossary and the official rulings fix. The rest are owed (C16b hand-off).
+note(
+  ["58002"],
+  "Your energy events are tucked here after they resolve, up to three. Each adds 1 ATK. Only a basic attack discards them.",
+);
+note(
+  ["59003"],
+  "If no side scheme can be found, this Labor card is discarded and goes to the bottom of the Labor deck.",
+);
+
+/** Civil War text that names competitive mode, which this game does not offer yet. */
+function competitiveModeNote(text: string): string | null {
+  if (!/competitive mode/i.test(text)) return null;
+  if (/\bOtherwise\b/.test(text))
+    return "Competitive mode is not in this game yet, so only the Otherwise part applies.";
+  if (/cooperative mode/i.test(text))
+    return "Competitive mode is not in this game yet, so only the cooperative part applies.";
+  return "Competitive mode is not in this game yet, so the competitive mode part does nothing.";
+}
+
 /** The printed id without its face letter: "34002a" and "34002b" are one card. */
 export const baseCardId = (id: string): string => id.replace(/[ab]$/, "");
 
 /** The one-line "How this works" note for `card`, or null for the great majority of cards that need none. */
 export function howThisWorksFor(card: AnyCard | undefined): string | null {
-  return card ? (NOTES.get(baseCardId(card.id as string)) ?? null) : null;
+  if (!card) return null;
+  const written = NOTES.get(baseCardId(card.id as string));
+  if (written) return written;
+  return "text" in card ? competitiveModeNote(card.text.current) : null;
 }
 
 /** Every printed id (face letter stripped) that carries a note, for the coverage test. */

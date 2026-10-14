@@ -8,6 +8,8 @@
  * A stop is a string key; the scene maps each key to the control it drew.
  */
 
+import { UPDATE_DISMISS_ID } from "./app-version.js";
+
 export interface TitleFocusInput {
   /** A saved game is offered as "Continue". */
   readonly continuable: boolean;
@@ -352,7 +354,9 @@ export function settingsFocusOrder(rowIds: readonly string[]): readonly string[]
  */
 export function titleMenuFocusOrder(input: {
   readonly continuable: boolean;
-  /** The update banner's buttons, when it is drawn; last, so the menu's own first stop stays first. */
+  /** The Civil War box is open: "civil-war" follows Campaign. */
+  readonly civilWar?: boolean;
+  /** The update banner's link buttons, when it is drawn; last, so the menu's own first stop stays first. Its close button follows them. */
   readonly updateActions?: readonly string[];
 }): readonly string[] {
   return [
@@ -360,11 +364,12 @@ export function titleMenuFocusOrder(input: {
     "new-game",
     "decks",
     "campaign",
+    ...(input.civilWar ? ["civil-war"] : []),
     "extras",
     "how-to-play",
     "settings",
     "release-notes",
-    ...(input.updateActions ?? []),
+    ...(input.updateActions && input.updateActions.length > 0 ? [...input.updateActions, UPDATE_DISMISS_ID] : []),
   ];
 }
 
@@ -381,6 +386,8 @@ export interface ScenarioSelectFocusInput {
   readonly stagesToggle?: boolean;
   /** True on a narrow layout, where the search field is behind a toggle at the head of the chip rail. */
   readonly searchToggle?: boolean;
+  /** The "Customize this scenario" button is drawn (a ready-made Civil War scenario is selected). */
+  readonly customize?: boolean;
 }
 
 /** Scenario select (D02): Back, the search field, its quick-filter chips, each scenario card (or "Clear"), then "Choose heroes ▸". */
@@ -395,6 +402,8 @@ export function scenarioSelectFocusOrder(input: ScenarioSelectFocusInput): reado
     ...(input.scenarioIds.length > 0 ? input.scenarioIds.map((id) => `scenario:${id}`) : ["scenario-clear"]),
     // The phone's collapsible stages panel (absent on a wide layout, where the panel is always open).
     ...(input.stagesToggle ? ["stages-toggle"] : []),
+    // Civil War's "Customize this scenario" (docs/phase7-wave10-client.md 2.1), only while one is on the panel.
+    ...(input.customize ? ["customize"] : []),
     "next",
   ];
 }

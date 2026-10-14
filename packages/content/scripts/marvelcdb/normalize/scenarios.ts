@@ -169,6 +169,17 @@ export function normalizeScenarios(
       }
     }
 
+    // docs/phase7-wave10.md §1.4: the recommended stage 1 and 2, by the B face code each stage's `printedCardId` holds.
+    let mainSchemeStages: Scenario["mainSchemeStages"];
+    if (s.recommendedMainSchemeStageCodes) {
+      const [one, two] = s.recommendedMainSchemeStageCodes;
+      const scheme = ctx.cards.find((c) => c.id === schemeId);
+      const held = new Set(scheme?.type === "main_scheme" ? scheme.stages.map((st) => st.printedCardId as string) : []);
+      for (const code of [one, two])
+        if (!held.has(code)) errors.push(`scenario ${s.id}: main scheme ${schemeId} has no stage ${code}`);
+      mainSchemeStages = { recommended: [brand("card", one), brand("card", two)] };
+    }
+
     return {
       id: brand("scenario", s.id),
       name: s.name,
@@ -194,6 +205,9 @@ export function normalizeScenarios(
       ...(s.usesIdentityEncounterSets === false ? { usesIdentityEncounterSets: false as const } : {}),
       ...(s.nemesisSetsSetAside ? { nemesisSetsSetAside: true as const } : {}),
       ...(s.modularSetCount !== undefined ? { modularSetCount: s.modularSetCount } : {}),
+      ...(s.modularSetCountRange ? { modularSetCountRange: s.modularSetCountRange } : {}),
+      ...(s.side ? { side: s.side } : {}),
+      ...(mainSchemeStages ? { mainSchemeStages } : {}),
       ...(s.setAsideModularSetCount !== undefined ? { setAsideModularSetCount: s.setAsideModularSetCount } : {}),
       ...(s.modularSetPool
         ? {

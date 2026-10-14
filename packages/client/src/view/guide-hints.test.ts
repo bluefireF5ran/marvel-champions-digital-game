@@ -508,9 +508,10 @@ describe("wastedPayHint", () => {
   // the cost"; switching to pay with For Justice! warned the reverse, suggesting Spider-Tracer — the hint
   // ping-ponged between the two payment choices. Spider-Tracer ("Attach to a minion") has no legal target this
   // early (no minion in play yet), so it is not a card actually worth keeping right now; For Justice! (a "Hero
-  // Action (thwart)") always has the main scheme to thwart, so it is.
+  // Action (thwart)") has the main scheme's threat to remove, so it is.
   test("Aunt May paid with Spider-Tracer vs. For Justice! does not ping-pong", () => {
-    const staged = moveToHand(base, me, ["01006", "01007", "01060"]);
+    // A scheme with no threat is no target for a thwart (RRG 1.8 "Target", p. 42), so the main scheme holds some.
+    const staged = moveToHand(withMainSchemeThreat(base, 2), me, ["01006", "01007", "01060"]);
     // Isolate the hand to exactly these three cards — otherwise another already-drawn hand card (e.g. Backflip,
     // an Interrupt with nothing to interrupt right now) is just as "not genuinely playable" as Spider-Tracer and
     // may be picked as the alternative first, making the assertions below depend on draw order rather than on

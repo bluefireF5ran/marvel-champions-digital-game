@@ -32,7 +32,7 @@ export type LastingGrantUntil = LastingUntil | NextBasicPowerUntil;
 // Type-only, and the only reference spec.ts makes to `abilities.ts` (which imports types back from here):
 // `EffectSpec applyRuleUntil` carries the same `RuleSpec` union a constant ability's own `rules` do, so a
 // restriction is written once whether a card in play or a lasting effect imposes it (docs/phase7-wave2.md §22).
-import type { CardIcon, EventPattern, ResolvableAbilityKind, RuleSpec } from "./abilities.js";
+import type { AbilityCost, CardIcon, EventPattern, ResolvableAbilityKind, RuleSpec } from "./abilities.js";
 import type { RulesCardType } from "./card-types.js";
 // Type-only, and erased at compile time, so the cycle with `campaign.ts` (which names `EffectSpec` and friends) is
 // only in the type graph: the campaign *vocabulary* is data, and the campaign *primitives* are effects.
@@ -40,6 +40,7 @@ import type { CampaignLogValueSpec, LogWriteMode } from "./campaign.js";
 import type { Command } from "./commands.js";
 import type { FrameId, InstanceId, PlayerId } from "./ids.js";
 import type { GroupRef, SharedThreatCause } from "./pod.js";
+import type { GameMode } from "./game-mode.js";
 import type { ReportedFact, SetupOutsideFact } from "./outside-facts.js";
 import type { ResourceRequirement, TypedResource } from "./resources.js";
 import type { FacedownRole, Form, GameStep, MainSchemeAdvancedBy } from "./state.js";
@@ -731,6 +732,20 @@ export type TargetRef =
    */
   | { readonly kind: "villain" }
   /**
+   * "**The enemy leader**" and "**your leader**" (docs/competitive-mode-plan.md §3.3, §4 task 5), read for the team of
+   * the player resolving the effect (`contextTeam`, `select.ts`).
+   *
+   * `enemy`: the leader that team is fighting. In a cooperative game that is "the villain", exactly as `villain` reads
+   * it (MC56 p. 6: "The leader in play is called 'the enemy leader.'"; ruling of July 9, 2026 (3) answer 2: outside
+   * Civil War scenarios "enemy leader" refers to the villain); with two teams, the active villain of the team's own
+   * game area.
+   *
+   * `yours`: the leader the enemy team is fighting. No card in a cooperative game (MC56 p. 6: "A card ability that
+   * refers to 'your leader' cannot be resolved. … Do as much as you can."), so an effect aimed at it does nothing and
+   * the rest of the ability resolves; a printed "Otherwise" is an `if` on whether the ref names a card.
+   */
+  | { readonly kind: "leader"; readonly of: "yours" | "enemy" }
+  /**
    * "The main scheme": in a separate game area, that area's own stage; `of: "central"` is the central stage outside
    * every area ("place 1 set-aside Kang's Dominion facedown under stage 4A"; docs/phase7-wave2.md §3.1).
    */
@@ -742,6 +757,13 @@ export type TargetRef =
   | { readonly kind: "signatureSideSchemeOf"; readonly villain: TargetRef }
   /** "Each card attached here" / "the cards attached to that character" (Bruno Carrelli), in attachment order. */
   | { readonly kind: "attachmentsOf"; readonly of: TargetRef; readonly filter?: TargetQuery }
+  /**
+   * "Deal 2 damage to each of **those heroes**" (Hunting Rebel Heroes, `cw` 56097b; docs/phase7-wave10.md §3.16): in a
+   * response to a `cardRevealed` event, the cards the revealed card's constant grant of `trait` reaches
+   * (`cardRevealed.grantedTo`) that are still in play, narrowed by `filter` ("heroes"). A card that already had the
+   * trait is among them (owner decision, question 12 = A, provisional). None for any other event.
+   */
+  | { readonly kind: "grantedTo"; readonly trait: Trait; readonly filter?: TargetQuery }
   /**
    * "Each face down Kang's Dominion under this stage" (Kang's Wrath 4A, 11013a): the cards tucked under what `of`
    * names, in tuck order. The `TargetRef` sibling of the `tucked` `CardSelector`, so an effect that takes a ref —
@@ -820,6 +842,24 @@ export type PlayerRef =
    * player, so an effect aimed at "the next player" in a one-player game does nothing.
    */
   | { readonly kind: "nextAfter"; readonly of: PlayerRef }
+  /**
+   * "**Each player on your team**" and "**the enemy team**" (docs/competitive-mode-plan.md §3.3, §4 task 5): the
+   * players still in the game on the team of the player resolving the effect (`contextTeam`, `select.ts`), or on the
+   * other team, in player order. "A player on the enemy team" is `choosePlayer { among }` over it. In a cooperative
+   * game both are each player (MC56 p. 6: "'the enemy team' refers to the players"), read as `each` reads them. Who
+   * makes a choice the enemy team is given is not this ref (plan §4 task 7).
+   */
+  | { readonly kind: "team"; readonly of: "yours" | "enemy" }
+  /**
+   * The one player who makes a choice the card gives to "**the enemy team**" (docs/competitive-mode-plan.md §3.4, §4
+   * task 7; docs/phase7-wave10.md §3.5): "The enemy team exhausts a character you control", "a minion of the enemy
+   * team's choice", "The enemy team searches the encounter deck for…". Written as the `chooser` (or `player`) of the
+   * choosing effect, whose legal options it does not change. `enemyTeamDecider` (`select.ts`) names the player: the
+   * first player in a cooperative game, a player of the other team when there are two; nobody when the effect is read
+   * for no team. The choice it asks carries the `enemyTeam` authority and `PendingChoice.onBehalfOf`
+   * (`effectChoiceAuthority`); wrapped in another ref (`orElse`, `others`) it is only the player it names.
+   */
+  | { readonly kind: "enemyTeamDecider" }
   /** The player a card is engaged with: "the engaged player" on a minion's own ability. */
   | { readonly kind: "engagedWith"; readonly of: TargetRef }
   /**
@@ -1112,8 +1152,31 @@ export type ValueSpec =
    * `scaled.divide.round` stays required here as everywhere: RRG 1.8 "Modifiers" (p. 29), "Fractional values are
    * rounded up after all modifiers have been applied", so a text that prints no rounding halves *up*, and one that
    * prints "rounded down" says `round: "down"`. This value itself never rounds — it is a plain count.
+   *
+   * `separateDeck`: the cards in that player's separate deck of that name instead (`PlayerState.separateDecks`; the
+   * deck only, never its discard pile), as `shuffleDeck.separateDeck` names one. 0 for a deck the player does not
+   * have. "Reveal the top card of the labor deck" has nothing to reveal at 0 (docs/phase7-wave10-hero-packs.md H3.2).
    */
-  | { readonly kind: "deckCount"; readonly player: PlayerRef }
+  | { readonly kind: "deckCount"; readonly player: PlayerRef; readonly separateDeck?: string }
+  /**
+   * The cards in a player's own out-of-play zones (`PlayerZone`: hand, deck, discard pile), optionally only those
+   * matching `filter`: "tuck 1 event with a printed [energy] resource from your discard pile" can be done while
+   * `{ zone: "discard", player: you, filter: … }` is at least 1 (Wonder Fans, `wonder_man` 58007; RRG 1.8 "Choose
+   * (Option)", p. 12: an option that cannot be done is not chosen). The number of cards a `CardSelector zone` with
+   * the same `zone`, `player` and `filter` names: several zones are one pool, and every player the ref names is
+   * counted. `handCount` and `deckCount` are the one-zone, one-player cases that came first; `exists` and `count`
+   * read cards in play and cannot see these zones.
+   *
+   * Read live every time the value is resolved. The filter is asked of the cards as they are, which for a deck means
+   * cards no player may look at: use it on a deck only where the text has the deck searched or looked at (a count of
+   * the whole deck, with no filter, is public: RRG 1.8 "Deck", p. 14).
+   */
+  | {
+      readonly kind: "zoneCount";
+      readonly zone: PlayerZone | readonly PlayerZone[];
+      readonly player: PlayerRef;
+      readonly filter?: TargetQuery;
+    }
   /** Distinct printed resource types among cards ("for each different resource type discarded this way"). Wild counts as its own type. */
   | { readonly kind: "resourceTypes"; readonly cards: TargetRef }
   /**
@@ -1554,6 +1617,25 @@ export type Predicate =
    */
   | { readonly kind: "inMode"; readonly mode: "standard" | "expert" }
   /**
+   * The game mode (`GameState.gameMode`, docs/phase7-wave10.md §3.4; MC56 pp. 6, 14): "In competitive mode, move 2
+   * threat … Otherwise, place 2[per_hero] threat here." (Neighborhood Hero, `cw` 56183), "In cooperative mode, find the
+   * chosen leader's side scheme and reveal it." (56063a). A game with no mode recorded is cooperative.
+   */
+  | { readonly kind: "gameMode"; readonly is: GameMode }
+  /**
+   * "After a hero or the Captain America leader **uses their ATK to attack and damage** attached character" (Cap's
+   * Shield, `cw` 56143; docs/phase7-wave10.md §3.17): the damage or attack this ability answers was made with the
+   * attacker's ATK. Rulings December 17, 2025 (2) #3 (a flat-damage attack ability does not; "damage … equal to your
+   * ATK" does) and January 11, 2026 (1) and (2) (overkill damage of such an attack does, although its character was
+   * not the attack's target).
+   *
+   * Read from the answered event: a `dealDamage` that is an attack's and carries `usedStat: "atk"`, or is damage of
+   * an enemy's attack (an enemy always attacks with its ATK; RRG 1.8 "Attack (Enemy Activation)", p. 9); an `attack`
+   * that deals its attacker's ATK (`attackUsesAtk`); an `enemyAttack` or `enemyAttacksEnemy`. False for every other
+   * event and with no event.
+   */
+  | { readonly kind: "attackUsedAtk" }
+  /**
    * "(2 facedown boost cards instead if this is the first attack this turn)" (Venom III, `sm` 27075;
    * docs/phase7-wave5.md §3.12): read in the response to an attack, true when exactly one attack this turn
    * (`GameState.attacksThisTurn`, the triggering one) matches `against` (its target) and `by` (its attacker), each
@@ -1705,7 +1787,8 @@ export type ScenarioDeckSource = "encounterDeck" | "setAside";
  * vars when it finishes: `<bind>.amount` (damage taken / damage healed / threat
  * placed or removed), `<bind>.made` (1 if it happened), and for attacks
  * `<bind>.damage`, `<bind>.defeated`, `<bind>.undefended`, `<bind>.excessDealt`
- * (the excess overkill would spill: damage taken beyond remaining hit points; RRG 1.8 "Overkill", p. 31). A damage
+ * (the excess overkill would spill: damage taken beyond remaining hit points; RRG 1.8 "Overkill", p. 31) and
+ * `<bind>.excessAsDealt` (the excess of the damage dealt, before reductions to damage taken; `excessAsDealtOf`). A damage
  * effect (`dealDamage`, `dealIndirectDamage`) also binds the slot `<bind>.damaged` to each character that took at
  * least 1 of its damage, after prevention ("each character damaged this way").
  */
@@ -1733,6 +1816,12 @@ export type EffectSpec =
        * the attack's damage.
        */
       readonly fromAttack?: boolean;
+      /**
+       * As `attack.usesAtk`, for one damage instruction of an "(attack)" ability: when this damage is an attack's
+       * (`fromAttack`, or the ability's attack by its controller's identity), it is damage of an attack that used the
+       * attacker's ATK (`dealDamage.usedStat`). Read for nothing else: plain damage never "uses ATK to attack".
+       */
+      readonly usesAtk?: true;
       readonly ignoreTough?: boolean;
       readonly bind?: string;
       /**
@@ -1822,6 +1911,13 @@ export type EffectSpec =
        * the attacker. `["overkill"]` is the same as `overkill: true`; both are accepted and unioned.
        */
       readonly keywords?: readonly AttackKeyword[];
+      /**
+       * The amount is the attacker's ATK, or built from it ("deal damage to an enemy equal to your ATK"): this
+       * attack's damage "uses their ATK" (`attack.usedStat`, `Predicate attackUsedAtk`; docs/phase7-wave10.md §3.17).
+       * Ruling December 17, 2025 (2) #3: an ability that "calls out your ATK in some way" does, a flat "Deal # damage
+       * to an enemy" does not. The DSL's `attack` sets it when the amount reads the attacker's ATK.
+       */
+      readonly usesAtk?: true;
       readonly moveDamageFrom?: TargetRef;
       readonly bind?: string;
     }
@@ -2270,6 +2366,9 @@ export type EffectSpec =
    * the count in progress (`boostIconsCounting`: the boost card the current activation is about to count, or the card
    * a `countBoostIcons` effect is counting, whichever is innermost), for this count only;
    * the total is floored at 0. docs/phase7-wave2.md §3.6.
+   *
+   * Inside a borrowed Boost ability (`resolveSpecials` with `trigger: "boost"`; docs/phase7-wave10.md §3.11) it
+   * changes only the count that effect's `borrowedBoostIcons` names: none by default.
    */
   | { readonly kind: "adjustBoostCount"; readonly delta: ValueSpec }
   /**
@@ -2319,6 +2418,16 @@ export type EffectSpec =
    */
   | { readonly kind: "increaseDamage"; readonly amount: ValueSpec }
   /**
+   * An interrupt to a `dealDamage` event: "When [she] would take more than 3 damage from an attack, **reduce that
+   * amount to 3**" (Cosmic Flight, `cw` 56100). The damage pending on the interrupted event, read as this effect
+   * resolves (so after any interrupt that resolved before it), is lowered to `amount` if it is higher. It is the
+   * amount taken that is reduced, as for a prevention (RRG 1.8 "Prevent", p. 35): the event keeps the amount dealt.
+   * A reduction is not a prevention, so it is logged as `damageCapped` and nothing that answers prevented damage hears
+   * it. `bind`: `<bind>.amount` is how much was taken off and `<bind>.made` whether any was. Pending damage already
+   * at or under `amount`, or a cancelled or other event, changes nothing.
+   */
+  | { readonly kind: "reduceDamageTo"; readonly amount: ValueSpec; readonly bind?: string }
+  /**
    * "… If that character is defeated this way, **repeat this effect**" (Out for Blood, `hood` 24023): `effects` resolve,
    * then `while` is read (with what those effects bound); while it holds they resolve again. Each repetition starts with
    * the slots and vars the repeated effects bind cleared, so "that character" is always this repetition's. Capped at
@@ -2353,12 +2462,21 @@ export type EffectSpec =
    * leaving play), so while two or more cards are waiting `chooser` (default: the ability's controller, or the
    * resolving player of an encounter card) picks the next one (`ChoicePrompt chooseTarget` on `slot`, offering the
    * waiting cards); the last card is taken without asking. With nobody to ask, the set's own order is used.
+   *
+   * `bind`: what the passes did, handed back to the ability once the loop is done, for a sentence that reads the
+   * whole loop ("X attacks each character with … attached. **If no attack was made this way**, …"). `<bind>.count` is
+   * the number of passes that ran, and whatever a pass bound comes back as `<bind>.<name>`, vars summed and slots
+   * joined across the passes (as `resolveSpecials.bind`): an `enemyAttack` bound as `hit` in the pass is read after
+   * the loop as `<bind>.hit.made`, the number of those attacks that were made (RRG 1.8 "Stun, Stunned", p. 41: a
+   * stunned enemy's attack is replaced and it "is not considered to have attacked"). The passes themselves still see
+   * nothing of each other. With no card to pass over, `<bind>.count` is 0 and nothing else is bound.
    */
   | {
       readonly kind: "forEachCard";
       readonly cards: TargetRef;
       readonly slot: string;
       readonly chooser?: PlayerRef;
+      readonly bind?: string;
       readonly effects: readonly EffectSpec[];
     }
   /**
@@ -2370,6 +2488,7 @@ export type EffectSpec =
       readonly kind: "forEachCardPass";
       readonly slot: string;
       readonly chooser?: PlayerRef;
+      readonly bind?: string;
       readonly effects: readonly EffectSpec[];
       readonly waiting: readonly { readonly instanceId: InstanceId; readonly zone: string }[];
     }
@@ -2569,13 +2688,37 @@ export type EffectSpec =
    * nothing and leaves the text before a "then" unresolved (`findFoundNothing`), and the decks the card could have been
    * in were still searched, so they are shuffled (RRG 1.8 "Shuffle", p. 40; the owner's decision, 2026-10-03,
    * docs/phase7-wave6.md §4.1 Q77; `decksSearchedByFind`, `select.ts`). `bind`: the found card, in that slot.
+   *
+   * docs/phase7-wave10-hero-packs.md H3.4 adds, for a find whose text names a kind of card and not one card ("Find a
+   * non-Elite minion with at least 6 printed hit points. Reveal it …", Defeat the Hydra `hercules` 59002):
+   *
+   * - `choose`: every card the find reaches that matches is a candidate, in play or out, and the player resolving the
+   *   ability picks one (RRG 1.8 "Search", p. 39: "If a player finds multiple cards that satisfy the criteria of a
+   *   search, the player chooses among those options"). The pick is a `chooseCards` prompt whose options each carry the
+   *   area the card is in (`ChoiceOption.zone`). One candidate is found with no prompt, as a find with no `choose`
+   *   finds its card. To know every candidate the player looked through each deck one could be in, so each of those
+   *   decks is shuffled after, whichever card was picked and also when there was none (`decksSearchedByFind` with no
+   *   found card). A facedown encounter card in an in-play area is never a candidate (RRG 1.8 "Find", p. 19; ruling
+   *   March 6, 2026 – Ruling 3 (2): Lernean Hydra dealt facedown as a boost card cannot be found).
+   * - `outOfPlay`: "that is not in play" (Embody Pathos 59003): a card in play is not a candidate.
+   * - `to: "reveal"`: "find X and reveal it". The player resolving the ability reveals the card through the whole
+   *   reveal procedure, as `EffectSpec revealCard` does (RRG 1.8 "Reveal", p. 38). A card faceup in play is revealed
+   *   where it is and does not enter play: a minion engages that player unless it was already engaged with them, keeps
+   *   everything on it, and its reveal keywords and When Revealed resolve (RRG 1.8 "Find", p. 19;
+   *   `Frame<"reveal">.foundInPlay`). The effects after this one resolve once the reveal has.
+   * - `to: "play"`: "find X and put it into play" (Protect Humanity 59004), as `EffectSpec putIntoPlay` under the
+   *   control of the player resolving the ability. A card already in play stays as it is.
+   * - `perPlayerAs`, with `to: "reveal"` only: the reveal's `EffectSpec revealCard.perPlayerAs` (H3.5).
    */
   | {
       readonly kind: "findCard";
       readonly query: TargetQuery;
       readonly owner?: PlayerRef;
-      readonly to: CardDestination | { readonly attachTo: TargetRef };
+      readonly to: CardDestination | { readonly attachTo: TargetRef } | "reveal" | "play";
       readonly bind?: string;
+      readonly choose?: true;
+      readonly outOfPlay?: true;
+      readonly perPlayerAs?: number;
     }
   /** Choose cards outside play ("look at the top 3 … add 1", "search your deck for an upgrade", "choose up to 3 different cards in your discard"). */
   | {
@@ -2637,8 +2780,11 @@ export type EffectSpec =
   | { readonly kind: "drawUpTo"; readonly player: PlayerRef; readonly amount: ValueSpec }
   /**
    * "Choose one: …" / "Choose to either … or …". Options whose `condition`
-   * fails aren't offered, nor is one holding a `required` `spendResources` its player cannot pay (see that effect);
-   * with one option left it resolves without asking.
+   * fails aren't offered, nor is one holding a `required` `spendResources` its player cannot pay (see that effect),
+   * nor one that requires a target and has no valid one ("Remove 2 threat from a scheme" with no threat on any
+   * scheme; RRG 1.8 "Choose (Option)", p. 12; `optionLacksValidTarget` in `resolve/target-validity.ts`). With one
+   * option left it resolves without asking, and with none it resolves to nothing; a player ability whose "choose
+   * one" has no option to choose, and which has no other part of its own, cannot be initiated.
    */
   | {
       readonly kind: "chooseOne";
@@ -2807,7 +2953,33 @@ export type EffectSpec =
        * in the order the calling ability's player chooses, as Specials do. `<bind>.count` is how many resolved, and the
        * same number is added to the innermost attack on the stack as its `labeledResolvedVar("preparation")` result.
        */
+      /**
+       * `"boost"`: "Resolve the 'Boost' ability of each minion in play" (Freedom Fighters, `cw` 56153;
+       * docs/phase7-wave10.md §3.11). Each card's Boost abilities resolve with the card where it is, in play: it is not
+       * turned up, dealt or discarded as a boost card, and no `boostCardTurnedFaceup` or count is announced. Inside
+       * them "this card" is that card (RRG 1.8 "Self-Referential", p. 39), "you" is the resolving player (`player`,
+       * else the calling ability's "you": the revealing player, or the player the activation is against) and the
+       * triggering event is the calling ability's own, so inside an activation "the activating enemy" is still that
+       * enemy. Several resolve in the order the calling ability's player chooses, as Specials do. `<bind>.count` is how
+       * many resolved ("If no 'Boost' abilities were resolved this way"). What "this card gains [boost]" does there is
+       * `borrowedBoostIcons`.
+       */
       readonly trigger?: ResolvableAbilityKind;
+      /**
+       * With `trigger: "boost"`: what the icons a borrowed ability gains ("this card gains [boost][boost]", `EffectSpec
+       * adjustBoostCount` inside it) do. Question 10 of docs/phase7-wave10.md §4.0, decided by the owner on
+       * 2026-10-11: A, with B kept as this switch.
+       *
+       * - `"nothing"` (absent; **A, the default**): they do nothing. RRG 1.8 "Boost" (p. 9) adds "the number of boost
+       *   icons on each [boost] card" of the activation, and a card in play whose Boost ability is resolved this way is
+       *   not a boost card of any activation: the icons land on a card nothing counts.
+       * - `"joinActivation"` (**B**): they are added to the count of the boost card that is resolving this effect, for
+       *   the activation it is boosting. When the instructing card is not the boost card an activation is resolving
+       *   (it was revealed), there is no such count and they do nothing, as under A.
+       *
+       * No FFG ruling names the card; a question to FFG is open.
+       */
+      readonly borrowedBoostIcons?: "nothing" | "joinActivation";
       /**
        * "… as if it has at least 1 hit point" (Rough Riders): while each resolved ability's effects resolve, the card
        * they are printed on is considered to have at least this many remaining hit points, exactly as under
@@ -3222,6 +3394,15 @@ export type EffectSpec =
    * teamwork (p. 43: "After a minion with teamwork enters play and engages a player"). A card that is not a minion,
    * one found faceup in play, and a minion whose host is not in play or cannot have it attached (`canAttachTo`) are
    * revealed as without `heldBy`.
+   *
+   * `perPlayerAs` (docs/phase7-wave10-hero-packs.md H3.5): "reveal it, treating each [per player] on it as 1" (Embody
+   * Pathos, `hercules` 59003). While each card among `cards` is being revealed, every per player icon printed on that
+   * card multiplies by this number instead of the number of players who started the scenario (RRG 1.8 "Per Player
+   * Icon", p. 32): its starting threat, its hinder ("Hinder X", p. 22), any other printed value, and a per player
+   * value in its own abilities, the When Revealed included (`Frame<"reveal">.perPlayerAs`, read by `perPlayerReading`).
+   * A per player value on any other card is read as usual. The reading ends with the reveal (the owner's answer to
+   * question 19 = A, 2026-10-11, provisional): threat already placed stays, and an ability of that card that resolves
+   * later reads the real number of players.
    */
   | {
       readonly kind: "revealCard";
@@ -3229,6 +3410,7 @@ export type EffectSpec =
       readonly player: PlayerRef;
       readonly instead?: true;
       readonly heldBy?: TargetRef;
+      readonly perPlayerAs?: number;
     }
   | { readonly kind: "shuffleEncounterDeck" }
   /**
@@ -3785,7 +3967,7 @@ export type EffectSpec =
       readonly kind: "discardFromPlay";
       readonly target: TargetRef;
       readonly defeated?: boolean;
-      readonly insteadTo?: CardDestination;
+      readonly insteadTo?: DefeatPlacement;
     }
   /**
    * "Create 'The Collection' game area" (The Grand Collection 1A, `gmw` 16073a): an empty scenario out-of-play area named
@@ -3911,8 +4093,15 @@ export type EffectSpec =
    * be defeated" interrupts, When Defeated, Victory X and responses all see it; `cannotBeDefeated` and the permanent
    * keyword still stop it. An ally or minion is discarded, an identity's player is eliminated, and a villain's stage falls
    * (RRG 1.8 "Villain Defeat", p. 47). Characters only. docs/phase7-wave3.md §3.9.
+   *
+   * `ignoreWhenDefeated`: "Defeat a non-[Elite] minion with an upgrade attached. Ignore any 'When Defeated' abilities on
+   * that minion." (Coup de Grâce, `cw` 56016; docs/phase7-wave10-box-heroes.md B3.2). RRG 1.8 "Ignore" (p. 23): the
+   * ignored abilities are treated "as not being in effect or present", so none of the defeated card's own When
+   * Defeated abilities resolve (RRG 1.8 "When Defeated Abilities", p. 48), printed or gained. Nothing else about the
+   * defeat changes: its "would be defeated" interrupts, Victory X, its attachments leaving with it, and every other
+   * card's abilities that answer the defeat ("when attached minion is defeated", "after … is defeated").
    */
-  | { readonly kind: "defeat"; readonly target: TargetRef }
+  | { readonly kind: "defeat"; readonly target: TargetRef; readonly ignoreWhenDefeated?: true }
   /**
    * A player sits the scenario out: a campaign's setup lets a player defeated in the last scenario decline to rejoin
    * (MC45 p. 20, MC50 p. 6; the printed text says "can rejoin" and nothing about a player who does not, so the sit-out
@@ -3937,9 +4126,16 @@ export type EffectSpec =
    * defeated card goes to `to` instead of its discard pile. `"hand"` and the deck destinations are its owner's. The
    * card is still defeated: When Defeated, "after … is defeated" and a `defeated` result all still apply. Only the
    * discard is replaced, so a Victory X card still goes to the victory display (RRG 1.8 "Victory X", p. 46: it is not
-   * being discarded). A later interrupt's destination replaces an earlier one's. Does nothing outside that window.
+   * being discarded). A later interrupt's destination replaces an earlier one's.
+   *
+   * Also read in the defeated card's own When Defeated ability ("When Defeated: Give this card to the enemy leader as
+   * a facedown boost card", Falcon, `cw` 56150; docs/phase7-wave10.md §3.10): the card is still in play while that
+   * ability resolves and "leaves play after its 'When Defeated' ability is resolved" (RRG 1.8 "When Defeated
+   * Abilities", p. 48), so its leaving step, already waiting, takes the new destination. Does nothing anywhere else.
+   *
+   * `to` may be an enemy's boost cards (`BoostCardDestination`).
    */
-  | { readonly kind: "setDefeatDestination"; readonly to: CardDestination }
+  | { readonly kind: "setDefeatDestination"; readonly to: DefeatDestination }
   /**
    * "Engage that enemy" (Get Over Here!). RRG 1.8 "Engage" (p. 18): "If a card ability instructs a player to engage a
    * minion, that minion is also considered to have engaged that player", and "while a minion is engaged with a
@@ -4598,6 +4794,12 @@ export type EffectSpec =
       readonly carry?: readonly string[];
     }
   /**
+   * A marker for printed text that applies only in competitive mode and is not built (docs/phase7-wave10.md §3.4):
+   * `text` is the printed sentence. It does nothing and logs nothing. It stands as the competitive branch of an `if`
+   * on `Predicate gameMode`, so the clause is in the script, where it can be listed, and not left out of it.
+   */
+  | { readonly kind: "competitiveOnly"; readonly text: string }
+  /**
    * "Deal damage to [the pod's shared villain] equal to …" / "place 1 threat on [the pod's shared scheme]" (the Shatter
    * the Illusion card, step 1; Mischief and Mayhem 1B, `tt` 55033b; docs/phase7-wave9.md §3.66). The two neutral cards
    * hold no damage or threat of their own: this asks the pod's shared record for the change, as a `SharedEvent` of this
@@ -4818,6 +5020,18 @@ export type EffectSpec =
       readonly paidFor: FrameId | null;
     }
   /**
+   * **Engine-internal; no DSL builder.** Paying one additional cost to attack an enemy (`RuleSpec additionalAttackCost`,
+   * `attack-cost.ts`, docs/phase7-wave10-hero-packs.md H3.16), pushed above the attack as it is made against
+   * `targetInstanceId`: the frame's player pays `cost`, with the frame's card (the rule's) as its source. Logged
+   * `additionalAttackCostPaid`, or `additionalAttackCostNotPaid` with the reason.
+   */
+  | {
+      readonly kind: "payAttackCost";
+      readonly attackerInstanceId: InstanceId;
+      readonly targetInstanceId: InstanceId;
+      readonly cost: AbilityCost;
+    }
+  /**
    * **Engine-internal; no DSL builder.** Paying a "discard up to N cards from the top of your deck →" cost
    * (`AbilityCost.discardFromDeck` with `choose`, `deck-discard-choice-cost.ts`, docs/phase7-wave8.md §3.55), pushed
    * by `payCost` above the frame `paidFor` it pays for, after the payer's `chooseNumber` pick bound as `chosen`: that
@@ -4971,6 +5185,31 @@ export type EffectSpec =
        * reduction of their own, as before.
        */
       readonly anyPlayer?: true;
+      /**
+       * "Reduce the resource cost of the next ally that player plays this phase **to 0**" (Recruitment Drive, `hercules`
+       * 59023; docs/phase7-wave10-hero-packs.md H3.10): the matching card's resource cost is 0, whatever it prints and
+       * whatever else reduces it. `amount` is not read. Used up by that play and gone at its timing point like any
+       * other "next card" reduction (RRG 1.8 "Lasting Effects", p. 26).
+       *
+       * What another card adds to the cost ("costs 1 additional resource": a positive `CostModifierSpec`, a negative
+       * `amount`) is still paid on top: H3.10 reads it as an amount added to the cost, not part of the cost being
+       * reduced. Open rules reading: RRG 1.8 "Modifiers" (p. 29) says "If a value is 'set' to a specific number, the set
+       * modifier overrides all non-set modifiers"; if FFG reads "reduce … to 0" as a set modifier, the additions are
+       * overridden too and `priceAfterReductions` (`actions.ts`) returns 0 for such a card. Not with `into`.
+       */
+      readonly toZero?: true;
+      /**
+       * "Reduce the cost to play each of those cards by 2 until the end of the phase" (Evaluate Threat, `hercules`
+       * 59028; docs/phase7-wave10-hero-packs.md H3.11): one reduction for each card this ref names, bound to that card
+       * (`LastingEffectBody costReduction.cardInstanceId`) rather than to a player and a filter. It follows the card
+       * through every zone, prices it for whichever player plays it, is used up by that card's next play and no other
+       * card's, and ends at `duration` whether used or not. Rulings June 2, 2026 – Ruling 2 (4): the cost is reduced
+       * "for the next time it is played that phase, even if bounced"; July 9, 2026 – Ruling 3 (3): "for the **next
+       * time** it is played, not repeatedly". `player` names only whose effect it is; `cardFilter`, `into` and
+       * `anyPlayer` are not read, and `duration` is a phase, turn or round (not `"untilPlayed"`, which is a player's
+       * next card).
+       */
+      readonly cards?: TargetRef;
     }
   /**
    * "Discard this obligation after you play an event" (Physical Toll, `drs` pack): a delayed effect whose timing
@@ -5019,7 +5258,20 @@ export type PlayerZone = "hand" | "deck" | "discard";
 
 /** Which cards a `moveCards`/`chooseCards` works on. */
 export type CardSelector =
-  | { readonly kind: "ref"; readonly ref: TargetRef; readonly filter?: TargetQuery }
+  | {
+      readonly kind: "ref";
+      readonly ref: TargetRef;
+      readonly filter?: TargetQuery;
+      /**
+       * Only the named cards that are in this zone of their owner right now: "tuck that event **from your discard
+       * pile** under this card" (Ionic Physiology, `wonder_man` 58002; docs/phase7-wave10-hero-packs.md §H3.12). A named
+       * card anywhere else (shuffled into its deck, returned to hand, removed, still in play) is not selected. With
+       * `tuckCards` that makes the discard pile part of what the ability needs: it is not offered while no named card
+       * is there, and a tuck that finds none as it resolves did not resolve (`preThenUnresolved`, cause
+       * `tuckNamedNoCard`; RRG 1.8 "'Then'", p. 44).
+       */
+      readonly ownerZone?: PlayerZone;
+    }
   /**
    * The encounter deck and/or discard pile ("search the encounter deck and discard pile for …"): the active
    * villain's (ruling, Jan 17, 2026 (5)). `deckOf` names another villain's deck where card text does ("Reveal the
@@ -5221,8 +5473,8 @@ export interface DefeatFollowUp {
   /** "You" for its When Defeated abilities when nobody controls it: the engaged player, else the first player. */
   readonly actingPlayerId: PlayerId | null;
   readonly controllerId: PlayerId | null;
-  /** Where it goes instead of its discard pile (Regroup, a `defeatDestination` rule). */
-  readonly insteadTo?: CardDestination;
+  /** Where it goes instead of its discard pile (Regroup, a `defeatDestination` rule, an enemy's boost cards). */
+  readonly insteadTo?: DefeatPlacement;
   /** The card whose ability defeated it, for the Permanent keyword (docs/phase7-wave5.md §4.1 Q46). */
   readonly sourceCardId?: CardId;
   /** Overkill's excess, dealt once the defeat has happened and before its When Defeated abilities (`beginDefeat`). */
@@ -5247,6 +5499,39 @@ export interface DefeatFollowUp {
 export interface PairLimit {
   readonly distinctBy: "resourceIcon";
 }
+
+/**
+ * "Give this card to the enemy leader **as a facedown boost card**" (Falcon, `cw` 56150; Dangerous Recruits, 56091;
+ * docs/phase7-wave10.md §3.10): a defeated card's destination that is the boost cards of the first card `enemy` names
+ * in play, read for the player resolving the ability as the destination is set. Only a defeat's destination
+ * (`EffectSpec setDefeatDestination`): a card not being defeated is given with `giveBoostCard`.
+ *
+ * The card is still defeated and still leaves play (RRG 1.8 "Leaves Play", p. 27: its tokens and status cards go, its
+ * attachments are discarded, "after … is defeated" and "after … leaves play" answer, the latter with `to: "boost"`).
+ * It is not discarded, so nothing hears a discard. It goes facedown onto that enemy after the boost cards already
+ * there, logged `boostCardDealt` with `outsideActivation` and announced as `boostCardGiven`. From there it is any
+ * boost card dealt outside the enemy's activation (RRG 1.8 "Boost, Boost Icon", p. 11: it "remains facedown on that
+ * enemy until that enemy activates", and a villain "still gets dealt another boost card at the start of its
+ * activation as normal"): turned up in that enemy's next activation, its boost icons counted and its "Boost" ability
+ * resolved, then discarded to its own discard pile.
+ *
+ * What it does not replace: a Victory X card's place in the victory display (as for any defeat destination, RRG 1.8
+ * "Victory X", p. 46); and when no card `enemy` names is in play, as the destination is set or when the card leaves,
+ * the card is discarded as normal.
+ */
+export interface BoostCardDestination {
+  readonly kind: "boostCardOf";
+  readonly enemy: TargetRef;
+}
+
+/** Where `EffectSpec setDefeatDestination` sends a defeated card: a `CardDestination`, or an enemy's boost cards. */
+export type DefeatDestination = CardDestination | BoostCardDestination;
+
+/**
+ * A defeat destination as the engine carries it once set (the defeat event, its leaving step, a waiting leaving): a
+ * `BoostCardDestination` with its enemy resolved to the card that holds the boost card.
+ */
+export type DefeatPlacement = CardDestination | { readonly boostCardOf: InstanceId };
 
 export type CardDestination =
   /** "Put it faceup into The Collection": a scenario out-of-play area, cards faceup (docs/phase7-wave3.md §3.14). */
@@ -5330,4 +5615,19 @@ export type CollectionSearchFilter = Pick<CollectionFilter, "categories" | "aspe
    * title. With no searching player nothing is left out.
    */
   readonly notAmongOwnCards?: true;
+  /**
+   * "An identity-specific ally for an identity not in this game" (docs/phase7-wave10-hero-packs.md H3.18): the card is
+   * in the identity-specific classification (RRG 1.8 "Classifications", p. 12; "Identity-Specific Card", p. 23: it
+   * "belong[s] to an identity's set of accompanying cards", which the card data carries as `aspect: "hero:<identity
+   * card id>"`), and that identity's card is not in this game. An identity card is in the game while the game holds an
+   * instance of it, in any zone: each seat's identity, and an identity card a card effect brought in. The versions of
+   * a progressing identity are one identity, so a seat using any version keeps the whole set out. An identity card is
+   * not itself found (the field asks for a card of an identity's set), and neither is a card of no identity's set.
+   *
+   * It names a classification and an owner, not a card type: pair it with `categories` ("ally"). `aspects` would
+   * match nothing beside it, since `aspects` reads the same field. The search does not compare titles: a unique card
+   * added during setup "can share titles with cards in player decks" (ruling, March 19, 2026 - Ruling 6, on RRG 1.8
+   * "Unique", p. 46), and the unique rule goes on applying to cards in play.
+   */
+  readonly identitySpecificToUnseated?: true;
 };

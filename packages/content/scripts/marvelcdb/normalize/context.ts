@@ -12,7 +12,7 @@ import { assignAbilityIds, parseCardText, type ParsedAbility, type ParsedText } 
 import type { RawCard } from "../raw-types.ts";
 import { imageOf, imagesOf, reprintImages } from "./art.ts";
 import { brand } from "./brand.ts";
-import { applyAddedRecords, applyTypeCorrections, flatten, type Flattened } from "./flatten.ts";
+import { applyAddedRecords, applySetRecodes, applyTypeCorrections, flatten, type Flattened } from "./flatten.ts";
 import type { Prepared } from "./prepare.ts";
 import { amplifyIconsField, collector, errataStatus, schemeIconsField, stripQuotes } from "./values.ts";
 
@@ -64,7 +64,11 @@ export interface NormalizeContext extends Flattened {
 export function createContext(raw: readonly RawCard[], curation: PackCuration): NormalizeContext {
   const errors: string[] = [];
   const flat = flatten(
-    applyTypeCorrections(applyAddedRecords(raw, curation, errors), curation.corrections, errors),
+    applySetRecodes(
+      applyTypeCorrections(applyAddedRecords(raw, curation, errors), curation.corrections, errors),
+      curation,
+      errors,
+    ),
     errors,
   );
   // Wave 2 fix: a three-sided identity's extra hero face (Ant-Man/Wasp's Giant, §1.1) is its own `hero`-type

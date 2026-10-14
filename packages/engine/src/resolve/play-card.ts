@@ -4,7 +4,7 @@ import type { AbilityId } from "@mc/content";
 import { type Ctx, emit, moveCard, popFrame, pushFrames, setFrame, updateInstance } from "../ctx.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { discardZoneFor, locateCard, mustCardOf, mustInstance, mustPlayer, scenarioPlayAreaOf } from "../query.js";
-import { controllerOf, printedAbilityRefs } from "../select.js";
+import { cardsInPlay, controllerOf, printedAbilityRefs } from "../select.js";
 import {
   PAID_CARDS_SLOT,
   paymentVarsIn,
@@ -14,6 +14,7 @@ import {
   type Vars,
 } from "../stack.js";
 import type { TriggerEvent } from "../trigger-events.js";
+import { additionalPlayCostOf } from "../actions.js";
 import {
   endUntilCardPlayedEffects,
   expireCardResolutionEffects,
@@ -86,6 +87,9 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
     case "enterPlay": {
       setFrame(ctx, { ...frame, stage: "effects" });
       updateInstance(ctx, frame.instanceId, (i) => ({ ...i, controllerId: frame.controllerId, faceup: true }));
+      // "As an additional cost to play this upgrade, …" (`additionalCostToPlay`, box-heroes B3.1): already paid.
+      const additional = additionalPlayCostOf(ctx.state, ctx.deps, frame.instanceId);
+      let hostless = false;
       switch (card.type) {
         case "ally":
         case "support":
@@ -112,6 +116,17 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
             break;
           }
           const host = frame.attachToInstanceId ?? mustPlayer(ctx.state, frame.controllerId).identity.instanceId;
+          // "Attach Hunted to that minion" (`additionalCostToPlay.attachToSlot`, box-heroes B3.1): the host is the card
+          // the play's additional cost put into play. Gone again before the upgrade enters (its quickstrike attack met
+          // retaliate), the upgrade has no host and is discarded (RRG 1.8 "Attach To", p. 8), its effects unresolved.
+          if (additional?.attachToSlot !== undefined && !cardsInPlay(ctx.state).includes(host)) {
+            hostless = true;
+            emit(ctx, { type: "playedUpgradeHasNoHost", instanceId: frame.instanceId, playerId: frame.playerId });
+            moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
+            const ownerId = mustInstance(ctx.state, frame.instanceId).ownerId;
+            updateInstance(ctx, frame.instanceId, (i) => ({ ...i, controllerId: ownerId }));
+            break;
+          }
           moveCard(ctx, frame.instanceId, { kind: "attachment", hostInstanceId: host });
           // RRG 1.8 p. 31: on a card another player controls, that player controls it from the moment it is attached,
           // so the enter-play checks (restricted) count it for them.
@@ -145,6 +160,19 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
           break;
         default:
           break;
+      }
+      // "… and stun it": the effects of the card's additional cost to play resolve as it enters play, above its
+      // "enters play" windows, with the cost's bindings and the playing player as "you". An event's play has only
+      // its Action's effects.
+      if (additional && additional.effects.length > 0 && !hostless && card.type !== "event") {
+        pushEffects(ctx, {
+          effects: additional.effects,
+          selfInstanceId: frame.instanceId,
+          controllerId: frame.playerId,
+          bindings: frame.bindings,
+          vars: frame.vars,
+          abilityId: additional.abilityId,
+        });
       }
       return;
     }

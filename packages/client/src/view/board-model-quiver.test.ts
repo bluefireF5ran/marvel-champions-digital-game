@@ -123,9 +123,15 @@ describe("Hawkeye's Quiver on the board", () => {
     expect(model.hand.filter((card) => card.from === null)).toHaveLength(model.handLimit);
 
     // …and the engine accepts playing it from there, so a tap on it does something.
-    const play = legalOf(state, me).find((e) => e.action.kind === "playCard" && e.action.instanceId === cable);
+    // Cable Arrow is a thwart, so the main scheme holds threat for it to remove (RRG 1.8 "Target", p. 42).
+    const main = state.mainScheme.instanceId;
+    const threatened: GameState = {
+      ...state,
+      instances: { ...state.instances, [main]: { ...state.instances[main]!, threat: 2 } },
+    };
+    const play = legalOf(threatened, me).find((e) => e.action.kind === "playCard" && e.action.instanceId === cable);
     expect(play).toBeDefined();
-    const played = settle(run(state, play!.example));
+    const played = settle(run(threatened, play!.example));
     expect(played.instances[cable]?.attachedTo).toBeNull();
   });
 

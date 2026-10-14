@@ -342,7 +342,9 @@ function powerOf(aspect: Aspect, power: string, aspectCode: string, controlCode:
   const powerId = withPower.ids[0]!;
   const control = moveToHand(withPower.state, P1, controlCode);
   const controlId = control.ids[0]!;
-  const pay = filler(control.state, cost - 2, [opened.id, powerId, controlId]);
+  const filled = filler(control.state, cost - 2, [opened.id, powerId, controlId]);
+  // The played card may be a thwart event (For Justice!), which needs a scheme holding threat (RRG 1.8 "Target" p. 42).
+  const pay = { ...filled, state: withThreat(filled.state, 5) };
   const payment = [powerId, ...pay.ids];
   expect(refused(pay.state, controlId, payment)).toBe(true);
   const after = playCard(pay.state, opened.id, payment);

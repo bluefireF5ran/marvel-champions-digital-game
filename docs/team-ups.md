@@ -51,13 +51,14 @@ Each of these goes on the "Content to add" list of the wave PR that makes its pa
 done (`wave-definition-of-done.md` §5) has the box. All five cards were read on their scans (2026-10-10): the printed
 Team-Up line names both characters exactly as the `teamUp` keyword's `names` carry them.
 
-| Pair                                           | Card (ids)                          | Pack     | Cycle | Folder the client looks for                  | Pictures                   |
-| ---------------------------------------------- | ----------------------------------- | -------- | ----- | -------------------------------------------- | -------------------------- |
-| Black Panther/T'Challa and Black Panther/Shuri | Heart of the Panther (51025)        | `bp`     | 9     | `black-panther-shuri-black-panther-t-challa` | in place: splash only      |
-| Cindy Moon and Peter Parker                    | Investigative Journalism (52024)    | `silk`   | 9     | `cindy-moon-peter-parker`                    | in place: splash only      |
-| Captain America and Winter Soldier             | Super-Soldiers (54022)              | `winter` | 9     | `captain-america-winter-soldier`             | in place: splash and badge |
-| Black Widow and Winter Soldier                 | Winter, Widow, Soldier, Spy (54023) | `winter` | 9     | `black-widow-winter-soldier`                 | in place: splash and badge |
-| Maria Hill and Nick Fury                       | Super Spies (50024)                 | `aos`    | 9     | `maria-hill-nick-fury`                       | in place: splash and badge |
+| Pair                                           | Card (ids)                          | Pack       | Cycle | Folder the client looks for                  | Pictures                      |
+| ---------------------------------------------- | ----------------------------------- | ---------- | ----- | -------------------------------------------- | ----------------------------- |
+| Black Panther/T'Challa and Black Panther/Shuri | Heart of the Panther (51025)        | `bp`       | 9     | `black-panther-shuri-black-panther-t-challa` | in place: splash only         |
+| Cindy Moon and Peter Parker                    | Investigative Journalism (52024)    | `silk`     | 9     | `cindy-moon-peter-parker`                    | in place: splash only         |
+| Captain America and Winter Soldier             | Super-Soldiers (54022)              | `winter`   | 9     | `captain-america-winter-soldier`             | in place: splash and badge    |
+| Black Widow and Winter Soldier                 | Winter, Widow, Soldier, Spy (54023) | `winter`   | 9     | `black-widow-winter-soldier`                 | in place: splash and badge    |
+| Maria Hill and Nick Fury                       | Super Spies (50024)                 | `aos`      | 9     | `maria-hill-nick-fury`                       | in place: splash and badge    |
+| Hercules and Thor                              | Ancient Rivalry (59026)             | `hercules` | 10    | `hercules-thor`                              | none yet (data step, wave 10) |
 
 A pending folder is never read (a leading `_` marks a holding area). When a pair's pictures are moved up they go in the
 folder named in the fifth column, which is computed from the `teamUp` names (`teamUpSlug`), so the two pending folders

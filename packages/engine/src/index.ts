@@ -1,7 +1,7 @@
 export const ENGINE_VERSION = "0.20.0";
 
-export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId } from "./ids.js";
-export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId } from "./ids.js";
+export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId, TeamId } from "./ids.js";
+export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId, teamId } from "./ids.js";
 
 export type {
   GroupRef,
@@ -26,6 +26,12 @@ export {
   sharedLost,
   SINGLE_GROUP,
 } from "./pod.js";
+
+export type { GameMode } from "./game-mode.js";
+export { COMPETITIVE_MODE_UNAVAILABLE_MESSAGE, gameModeOf } from "./game-mode.js";
+
+export type { TeamSide, TeamState } from "./team.js";
+export { playersOnTeam, SINGLE_TEAM, teamOf, teamSize, teamsOf } from "./team.js";
 
 export type { RngState } from "./rng.js";
 export { createRng, nextInt, nextUint32, shuffle } from "./rng.js";
@@ -72,6 +78,7 @@ export {
 export type {
   AttackInProgress,
   CardPosition,
+  ChoiceBehalf,
   ChoiceList,
   ChoiceOption,
   ChoicePrompt,
@@ -82,6 +89,8 @@ export type {
 export {
   cardTotalFault,
   cardTotalOf,
+  ENEMY_TEAM_CHOICE_INSTRUCTION,
+  ENEMY_TEAM_CHOICE_RULE,
   mostCardsUnderTotal,
   PLAY_TO_OWN_AREA,
   playDestinationOfOption,
@@ -113,8 +122,11 @@ export type {
   PaymentContext,
   PaymentQuery,
   PaymentSource,
+  CostHelp,
+  CostHelpAnswer,
 } from "./legal.js";
 export {
+  costHelpFor,
   forcedActionOptionId,
   legalActions,
   outstandingForcedActions,
@@ -125,7 +137,17 @@ export {
 
 /** What a card costs right now vs. what is printed on it, and the cards moving the price (Steve Rogers' Living Legend). */
 export type { PlayCost, PlayCostContribution } from "./actions.js";
-export { costAsDetermined, inPlayCostCandidates, playCostOf, playableOutsideHand } from "./actions.js";
+export {
+  PAID_FOR_SLOT,
+  additionalPlayCostOf,
+  costAsDetermined,
+  inPlayCostCandidates,
+  minimumChosenX,
+  playCostOf,
+  playCostWith,
+  playableOutsideHand,
+} from "./actions.js";
+export { encounterSearchCostCandidates } from "./encounter-search-cost.js";
 export { deckTopPermission, deckTopPlayOf, type DeckTopPermission } from "./actions.js";
 export type { Command, CommandType, Payment, ResourceAbilityUse, SpentCardAbilityUse } from "./commands.js";
 export type { GameEvent, GameEventType } from "./events.js";
@@ -169,6 +191,7 @@ export type {
   TuckedCostPick,
   DamageCostPick,
   AttachCost,
+  EncounterSearchIntoPlayCost,
   AbilityDefinition,
   AbilityLabel,
   CardIcon,
@@ -229,6 +252,7 @@ export type {
 export {
   allyLimitFor,
   cannotEnterPlay,
+  enterPlayBarMessage,
   cannotFlip,
   cannotLeavePlay,
   cardAbilitiesCannotRemove,
@@ -265,14 +289,17 @@ export type { ConsequentialDamage, DamageSourceInfo, FormChangeCost, GrantedAbil
 export { hasKeyword, isPermanent, keywordsOf, keywordTotal, printedKeywordsOf, statusActive } from "./keywords.js";
 export { linkedKeywordNames, linkedKeywordsOf } from "./linked.js";
 export { counterRoom } from "./counter-limit.js";
+export { tuckLimitOf, tuckRoom } from "./tuck-limit.js";
 export { printedResources } from "./resources.js";
 export { pairOfOptionId, pairOptionId, pairSelectionFault, resourceIconsMatch } from "./resolve/pair-cards.js";
 export { characterTitledAs, identityCardTitledAs } from "./titles.js";
-export type { CostChoices, CostSelection } from "./commands.js";
+export type { CostChoices, CostPartPayers, CostSelection, DelegableCostPart } from "./commands.js";
+export { DELEGABLE_COST_PARTS } from "./commands.js";
 export type { DeferredEffects, ReportTarget, Vars } from "./stack.js";
 export { attackPreventedVars, currentActivationFrameId, PAID_CARDS_SLOT } from "./stack.js";
 export {
   abilityUseKey,
+  BORROWED_BOOST_ICONS_SLOT,
   DEFAULT_DEPS,
   fixedResourcesOf,
   GRANTED_BY_SLOT,
@@ -287,7 +314,10 @@ export type { InPlayCostMode, ResourcesChoice } from "./abilities.js";
 
 export type {
   AbilityTimingWord,
+  BoostCardDestination,
   CardDestination,
+  DefeatDestination,
+  DefeatPlacement,
   CardSelector,
   CharacterNames,
   EffectSpec,
@@ -449,6 +479,7 @@ export {
   carriedByEvent,
   damageTakenKey,
   eventSubjects,
+  EXCESS_AS_DEALT_RESULT,
   hearsEncounterDeckDiscard,
   isAnnouncement,
   MOMENT_PREFIX,
@@ -519,6 +550,7 @@ export {
   consideredRemainingHitPoints,
   controllerOf,
   deckTopFaceupPlayers,
+  enemyTeamDecider,
   encounterTopFaceup,
   hitPointFloor,
   ignoredAbilities,
@@ -565,7 +597,7 @@ export type {
   SetupStack,
   VillainSetup,
 } from "./setup.js";
-export { autoIncludedSetsInGame, createGame, illegalDecksOf } from "./setup.js";
+export { autoIncludedSetsInGame, createGame, illegalDecksOf, mainSchemeStageIndexesProblem } from "./setup.js";
 
 export type { CommandResult, GameLog, GameSession, ReplayResult, SessionResult } from "./engine.js";
 export { appendCommand, applyCommand, applyCommands, createLog, replay, sessionApply, startSession } from "./engine.js";
@@ -603,10 +635,14 @@ export {
   printedMinionHp,
   printedHandSize,
   inClosedScenarioPlayArea,
+  isOwnedEncounterCard,
   locateCard,
+  playerCardOwnerOf,
   scenarioPlayAreaOf,
   mainSchemeStage,
+  mainSchemeStageCount,
   mainSchemeStageOf,
+  mainSchemeStagePosition,
   mainSchemeStateOf,
   mainSchemeValue,
   startingThreatOf,

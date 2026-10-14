@@ -22,6 +22,7 @@ import {
   WAVE7_STARTER_DECKS,
   WAVE8_STARTER_DECKS,
   WAVE9_STARTER_DECKS,
+  WAVE10_STARTER_DECKS,
   type DeckContents,
   type HeroIdentityCard,
   type StarterDeck,
@@ -41,6 +42,7 @@ const PRECONS: readonly StarterDeck[] = [
   ...WAVE7_STARTER_DECKS,
   ...WAVE8_STARTER_DECKS,
   ...WAVE9_STARTER_DECKS,
+  ...WAVE10_STARTER_DECKS,
 ];
 
 /**
@@ -65,12 +67,19 @@ const UNSCRIPTED_WAVE8_PACKS: ReadonlySet<string> = new Set();
  */
 const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set();
 
+/**
+ * Wave 10 packs in the pool whose kits are not scripted yet (docs/phase7-wave10.md): none (Civil War, Wonder Man
+ * and Hercules are scripted and joined the playable pool).
+ */
+const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set();
+
 /** Every pack whose precons are legal but cannot be seated yet. */
 const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
   ...UNSCRIPTED_WAVE6_PACKS,
   ...UNSCRIPTED_WAVE7_PACKS,
   ...UNSCRIPTED_WAVE8_PACKS,
   ...UNSCRIPTED_WAVE9_PACKS,
+  ...UNSCRIPTED_WAVE10_PACKS,
 ]);
 
 /** Precon cards left unscripted on purpose (wave9/custom-decks.test.ts `KNOWN_GAPS`). None. */

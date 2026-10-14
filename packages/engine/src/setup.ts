@@ -6,12 +6,20 @@ import type {
   DeckCardEntry,
   DeckContents,
   HeroIdentityCard,
+  MainSchemeCard,
+  MainSchemeStage,
   ScenarioSeparateDeck,
   VillainSideLetter,
 } from "@mc/content";
 import { DEFAULT_DEPS, type EngineDeps, type RuleSpec } from "./abilities.js";
 import { NO_CAMPAIGN_WRITES, type CampaignGameInput } from "./campaign.js";
-import { isPermanentCard, unbuildableSeparateDeck, validateDeck, type DeckContext } from "./deck.js";
+import {
+  isPermanentCard,
+  isSeparateDeckCard,
+  unbuildableSeparateDeck,
+  validateDeck,
+  type DeckContext,
+} from "./deck.js";
 import { createCtx, emit, setStep, type Ctx } from "./ctx.js";
 import { engineError, type EngineError, type IllegalDeck } from "./errors.js";
 import { runFlow } from "./flow.js";
@@ -19,6 +27,7 @@ import type { OutsideFacts } from "./outside-facts.js";
 import { encounterDeckId, instanceId, playerId, type EncounterDeckId, type InstanceId, type PlayerId } from "./ids.js";
 import { linkedKeywordNames, linkedKeywordsOf, linkedNameKey } from "./linked.js";
 import { podSetupFault, type PodSetup, type PodState } from "./pod.js";
+import { COMPETITIVE_MODE_UNAVAILABLE_MESSAGE, type GameMode } from "./game-mode.js";
 import { createRng, nextInt } from "./rng.js";
 import {
   FIRST_CAMPAIGN_STEP,
@@ -230,6 +239,17 @@ export interface GameSetupConfig {
    */
   readonly requireLegalDecks?: boolean;
   readonly mainSchemeCardId: CardId;
+  /**
+   * The main scheme deck as chosen stages of `mainSchemeCardId`, in the order they are played, as indexes into the
+   * card's `stages` (docs/phase7-wave10.md §3.2). MC56 p. 5: "Select one of the four main scheme stage 1s … Select one
+   * of the four main scheme stage 2s … Put stage 1 on top of stage 2." The game opens on the first entry (its A side is
+   * the 1A Setup resolved), each completion advances to the next entry, and the last entry is the final stage
+   * (`MainSchemeState.stageOrder`). The card's other stages are not in the main scheme deck: they start in
+   * `GameState.spentMainSchemeStages`, so nothing advances to, reveals, shuffles or removes them. Refused (`invalid_setup`) when empty, when an entry is not a stage of the card or is
+   * named twice, when the stage numbers do not ascend, or when a card holding several stages of one number is not
+   * given one stage of each number. Absent: every stage, in printed order.
+   */
+  readonly mainSchemeStageIndexes?: readonly number[];
   /** The encounter deck of a single-villain scenario. Empty when `villains` gives each villain its own. */
   readonly encounterDeck: readonly CardId[];
   readonly players: readonly PlayerSetup[];
@@ -368,6 +388,11 @@ export interface GameSetupConfig {
    * and nothing about the game changes.
    */
   readonly pod?: PodSetup;
+  /**
+   * The game mode (docs/phase7-wave10.md §1.9, §3.4). Absent: cooperative. `"competitive"` is refused with
+   * `mode_unavailable`, before anything else about the config is judged.
+   */
+  readonly gameMode?: GameMode;
 }
 
 /**
@@ -680,8 +705,51 @@ function setAsideUntilCalledOf(rule: SetAsideUntilCalled | undefined): SetAsideU
   };
 }
 
+/** How a refusal names a main scheme stage: its own title, else the card's, with its printed stage number. */
+const stageLabel = (card: MainSchemeCard, index: number): string => {
+  const stage = card.stages[index] as MainSchemeStage;
+  return `${stage.name ?? card.name} (stage ${stage.stageNumber}${stage.stageLetter?.toUpperCase() ?? ""})`;
+};
+
+/**
+ * Why `GameSetupConfig.mainSchemeStageIndexes` cannot be this card's main scheme deck, or null when it can
+ * (docs/phase7-wave10.md §3.2; MC56 p. 5).
+ */
+export function mainSchemeStageIndexesProblem(card: MainSchemeCard, indexes: readonly number[]): string | null {
+  if (!Array.isArray(indexes)) return "mainSchemeStageIndexes must be a list of stage indexes";
+  if (indexes.length === 0) return `Choose at least one stage of ${card.name}: mainSchemeStageIndexes is empty.`;
+  for (const index of indexes)
+    if (!Number.isInteger(index) || index < 0 || index >= card.stages.length)
+      return `${card.name} has no stage at index ${String(index)}: its stages are indexes 0 to ${card.stages.length - 1}.`;
+  for (const [at, index] of indexes.entries())
+    if (indexes.indexOf(index) !== at) return `${stageLabel(card, index)} is chosen twice. Choose each stage once.`;
+  const numberOf = (index: number): number => (card.stages[index] as MainSchemeStage).stageNumber;
+  for (let at = 1; at < indexes.length; at++) {
+    const [before, after] = [indexes[at - 1] as number, indexes[at] as number];
+    if (numberOf(before) === numberOf(after))
+      return `Choose only one stage ${numberOf(after)}: both ${stageLabel(card, before)} and ${stageLabel(card, after)} are chosen.`;
+    if (numberOf(before) > numberOf(after))
+      return `${stageLabel(card, after)} cannot come after ${stageLabel(card, before)}: choose stages in ascending stage number.`;
+  }
+  const printed = card.stages.map((stage) => stage.stageNumber);
+  if (new Set(printed).size < printed.length) {
+    const chosen = new Set(indexes.map(numberOf));
+    const missing = [...new Set(printed)].sort((a, b) => a - b).find((number) => !chosen.has(number));
+    if (missing !== undefined) return `Choose a stage ${missing} of ${card.name}: one stage of each number is needed.`;
+  }
+  return null;
+}
+
 /** RRG Appendix II: Setup, minus obligations/nemesis sets/setup abilities (they need slice 2). */
 export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAULT_DEPS): SetupResult {
+  // The mode is judged first, so its message never depends on what else is wrong with the config.
+  if (requested.gameMode === "competitive") {
+    return { ok: false, error: engineError("mode_unavailable", COMPETITIVE_MODE_UNAVAILABLE_MESSAGE) };
+  }
+  // The input may come from a save file or another device.
+  if (requested.gameMode !== undefined && requested.gameMode !== "cooperative") {
+    return invalid(`gameMode must be "cooperative" or "competitive", not ${String(requested.gameMode)}`);
+  }
   // A random starting villain (Loki; docs/phase7-wave4.md §3.7) is drawn first, from the game's own seeded RNG.
   let rng = createRng(requested.seed);
   let config = requested;
@@ -707,6 +775,13 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
   const mainSchemeCard = pool[config.mainSchemeCardId];
   if (!mainSchemeCard || mainSchemeCard.type !== "main_scheme") {
     return invalid(`${config.mainSchemeCardId} is not a main scheme card`);
+  }
+  // Copied, so the state never shares an array with the caller's config.
+  const mainSchemeStageOrder =
+    config.mainSchemeStageIndexes === undefined ? undefined : [...config.mainSchemeStageIndexes];
+  if (config.mainSchemeStageIndexes !== undefined) {
+    const problem = mainSchemeStageIndexesProblem(mainSchemeCard, config.mainSchemeStageIndexes);
+    if (problem) return invalid(problem);
   }
 
   // Deck legality is judged per seat, before any seat is built, and every illegal seat is
@@ -785,8 +860,9 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     const missingVersion = laterVersions.find((version) => pool[version]?.type !== "hero_identity");
     if (missingVersion) return invalid(`progressing identity version ${missingVersion} is not in the card pool`);
     // Only the separate decks `unbuildableSeparateDeck` knows are built: player cards with their own discard pile
-    // (Invocation) or with none, never refilled (Weather, docs/phase7-wave6.md §3.46). Hercules's Labor deck (encounter
-    // cards) is data only (docs/phase7-wave2.md §15); building it as one of those would silently play a different game.
+    // (Invocation) or with none, never refilled (Weather, docs/phase7-wave6.md §3.46), and encounter cards with none,
+    // never refilled (Labor, docs/phase7-wave10-hero-packs.md H3.1). Building any other kind as one of those would
+    // silently play a different game.
     const unbuilt = unbuildableSeparateDeck(identityCard);
     if (unbuilt) {
       return invalid(
@@ -841,18 +917,30 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     if (permanent.length > 0) permanentSetAside.push({ playerId: id, instanceIds: permanent });
     // Decks the identity brings besides its player deck (docs/phase7-wave1.md §3.5; RRG 1.8 "Deck", p. 15: "Certain
     // identities or scenarios may add other decks to the game"). Owned by this player; shuffled with the player deck.
+    //
+    // A deck of encounter cards (Hercules's Labor deck; the Hercules insert, "The Gift and Labor Decks": "place both of
+    // these decks facedown in your play area") is this player's too: RRG 1.8 "Ownership and Control" (p. 31), "A
+    // card's owner is the player whose deck contained the card at the start of setup." Its cards are encounter cards
+    // all the same, so no player controls one, in the deck or in play (`isOwnedEncounterCard`;
+    // docs/phase7-wave10-hero-packs.md H3.1).
     const separateDecks: Record<string, SeparateDeckState> = {};
     for (const definition of identityCard.separateDecks ?? []) {
       const ids: InstanceId[] = [];
+      const encounterFamily = (definition.cardFamily ?? "player") === "encounter";
       for (const entry of definition.cards) {
         const card = pool[entry.cardId];
         if (!card) return invalid(`unknown card ${entry.cardId} in ${identityCard.id}'s ${definition.name} deck`);
+        if (!isSeparateDeckCard(card, definition)) {
+          return invalid(
+            `${entry.cardId} is not ${encounterFamily ? "an encounter" : "a player"} card marked for ${identityCard.id}'s ${definition.name} deck`,
+          );
+        }
         for (let copy = 0; copy < entry.quantity; copy++) {
           const separateInstanceId = nextId();
-          instances[separateInstanceId] = blankInstance(separateInstanceId, card.id, id, {
-            kind: "separateDeck",
-            name: definition.name,
-          });
+          instances[separateInstanceId] = {
+            ...blankInstance(separateInstanceId, card.id, id, { kind: "separateDeck", name: definition.name }),
+            ...(encounterFamily ? { controllerId: null } : {}),
+          };
           ids.push(separateInstanceId);
         }
       }
@@ -1306,15 +1394,20 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     mainScheme: {
       instanceId: mainSchemeInstanceId,
       cardId: mainSchemeCard.id,
-      stageIndex: 0,
+      stageIndex: mainSchemeStageOrder?.[0] ?? 0,
       completed: false,
       accelerationTokens: 0,
+      // The chosen stages, in play order (docs/phase7-wave10.md §3.2). Absent: every stage, in printed order.
+      ...(mainSchemeStageOrder ? { stageOrder: mainSchemeStageOrder } : {}),
       // Side 1A is faceup until Appendix II step 12b (RRG 1.8 p. 51).
       faceupSide: "A",
     },
     gameAreas: [],
     nextGameAreaSeq: 1,
-    spentMainSchemeStages: [],
+    // Stages left out of a chosen main scheme deck are back in the box: no effect can reach them (§3.2).
+    spentMainSchemeStages: mainSchemeStageOrder
+      ? mainSchemeCard.stages.flatMap((_, index) => (mainSchemeStageOrder.includes(index) ? [] : [index]))
+      : [],
     revealedMainSchemes: [],
     scenarioRules: {
       victory: config.victory ?? "finalVillainStage",
@@ -1371,6 +1464,8 @@ export function createGame(requested: GameSetupConfig, deps: EngineDeps = DEFAUL
     firstPlayerId: firstPlayer.playerId,
     seed: config.seed,
   });
+  if (mainSchemeStageOrder)
+    emit(ctx, { type: "mainSchemeStagesChosen", schemeInstanceId: mainSchemeInstanceId, order: mainSchemeStageOrder });
   if (neutralArea) emit(ctx, { type: "scenarioPlayAreaCreated", name: neutralArea.name, closed: true });
   for (const entry of permanentSetAside) emit(ctx, { type: "cardsSetAside", ...entry, reason: "permanent" });
   for (const entry of linkedSetAside) emit(ctx, { type: "linkedCardsSetAside", ...entry });
