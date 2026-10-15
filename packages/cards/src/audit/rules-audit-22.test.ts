@@ -118,7 +118,7 @@ describe("audit 22.4 THE POISON / 22.3 OBEDIENCE POTION: 'Any player can do this
 });
 
 describe("audit 22.2 WARNING: the Defense trait was removed (RRG 1.8 p. 65)", () => {
-  it.fails("Warning (09021) has no Defense trait", () => {
+  it("Warning (09021) has no Defense trait", () => {
     const warning = WAVE8_CARDS.find((c) => (c.id as string) === "09021") as unknown as { traits: readonly string[] };
     expect(warning).toBeDefined();
     expect(warning.traits).not.toContain("DEFENSE");
