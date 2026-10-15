@@ -49,7 +49,7 @@ import { magnetoGame, withoutDealtCards } from "../wave6/mut_gen/magneto-testing
 describe("chunk 41: Worried Father (ruling May 10, 2024, Ruling 180)", () => {
   // Ruling 180 (1): when the search fails the obligation stays in play, and its Alter-Ego Action then adds George
   // Stacy to hand "from wherever it currently is" (same as the Lost Visor obligation). RRG 1.8 is silent.
-  it.fails("the Alter-Ego Action adds George Stacy to hand although the search found him nowhere", () => {
+  it("the Alter-Ego Action adds George Stacy to hand although the search found him nowhere", () => {
     const base = startWave5Game(ghostSpiderScenario("rhino", { seed: 2 }));
     const [stacy] = instancesOf(base, "27007") as [InstanceId];
     // Stacy sits tucked under the main scheme (like Seized! / Stolen Memories): outside deck, hand, discard, play area.
