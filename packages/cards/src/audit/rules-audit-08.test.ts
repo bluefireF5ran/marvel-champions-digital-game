@@ -72,7 +72,7 @@ function playUpgrade(state: GameState, id: InstanceId, code: string, attachTo: I
 }
 
 describe("Dauntless with a hit point bonus (RRG 1.8 'Hit Points', p. 22: starting hit points = printed)", () => {
-  it.fails("keeps its retaliate while remaining hit points >= printed hit points though the hero is damaged", () => {
+  it("keeps its retaliate while remaining hit points >= printed hit points though the hero is damaged", () => {
     const seat = buildCrossHeroDeck(PLAYABLE_CARDS, BLACK_PANTHER, DAUNTLESS);
     const seated: PlayerSetup = { ...seat, deck: [...seat.deck, ENDURANCE as never, ENDURANCE as never] };
     const created = createGame(playableScenario("rhino", { seed: 11, players: [seated] as never }), PLAYABLE_DEPS);
