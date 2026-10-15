@@ -37,9 +37,19 @@ async function playUntilStep(page: Page, id: string): Promise<void> {
   await waitFor(
     async () => {
       if ((await guideStepId(page)) === id) return true;
-      // Silk Sense is offered as a response window (a button, "Use Silk Sense"): take it, never skip past it.
-      const offer = (await findVisibleText(page, "Use Silk Sense"))[0];
-      if (offer) await pressAt(page, offer.x, offer.y);
+      // Silk Sense is offered as a response window on the docked villain phase's rail (its USE button, read from the
+      // phase's own debug hook): take it, never skip past it. The decision sheet waits inert underneath.
+      const use = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              __mcVillainPhaseDebug?: {
+                useRect?: () => { x: number; y: number; width: number; height: number } | null;
+              };
+            }
+          ).__mcVillainPhaseDebug?.useRect?.() ?? null,
+      );
+      if (use) await pressAt(page, use.x + use.width / 2, use.y + use.height / 2);
       else if (await on(page, "ChoiceOverlay")) await answerChoice(page, 0);
       else if (await on(page, "VillainPhaseOverlay")) await skipVillainPhase(page);
       await settle(page, { quietMs: 250, maxMs: 1500 });

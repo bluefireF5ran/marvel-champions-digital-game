@@ -265,6 +265,17 @@ async function devScreenJump(): Promise<{ readonly key: string; readonly data?: 
     return { key: SCENES.board, data: {} };
   }
 
+  // `&fixture=crowded`: three seats (Doctor Strange first) with the table full, for the Card size QA
+  // (`store/dev-crowded-game.ts`).
+  if (screen === "board" && params.get("fixture") === "crowded") {
+    const { store } = appSession();
+    if (!gameRunning(store)) {
+      const { startCrowdedGame } = await import("../store/dev-crowded-game.js");
+      await startCrowdedGame(store);
+    }
+    return { key: SCENES.board, data: {} };
+  }
+
   // `&fixture=zemo[&bare=all|none]`: a Baron Zemo game at the first player turn with the Tactical Board Member bare, for the
   // evidence view and the accusation (`store/dev-zemo-game.ts`).
   if (screen === "board" && params.get("fixture") === "zemo") {
@@ -578,6 +589,19 @@ async function startDevTipsGame(): Promise<void> {
 async function startDevSetupGame(): Promise<void> {
   const { store } = appSession();
   if (store.state.game) return;
+  // `?screen=setup-deal&scenario=klaw&deck=core-she-hulk-aggression`: a one-seat setup of a chosen scenario and
+  // precon, to look at a setup-time decision (the owner's I Object! report, a Setup ability that asks something).
+  const params = new URLSearchParams(window.location.search);
+  const pickedDeck = params.get("deck");
+  if (pickedDeck) {
+    await store.start({
+      scenarioId: params.get("scenario") ?? "rhino",
+      difficulty: "standard",
+      players: [{ starterDeckId: pickedDeck }],
+      seed: Number(params.get("seed") ?? 1),
+    });
+    return;
+  }
   const scenario = POOL_SCENARIOS[0]!;
   const options = deckOptionsOf([], POOL_CARDS, POOL_VERSION, POOL_DEPS);
   const seats = options

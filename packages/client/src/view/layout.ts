@@ -16,6 +16,7 @@
 
 import { desktopTypeSize } from "./desktop-type.js";
 import { hit } from "../tokens.js";
+import { villainRowPlan, villainRowSlotsFor } from "./villain-tile-layout.js";
 
 export interface Rect {
   readonly x: number;
@@ -168,6 +169,25 @@ export interface BoardLayout {
   readonly tabbed: boolean;
   /** Which tabbed zone is showing. Null off phone, where they all are. */
   readonly activeTab: PhoneTab | null;
+  /**
+   * The window the scrolling table content is seen through: the band between the pinned chrome (and the phone's tab
+   * row) above and the pinned hand and action bar below. At card scale 1 the content is exactly this tall.
+   */
+  readonly tableWindow: Rect;
+  /**
+   * How tall the scrolling content is, measured from `tableWindow.y` down to the bottom of its last zone and the
+   * gutter under it. Equal to `tableWindow.height` at scale 1 (nothing scrolls); taller at a larger card scale.
+   */
+  readonly contentHeight: number;
+  /** How far the content can scroll: `contentHeight - tableWindow.height`, never negative. 0 at scale 1. */
+  readonly maxScroll: number;
+  /** How far the zones have been scrolled (`scrollLayout`); 0 from `boardLayout`, whose zones are at rest. */
+  readonly scrollY: number;
+  /**
+   * True when the player band is the compact row under a tall villain band (`LayoutOptions.villainBand`): `me` and
+   * `playArea` are short strips drawn as a mini identity and a thumbnail row. Absent otherwise.
+   */
+  readonly compactPlayerRow?: boolean;
 }
 
 export interface LayoutOptions {
@@ -188,6 +208,57 @@ export interface LayoutOptions {
    * every screen does today.
    */
   readonly guideRail?: { readonly side: "left" | "right"; readonly width: number };
+  /**
+   * The width the villain phase panel takes on the right while it is docked beside the table (desktop, D1/D2 in
+   * `artifacts/design-screenshots/villain-phase/`). Carved off after the guide rail, under the chrome band like it, so
+   * the table and the hand stay in view and live beside the phase. Omitted or 0 lays the board out as usual.
+   */
+  readonly villainDock?: number;
+  /**
+   * The villain phase docked as the band over the long table (tablet landscape; `villainDockRects("band")`). With
+   * `tall` set (a defend decision or the recap, TB1/TB2) the band takes the villain band and most of the player
+   * band: the hero, the play area and the other seats shrink to one compact row (`BoardLayout.compactPlayerRow`)
+   * between the band and the hand. Omitted or `tall: false`: the player band keeps its usual height.
+   */
+  readonly villainBand?: {
+    readonly tall: boolean;
+    /** 0..1, how far the band has grown while it animates (1 when omitted); past half the row draws compact. */
+    readonly grow?: number;
+  };
+  /**
+   * The Card size setting's factor (`cardSizeFactor` in `settings.ts`: 1, 1.25 or 1.5), 1 when omitted. Above 1 the
+   * table's zones are laid out that much taller than the room between the pinned bands, so the card slots in them
+   * grow, and `maxScroll` says how far the content scrolls. The hand grows too, up to a cap that leaves the table a
+   * usable window. Width does not change.
+   */
+  readonly cardScale?: number;
+}
+
+/** The scale a layout is built at: 1 when omitted, never below 1 and never past 2 (a layout only ever grows). */
+const scaleOf = (options: LayoutOptions): number => Math.min(2, Math.max(1, options.cardScale ?? 1));
+
+/** The hand's height at `scale`: grown with it, but never past `capShare` of the viewport (or the unscaled height, if taller). */
+const scaledHand = (base: number, scale: number, viewportHeight: number, capShare: number): number =>
+  scale <= 1 ? base : Math.min(Math.max(base, Math.round(viewportHeight * capShare)), Math.round(base * scale));
+
+/** The zones that scroll with the table; the rest are pinned. */
+export const SCROLLING_ZONES: readonly ZoneName[] = ["threat", "enemies", "me", "playArea", "team", "encounter", "log"];
+
+/**
+ * The layout with its scrolling zones moved to `scrollY` (clamped to `0..maxScroll`): every zone then holds the screen
+ * rectangle it is drawn at, so hit rects, focus rects and every overlay that anchors to a zone stay in screen space.
+ * The pinned zones (chrome, tabs, hand, action bar) never move. Pure: `layout` is not changed.
+ */
+export function scrollLayout(layout: BoardLayout, scrollY: number): BoardLayout {
+  const offset = Math.min(layout.maxScroll, Math.max(0, Math.round(scrollY)));
+  if (offset === layout.scrollY) return layout;
+  const delta = layout.scrollY - offset;
+  const zones = { ...layout.zones } as Record<ZoneName, Rect | null>;
+  for (const name of SCROLLING_ZONES) {
+    const rect = zones[name];
+    if (rect) zones[name] = { ...rect, y: rect.y + delta };
+  }
+  return { ...layout, zones, scrollY: offset };
 }
 
 /** A physical card is 2.5″ × 3.5″; every card slot keeps that ratio. */
@@ -308,8 +379,11 @@ export function boardLayout(viewport: Rect, options: LayoutOptions): BoardLayout
   // ("RD1 · PLAYER/VILLAIN · MENU") always spans the full screen, and only the content below it — schemes,
   // enemies, the identity panel and so on — narrows to make room. So `chrome` is always laid out against the
   // real, full-width `viewport`; every other zone gets the inset one.
-  const boardViewport = options.guideRail ? insetForGuideRail(viewport, options.guideRail) : viewport;
-  const zones =
+  const railed = options.guideRail ? insetForGuideRail(viewport, options.guideRail) : viewport;
+  const boardViewport = options.villainDock
+    ? insetForGuideRail(railed, { side: "right", width: options.villainDock })
+    : railed;
+  const placed =
     formFactor === "phoneLandscape"
       ? phoneLandscapeZones(boardViewport, options, viewport)
       : tabbed
@@ -318,13 +392,26 @@ export function boardLayout(viewport: Rect, options: LayoutOptions): BoardLayout
   return {
     formFactor,
     viewport,
-    zones,
+    zones: placed.zones,
     tabbed,
     activeTab: tabbed ? (options.activeTab ?? "me") : null,
+    tableWindow: placed.tableWindow,
+    contentHeight: placed.contentHeight,
+    maxScroll: Math.max(0, placed.contentHeight - placed.tableWindow.height),
+    scrollY: 0,
+    ...(placed.compactPlayerRow ? { compactPlayerRow: true } : {}),
   };
 }
 
 type Zones = Record<ZoneName, Rect | null>;
+
+/** What each form factor's zone function returns: the zones at rest, the window they scroll in, and their height. */
+interface ZonesAndScroll {
+  readonly zones: Zones;
+  readonly tableWindow: Rect;
+  readonly contentHeight: number;
+  readonly compactPlayerRow?: boolean;
+}
 
 /**
  * `Board - Phone`: chrome, tab rail, one full-width zone, then the hand and the
@@ -340,7 +427,7 @@ type Zones = Record<ZoneName, Rect | null>;
  * thing: "Me" is the identity panel with the play area under it, and "Enemies"
  * carries the encounter deck and discard in a strip above the enemies.
  */
-function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect = viewport): Zones {
+function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect = viewport): ZonesAndScroll {
   // A tablet in portrait uses this layout too, with its own gutters and chrome.
   const formFactor = formFactorFor(viewport.width, viewport.height);
   const gutter = GUTTER[formFactor];
@@ -348,7 +435,9 @@ function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect =
   const tabsHeight = hit.target;
   const barHeight = actionBarHeight(formFactor);
   // Enough for one row of fanned cards plus its "HAND 5 · Deck 28" caption.
-  const handHeight = Math.min(230, Math.max(120, Math.round(viewport.height * 0.2)));
+  const baseHandHeight = Math.min(230, Math.max(120, Math.round(viewport.height * 0.2)));
+  const scale = scaleOf(options);
+  const handHeight = scaledHand(baseHandHeight, scale, viewport.height, 0.26);
   const activeTab: PhoneTab = options.activeTab ?? "me";
 
   const chrome: Rect = { x: fullViewport.x, y: fullViewport.y, width: fullViewport.width, height: chromeHeight };
@@ -360,11 +449,18 @@ function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect =
     height: barHeight,
   };
   const hand: Rect = { x: viewport.x, y: actionBar.y - handHeight, width: viewport.width, height: handHeight };
+  // As tall as the room between the tab row and the *unscaled* hand, times the card scale; the part past the window scrolls.
   const content: Rect = {
     x: viewport.x + gutter,
     y: tabs.y + tabs.height + gutter,
     width: viewport.width - gutter * 2,
-    height: hand.y - (tabs.y + tabs.height) - gutter * 2,
+    height: Math.round((actionBar.y - baseHandHeight - (tabs.y + tabs.height) - gutter * 2) * scale),
+  };
+  const tableWindow: Rect = {
+    x: fullViewport.x,
+    y: tabs.y + tabs.height,
+    width: fullViewport.width,
+    height: hand.y - (tabs.y + tabs.height),
   };
 
   /** The active tab's content rect, or null when that tab isn't showing. */
@@ -381,7 +477,7 @@ function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect =
   });
 
   // "Enemies": a pile strip across the top, the enemies under it.
-  const pileHeight = Math.min(76, Math.round(content.height * 0.2));
+  const pileHeight = Math.min(Math.round(76 * scale), Math.round(content.height * 0.2));
   const encounter = on("enemies", { ...content, height: pileHeight });
   const enemies = on("enemies", {
     ...content,
@@ -390,17 +486,21 @@ function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect =
   });
 
   return {
-    chrome,
-    tabs,
-    threat: on("threat"),
-    enemies,
-    me,
-    playArea,
-    team: options.playerCount > 1 ? on("team") : null,
-    encounter,
-    log: on("log"),
-    hand,
-    actionBar,
+    zones: {
+      chrome,
+      tabs,
+      threat: on("threat"),
+      enemies,
+      me,
+      playArea,
+      team: options.playerCount > 1 ? on("team") : null,
+      encounter,
+      log: on("log"),
+      hand,
+      actionBar,
+    },
+    tableWindow,
+    contentHeight: content.y + content.height + gutter - tableWindow.y,
   };
 }
 
@@ -416,13 +516,15 @@ function phoneZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect =
  * Reported from play (2026-09-21): the long-table layout at this height drew the play area over the villain and
  * was "virtually unusable".
  */
-function phoneLandscapeZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect = viewport): Zones {
+function phoneLandscapeZones(viewport: Rect, options: LayoutOptions, fullViewport: Rect = viewport): ZonesAndScroll {
   const gutter = GUTTER.phoneLandscape;
   const chromeHeight = CHROME_HEIGHT.phoneLandscape;
   // The long table's single row: End turn beside the basic powers, tall enough for its 42px button.
   const barHeight = hit.primary;
   const railWidth = PHONE_LANDSCAPE_RAIL_WIDTH;
-  const handHeight = Math.min(150, Math.max(96, Math.round(viewport.height * 0.3)));
+  const baseHandHeight = Math.min(150, Math.max(96, Math.round(viewport.height * 0.3)));
+  const scale = scaleOf(options);
+  const handHeight = scaledHand(baseHandHeight, scale, viewport.height, 0.34);
   const activeTab: PhoneTab = options.activeTab ?? "me";
 
   const chrome: Rect = { x: fullViewport.x, y: fullViewport.y, width: fullViewport.width, height: chromeHeight };
@@ -448,7 +550,14 @@ function phoneLandscapeZones(viewport: Rect, options: LayoutOptions, fullViewpor
     x: tabs.x + tabs.width + gutter,
     y: chrome.y + chrome.height + gutter,
     width: viewport.width - railWidth - gutter * 2,
-    height: hand.y - (chrome.y + chrome.height) - gutter * 2,
+    height: Math.round((actionBar.y - baseHandHeight - (chrome.y + chrome.height) - gutter * 2) * scale),
+  };
+  // Beside the pinned rail, which never sits under the scrolling content.
+  const tableWindow: Rect = {
+    x: tabs.x + tabs.width,
+    y: chrome.y + chrome.height,
+    width: viewport.width - railWidth,
+    height: hand.y - (chrome.y + chrome.height),
   };
 
   const on = (tab: PhoneTab, rect: Rect = content): Rect | null => (activeTab === tab ? rect : null);
@@ -470,17 +579,21 @@ function phoneLandscapeZones(viewport: Rect, options: LayoutOptions, fullViewpor
   });
 
   return {
-    chrome,
-    tabs,
-    threat: on("threat"),
-    enemies,
-    me,
-    playArea,
-    team: options.playerCount > 1 ? on("team") : null,
-    encounter,
-    log: on("log"),
-    hand,
-    actionBar,
+    zones: {
+      chrome,
+      tabs,
+      threat: on("threat"),
+      enemies,
+      me,
+      playArea,
+      team: options.playerCount > 1 ? on("team") : null,
+      encounter,
+      log: on("log"),
+      hand,
+      actionBar,
+    },
+    tableWindow,
+    contentHeight: content.y + content.height + gutter - tableWindow.y,
   };
 }
 
@@ -494,11 +607,26 @@ function longTableZones(
   formFactor: FormFactor,
   options: LayoutOptions,
   fullViewport: Rect = viewport,
-): Zones {
+): ZonesAndScroll {
   const gutter = GUTTER[formFactor];
   const chromeHeight = CHROME_HEIGHT[formFactor];
   const barHeight = actionBarHeight(formFactor);
-  const handHeight = Math.min(220, Math.max(150, Math.round(viewport.height * 0.24)));
+  // `grow` (0..1) is how far the band has grown while it animates (`BoardScene.setVillainDock`); past half the row draws compact.
+  const grow =
+    formFactor === "tabletLandscape" && options.villainBand?.tall === true
+      ? Math.min(1, Math.max(0, options.villainBand.grow ?? 1))
+      : 0;
+  // 220 is the 1440x900 hand. A viewport well past that (an ultrawide's 1440 rows) lets it grow with the screen, so a
+  // hand card is not a thumbnail beside a play area card two and a half times its size.
+  const usualHandHeight = Math.min(
+    viewport.height > 1100 ? Math.min(380, Math.round(viewport.height * 0.24)) : 220,
+    Math.max(150, Math.round(viewport.height * 0.24)),
+  );
+  // While the band is tall the hand gives up a third of its height: the panel is what the player is reading.
+  const tallHandHeight = Math.max(120, Math.round(usualHandHeight * 0.65));
+  const baseHandHeight = Math.round(usualHandHeight + (tallHandHeight - usualHandHeight) * grow);
+  const scale = scaleOf(options);
+  const handHeight = scaledHand(baseHandHeight, scale, viewport.height, 0.3);
 
   const chrome: Rect = { x: fullViewport.x, y: fullViewport.y, width: fullViewport.width, height: chromeHeight };
   const actionBar: Rect = {
@@ -510,12 +638,25 @@ function longTableZones(
   const hand: Rect = { x: viewport.x, y: actionBar.y - handHeight, width: viewport.width, height: handHeight };
 
   const tableTop = chrome.y + chrome.height + gutter;
-  const tableHeight = hand.y - tableTop - gutter;
+  // As tall as the room between the chrome and the *unscaled* hand, times the card scale; the part past the window scrolls.
+  const tableHeight = Math.round((actionBar.y - baseHandHeight - tableTop - gutter) * scale);
+  const tableWindow: Rect = {
+    x: viewport.x,
+    y: chrome.y + chrome.height,
+    width: viewport.width,
+    height: hand.y - (chrome.y + chrome.height),
+  };
   // The villain band carries the taller content (villain panel plus a minion row).
   // A neutral strip (label, a wide card, the line under it: 104) joins the villain and a two-row environment grid
   // (136) in the band on a table too short for both at 52%; the player band gives up the difference.
   const neutralFloor = options.neutralArea ? Math.min(Math.round(tableHeight * 0.6), 104 + 8 + 136 + 22) : 0;
-  const villainHeight = Math.max(Math.round(tableHeight * 0.52), neutralFloor);
+  // A tall docked villain band (TB1/TB2) leaves the player band one compact row: a mini identity, a thumbnail strip.
+  const compactRow = grow >= 0.5;
+  const compactHeight = Math.min(96, Math.max(72, Math.round(tableHeight * 0.17)));
+  const normalVillainHeight = Math.max(Math.round(tableHeight * 0.52), neutralFloor);
+  const villainHeight = Math.round(
+    normalVillainHeight + (tableHeight - compactHeight - gutter - normalVillainHeight) * grow,
+  );
   const playerTop = tableTop + villainHeight + gutter;
   const playerHeight = tableHeight - villainHeight - gutter;
 
@@ -537,15 +678,17 @@ function longTableZones(
   // under it or, past a point, the slot read as card-shaped and cropped it.
   // Capped at 30% so the play area keeps most of the band; past that the
   // card simply doesn't fill the height, which is the lesser loss.
-  const identityWidth = Math.round(
-    Math.min(Math.max(Math.min(300, usable * 0.24), widePanelWidthFor(playerHeight)), usable * 0.3),
+  const normalIdentityWidth = Math.min(
+    Math.max(Math.min(300, usable * 0.24), widePanelWidthFor(tableHeight - normalVillainHeight - gutter)),
+    usable * 0.3,
   );
+  const identityWidth = Math.round(normalIdentityWidth + (Math.min(300, usable * 0.34) - normalIdentityWidth) * grow);
   const playAreaWidth = usable - identityWidth - teamWidth - gutter * (teamWidth > 0 ? 2 : 1);
 
   // The log shares the encounter column, under the piles.
   const encounterPilesHeight = Math.round(villainHeight * 0.5);
 
-  return {
+  const zones: Zones = {
     chrome,
     tabs: null,
     threat: { x: left, y: tableTop, width: schemesWidth, height: villainHeight },
@@ -571,40 +714,26 @@ function longTableZones(
     hand,
     actionBar,
   };
+  return {
+    zones,
+    tableWindow,
+    contentHeight: tableTop + tableHeight + gutter - tableWindow.y,
+    ...(compactRow ? { compactPlayerRow: true } : {}),
+  };
 }
 
-/** Below this a compact villain panel stops reading as a panel at all — no room for a thumb plus a name. */
-const VILLAIN_COMPACT_MIN_WIDTH = 74;
-/** A compact villain panel's own minimum height, once wrapping into more than one row shrinks it. */
-const VILLAIN_COMPACT_MIN_HEIGHT = 56;
-
 /**
- * Where each villain's compact panel sits in the enemies band — The Wrecking Crew's four villains, or any later
+ * Where each villain's compact tile sits in the enemies band — The Wrecking Crew's four villains, or any later
  * scenario with more than one (`BoardModel.villains`). A single villain never calls this: `zones.ts` keeps its own
  * unchanged, full-size panel for that case, so every scenario before The Wrecking Crew looks exactly as it did.
  *
- * As many as fit across one row at `VILLAIN_COMPACT_MIN_WIDTH`; past that it wraps into more rows rather than
- * shrinking panels below where a name and its stats stop being legible — the same "crowd, don't vanish" rule
- * `cardRow` uses for the minions under it. Rows split as evenly as the count allows (four villains at three per row
- * would leave one alone on its own row for no reason), so a phone's narrow width and a tabletop's short height each
- * still get a legible grid instead of one badly-fit line or an unreadable four-wide squeeze.
+ * `view/villain-tile-layout.ts` decides how the tiles share the rect: as many rows as give the largest scan at a tile
+ * no narrower than `VILLAIN_TILE_MIN_WIDTH`, split evenly (six tiles are three and three), every tile inside `rect`.
+ * The same "crowd, don't vanish" rule `cardRow` uses for the minions under it.
  */
 export function villainRowSlots(rect: Rect, count: number, gap = 8): readonly Rect[] {
   if (count <= 0) return [];
-  const perRow = Math.max(1, Math.min(count, Math.floor((rect.width + gap) / (VILLAIN_COMPACT_MIN_WIDTH + gap))));
-  const rows = Math.ceil(count / perRow);
-  const rowHeight = Math.max(VILLAIN_COMPACT_MIN_HEIGHT, (rect.height - gap * (rows - 1)) / rows);
-
-  const slots: Rect[] = [];
-  for (let row = 0; row < rows; row++) {
-    const rowStart = row * perRow;
-    const inRow = Math.min(perRow, count - rowStart);
-    const width = (rect.width - gap * (inRow - 1)) / inRow;
-    for (let col = 0; col < inRow; col++) {
-      slots.push({ x: rect.x + col * (width + gap), y: rect.y + row * (rowHeight + gap), width, height: rowHeight });
-    }
-  }
-  return slots;
+  return villainRowSlotsFor(rect, count, villainRowPlan(rect.width, count, rect.height, rect.height, gap), gap);
 }
 
 /**
@@ -682,6 +811,46 @@ export function cardRow(
     height: cardHeight,
     kind: "full",
   }));
+}
+
+/**
+ * A row of minion tiles, or, above Fit to screen (`cardScale` > 1), a grid of rows when a single row is limited by the
+ * area's width and a grid gives clearly bigger tiles (four minions on a phone: one row is four 80px tiles under a table
+ * that scrolls a screen tall). Each row after the first leaves `rowExtra` more than the gap, for the chips that hang
+ * above a tile. At Fit to screen it is exactly `cardRow`.
+ */
+export function minionSlots(
+  area: Rect,
+  count: number,
+  cardScale: number,
+  gap: number,
+  rowExtra: number,
+): readonly CardSlot[] {
+  const single = cardRow(area, count, { gap, maxHeight: area.height });
+  if (cardScale <= 1 || count < 2 || single.length === 0) return single;
+  let best: { rows: number; cols: number; height: number } | null = null;
+  for (let rows = 2; rows <= Math.min(count, 3); rows++) {
+    const cols = Math.ceil(count / rows);
+    const slotHeight = (area.height - (rows - 1) * (gap + rowExtra)) / rows;
+    const height = Math.min(slotHeight, (area.width - (cols - 1) * gap) / cols / CARD_ASPECT);
+    if (height > 0 && (!best || height > best.height)) best = { rows, cols, height };
+  }
+  if (!best || best.height < single[0]!.height * 1.2) return single;
+  const width = best.height * CARD_ASPECT;
+  const used = best.rows * best.height + (best.rows - 1) * (gap + rowExtra);
+  const top = area.y + (area.height - used) / 2;
+  return Array.from({ length: count }, (_unused, index): CardSlot => {
+    const row = Math.floor(index / best.cols);
+    const inRow = row === best.rows - 1 ? count - best.cols * row : best.cols;
+    const rowWidth = inRow * width + (inRow - 1) * gap;
+    return {
+      x: area.x + (area.width - rowWidth) / 2 + (index - row * best.cols) * (width + gap),
+      y: top + row * (best.height + gap + rowExtra),
+      width,
+      height: best.height,
+      kind: "full",
+    };
+  });
 }
 
 /**

@@ -29,7 +29,7 @@ import {
   type Vars,
 } from "@mc/engine";
 import { defenseLockoutOf } from "./defense-lockout.js";
-import { cardName, faceUpName, seatName } from "./names.js";
+import { cardName, faceUpName, shortFaceUpName, shortSeatName } from "./names.js";
 import { triggerEventWords } from "./trigger-event-words.js";
 import { decisionLabel } from "./villain-walkthrough.js";
 
@@ -50,6 +50,10 @@ export interface DefendOptionView {
   readonly damageHeadline: string;
   /** "12 of 16 HP" / "8–12 of 16 HP", or null when the target's HP isn't modeled (shouldn't happen for a character). */
   readonly hpAfter: string | null;
+  /** The same range as numbers, `low` to `high` hit points left, for the compact identity panel (TB1's "10 → 8–10"). */
+  readonly hpAfterRange: { readonly low: number; readonly high: number } | null;
+  /** The lowest damage at which this option's target is defeated ("DEFEATED AT 2+"), or null when no band defeats it. */
+  readonly defeatAt: number | null;
   /** Defeat threshold, Tough, Overkill, Retaliate — only the ones that actually apply to this option. */
   readonly consequences: readonly string[];
 }
@@ -115,6 +119,17 @@ export function damageHeadline(bands: readonly DefendBand[]): string {
 }
 
 /** "8–12 of 16 HP" — pure over the bands and the two numbers the engine's own HP query already reports. */
+/** The range `hpAfterFrom` words, as numbers; null with no bands. */
+export function hpRangeFrom(
+  current: number,
+  bands: readonly DefendBand[],
+): { readonly low: number; readonly high: number } | null {
+  const first = bands[0];
+  const last = bands[bands.length - 1];
+  if (!first || !last) return null;
+  return { low: Math.max(0, current - last.damageTaken), high: Math.max(0, current - first.damageTaken) };
+}
+
 export function hpAfterFrom(current: number, max: number, bands: readonly DefendBand[]): string | null {
   const first = bands[0];
   const last = bands[bands.length - 1];
@@ -130,6 +145,15 @@ function hpAfterLine(state: GameState, preview: DefendOptionPreview, deps: Engin
   const current = remainingHitPoints(state, preview.targetInstanceId, deps);
   if (max === undefined || current === undefined) return null;
   return hpAfterFrom(current, max, preview.bands);
+}
+
+function hpAfterRange(
+  state: GameState,
+  preview: DefendOptionPreview,
+  deps: EngineDeps,
+): { readonly low: number; readonly high: number } | null {
+  const current = remainingHitPoints(state, preview.targetInstanceId, deps);
+  return current === undefined ? null : hpRangeFrom(current, preview.bands);
 }
 
 /**
@@ -233,6 +257,8 @@ function optionViewOf(
     defenseReduction: preview.defenseReduction,
     damageHeadline: damageHeadline(preview.bands),
     hpAfter: hpAfterLine(state, preview, deps),
+    hpAfterRange: hpAfterRange(state, preview, deps),
+    defeatAt: bandFactsOf(preview.bands).defeatAt,
     consequences: consequenceLines(state, attackerInstanceId, preview),
   };
 }
@@ -374,6 +400,15 @@ export function defendCauseFrom(
   return { kind: "attack", eyebrow: "Enemy attack", sourceInstanceId: null };
 }
 
+/**
+ * The tag under the target's scan: "Attacking you — Spider-Man", "Attacking Spider-Man" (the seat and the character are
+ * one name, so it is said once), "Attacking Ana — Peter Parker". Short names throughout: the tag has a card's width.
+ */
+export function targetCaptionOf(targetSeat: string, targetCardName: string): string {
+  if (targetSeat === "You") return `Attacking you — ${targetCardName}`;
+  return targetSeat === targetCardName ? `Attacking ${targetSeat}` : `Attacking ${targetSeat} — ${targetCardName}`;
+}
+
 /** "Declare your defender · other players may still respond after the attack resolves." / "· Peril — nobody else may act." */
 function waitingOnLine(choice: PendingChoice, state: GameState, viewerId: PlayerId | null): string {
   const reason = decisionLabel(choice, state, viewerId);
@@ -403,16 +438,15 @@ export function defendChoiceViewOf(
   const targetCharacterInstanceId = choice.prompt.attack.targetCharacterInstanceId;
   const forcedEntry = stackEntries(state).find((entry) => entry.kind === "event" && entry.eventKind === "enemyAttack");
 
-  const targetSeat = seatName(state, choice.prompt.attack.targetPlayerId, viewerId);
-  const targetCardName = faceUpName(state, targetCharacterInstanceId);
+  const targetSeat = shortSeatName(state, choice.prompt.attack.targetPlayerId, viewerId);
+  const targetCardName = shortFaceUpName(state, targetCharacterInstanceId);
   const summary: DefendAttackSummaryView = {
     attackerName: faceUpName(state, attackerInstanceId),
     targetName: targetSeat === "You" ? "you" : targetCardName,
     attackerInstanceId,
     targetInstanceId: targetCharacterInstanceId,
     targetCardName,
-    targetCaption:
-      targetSeat === "You" ? `Attacking you — ${targetCardName}` : `Attacking ${targetSeat} — ${targetCardName}`,
+    targetCaption: targetCaptionOf(targetSeat, targetCardName),
     cause: defendCauseFrom(
       stackEntries(state),
       attackerInstanceId,

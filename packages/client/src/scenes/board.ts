@@ -26,12 +26,13 @@
 import Phaser from "phaser";
 import { POOL_CARDS, POOL_DEPS, POOL_SCENARIOS } from "../content/pool.js";
 import type { AbilityId } from "@mc/content";
-import { cardOf, type GameEvent, type InstanceId, type PlayerId } from "@mc/engine";
+import { cardOf, type GameEvent, type GameState, type InstanceId, type PlayerId } from "@mc/engine";
+import type { VillainPhaseLaunchData, VillainPhaseOverlay } from "./villain-phase.js";
 import { cardArt, type CardArt } from "../art/card-art.js";
 import { appSession } from "../session.js";
-import { dotGrid, surface } from "../tokens.js";
-import { cssOf } from "../ui/theme.js";
-import { McSelectionRing, McTabs, paintDotGrid } from "../ui/widgets.js";
+import { accent, dotGrid, surface, typeRole } from "../tokens.js";
+import { cssOf, textStyle } from "../ui/theme.js";
+import { McSelectionRing, McTabs, fitText, paintDotGrid } from "../ui/widgets.js";
 import { boardModel, type BoardModel } from "../view/board-model.js";
 import { highlights, type Highlights } from "../view/highlights.js";
 import { withAttackBarWording } from "../view/attack-bar.js";
@@ -45,9 +46,28 @@ import { tabKeysTouchedBy } from "../view/tab-badges.js";
 import { playerName } from "../view/names.js";
 import type { GamepadIntent } from "../view/gamepad.js";
 import { sameTarget, stepFocus, type FocusTarget } from "../view/focus.js";
-import { boardLayout, type BoardLayout, type PhoneTab, type Rect } from "../view/layout.js";
+import {
+  boardLayout,
+  formFactorFor,
+  scrollLayout,
+  type BoardLayout,
+  type PhoneTab,
+  type Rect,
+} from "../view/layout.js";
+import { cardSizeFactor } from "../settings.js";
+import { setTapOccluders } from "../ui/tap.js";
+import { TableDrag, clampScroll, fullyInWindow, revealScroll, wheelPixels } from "../view/table-scroll.js";
+import { villainDockRects, type VillainDockRects, type VillainDockRequest } from "../view/villain-dock.js";
+import { sameSeatNote, type VillainSeatNote } from "../view/villain-seat-note.js";
+import { drawCompactIdentity } from "./board/compact-identity.js";
+import { sameHandTags, type VillainHandTag } from "../view/villain-hand-tags.js";
+import { reviewHandleRect, showReviewHandle } from "../view/villain-review.js";
+import type { TableHold } from "../view/villain-replay.js";
 import type { SessionState } from "../store/session-store.js";
 import { SCENES } from "./keys.js";
+import { HoverPreview, isMousePointer } from "../ui/card-hover-preview.js";
+import { hoverArea } from "../view/card-hover.js";
+import { sheetIsCovered } from "../view/choice-sheet-sync.js";
 import { syncSceneClock } from "../ui/scene-clock.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
 import { askToEndTurn } from "./end-turn-confirm.js";
@@ -83,6 +103,7 @@ import { LogPanel } from "./board/log.js";
 import { setAsideFooterHeight, setAsideLines, splitSetAside } from "../view/encounter-pile-layout.js";
 import { TEAM_UP_ART, teamUpArtFor } from "../art/team-up-art.js";
 import { evidenceInputOf } from "../view/evidence-model.js";
+import type { PileViewData } from "./pile-view.js";
 import type { TeamUpSplashData } from "./team-up-splash.js";
 import type { TeamUpInfoData } from "./team-up-info.js";
 import type { TeamUpBadge, TeamUpRings } from "./board/team-up-badge.js";
@@ -111,6 +132,13 @@ import type { CampaignBeatData } from "./campaign/routes.js";
 
 /** Every Team-Up pair the card pool names; built once, since the pool never changes under a running game. */
 const TEAM_UP_PAIRS = teamUpPairsOf(POOL_CARDS);
+
+/** The villain-phase review handle: over the table, under the round band (`motion.ts`, 1150). */
+const HANDLE_DEPTH = 950;
+
+/** Emitted on the Board's own `events` on every step of a dock resize (and when it snaps), with the current `VillainDockRects`. */
+export const VILLAIN_DOCK_CHANGED = "villain-dock-changed";
+const VILLAIN_DOCK_TWEEN_MS = 280;
 
 export class BoardScene extends Phaser.Scene {
   /** Team-Ups present in the latest state (relevant to this game, both characters in play in any form). */
@@ -141,6 +169,8 @@ export class BoardScene extends Phaser.Scene {
   /** What the last draw left behind: hit rects, focus rects, and the widgets to destroy before the next one. */
   #frame: BoardFrame = emptyFrame();
   #version = -1;
+  /** The game from the previous fresh state; handed to the villain phase scene as its recap's "before". */
+  #previousGame: GameState | null = null;
   /**
    * The table log and card history as they stood at each command version, so a Back out (`SessionStore.rewindTo`)
    * restores them exactly instead of keeping lines for the play it undid.
@@ -193,10 +223,11 @@ export class BoardScene extends Phaser.Scene {
    * for *every* game with a perspective player, not only a guided tutorial run: an opportunistic tip at the Full
    * guide level is "the main use" in an ordinary game (`scenes/board/tip-mount.ts`'s own header). */
   #tip: BoardTipMount | null = null;
+  #hover: HoverPreview | null = null;
 
   readonly #controller = new BoardController({
     model: () => this.#model,
-    marks: () => this.#marks,
+    marks: () => (this.#controller.readOnly ? null : this.#marks),
     tabbed: () => this.#layout?.tabbed ?? false,
     redraw: () => this.#draw(),
     inspect: (id) => this.#inspect(id),
@@ -234,6 +265,20 @@ export class BoardScene extends Phaser.Scene {
   readonly #playAreaScroll = new PlayAreaScroll(() => this.#draw());
   readonly #logPanel = new LogPanel(() => this.#draw());
   readonly #motion = new BoardMotion(this);
+  /**
+   * How far the table is scrolled at a Card size above Standard (`LayoutOptions.cardScale`): the offset the next draw lays
+   * the table's zones out at. 0 at Standard, where nothing scrolls. Clamped to the layout's extent on every draw.
+   */
+  #tableScroll = 0;
+  /** A scroll (wheel, drag, reveal) asked for a redraw: `update` does it once a frame, however many events came. */
+  #scrollDirty = false;
+  readonly #tableDrag = new TableDrag();
+  /** A crowded play area row takes the wheel over it as a sideways scroll; a vertical drag over it still scrolls the table. */
+  #rowWheelRect: Rect | null = null;
+  /** The Card size the last draw used: a change (Settings opened from Pause) redraws the table at the new size. */
+  #drawnCardSize: string | null = null;
+  /** The target set a reveal last ran for, so a target prompt scrolls its first target into view once, not every draw. */
+  #revealedTargets: string | null = null;
 
   get #art(): CardArt {
     this.#artCache ??= cardArt(this);
@@ -258,6 +303,10 @@ export class BoardScene extends Phaser.Scene {
 
   /** The hand's flick coasts frame by frame; everything else on the table moves by tween or by redraw. */
   override update(_time: number, deltaMs: number): void {
+    // Settings can be opened over the board from Pause and change the Card size under it; a wheel or drag asked for a scroll.
+    if (this.#scrollDirty || (this.#model && appSession().settings.cardSize !== this.#drawnCardSize)) this.#draw();
+    // A drawn card's ghost starting or landing: the ghost is redrawn from its own clock, so something has to ask.
+    else if (this.#model && this.#motion.needsRedraw()) this.#draw();
     this.#hand.tick(deltaMs);
     this.#playAreaScroll.row.tick(deltaMs);
     // Checked every frame, not only on a store update: the villain-phase walkthrough and the pending-choice
@@ -276,6 +325,8 @@ export class BoardScene extends Phaser.Scene {
 
   create(): void {
     this.#walkthroughLaunching = false;
+    this.#outcomeHeld = false;
+    this.#villainReplay = null;
     // Phaser reuses this one instance for every game — "Run it back" and
     // "Continue" start this same scene again — so everything about *a game*
     // starts over here. The log didn't, and a rematch was dealt under the
@@ -287,8 +338,14 @@ export class BoardScene extends Phaser.Scene {
     this.#log = emptyLog();
     this.#cardHistory = emptyCardHistoryLog();
     appSession().gameLog = this.#log;
+    // A fresh game has no villain phase to look back on yet.
+    appSession().villainReview = null;
     this.#logPanel.reset();
+    this.#tableScroll = 0;
+    this.#scrollDirty = false;
+    this.#revealedTargets = null;
     this.#version = -1;
+    this.#previousGame = null;
     this.#logAt.clear();
     this.#tabBadges.clear();
     this.#tabChanged.clear();
@@ -309,6 +366,44 @@ export class BoardScene extends Phaser.Scene {
     // Fresh scheduler state for a fresh game (guided mode G10e part 2) — "Run it back"/"Continue" reuse this same
     // scene instance, and the opening-turn hold/one-per-turn cap must reset the same way `#guide` does above.
     this.#tip = new BoardTipMount(this);
+    // The desktop card hover popover: one listener set on the scene's pointer, not one per card.
+    this.#hover = new HoverPreview(this, {
+      cards: () => this.#frame.hitRects,
+      area: (pointer) => {
+        const { width, height } = this.scale.gameSize;
+        // A choice sheet the docked villain phase covers is hidden and inert (`sheetIsCovered`): it is no overlay.
+        const manager = this.scene.manager;
+        const sheetCovered = sheetIsCovered({
+          coverActive: this.scene.isActive(SCENES.villainPhase),
+          coverIndex: manager.getIndex(SCENES.villainPhase),
+          sheetIndex: manager.getIndex(SCENES.choice),
+        });
+        const overlays = Object.values(SCENES).filter(
+          (key) =>
+            key !== SCENES.board &&
+            key !== SCENES.music &&
+            !(key === SCENES.choice && sheetCovered) &&
+            this.scene.isActive(key),
+        );
+        return hoverArea({
+          formFactor: formFactorFor(width, height),
+          mouse: isMousePointer(pointer),
+          scale: appSession().settings.cardHoverScale,
+          overlays,
+          villainPhaseKey: SCENES.villainPhase,
+          dockPanel: this.#villainDockRects?.panel ?? null,
+          viewport: { x: 0, y: 0, width, height },
+        });
+      },
+    });
+    // When the villain phase closes, the table draws again without it: its review handle (`#drawVillainReviewHandle`)
+    // only shows once the phase is gone, and nothing else redraws the Board at that moment.
+    const villainPhase = this.scene.get(SCENES.villainPhase);
+    const afterVillainPhase = (): void => this.#draw();
+    villainPhase.events.on(Phaser.Scenes.Events.SHUTDOWN, afterVillainPhase);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
+      villainPhase.events.off(Phaser.Scenes.Events.SHUTDOWN, afterVillainPhase),
+    );
     this.cameras.main.setBackgroundColor(cssOf(surface.ink.hex));
     const { store } = appSession();
     this.#unsubscribe = store.subscribe((state) => this.#onState(state));
@@ -349,6 +444,7 @@ export class BoardScene extends Phaser.Scene {
         this.scene.isActive(SCENES.teamUpSplash) ||
         this.scene.isActive(SCENES.teamUpInfo) ||
         this.scene.isActive(SCENES.evidence) ||
+        this.scene.isActive(SCENES.pileView) ||
         // "Hold on!" owns Escape (it dismisses with nothing sent); without this the board's own Escape opened Pause
         // on top of it.
         this.scene.isActive(SCENES.holdOn),
@@ -390,6 +486,13 @@ export class BoardScene extends Phaser.Scene {
     this.input.on("wheel", this.#playAreaScroll.row.onWheel, this.#playAreaScroll.row);
     // The same for the game log, which checks the pointer is over it.
     this.input.on("wheel", this.#logPanel.onWheel, this.#logPanel);
+    // At a larger Card size the table scrolls: a wheel over it (where no scroll region of its own takes the gesture) and a
+    // touch drag. Both only move `#tableScroll`; the next frame redraws.
+    this.input.on("wheel", this.#onTableWheel, this);
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.#onTableDown, this);
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, this.#onTableMove, this);
+    this.input.on(Phaser.Input.Events.POINTER_UP, this.#onTableUp, this);
+    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.#onTableUp, this);
     // The Inspect overlay's "Play it" comes back here, because playing a card
     // is the board's job: the overlay only ever reports what the engine said.
     this.game.events.on("mc-play-card", this.#onInspectPlay, this);
@@ -398,6 +501,8 @@ export class BoardScene extends Phaser.Scene {
     // sheet reports which one was picked, and only the board ever dispatches.
     this.game.events.on("mc-use-ability", this.#onInspectUseAbility, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.#hover?.destroy();
+      this.#hover = null;
       this.scale.off("resize", onResize, this);
       this.#controller.dispose();
       this.#unsubscribe?.();
@@ -409,6 +514,11 @@ export class BoardScene extends Phaser.Scene {
       this.input.off("wheel", this.#hand.onWheel, this.#hand);
       this.input.off("wheel", this.#playAreaScroll.row.onWheel, this.#playAreaScroll.row);
       this.input.off("wheel", this.#logPanel.onWheel, this.#logPanel);
+      this.input.off("wheel", this.#onTableWheel, this);
+      this.input.off(Phaser.Input.Events.POINTER_DOWN, this.#onTableDown, this);
+      this.input.off(Phaser.Input.Events.POINTER_MOVE, this.#onTableMove, this);
+      this.input.off(Phaser.Input.Events.POINTER_UP, this.#onTableUp, this);
+      this.input.off(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.#onTableUp, this);
       /**
        * The overlays this scene launches run in parallel over it, so stopping
        * the Board doesn't stop them. When the game ends `#onState` hands off to
@@ -421,6 +531,7 @@ export class BoardScene extends Phaser.Scene {
       for (const overlay of [
         SCENES.choice,
         SCENES.inspect,
+        SCENES.pileView,
         SCENES.villainPhase,
         SCENES.pause,
         SCENES.rules,
@@ -504,6 +615,9 @@ export class BoardScene extends Phaser.Scene {
 
     // Fold this command's events onto the log before the state replaces it.
     const fresh = state.version !== this.#version;
+    // The game as it stood before this command, for the villain phase recap's "what changed" tiles.
+    const previousGame = this.#previousGame;
+    if (fresh) this.#previousGame = state.game;
     // Back out rewound the game: put the log back as it was at that version, and skip this update's replay events.
     const rewound = fresh && state.version < this.#version ? this.#logAt.get(state.version) : undefined;
     if (rewound) {
@@ -587,12 +701,20 @@ export class BoardScene extends Phaser.Scene {
     this.#pendingSplashes.push(...seen.announce.filter((pair) => teamUpArtFor(TEAM_UP_ART, pair.names)?.splash));
 
     if (state.game.outcome) {
+      // The engine finished the game inside the command; the rail may still be replaying the beats that ended it, so the
+      // outcome waits for it (`releaseOutcome`). A command that ran the whole villain phase to the end opens it too.
+      if (fresh) this.#openVillainWalkthrough(state.lastEvents, previousGame);
+      if (this.#villainReplayHoldsOutcome()) {
+        this.#outcomeHeld = true;
+        this.#draw();
+        return;
+      }
       goToScreen(this, SCENES.gameOver);
       return;
     }
     // Only a *new* command can start a villain phase; a plain redraw re-reads
     // the same `lastEvents` and must not re-open a walkthrough the player skipped.
-    if (fresh) this.#openVillainWalkthrough(state.lastEvents);
+    if (fresh) this.#openVillainWalkthrough(state.lastEvents, previousGame);
     if (fresh) this.#queueCampaignBeat(state);
     // Guided mode G8 part 2: only a *new* command's own events ever get folded into the round debrief's
     // accumulator — same reasoning as the villain-phase walkthrough just above (`fresh`'s own doc comment on
@@ -623,6 +745,7 @@ export class BoardScene extends Phaser.Scene {
     return (
       this.#choiceOpen ||
       this.scene.isActive(SCENES.inspect) ||
+      this.scene.isActive(SCENES.pileView) ||
       this.scene.isActive(SCENES.villainPhase) ||
       this.scene.isActive(SCENES.pause) ||
       this.scene.isActive(SCENES.rules) ||
@@ -860,9 +983,9 @@ export class BoardScene extends Phaser.Scene {
    * Opens the villain-phase walkthrough when a villain phase begins.
    *
    * This is the whole of the Board's side of the contract documented at the top
-   * of `scenes/villain-phase.ts`: a bare, payload-free launch. The overlay
-   * subscribes to the store itself, accumulates the phase's beats across the
-   * several commands one phase can span, and closes itself when the phase ends.
+   * of `scenes/villain-phase.ts`: one launch carrying only the game as it stood before the command that began the
+   * phase (the recap's "what changed" tiles read it). The overlay subscribes to the store itself, accumulates the
+   * phase's beats across the several commands one phase can span, and shows its recap when the phase ends.
    *
    * `placeThreat` is villain-phase step one, so this fires exactly once per
    * phase and never on the later within-phase step changes — which is what lets
@@ -875,13 +998,13 @@ export class BoardScene extends Phaser.Scene {
    * reveal cursor mid-phase. (`run()` is no safer: a RUNNING scene falls through
    * its sleeping/paused branches to the same `start()`.)
    */
-  #openVillainWalkthrough(events: readonly GameEvent[]): void {
+  #openVillainWalkthrough(events: readonly GameEvent[], before: GameState | null): void {
     if (this.scene.isActive(SCENES.villainPhase)) return;
     const begins = events.some(
       (event) => event.type === "stepChanged" && event.to.phase === "villain" && event.to.kind === "placeThreat",
     );
     if (!begins) return;
-    this.scene.launch(SCENES.villainPhase);
+    this.scene.launch(SCENES.villainPhase, { before } satisfies VillainPhaseLaunchData);
     this.#walkthroughLaunching = true;
     // Cleared when the walkthrough has been created, not only when a draw happens to see it active: the Board's time
     // does not run while the walkthrough is up, so on a slow machine no draw may have seen it, and the flag then
@@ -1008,8 +1131,11 @@ export class BoardScene extends Phaser.Scene {
   }
 
   #draw(): void {
-    const model = this.#model;
-    if (!model) return;
+    const live = this.#model;
+    if (!live) return;
+    const hold = this.#villainReplay?.hold ?? null;
+    // The table's chrome says the phase the rail is on, not the one the engine has already reached.
+    const model: BoardModel = hold ? { ...live, round: hold.round, phase: "villain", stepLabel: hold.stepLabel } : live;
 
     // The positions cards held under whatever was drawn last — the only place
     // "where a card came from" can still be read once this redraw rebuilds
@@ -1030,19 +1156,37 @@ export class BoardScene extends Phaser.Scene {
     // Asked before laying out the rest of the table, so nothing the guide rail covers is also a drop target
     // underneath it (guided mode G5c, `scenes/board/guide-mount.ts`'s own header).
     const guideRail = this.#guide?.railOptionFor(viewport) ?? undefined;
-    const layout = boardLayout(viewport, {
+    const dock = this.#villainDock;
+    // The Card size setting: above Standard the table is laid out taller than its window and scrolls (`scrollLayout`
+    // moves the table's zones to the current offset, so every rect below is a screen rect, scrolled or not).
+    const cardSize = appSession().settings.cardSize;
+    const cardScale = cardSizeFactor(cardSize);
+    this.#drawnCardSize = cardSize;
+    this.#scrollDirty = false;
+    const atRest = boardLayout(viewport, {
       playerCount: model.team.length + 1,
       neutralArea: model.scenarioPlayAreas.some((area) => area.neutral),
       activeTab: this.#activeTab,
       ...(guideRail ? { guideRail } : {}),
+      ...(dock?.request === "rail" ? { villainDock: this.#dockShown.width } : {}),
+      ...(dock?.request === "band" && this.#dockShown.grow > 0
+        ? { villainBand: { tall: true, grow: this.#dockShown.grow } }
+        : {}),
+      ...(cardScale > 1 ? { cardScale } : {}),
     });
+    const layout = scrollLayout(atRest, this.#tableScroll);
+    this.#tableScroll = layout.scrollY;
+    const scrolling = layout.maxScroll > 0;
     this.#layout = layout;
+    this.#villainDockRects = dock ? villainDockRects(dock.request, layout, this.#dockShown.width) : null;
 
     const ctx: BoardDrawContext = {
       scene: this,
       art: this.#art,
-      marks: this.#marks,
+      // Nothing reads as playable while the villain phase holds the table (`setVillainPhaseOpen`).
+      marks: this.#controller.readOnly ? null : this.#marks,
       tabbed: layout.tabbed,
+      cardScale,
       controller: this.#controller,
       hand: this.#hand,
       schemeScroll: this.#schemeScroll,
@@ -1053,8 +1197,11 @@ export class BoardScene extends Phaser.Scene {
       motion: this.#motion,
       teamUpRings: this.#teamUpRings(layout.tabbed),
       teamUpRoles: this.#teamUpRoles(model),
+      villainHandTags: this.#villainHandTags,
+      actionsHeld: this.#villainReplay !== null,
       makeTapTarget: (rect, id, onTap, drag, onHover) => this.#makeTapTarget(rect, id, onTap, drag, onHover),
       inspect: (id, siblings) => this.#inspect(id, siblings),
+      openPile: (name, ids) => this.#openPile(name, ids),
       inspectReference: (reference) => this.scene.launch(SCENES.inspect, { reference }),
     };
 
@@ -1062,14 +1209,19 @@ export class BoardScene extends Phaser.Scene {
     paintDotGrid(this, { x: 0, y: 0, width, height }, "ink", dotGrid.onInk);
 
     const { zones } = layout;
-    drawChrome(this, zones.chrome!, model, {
-      notSaving: appSession().store.state.saveError !== null,
-      onMenu: () => this.#openPause(),
-      ...(this.#hasEvidence() ? { onEvidence: () => this.#openEvidence() } : {}),
-      buttons: this.#frame.buttons,
-      motion: this.#motion,
-    });
-    if (zones.tabs) this.#drawTabs(zones.tabs, model);
+    const drawTopBand = (): void => {
+      drawChrome(this, zones.chrome!, model, {
+        notSaving: appSession().store.state.saveError !== null,
+        onMenu: () => this.#openPause(),
+        ...(this.#hasEvidence() ? { onEvidence: () => this.#openEvidence() } : {}),
+        buttons: this.#frame.buttons,
+        motion: this.#motion,
+      });
+      if (zones.tabs) this.#drawTabs(zones.tabs, model);
+    };
+    // Scrolled content runs under the chrome and the tab row, so on a scrolling table they are drawn after it, over a
+    // ground; at Standard the order is what it always was.
+    if (!scrolling) drawTopBand();
     // A scenario play area (the mission area) takes the foot of the enemies zone; with none, the zone is whole. The
     // pod's neutral area (God of Lies) is the pod's shared threat: on a phone it takes the foot of the Threat tab, where
     // there is room for it, and elsewhere it shares the enemies zone's foot strip with any other area.
@@ -1107,9 +1259,19 @@ export class BoardScene extends Phaser.Scene {
     else this.#logPanel.hide();
     // Always the wide panel: the identity's attachments only show as chips
     // beside its card, and a tall window can give this slot a card-like shape.
-    if (zones.me) drawCharacter(ctx, zones.me, model.me, { shape: "wide", playerId: model.perspectiveId });
-    if (zones.playArea) drawPlayArea(ctx, zones.playArea, model);
+    const compactRow = layout.compactPlayerRow === true;
+    if (zones.me && compactRow) drawCompactIdentity(ctx, zones.me, model.me, this.#villainSeatNote);
+    else if (zones.me) drawCharacter(ctx, zones.me, model.me, { shape: "wide", playerId: model.perspectiveId });
+    if (zones.playArea) drawPlayArea(ctx, zones.playArea, model, compactRow ? { compact: true } : {});
     if (zones.team) drawTeam(ctx, zones.team, model);
+    if (zones.log && !logGate.locked) this.#frame.innerScroll.push(setAside?.log ?? zones.log);
+    this.#rowWheelRect = zones.playArea && this.#playAreaScroll.row.canScroll ? zones.playArea : null;
+    if (scrolling) {
+      this.#drawScrollBands(layout);
+      drawTopBand();
+    } else {
+      setTapOccluders(this, []);
+    }
     drawHand(ctx, zones.hand!, model);
     drawActionBar(ctx, zones.actionBar!, model);
     this.#drawTargetingPanel(ctx, { x: 0, y: 0, width, height });
@@ -1117,6 +1279,7 @@ export class BoardScene extends Phaser.Scene {
     if (searchedPick) drawSearchedPickSheet(ctx, { x: 0, y: 0, width, height }, searchedPick);
     this.#drawTargetRings();
     this.#drawFocusRing();
+    this.#revealTargets();
     // Turns the moves of a fresh state (if any landed) into travels, now that
     // this frame holds where every card ended up. A no-op on every other redraw.
     this.#motion.startTravels(previous, this.#frame, layout);
@@ -1130,7 +1293,7 @@ export class BoardScene extends Phaser.Scene {
         ...this.#frame.hitRects,
       ]),
     );
-    this.#motion.renderTravels();
+    this.#motion.renderTravels(this.#frame);
     // Held while the villain-phase walkthrough or the round debrief covers the table: the walkthrough stays up
     // into the next player phase until the player continues or skips it, and every round after the first the
     // ROUND N · PLAYER PHASE band used to spend itself behind it (owner report, 2026-09-29).
@@ -1159,6 +1322,8 @@ export class BoardScene extends Phaser.Scene {
     // never sits under it.
     this.#tip?.draw(viewport, layout.tabbed, zones.actionBar, this.#tipBlocked());
     this.#syncGuideFocusRegion();
+    this.#drawVillainReviewHandle(layout, viewport);
+    this.#hover?.onDraw();
   }
 
   /**
@@ -1190,6 +1355,7 @@ export class BoardScene extends Phaser.Scene {
       badges: this.#tabBadges,
       logGate: this.#guide?.logGate() ?? { locked: false, reason: null },
       onSelect: (tab) => {
+        if (tab !== this.#activeTab) this.#tableScroll = 0;
         this.#activeTab = tab;
         // Looking at a tab is what clears its badge.
         this.#tabBadges.delete(tab);
@@ -1236,6 +1402,8 @@ export class BoardScene extends Phaser.Scene {
     for (const target of selection.action.targets) {
       const rect = this.#cardRect(target);
       if (!rect) continue;
+      // A target scrolled under the chrome or the hand has no ring: it would be drawn over them.
+      if (this.#hiddenByScroll(target, rect)) continue;
       const ring = new McSelectionRing(this);
       ring.show(rect, "pulse", reduced);
       this.#frame.rings.push(ring);
@@ -1352,6 +1520,129 @@ export class BoardScene extends Phaser.Scene {
     // A greyed Undo says why while keyboard focus is on it (drawn by the next draw).
     this.#controller.setUndoFocus(this.#focus?.kind === "undo");
     this.#draw();
+    this.#revealFocus();
+  }
+
+  /** True when a table card's rect is not wholly in the window the scrolling table is seen through (the hand and the targeting panel are never scrolled). */
+  #hiddenByScroll(id: InstanceId, rect: Rect): boolean {
+    const layout = this.#layout;
+    if (!layout || layout.maxScroll <= 0) return false;
+    if (this.#controller.targetingPanel() || this.#controller.searchedPick()) return false;
+    if (this.#model?.hand.some((card) => card.instanceId === id)) return false;
+    return !fullyInWindow(rect, layout.tableWindow);
+  }
+
+  /** Keyboard or pad focus moved onto a table card that is scrolled out of view: scroll it in. */
+  #revealFocus(): void {
+    const layout = this.#layout;
+    const focus = this.#focus;
+    if (!layout || layout.maxScroll <= 0 || focus?.kind !== "card" || this.#focusRegion !== "board") return;
+    const rect = this.#frame.focusRects.get(focusKey(focus));
+    if (!rect || !this.#hiddenByScroll(focus.instanceId, rect)) return;
+    this.#scrollTableTo(revealScroll(layout.scrollY, rect, layout.tableWindow, layout.maxScroll));
+  }
+
+  /**
+   * A target prompt opened with every target out of view (scrolled away on a scrolling table): scroll the first one in,
+   * once per set of targets, the way the schemes column already does for its own rows.
+   */
+  #revealTargets(): void {
+    const layout = this.#layout;
+    const selection = this.#controller.selection;
+    const key = selection.kind === "targeting" ? selection.action.targets.join(",") : null;
+    if (key === this.#revealedTargets) return;
+    this.#revealedTargets = key;
+    if (key === null || !layout || layout.maxScroll <= 0 || selection.kind !== "targeting") return;
+    const placed = selection.action.targets.flatMap((id) => {
+      const rect = this.#cardRect(id);
+      return rect ? [{ id, rect }] : [];
+    });
+    if (placed.length === 0 || placed.some(({ id, rect }) => !this.#hiddenByScroll(id, rect))) return;
+    this.#scrollTableTo(revealScroll(layout.scrollY, placed[0]!.rect, layout.tableWindow, layout.maxScroll));
+  }
+
+  #scrollTableTo(next: number): void {
+    const layout = this.#layout;
+    if (!layout) return;
+    const clamped = clampScroll(next, layout.maxScroll);
+    if (clamped === layout.scrollY) return;
+    this.#tableScroll = clamped;
+    this.#scrollDirty = true;
+  }
+
+  /** Whether the table may take a wheel or a drag at `pointer`: it scrolls, nothing covers it, and no region of its own owns that spot. */
+  #tableTakes(pointer: Phaser.Input.Pointer, wheel = false): boolean {
+    const layout = this.#layout;
+    if (!layout || layout.maxScroll <= 0) return false;
+    const win = layout.tableWindow;
+    if (pointer.x < win.x || pointer.x > win.x + win.width || pointer.y < win.y || pointer.y > win.y + win.height)
+      return false;
+    if (this.#choiceOpen || this.#overlayCoversTable()) return false;
+    const own =
+      wheel && this.#rowWheelRect ? [...this.#frame.innerScroll, this.#rowWheelRect] : this.#frame.innerScroll;
+    return !own.some(
+      (r) => pointer.x >= r.x && pointer.x <= r.x + r.width && pointer.y >= r.y && pointer.y <= r.y + r.height,
+    );
+  }
+
+  /** Any overlay that owns the screen over the table. The docked villain phase leaves the table beside it live. */
+  #overlayCoversTable(): boolean {
+    const docked = this.#villainDock?.request === "rail";
+    return (
+      (this.scene.isActive(SCENES.villainPhase) && !docked) ||
+      this.scene.isActive(SCENES.inspect) ||
+      this.scene.isActive(SCENES.pause) ||
+      this.scene.isActive(SCENES.rules) ||
+      this.scene.isActive(SCENES.settings) ||
+      this.scene.isActive(SCENES.roundDebrief) ||
+      this.scene.isActive(SCENES.campaignBeat) ||
+      this.scene.isActive(SCENES.teamUpSplash) ||
+      this.scene.isActive(SCENES.teamUpInfo) ||
+      this.scene.isActive(SCENES.evidence) ||
+      this.scene.isActive(SCENES.pileView) ||
+      this.scene.isActive(SCENES.holdOn)
+    );
+  }
+
+  readonly #onTableWheel = (pointer: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number): void => {
+    if (!this.#tableTakes(pointer, true)) return;
+    const mode = (pointer.event as WheelEvent | undefined)?.deltaMode ?? 0;
+    this.#scrollTableTo(this.#layout!.scrollY + wheelPixels(dy, mode));
+  };
+
+  readonly #onTableDown = (pointer: Phaser.Input.Pointer): void => {
+    if (pointer.wasTouch && this.#tableTakes(pointer)) this.#tableDrag.down(pointer.id, pointer.x, pointer.y);
+  };
+
+  readonly #onTableMove = (pointer: Phaser.Input.Pointer): void => {
+    if (!pointer.isDown || !pointer.wasTouch) return;
+    const delta = this.#tableDrag.move(pointer.id, pointer.x, pointer.y);
+    if (delta !== 0 && this.#layout) this.#scrollTableTo(this.#layout.scrollY + delta);
+  };
+
+  readonly #onTableUp = (pointer: Phaser.Input.Pointer): void => this.#tableDrag.up(pointer.id);
+
+  /**
+   * The ground and the input shield of the pinned bands on a scrolling table: scrolled content passes under the chrome
+   * (and the phone's tab row) above the window and the hand and action bar below it. Opaque, so nothing shows through,
+   * and interactive, so nothing under them hears a press: Phaser's own hit test stops at the shield, and the tap router
+   * is told the same (`setTapOccluders`). The pinned zones draw after this, on top.
+   */
+  #drawScrollBands(layout: BoardLayout): void {
+    const { width, height } = this.scale.gameSize;
+    const win = layout.tableWindow;
+    const bottomY = win.y + win.height;
+    const bands: Rect[] = [
+      { x: 0, y: 0, width, height: win.y },
+      { x: 0, y: bottomY, width, height: Math.max(0, height - bottomY) },
+    ];
+    for (const band of bands) {
+      if (band.height <= 0) continue;
+      this.add.graphics().fillStyle(surface.ink.hex, 1).fillRect(band.x, band.y, band.width, band.height);
+      paintDotGrid(this, band, "ink", dotGrid.onInk);
+      this.add.zone(band.x, band.y, band.width, band.height).setOrigin(0, 0).setInteractive();
+    }
+    setTapOccluders(this, bands);
   }
 
   #drawFocusRing(): void {
@@ -1426,6 +1717,12 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
+  /** Fans a discard pile out in the pile overlay; an empty pile opens nothing. */
+  #openPile(name: string, ids: readonly InstanceId[]): void {
+    if (ids.length === 0 || this.scene.isActive(SCENES.pileView)) return;
+    this.scene.launch(SCENES.pileView, { from: SCENES.board, name, ids } satisfies PileViewData);
+  }
+
   #onInspectPlay(instanceId: InstanceId): void {
     void this.#controller.playCard(instanceId);
   }
@@ -1497,6 +1794,179 @@ export class BoardScene extends Phaser.Scene {
    * become current while a banner is already mid-flight from something else entirely (a hero going down). */
   guideBannerClear(): boolean {
     return !this.scene.isActive(SCENES.villainPhase) && !this.#motion.isTransitioning();
+  }
+
+  #villainDock: { readonly request: VillainDockRequest; readonly width: number; readonly tall: boolean } | null = null;
+  #villainSeatNote: VillainSeatNote | null = null;
+  /** The dock as drawn this frame: `#villainDock` is where it is going, this is where an animated resize has got to. */
+  #dockShown: { readonly width: number; readonly grow: number } = { width: 0, grow: 0 };
+  #dockTween: Phaser.Tweens.Tween | null = null;
+  #villainDockRects: VillainDockRects | null = null;
+
+  /**
+   * Lays the table out around the docked villain phase (`view/villain-dock.ts`), or back to the whole screen with
+   * null. The phase asks for this; the Board redraws at once, so `villainDockRects` answers for the new shape when this
+   * returns.
+   */
+  setVillainDock(
+    request: VillainDockRequest | null,
+    width: number = 0,
+    options: { readonly tall?: boolean } = {},
+  ): void {
+    const current = this.#villainDock;
+    const tall = request === "band" && options.tall === true;
+    if (current?.request === request && (request !== "rail" || current.width === width) && current.tall === tall)
+      return;
+    if (!current && request === null) return;
+    const from = this.#dockShown;
+    this.#dockTween?.stop();
+    this.#dockTween = null;
+    this.#villainDock = request === null ? null : { request, width, tall };
+    const to = { width, grow: tall ? 1 : 0 };
+    // Only a change of size inside the same shape animates; a new shape, or none, snaps.
+    const resize = current !== null && current.request === request && (request === "rail" || request === "band");
+    if (!resize || appSession().settings.reducedMotion || !this.scene.isActive()) {
+      this.#dockShown = to;
+      this.#draw();
+      this.events.emit(VILLAIN_DOCK_CHANGED, this.#villainDockRects);
+      return;
+    }
+    const step = (t: number): void => {
+      this.#dockShown = {
+        width: Math.round(from.width + (to.width - from.width) * t),
+        grow: from.grow + (to.grow - from.grow) * t,
+      };
+      this.#draw();
+      this.events.emit(VILLAIN_DOCK_CHANGED, this.#villainDockRects);
+    };
+    this.#dockTween = this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: VILLAIN_DOCK_TWEEN_MS,
+      ease: "Cubic.easeOut",
+      onUpdate: (tween) => step(tween.getValue() ?? 1),
+      onComplete: () => {
+        this.#dockTween = null;
+        step(1);
+      },
+    });
+  }
+
+  /**
+   * What the compact identity panel says while the band is tall (TB1): a status tag beside the hero's name and the HP
+   * bar's projected range. Null clears it. Only drawn while `setVillainDock("band", _, { tall: true })` is in force.
+   */
+  setVillainSeatNote(note: VillainSeatNote | null): void {
+    if (sameSeatNote(this.#villainSeatNote, note)) return;
+    this.#villainSeatNote = note;
+    if (this.#layout?.compactPlayerRow) this.#draw();
+  }
+
+  /** The villain phase is replaying (not a review): its table chrome while it is behind the engine, null once it has caught up. */
+  #villainReplay: { readonly hold: TableHold | null } | null = null;
+  /** The game ended while the villain phase was still replaying; Game Over waits for `releaseOutcome`. */
+  #outcomeHeld = false;
+
+  /**
+   * While the villain phase replays, the engine has already run to its end: the table would show the next round and
+   * "Your turn". Told by the phase, the table keeps the villain phase's round and step in its chrome while the rail is
+   * behind, and has no End turn or Undo until the phase closes. Null when no replay is open.
+   */
+  setVillainReplay(replay: { readonly hold: TableHold | null } | null): void {
+    const was = this.#villainReplay;
+    const same =
+      (was === null) === (replay === null) &&
+      was?.hold?.round === replay?.hold?.round &&
+      was?.hold?.stepLabel === replay?.hold?.stepLabel &&
+      (was?.hold === null) === (replay?.hold === null);
+    if (same) return;
+    this.#villainReplay = replay;
+    this.#draw();
+  }
+
+  /** Whether a villain phase replay is (or is about to be) open over this game, so its outcome should wait. */
+  #villainReplayHoldsOutcome(): boolean {
+    if (this.#walkthroughLaunching) return true;
+    if (!this.scene.isActive(SCENES.villainPhase)) return false;
+    return !(this.scene.get(SCENES.villainPhase) as VillainPhaseOverlay).isReview();
+  }
+
+  /** The villain phase has shown everything (or closed): the held Game Over can come up. */
+  releaseOutcome(): void {
+    if (!this.#outcomeHeld) return;
+    this.#outcomeHeld = false;
+    if (appSession().store.state.game?.outcome) goToScreen(this, SCENES.gameOver);
+  }
+
+  #villainHandTags: ReadonlyMap<InstanceId, VillainHandTag> | null = null;
+
+  /**
+   * While the villain phase is open, docked beside the table or not, the table takes no game action (the owner,
+   * 2026-10-14: a hand card played beside the docked phase while it was still stepping through the round's
+   * encounter cards). The engine may already be in the next player phase, but the player has not started it yet:
+   * Start player phase (or Skip) closes the phase and gives the table back. Inspect and the hover popover still work;
+   * decisions are answered on the phase or its sheet, never through the board.
+   */
+  setVillainPhaseOpen(open: boolean): void {
+    this.#controller.setReadOnly(open);
+  }
+
+  /**
+   * The last villain phase, tucked away (the owner's request, 2026-10-14): through the next player phase a drawer
+   * handle on the table's right edge reopens its recap for review (`view/villain-review.ts`). Hidden while any
+   * decision or the villain phase itself is up.
+   */
+  #drawVillainReviewHandle(layout: BoardLayout, viewport: Rect): void {
+    const review = appSession().villainReview;
+    const game = appSession().store.state.game ?? null;
+    if (!showReviewHandle(review, game) || this.#choiceOpen) return;
+    if (this.scene.isActive(SCENES.villainPhase) || this.scene.isActive(SCENES.inspect)) return;
+    // Level with the play area (the owner, 2026-10-14), else between the chrome and the hand.
+    const chrome = layout.zones.chrome;
+    const play = layout.zones.playArea;
+    const top = play ? play.y : chrome ? chrome.y + chrome.height : viewport.y;
+    const bottom = play ? play.y + play.height : (layout.zones.hand?.y ?? viewport.y + viewport.height);
+    const rect = reviewHandleRect(viewport, top, bottom);
+    const g = this.add.graphics().setDepth(HANDLE_DEPTH);
+    g.fillStyle(surface.ink.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
+    g.lineStyle(2, accent.heroRed.hex, 1).strokeRect(rect.x + 1, rect.y + 1, rect.width, rect.height - 2);
+    const handleLabel = this.add
+      .text(
+        rect.x + rect.width / 2,
+        rect.y + rect.height / 2,
+        `◂ ROUND ${review!.round} VILLAIN PHASE`,
+        textStyle({ ...typeRole.label, size: 13 }, surface.paper.hex),
+      )
+      .setOrigin(0.5)
+      .setAngle(-90)
+      .setDepth(HANDLE_DEPTH);
+    // Turned on its side, its length runs along the handle's height.
+    fitText(handleLabel, rect.height - 16, 13);
+    const zone = this.add
+      .zone(rect.x, rect.y, rect.width, rect.height)
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(HANDLE_DEPTH);
+    zone.on("pointerup", () => {
+      if (this.scene.isActive(SCENES.villainPhase)) return;
+      this.scene.launch(SCENES.villainPhase, { before: null, review: review! } satisfies VillainPhaseLaunchData);
+    });
+    this.#frame.focusRects.set("villain-review", rect);
+  }
+
+  /**
+   * The villain phase's hand tags (PLAY NOW, WHEN HIT, …; `view/villain-hand-tags.ts`), or null to go back to the
+   * hand's own tags. The phase sets them while the hand is in view beside it; the Board redraws when they change.
+   */
+  setVillainHandTags(tags: ReadonlyMap<InstanceId, VillainHandTag> | null): void {
+    if (sameHandTags(this.#villainHandTags, tags)) return;
+    this.#villainHandTags = tags;
+    this.#draw();
+  }
+
+  /** Where the docked villain phase draws, as of the Board's last draw; null when it is not docked. */
+  villainDockRects(): VillainDockRects | null {
+    return this.#villainDockRects;
   }
 
   /** Which phone tab is showing right now — off phone this is meaningless, but always some value (`view/layout.ts`'s own `boardLayout` treats `activeTab` the same way). */

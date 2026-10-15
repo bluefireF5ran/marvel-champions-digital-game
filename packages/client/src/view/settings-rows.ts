@@ -15,7 +15,16 @@ import {
   type GuidePrefs,
   type SilencedWarningKey,
 } from "../guide/guide-prefs.js";
-import { SHARP_TEXT_RESOLUTION_CEILING, type Settings } from "../settings.js";
+import {
+  CARD_HOVER_SCALE_VALUES,
+  CARD_SIZE_VALUES,
+  SHARP_TEXT_RESOLUTION_CEILING,
+  type CardHoverScale,
+  type CardSize,
+  type Settings,
+  type VillainAutoAdvance,
+  type VillainBeatSpeed,
+} from "../settings.js";
 
 export type SettingsRowId =
   | "reduced-motion"
@@ -23,7 +32,9 @@ export type SettingsRowId =
   | "large-card-text"
   | "sound"
   | "confirm-end-turn"
-  | "same-name-conflict";
+  | "same-name-conflict"
+  | "hover-hero"
+  | "hover-villain";
 
 export interface SettingsRowInfo {
   readonly id: SettingsRowId;
@@ -76,6 +87,18 @@ export function settingsRowInfoOf(settings: Settings): readonly SettingsRowInfo[
         "A hero and an ally with the same name can't both be in play. Applies to new games; the ally can still be spent as a resource.",
       on: settings.sameNameHeroAllyConflict,
     },
+    {
+      id: "hover-hero",
+      title: "Hero card popover",
+      detail: "With a mouse, resting on a hero card shows the larger popover. Off leaves hero cards as they are.",
+      on: settings.hoverHeroCard,
+    },
+    {
+      id: "hover-villain",
+      title: "Villain card popover",
+      detail: "With a mouse, resting on a villain card shows the larger popover. Off leaves villain cards as they are.",
+      on: settings.hoverVillainCard,
+    },
   ];
 }
 
@@ -106,6 +129,10 @@ export function nextSettingsAfterToggle(settings: Settings, id: SettingsRowId, d
       return { ...settings, confirmBeforeEndTurn: !settings.confirmBeforeEndTurn };
     case "same-name-conflict":
       return { ...settings, sameNameHeroAllyConflict: !settings.sameNameHeroAllyConflict };
+    case "hover-hero":
+      return { ...settings, hoverHeroCard: !settings.hoverHeroCard };
+    case "hover-villain":
+      return { ...settings, hoverVillainCard: !settings.hoverVillainCard };
   }
 }
 
@@ -223,4 +250,166 @@ export function nextGuidePrefsAfterRow(prefs: GuidePrefs, id: GuideSettingsRowId
 /** The text an action or toggle row after "Guide level" actually renders — `row.unavailable ?? row.detail` for an action row (both scenes' own layout pass this to `settingsLayout`/`pauseLayout` to size the row), `row.detail` for a toggle. */
 export function guideRowDetailOf(row: GuideActionRowInfo | GuideToggleRowInfo): string {
   return row.kind === "action" ? (row.unavailable ?? row.detail) : row.detail;
+}
+
+// ---------------------------------------------------------------------------
+// The Villain phase group (settings mockup artifacts/design-screenshots/villain-phase/s1-...): a three-tile
+// "Auto-advance" choice, two toggles and a three-segment "Beat speed". Drawn only on the standalone Settings
+// screen, so it has its own info list rather than joining `settingsRowInfoOf` (which Pause's inline Table group shares).
+// ---------------------------------------------------------------------------
+
+export interface VillainOption<V extends string> {
+  readonly value: V;
+  readonly label: string;
+  readonly detail: string;
+}
+
+export const VILLAIN_AUTO_ADVANCE_OPTIONS: readonly VillainOption<VillainAutoAdvance>[] = [
+  { value: "off", label: "Off", detail: "Recap waits for Start player phase" },
+  { value: "afterPause", label: "After a pause", detail: "Recap closes itself after 6 seconds" },
+  { value: "on", label: "On", detail: "Straight to your turn, no recap" },
+];
+
+export const VILLAIN_BEAT_SPEED_OPTIONS: readonly VillainOption<VillainBeatSpeed>[] = [
+  { value: "slow", label: "Slow", detail: "Longest on screen" },
+  { value: "normal", label: "Normal", detail: "" },
+  { value: "fast", label: "Fast", detail: "Shortest on screen" },
+];
+
+export type VillainRowId = "villain-auto" | "villain-hold" | "villain-speed" | "villain-dock";
+
+export interface VillainRowsInfo {
+  readonly autoAdvance: {
+    readonly title: string;
+    readonly detail: string;
+    readonly options: readonly VillainOption<VillainAutoAdvance>[];
+    readonly selected: VillainAutoAdvance;
+  };
+  readonly hold: { readonly title: string; readonly detail: string; readonly on: boolean };
+  readonly beatSpeed: {
+    readonly title: string;
+    readonly detail: string;
+    readonly options: readonly VillainOption<VillainBeatSpeed>[];
+    readonly selected: VillainBeatSpeed;
+  };
+  readonly dock: { readonly title: string; readonly detail: string; readonly on: boolean };
+}
+
+export function villainRowInfoOf(settings: Settings): VillainRowsInfo {
+  return {
+    autoAdvance: {
+      title: "Auto-advance",
+      detail: "What happens once the villain phase has nothing left for you to answer.",
+      options: VILLAIN_AUTO_ADVANCE_OPTIONS,
+      selected: settings.villainAutoAdvance,
+    },
+    hold: {
+      title: "Hold each encounter card",
+      detail: "Keep every revealed card on screen until you tap past it, even when you have no answer to it.",
+      on: settings.holdEncounterCards,
+    },
+    beatSpeed: {
+      title: "Beat speed",
+      detail: "How long each step stays up while the phase runs on its own.",
+      options: VILLAIN_BEAT_SPEED_OPTIONS,
+      selected: settings.villainBeatSpeed,
+    },
+    dock: {
+      title: "Show the table beside it",
+      detail: "Desktop and tablet dock the villain phase on the right. Off draws it full screen, as now.",
+      on: settings.villainDockTable,
+    },
+  };
+}
+
+/** `settings` with one Villain phase control applied; `value` is read only for the two choice rows. */
+export function nextSettingsAfterVillainRow(
+  settings: Settings,
+  id: VillainRowId,
+  value?: VillainAutoAdvance | VillainBeatSpeed,
+): Settings {
+  switch (id) {
+    case "villain-auto":
+      return VILLAIN_AUTO_ADVANCE_OPTIONS.some((o) => o.value === value)
+        ? { ...settings, villainAutoAdvance: value as VillainAutoAdvance }
+        : settings;
+    case "villain-speed":
+      return VILLAIN_BEAT_SPEED_OPTIONS.some((o) => o.value === value)
+        ? { ...settings, villainBeatSpeed: value as VillainBeatSpeed }
+        : settings;
+    case "villain-hold":
+      return { ...settings, holdEncounterCards: !settings.holdEncounterCards };
+    case "villain-dock":
+      return { ...settings, villainDockTable: !settings.villainDockTable };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// "Card size on hover": the desktop mouse popover (`scenes/board/hover-preview.ts`). A five-segment choice, drawn only
+// on a desktop-sized Settings screen (a phone or tablet has long-press Inspect and never shows the popover).
+// ---------------------------------------------------------------------------
+
+export const CARD_HOVER_SCALE_LABELS: Readonly<Record<CardHoverScale, string>> = {
+  off: "Off",
+  "1.5x": "1.5×",
+  "2x": "2×",
+  "2.5x": "2.5×",
+  "3x": "3×",
+  "4x": "4×",
+};
+
+export interface CardHoverRowInfo {
+  readonly title: string;
+  readonly detail: string;
+  readonly options: readonly { readonly value: CardHoverScale; readonly label: string }[];
+  readonly selected: CardHoverScale;
+}
+
+export function cardHoverRowInfoOf(settings: Settings): CardHoverRowInfo {
+  return {
+    title: "Card size on hover",
+    detail:
+      "With a mouse, rest on a card on the table to see it larger beside the pointer, with its state. Off turns the popover off.",
+    options: CARD_HOVER_SCALE_VALUES.map((value) => ({ value, label: CARD_HOVER_SCALE_LABELS[value] })),
+    selected: settings.cardHoverScale,
+  };
+}
+
+/** `settings` with the hover size set; a value that is not one of the five changes nothing. */
+export function nextSettingsAfterCardHover(settings: Settings, value: CardHoverScale): Settings {
+  return CARD_HOVER_SCALE_VALUES.includes(value) ? { ...settings, cardHoverScale: value } : settings;
+}
+
+// ---------------------------------------------------------------------------
+// "Card size": how large every card is drawn on the Decks, deck builder, Rules and campaign card grids. A global
+// setting, shown on every form factor.
+// ---------------------------------------------------------------------------
+
+export const CARD_SIZE_LABELS: Readonly<Record<CardSize, string>> = {
+  standard: "Fit to screen",
+  same: "Same size",
+  large: "Large",
+  xlarge: "Extra large",
+};
+
+export interface CardSizeRowInfo {
+  readonly title: string;
+  readonly detail: string;
+  readonly options: readonly { readonly value: CardSize; readonly label: string }[];
+  readonly selected: CardSize;
+}
+
+export function cardSizeRowInfoOf(settings: Settings): CardSizeRowInfo {
+  return {
+    title: "Card size",
+    detail:
+      "Fit to screen sizes every card to the screen it is on. Same size draws a card the size a desktop does on every device. Large and Extra large draw them bigger still. Larger cards scroll (the table, the villain phase, decks and card lists).",
+    options: CARD_SIZE_VALUES.map((value) => ({ value, label: CARD_SIZE_LABELS[value] })),
+    selected: settings.cardSize,
+  };
+}
+
+/** `settings` with the card size set; a value that is not one of the three changes nothing. */
+export function nextSettingsAfterCardSize(settings: Settings, value: CardSize): Settings {
+  return CARD_SIZE_VALUES.includes(value) ? { ...settings, cardSize: value } : settings;
 }

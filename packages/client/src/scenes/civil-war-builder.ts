@@ -24,11 +24,15 @@ import { cssOf, textStyle } from "../ui/theme.js";
 import { summaryWithin } from "../view/summary-fit.js";
 import { McButton, fitText, paintDotGrid } from "../ui/widgets.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
+import { HoverPreview, resetHoverCards, screenHoverArea } from "../ui/card-hover-preview.js";
+import { clipHoverRect, hoverSlotOf, type HoverCardIdRect } from "../view/card-hover.js";
 import { onTap } from "../ui/tap.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
 import type { Rect } from "../view/layout.js";
+import { appSession } from "../session.js";
+import { cardSizeFactor } from "../settings.js";
 import {
   applyBuilderAction,
   builderViewOf,
@@ -119,6 +123,10 @@ export class CivilWarBuilderScene extends Phaser.Scene {
   #sheetRegion: McScrollRegion | null = null;
   readonly #sheetScroll = new VariableListScroll();
   #thumbs: ThumbSlot[] = [];
+  /** The desktop hover popover over the card faces (`ui/card-hover-preview.ts`). */
+  #hover: HoverPreview | null = null;
+  /** Every card face drawn this pass, in its region's content space; where it sits now follows that region's scroll. */
+  #hoverFaces: { readonly face: FaceRef; readonly rect: Rect; readonly region: ThumbSlot["region"] }[] = [];
   readonly #leaderUrls = new Map<string, string | null>();
 
   constructor() {
@@ -144,7 +152,13 @@ export class CivilWarBuilderScene extends Phaser.Scene {
     // tiles per arriving face is what a long list of thumbnails cannot afford).
     const offBaked = cardFaces(this).onBaked(() => this.#fillThumbs());
     this.game.events.on("mc-choice-toggle", this.#onInspectChoose, this);
+    this.#hover = new HoverPreview(this, {
+      cardIds: () => this.#hoverCardIds(),
+      area: (pointer) => screenHoverArea(this, pointer),
+    });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.#hover?.destroy();
+      this.#hover = null;
       offBaked();
       this.game.events.off("mc-choice-toggle", this.#onInspectChoose, this);
       this.scale.off("resize", this.#rebuild, this);
@@ -252,7 +266,34 @@ export class CivilWarBuilderScene extends Phaser.Scene {
 
   // ---- drawing ----
 
+  /** The faces on screen now: those in the open sheet while it is up, otherwise the step's, each clipped to its region. */
+  #hoverCardIds(): ReadonlyMap<string, HoverCardIdRect> {
+    const found = new Map<string, HoverCardIdRect>();
+    const layout = this.#layout;
+    if (!layout) return found;
+    const sheetOpen = this.#sheet !== null;
+    const sheetBody = sheetOpen ? setSheetLayout(this.scale.gameSize, 0, this.#cardScale()).body : null;
+    this.#hoverFaces.forEach(({ face, rect, region }, index) => {
+      if (sheetOpen !== (region === "sheet") && region !== null) return;
+      if (sheetOpen && region === null) return;
+      const offset = region === "step" ? this.#scroll.offsetPx : region === "sheet" ? this.#sheetScroll.offsetPx : 0;
+      const view = region === "step" ? layout.content : region === "sheet" ? sheetBody : null;
+      const at = { ...rect, y: rect.y - offset };
+      const shown = view ? clipHoverRect(at, view) : at;
+      if (shown)
+        found.set(hoverSlotOf(face.cardId, `face${index}`), {
+          ...shown,
+          cardId: face.cardId,
+          face: face.face,
+          through: true,
+        });
+    });
+    return found;
+  }
+
   #rebuild(): void {
+    resetHoverCards(this);
+    this.#hoverFaces = [];
     this.#region?.destroy();
     this.#region = null;
     this.#sheetRegion?.destroy();
@@ -269,7 +310,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
       return;
     }
     const { width, height } = this.scale.gameSize;
-    const layout = civilWarBuilderLayout({ width, height, ...view.layout });
+    const layout = civilWarBuilderLayout({ width, height, ...view.layout, cardScale: this.#cardScale() });
     this.#view = view;
     this.#layout = layout;
 
@@ -290,6 +331,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
     if (this.#sheet !== null) order = this.#drawSheet(view);
     this.#route?.set(order, this.#stops);
     this.#fillThumbs();
+    this.#hover?.onDraw();
   }
 
   // ---- pictures ----
@@ -335,8 +377,11 @@ export class CivilWarBuilderScene extends Phaser.Scene {
       alpha?: number;
       label?: string | undefined;
       tag?: ThumbSlot["tag"];
+      /** The card face this picture shows: it opens the hover popover. */
+      face?: FaceRef | null | undefined;
     } = {},
   ): void {
+    if (o.face) this.#hoverFaces.push({ face: o.face, rect, region });
     const frame = this.add.graphics();
     frame.fillStyle(surface.parchment.hex, o.alpha ?? 1).fillRect(rect.x, rect.y, rect.width, rect.height);
     frame
@@ -364,13 +409,18 @@ export class CivilWarBuilderScene extends Phaser.Scene {
     });
   }
 
+  /** The global Card size setting as a factor (1, 1.25 or 1.5). */
+  #cardScale(): number {
+    return cardSizeFactor(appSession().settings.cardSize);
+  }
+
   /** Draws every waiting picture whose baked face is on hand and whose slot is near what is on screen. */
   #fillThumbs(): void {
     const layout = this.#layout;
     if (!layout) return;
     const faces = cardFaces(this);
     const stepView = { top: layout.content.y + this.#scroll.offsetPx, height: layout.content.height };
-    const sheet = this.#sheet !== null ? setSheetLayout(this.scale.gameSize, 0) : null;
+    const sheet = this.#sheet !== null ? setSheetLayout(this.scale.gameSize, 0, this.#cardScale()) : null;
     const sheetView = sheet
       ? { top: sheet.body.y + this.#sheetScroll.offsetPx, height: sheet.body.height }
       : { top: 0, height: 0 };
@@ -733,7 +783,11 @@ export class CivilWarBuilderScene extends Phaser.Scene {
       leader.stages.forEach((stage, j) => {
         const face = parts.faces[j]!;
         const caption = parts.captions[j]!;
-        this.#thumb(face, this.#urlOf(stage.face), container, "step", { fit: "contain", label: stage.face?.name });
+        this.#thumb(face, this.#urlOf(stage.face), container, "step", {
+          fit: "contain",
+          label: stage.face?.name,
+          face: stage.face,
+        });
         const read = this.#text(caption.x, caption.y, `Read stage ${stage.numeral} ▸`, typeRole.label, {
           alpha: ink.secondary,
         });
@@ -765,6 +819,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
         this.#thumb(parts.face, this.#urlOf(option.face), container, "step", {
           fit: "contain",
           label: option.name,
+          face: option.face,
         });
         this.#text(parts.name.x, parts.name.y, option.name, NAME, { width: parts.name.width, maxLines: 2 });
         const threat = this.#text(
@@ -907,7 +962,11 @@ export class CivilWarBuilderScene extends Phaser.Scene {
         // A card back (portrait), never the face; the caption under it says "Hidden".
         this.#thumb(centeredCard(face, false), this.#backUrl(), container, region, { tag: "back", fit: "contain" });
       } else {
-        this.#thumb(face, this.#urlOf(stage.face), container, region, { fit: "contain", label: stage.name });
+        this.#thumb(face, this.#urlOf(stage.face), container, region, {
+          fit: "contain",
+          label: stage.name,
+          face: stage.face,
+        });
         if (stage.face) {
           const ref = stage.face;
           this.#zone(face, `civil:summary-stage:${i}`, () => this.#inspect(ref), container);
@@ -929,6 +988,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
         const slot = slots[i]!;
         this.#thumb(centeredCard(slot, face?.landscape ?? false), this.#urlOf(face ?? null), container, region, {
           fit: "contain",
+          face,
         });
       });
     }
@@ -953,7 +1013,7 @@ export class CivilWarBuilderScene extends Phaser.Scene {
     const setId = this.#sheet!;
     const sheet = setSheetFor(this.#context(), setId);
     const { width, height } = this.scale.gameSize;
-    const L = setSheetLayout({ width, height }, sheet.cards.length);
+    const L = setSheetLayout({ width, height }, sheet.cards.length, this.#cardScale());
 
     this.add.rectangle(0, 0, width, height, surface.ink.hex, 0.62).setOrigin(0, 0);
     this.#zone({ x: 0, y: 0, width, height }, "civil:sheet:scrim", () => this.#closeSheet(), null, true);
@@ -989,7 +1049,11 @@ export class CivilWarBuilderScene extends Phaser.Scene {
       sheet.cards.forEach((card, i) => {
         const cell = L.cells[i]!;
         const image: Rect = { x: cell.x, y: cell.y, width: cell.width, height: L.imageHeight };
-        this.#thumb(image, this.#urlOf(card.face), region.content, "sheet", { fit: "contain", label: card.face.name });
+        this.#thumb(image, this.#urlOf(card.face), region.content, "sheet", {
+          fit: "contain",
+          label: card.face.name,
+          face: card.face,
+        });
         const name = this.#text(cell.x, cell.y + L.imageHeight + 4, card.face.name, typeRole.label, {
           width: cell.width,
           maxLines: 2,

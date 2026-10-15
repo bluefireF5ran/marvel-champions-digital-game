@@ -3,6 +3,12 @@ import {
   guideRowInfoOf,
   nextGuidePrefsAfterRow,
   nextSettingsAfterToggle,
+  cardHoverRowInfoOf,
+  cardSizeRowInfoOf,
+  nextSettingsAfterCardSize,
+  nextSettingsAfterCardHover,
+  nextSettingsAfterVillainRow,
+  villainRowInfoOf,
   settingsRowInfoOf,
   sharperTextTargetResolution,
   type GuideActionRowInfo,
@@ -19,6 +25,14 @@ const BASE: Settings = {
   sound: true,
   confirmBeforeEndTurn: true,
   sameNameHeroAllyConflict: true,
+  villainAutoAdvance: "off",
+  holdEncounterCards: true,
+  villainBeatSpeed: "normal",
+  villainDockTable: true,
+  cardHoverScale: "2.5x",
+  cardSize: "standard",
+  hoverHeroCard: true,
+  hoverVillainCard: true,
 };
 
 describe("settingsRowInfoOf", () => {
@@ -30,6 +44,14 @@ describe("settingsRowInfoOf", () => {
       sound: false,
       confirmBeforeEndTurn: false,
       sameNameHeroAllyConflict: false,
+      villainAutoAdvance: "off",
+      holdEncounterCards: true,
+      villainBeatSpeed: "normal",
+      villainDockTable: true,
+      cardHoverScale: "2.5x",
+      cardSize: "standard",
+      hoverHeroCard: true,
+      hoverVillainCard: true,
     });
     expect(rows.find((r) => r.id === "reduced-motion")?.on).toBe(true);
     expect(rows.find((r) => r.id === "sharper-text")?.on).toBe(true);
@@ -195,5 +217,55 @@ describe("nextSettingsAfterToggle", () => {
     expect(next.textResolution).toBe(BASE.textResolution);
     expect(next.largeCardText).toBe(BASE.largeCardText);
     expect(next.sound).toBe(BASE.sound);
+  });
+});
+
+describe("villain phase rows", () => {
+  test("reflect the settings and carry the mockup copy", () => {
+    const info = villainRowInfoOf({ ...BASE, villainAutoAdvance: "afterPause", villainBeatSpeed: "fast" });
+    expect(info.autoAdvance.selected).toBe("afterPause");
+    expect(info.autoAdvance.options.map((o) => o.label)).toEqual(["Off", "After a pause", "On"]);
+    expect(info.autoAdvance.options[1]!.detail).toBe("Recap closes itself after 6 seconds");
+    expect(info.beatSpeed.selected).toBe("fast");
+    expect(info.hold.on).toBe(true);
+    expect(info.dock.on).toBe(true);
+  });
+
+  test("toggles flip, choices set, and a bad value changes nothing", () => {
+    expect(nextSettingsAfterVillainRow(BASE, "villain-hold").holdEncounterCards).toBe(false);
+    expect(nextSettingsAfterVillainRow(BASE, "villain-dock").villainDockTable).toBe(false);
+    expect(nextSettingsAfterVillainRow(BASE, "villain-auto", "on").villainAutoAdvance).toBe("on");
+    expect(nextSettingsAfterVillainRow(BASE, "villain-speed", "slow").villainBeatSpeed).toBe("slow");
+    expect(nextSettingsAfterVillainRow(BASE, "villain-speed", "on")).toBe(BASE);
+    expect(nextSettingsAfterVillainRow(BASE, "villain-auto")).toBe(BASE);
+  });
+});
+
+describe("card size on hover row", () => {
+  test("offers off then 1.5x to 4x with the selected one marked", () => {
+    const info = cardHoverRowInfoOf({ ...BASE, cardHoverScale: "2.5x" });
+    expect(info.title).toBe("Card size on hover");
+    expect(info.options.map((o) => o.label)).toEqual(["Off", "1.5×", "2×", "2.5×", "3×", "4×"]);
+    expect(info.selected).toBe("2.5x");
+  });
+
+  test("a choice sets it, and a bad value changes nothing", () => {
+    expect(nextSettingsAfterCardHover(BASE, "off").cardHoverScale).toBe("off");
+    expect(nextSettingsAfterCardHover(BASE, "1.5x").cardHoverScale).toBe("1.5x");
+    expect(nextSettingsAfterCardHover(BASE, "9x" as never)).toBe(BASE);
+  });
+});
+
+describe("card size row", () => {
+  test("offers Standard, Large and Extra large with the selected one marked", () => {
+    const info = cardSizeRowInfoOf({ ...BASE, cardSize: "large" });
+    expect(info.title).toBe("Card size");
+    expect(info.options.map((o) => o.label)).toEqual(["Fit to screen", "Same size", "Large", "Extra large"]);
+    expect(info.selected).toBe("large");
+  });
+
+  test("a choice sets it, and a bad value changes nothing", () => {
+    expect(nextSettingsAfterCardSize(BASE, "xlarge").cardSize).toBe("xlarge");
+    expect(nextSettingsAfterCardSize(BASE, "huge" as never)).toBe(BASE);
   });
 });

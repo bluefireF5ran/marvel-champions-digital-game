@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { activeScenes, clickText, focusRect, settle, waitFor } from "./helpers.js";
 import {
+  answerDockedDefend,
   installWave6Helpers,
   screens,
   skipVillainPhase,
@@ -135,13 +136,18 @@ async function answerWhatIsUp(page: Page, phone: boolean, log: string[]): Promis
     const walk = await textsOf(page, "VillainPhaseOverlay");
     if (
       order.indexOf("VillainPhaseOverlay") > order.indexOf("ChoiceOverlay") &&
-      walk.some((t) => /^continue$/i.test(t))
+      walk.some((t) => /^(continue|start player phase( ▸)?)$/i.test(t))
     ) {
       log.push("sheet under the villain-phase panel: pressed Continue");
       await skipVillainPhase(page);
       await settle(page, { quietMs: 300, maxMs: 1500 });
       return true;
     }
+  }
+  // A defend decision is answered on the docked villain phase's own panel (the first defender, then Confirm).
+  if (scenes.includes("VillainPhaseOverlay") && (await answerDockedDefend(page))) {
+    log.push("villain-phase declared the first defender (docked)");
+    return true;
   }
   if (scenes.includes("ChoiceOverlay") || scenes.includes("VillainPhaseOverlay")) {
     await settle(page, { quietMs: 400, maxMs: 2000 });
@@ -160,7 +166,7 @@ async function answerWhatIsUp(page: Page, phone: boolean, log: string[]): Promis
     else if (sheet.some((t) => /declare your defender/i.test(t)) && (await declareDefender(page, phone, 0)))
       log.push("declared the first defender");
     else if (/mulligan/i.test(title) || sheet.some((t) => /^decline$/i.test(t))) await answerPreferDecline(page);
-    else if (walk.some((t) => /^let it resolve$/i.test(t))) await answerPreferDecline(page);
+    else if (walk.some((t) => /^(let it resolve|resolve) ?▸?$/i.test(t))) await answerPreferDecline(page);
     else if (scenes.includes("ChoiceOverlay")) {
       // A mandatory pick (or an ordering): tap as many options as it needs, the first ones, then Confirm.
       const preselected = sheet.some((t) => /^selected [1-9]/i.test(t));
@@ -169,7 +175,7 @@ async function answerWhatIsUp(page: Page, phone: boolean, log: string[]): Promis
       const now = (await choiceRects(page)).find(([key]) => key === "confirm");
       if (now) await press(page, phone, now[1].x + now[1].width / 2, now[1].y + now[1].height / 2);
     } else {
-      const skip = walk.find((t) => /^(continue|skip)$/i.test(t));
+      const skip = walk.find((t) => /^(continue|start player phase( ▸)?|skip)$/i.test(t));
       if (skip) await clickText(page, skip, { sceneKey: "VillainPhaseOverlay" });
     }
     await settle(page, { quietMs: 300, maxMs: 1500 });

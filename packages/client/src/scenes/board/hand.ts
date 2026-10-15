@@ -21,6 +21,7 @@ import { FORCED_ACTION_CODE } from "../../view/forced-actions.js";
 import type { IllegalReason } from "../../view/highlights.js";
 import { DEFENSE_LOCKOUT_TAG, isDefenseBarMessage } from "../../view/defense-lockout.js";
 import { handRow, type HandRowLayout } from "../../view/hand-row.js";
+import type { VillainHandTagKind } from "../../view/villain-hand-tags.js";
 import type { Rect } from "../../view/layout.js";
 import { BAR_ROW } from "../../view/payment-bar-layout.js";
 import { isCompactTag, sourceTagText, spentTagText, type PaymentView } from "../../view/payment-model.js";
@@ -173,7 +174,9 @@ export function drawHand(ctx: BoardDrawContext, rect: Rect, model: BoardModel): 
   const before = scene.children.list.length;
   model.hand.forEach((card, index) => {
     const slot = slots[index];
-    if (slot) drawHandCard(ctx, { ...slot, x: slot.x - drawnAt }, card, payment, discard);
+    // A card still flying in from the deck leaves its slot empty; its ghost fills it (`BoardMotion#isArriving`).
+    if (slot && !ctx.motion.isArriving(card.instanceId))
+      drawHandCard(ctx, { ...slot, x: slot.x - drawnAt }, card, payment, discard);
   });
   if (tabbed) {
     // Everything the cards just added (frames, scans, tags, rings, tap zones), reparented into one clipped strip —
@@ -441,7 +444,11 @@ function paintHandSlot(
   const source = payment?.sources.find((candidate) => candidate.instanceId === card.instanceId);
   const spent = source?.spent ?? false;
   const subject = payment?.subject === card.instanceId;
-  const available = payment ? subject || source !== undefined : (ctx.marks?.playable.has(card.instanceId) ?? false);
+  // A card the villain phase's open window offers right now is live, whatever the player-phase marks say.
+  const answersNow = !payment && ctx.villainHandTags?.get(card.instanceId)?.kind === "now";
+  const available = payment
+    ? subject || source !== undefined
+    : answersNow || (ctx.marks?.playable.has(card.instanceId) ?? false);
   const alpha = available ? 1 : ink.illegal;
 
   const g = ctx.scene.add.graphics();
@@ -480,6 +487,13 @@ function drawHandCard(
   const key = ctx.art.request(scene, card.art);
   const drawn = drawArt(scene, key, inner, { fit: "cover", alpha });
   if (!drawn) drawHandCardFallback(scene, inner, card, alpha);
+  // The card that answers the villain phase right now is outlined in caution yellow, as the D1/D2 mockups draw it
+  // (the owner, 2026-10-14): over the scan, so the frame reads at a glance.
+  if (!payment && !discard && ctx.villainHandTags?.get(card.instanceId)?.kind === "now") {
+    const glow = scene.add.graphics();
+    glow.lineStyle(8, signal.caution.hex, 0.35).strokeRect(slot.x - 2, slot.y - 2, slot.width + 4, slot.height + 4);
+    glow.lineStyle(4, signal.caution.hex, 1).strokeRect(slot.x + 1, slot.y + 1, slot.width - 2, slot.height - 2);
+  }
 
   // Chrome the scan cannot carry, because it is about this game rather than
   // this card: what the engine will not let you do with it right now, and
@@ -497,6 +511,9 @@ function drawHandCard(
           ? { text: "discarding", ground: surface.ink.hex }
           : null
       : (() => {
+          // The villain phase's own tag while it is up: when this card can answer it (D1/D2).
+          const villain = ctx.villainHandTags?.get(card.instanceId);
+          if (villain) return { text: villain.text, ground: villainTagGround(villain.kind) };
           const reason = ctx.marks?.unplayable.get(card.instanceId);
           if (reason) {
             const text = shortReason(reason, ctx.teamUpRoles?.get(card.instanceId) ?? null);
@@ -522,7 +539,7 @@ function drawHandCard(
         slot.x + slot.width - 3,
         atBottom ? slot.y + slot.height - 4 : inside ? slot.y + 4 : slot.y + 6,
         caseOf(typeRole.label, tag.text),
-        textStyle(typeRole.label, surface.paper.hex),
+        textStyle(typeRole.label, tag.ground === signal.caution.hex ? surface.ink.hex : surface.paper.hex),
       )
       .setOrigin(1, atBottom || !inside ? 1 : 0)
       .setAlign("right")
@@ -736,6 +753,21 @@ function drawHandCardFallback(scene: Phaser.Scene, slot: Rect, card: HandCardVie
       )
       .setOrigin(0.5);
   });
+}
+
+/** PLAY NOW in caution yellow (it is the decision), a trigger in the hero red, RESOURCE and YOUR TURN in ink. */
+function villainTagGround(kind: VillainHandTagKind): number {
+  switch (kind) {
+    case "now":
+      return signal.caution.hex;
+    case "hit":
+    case "treachery":
+    case "threat":
+    case "trigger":
+      return accent.heroRed.hex;
+    default:
+      return surface.ink.hex;
+  }
 }
 
 /**

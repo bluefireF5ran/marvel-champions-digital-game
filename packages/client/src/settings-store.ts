@@ -8,7 +8,15 @@
  * `guide/guide-prefs.ts`: unknown fields are ignored, a missing or wrong-typed field falls back to its default, a
  * corrupt record is no record, and a newer `version` is read best-effort.
  */
-import { SHARP_TEXT_RESOLUTION_CEILING, defaultSettings, type Settings } from "./settings.js";
+import {
+  CARD_HOVER_SCALE_VALUES,
+  CARD_SIZE_VALUES,
+  SHARP_TEXT_RESOLUTION_CEILING,
+  VILLAIN_AUTO_ADVANCE_VALUES,
+  VILLAIN_BEAT_SPEED_VALUES,
+  defaultSettings,
+  type Settings,
+} from "./settings.js";
 
 export const SETTINGS_KEY = "mc-settings";
 export const SETTINGS_VERSION = 1;
@@ -22,6 +30,10 @@ const BOOLEAN_FIELDS = [
   "sound",
   "confirmBeforeEndTurn",
   "sameNameHeroAllyConflict",
+  "holdEncounterCards",
+  "villainDockTable",
+  "hoverHeroCard",
+  "hoverVillainCard",
 ] as const;
 
 export function parseSettingsOverrides(raw: string | null): SettingsOverrides {
@@ -39,6 +51,16 @@ export function parseSettingsOverrides(raw: string | null): SettingsOverrides {
     const value = source[field];
     if (typeof value === "boolean") out[field] = value;
   }
+  const autoAdvance = source["villainAutoAdvance"];
+  const autoAdvanceValue = VILLAIN_AUTO_ADVANCE_VALUES.find((value) => value === autoAdvance);
+  if (autoAdvanceValue !== undefined) out.villainAutoAdvance = autoAdvanceValue;
+  const beatSpeed = source["villainBeatSpeed"];
+  const beatSpeedValue = VILLAIN_BEAT_SPEED_VALUES.find((value) => value === beatSpeed);
+  if (beatSpeedValue !== undefined) out.villainBeatSpeed = beatSpeedValue;
+  const hoverScaleValue = CARD_HOVER_SCALE_VALUES.find((value) => value === source["cardHoverScale"]);
+  if (hoverScaleValue !== undefined) out.cardHoverScale = hoverScaleValue;
+  const cardSizeValue = CARD_SIZE_VALUES.find((value) => value === source["cardSize"]);
+  if (cardSizeValue !== undefined) out.cardSize = cardSizeValue;
   const resolution = source["textResolution"];
   if (typeof resolution === "number" && Number.isFinite(resolution)) {
     out.textResolution = Math.min(SHARP_TEXT_RESOLUTION_CEILING, Math.max(1, resolution));

@@ -15,7 +15,7 @@
  * (docs/phase3-encounter-ai.md).
  */
 
-import type { AbilityId } from "@mc/content";
+import type { AbilityId, CardId } from "@mc/content";
 import { activeAbilityRefs, cardOf, ENEMY_TEAM_CHOICE_INSTRUCTION, ENEMY_TEAM_CHOICE_RULE } from "@mc/engine";
 import type {
   ChoiceBehalf,
@@ -29,8 +29,8 @@ import type {
   PendingChoice,
   PlayerId,
 } from "@mc/engine";
-import { logLine } from "./log-lines.js";
-import { cardName, numberWord, optionLabelOf, playerName, seatName } from "./names.js";
+import { beatTextWithStatus, logLine } from "./log-lines.js";
+import { cardName, numberWord, optionLabelOf, playerName, shortSeatName } from "./names.js";
 
 /** The engine's own villain-phase steps, in RRG order. */
 export const VILLAIN_STEPS = [
@@ -59,8 +59,12 @@ export function windowTimingOf(choice: { readonly prompt: ChoicePrompt }): Windo
   return timing === "response" ? "response" : "interrupt";
 }
 
-/** "Your interrupt window" / "Your response window", as the overlay heads the inline panel. */
-export const windowTitleOf = (timing: WindowTimingName): string => `Your ${timing} window`;
+/**
+ * "Your interrupt window" / "Your response window", as the overlay heads the inline panel. With more than one seat
+ * playing, the seat is named first ("She-Hulk — Your interrupt window"): on a shared screen "your" is whoever holds it.
+ */
+export const windowTitleOf = (timing: WindowTimingName, seat: string | null = null): string =>
+  seat ? `${seat} — Your ${timing} window` : `Your ${timing} window`;
 
 export interface Pause {
   readonly playerId: PlayerId;
@@ -141,7 +145,21 @@ export type ActivationBeat =
       readonly playerId: PlayerId;
       readonly boosts: readonly BoostCardBeat[];
       readonly resolved: SchemeBreakdown | null;
+      /**
+       * An activation an effect started (an encounter card's "Wrecker schemes"): the engine announces no `enemyActivated`
+       * for it, so its first boost card starts it as a scheme until its resolution says which it was.
+       */
+      readonly provisional?: true;
     };
+
+/** The active counter moving to another villain (`activeVillainChanged`), as a beat of its own. */
+export interface ActiveVillainChange {
+  readonly from: InstanceId;
+  readonly to: InstanceId;
+  readonly reason: Extract<GameEvent, { type: "activeVillainChanged" }>["reason"];
+  /** The encounter card being revealed when it moved, when one was; null when a stage or the engine moved it. */
+  readonly via: InstanceId | null;
+}
 
 export interface WalkthroughBeat {
   readonly id: string;
@@ -150,7 +168,30 @@ export interface WalkthroughBeat {
   readonly pause: Pause | null;
   /** The activation this beat belongs to, as far as events have described it so far; null outside one. */
   readonly activation: ActivationBeat | null;
+  /**
+   * The encounter card being revealed when this beat was recorded (its reveal beat and every beat until the next
+   * reveal), so beats group per card; null/absent outside the reveal step and before the first reveal.
+   */
+  readonly encounterInstanceId?: InstanceId | null;
+  /** The beat where an activation began: the engine's `enemyActivated`, or, for one an effect started, its first event. */
+  readonly startsActivation?: true;
+  /** The engine event this beat narrates (absent on a pause beat), so a view can tell a response from narration. */
+  readonly eventType?: GameEvent["type"];
+  /**
+   * Set on the beat that narrates the active counter moving (`activeVillainChanged`): who holds it now, why, and the
+   * encounter card being revealed when it moved (Buddy System), so the rail and the recap can give it a beat of its own.
+   */
+  readonly activeChange?: ActiveVillainChange;
+  /** The seat the event is attributable to (its `playerId` / `controllerId`), or null when none is. */
+  readonly seatId?: PlayerId | null;
 }
+
+/** The seat an event names itself as belonging to, if it does. */
+const seatOfEvent = (event: GameEvent): PlayerId | null => {
+  if ("playerId" in event && typeof event.playerId === "string") return event.playerId;
+  if ("controllerId" in event && typeof event.controllerId === "string") return event.controllerId;
+  return null;
+};
 
 export type StepStatus = "done" | "active" | "pending";
 
@@ -163,8 +204,30 @@ export interface VillainStepView {
   readonly status: StepStatus;
 }
 
+/** The encounter cards of this villain phase, read off `cardMoved` (to `dealtEncounter`) and `encounterCardRevealed`. */
+export interface EncounterTracking {
+  /** Every card dealt this phase, in order (including those dealt by surge or other effects while revealing). */
+  readonly dealt: readonly {
+    readonly instanceId: InstanceId;
+    readonly playerId: PlayerId;
+    /** Dealt after the reveal step began (surge and similar), not by the deal step. */
+    readonly duringReveal: boolean;
+  }[];
+  /** The cards revealed so far, in order. */
+  readonly revealed: readonly {
+    readonly instanceId: InstanceId;
+    readonly cardId: CardId;
+    readonly playerId: PlayerId;
+  }[];
+  /** The card being revealed right now: the last revealed while the reveal step is active; null otherwise. */
+  readonly current: { readonly instanceId: InstanceId; readonly cardId: CardId; readonly playerId: PlayerId } | null;
+}
+
+export const emptyEncounterTracking = (): EncounterTracking => ({ dealt: [], revealed: [], current: null });
+
 export interface Walkthrough {
   readonly round: number;
+  readonly encounter: EncounterTracking;
   readonly steps: readonly VillainStepView[];
   /** The step the walkthrough is showing, 1–5, or null once the phase is done. */
   readonly activeStep: number | null;
@@ -182,6 +245,7 @@ export interface Walkthrough {
 
 export const emptyWalkthrough = (round: number): Walkthrough => ({
   round,
+  encounter: emptyEncounterTracking(),
   steps: VILLAIN_STEPS.map((kind, index) => ({
     kind,
     number: index + 1,
@@ -215,6 +279,10 @@ export function appendWalkthrough(
   let nextBeatId = working.nextBeatId;
   let complete = working.complete;
   let activation = working.activation;
+  /** Set when an event starts an activation, and stamped on the next beat pushed (an event with no wording pushes none). */
+  let startsActivation = false;
+  let dealt = [...working.encounter.dealt];
+  let revealed = [...working.encounter.revealed];
   /**
    * The round this phase belongs to, frozen when the phase starts.
    *
@@ -230,12 +298,28 @@ export function appendWalkthrough(
   let round = working.round;
   let liveRound = state.round - events.reduce((n, event) => n + (event.type === "roundStarted" ? 1 : 0), 0);
 
+  /** The activation in hand is `enemyId`'s and has not resolved yet: the next event about that enemy belongs to it. */
+  const ongoing = (enemyId: InstanceId): boolean =>
+    activation !== null && activation.enemyInstanceId === enemyId && activation.resolved === null;
+
   /** Inside the five steps: recording beats. Outside them, events are ignored. */
   const inPhase = (): boolean => activeIndex >= 0 && !complete;
 
-  const push = (text: string, pause: Pause | null): void => {
+  const push = (text: string, pause: Pause | null, event?: GameEvent): void => {
     if (!inPhase()) return;
-    beats[activeIndex]!.push({ id: `beat-${nextBeatId++}`, text, pause, activation });
+    const revealing = activeIndex === VILLAIN_STEPS.indexOf("revealEncounterCards") ? revealed.at(-1) : undefined;
+    beats[activeIndex]!.push({
+      id: `beat-${nextBeatId++}`,
+      text,
+      pause,
+      activation,
+      encounterInstanceId: revealing?.instanceId ?? null,
+      ...(event ? { eventType: event.type, seatId: seatOfEvent(event) } : {}),
+      ...(startsActivation ? { startsActivation: true as const } : {}),
+      ...(event?.type === "activeVillainChanged"
+        ? { activeChange: { from: event.from, to: event.to, reason: event.reason, via: revealing?.instanceId ?? null } }
+        : {}),
+    });
   };
 
   for (const event of events) {
@@ -266,6 +350,8 @@ export function appendWalkthrough(
         complete = false;
         pausedAt = null;
         activation = null;
+        dealt = [];
+        revealed = [];
       }
       activeIndex = stepIndex;
       continue;
@@ -289,6 +375,18 @@ export function appendWalkthrough(
     // changes (`push` reads the closed-over `activation`), so a beat always
     // carries the activation exactly as it stood when that beat was recorded.
     switch (event.type) {
+      case "cardMoved":
+        if (event.to.kind === "dealtEncounter") {
+          dealt.push({
+            instanceId: event.instanceId,
+            playerId: event.to.playerId,
+            duringReveal: activeIndex >= VILLAIN_STEPS.indexOf("revealEncounterCards"),
+          });
+        }
+        break;
+      case "encounterCardRevealed":
+        revealed.push({ instanceId: event.instanceId, cardId: event.cardId, playerId: event.playerId });
+        break;
       case "enemyActivated":
         activation =
           event.activation === "attack"
@@ -307,16 +405,29 @@ export function appendWalkthrough(
                 boosts: [],
                 resolved: null,
               };
+        startsActivation = true;
         break;
       case "boostCardFlipped":
-        if (activation && activation.enemyInstanceId === event.enemyInstanceId) {
+        if (ongoing(event.enemyInstanceId)) {
           activation = {
-            ...activation,
+            ...activation!,
             boosts: [
-              ...activation.boosts,
+              ...activation!.boosts,
               { instanceId: event.instanceId, boostIcons: event.boostIcons, cancelled: null },
             ],
           };
+        } else {
+          // An activation an effect started has no `enemyActivated`: its first boost card begins it, as a scheme until
+          // its resolution says which it was.
+          activation = {
+            kind: "scheme",
+            enemyInstanceId: event.enemyInstanceId,
+            playerId: revealed.at(-1)?.playerId ?? state.firstPlayerId,
+            boosts: [{ instanceId: event.instanceId, boostIcons: event.boostIcons, cancelled: null }],
+            resolved: null,
+            provisional: true,
+          };
+          startsActivation = true;
         }
         break;
       case "boostCancelled":
@@ -352,34 +463,55 @@ export function appendWalkthrough(
           activation = { ...activation, defender: { instanceId: null, declined: true } };
         }
         break;
-      case "attackResolved":
-        if (activation?.kind === "attack" && activation.enemyInstanceId === event.enemyInstanceId) {
+      case "attackResolved": {
+        const resolved: AttackBreakdown = {
+          targetInstanceId: event.targetInstanceId,
+          baseAtk: event.baseAtk,
+          boostIcons: event.boostIcons,
+          defenseReduction: event.defenseReduction,
+          damageDealt: event.damageDealt,
+        };
+        if (activation?.kind === "attack" && ongoing(event.enemyInstanceId)) {
+          activation = { ...activation, resolved };
+        } else {
+          // An effect's attack (no `enemyActivated`): the seat is whoever's identity it hit, else the revealing seat.
+          const hit = state.players.find((seat) => seat.identity.instanceId === event.targetInstanceId);
+          const carried = ongoing(event.enemyInstanceId) ? activation!.boosts : [];
           activation = {
-            ...activation,
-            resolved: {
-              targetInstanceId: event.targetInstanceId,
-              baseAtk: event.baseAtk,
-              boostIcons: event.boostIcons,
-              defenseReduction: event.defenseReduction,
-              damageDealt: event.damageDealt,
-            },
+            kind: "attack",
+            enemyInstanceId: event.enemyInstanceId,
+            attackedPlayerId: hit?.playerId ?? revealed.at(-1)?.playerId ?? state.firstPlayerId,
+            boosts: carried,
+            defender: null,
+            resolved,
           };
+          if (carried.length === 0) startsActivation = true;
         }
         break;
-      case "schemeResolved":
-        if (activation?.kind === "scheme" && activation.enemyInstanceId === event.enemyInstanceId) {
+      }
+      case "schemeResolved": {
+        const resolved: SchemeBreakdown = {
+          schemeInstanceId: event.schemeInstanceId,
+          baseSch: event.baseSch,
+          boostIcons: event.boostIcons,
+          threatBonus: event.threatBonus,
+          threatPlaced: event.threatPlaced,
+        };
+        if (activation?.kind === "scheme" && ongoing(event.enemyInstanceId)) {
+          const { provisional: _provisional, ...settled } = activation;
+          activation = { ...settled, resolved };
+        } else {
           activation = {
-            ...activation,
-            resolved: {
-              schemeInstanceId: event.schemeInstanceId,
-              baseSch: event.baseSch,
-              boostIcons: event.boostIcons,
-              threatBonus: event.threatBonus,
-              threatPlaced: event.threatPlaced,
-            },
+            kind: "scheme",
+            enemyInstanceId: event.enemyInstanceId,
+            playerId: revealed.at(-1)?.playerId ?? state.firstPlayerId,
+            boosts: [],
+            resolved,
           };
+          startsActivation = true;
         }
         break;
+      }
       default:
         break;
     }
@@ -387,11 +519,20 @@ export function appendWalkthrough(
     // Everything else reuses the log's wording, so the walkthrough and the log
     // never describe the same beat two different ways.
     const described = logLine(event, state, viewer, deps);
-    if (described) push(described.text, null);
+    if (described) {
+      push(beatTextWithStatus(described), null, event);
+      startsActivation = false;
+    }
   }
 
   return {
     round,
+    encounter: {
+      dealt,
+      revealed,
+      current:
+        !complete && activeIndex === VILLAIN_STEPS.indexOf("revealEncounterCards") ? (revealed.at(-1) ?? null) : null,
+    },
     steps: working.steps.map((step, index) => ({
       ...step,
       beats: beats[index]!,
@@ -421,7 +562,7 @@ function statusOf(index: number, activeIndex: number, complete: boolean): StepSt
  */
 export function decisionLabel(choice: ChoiceLike, state: GameState, viewer: PlayerId | null): string {
   const yours = choice.playerId === viewer;
-  const who = seatName(state, choice.playerId, viewer);
+  const who = shortSeatName(state, choice.playerId, viewer);
   switch (choice.authority) {
     // RRG "First Player": an encounter card names a target and several are
     // eligible, so the first player selects on the card's behalf.
@@ -472,7 +613,7 @@ const perilNote = (state: GameState, playerId: PlayerId): string =>
  */
 export function pauseFor(choice: ChoiceLike, state: GameState, viewer: PlayerId | null): Pause {
   const yours = choice.playerId === viewer;
-  const who = seatName(state, choice.playerId, viewer);
+  const who = shortSeatName(state, choice.playerId, viewer);
   const base =
     choice.authority === "player" && choice.prompt.kind !== "declareDefender"
       ? // The design canvas's exact phrase for an ordinary interrupt.
@@ -708,8 +849,13 @@ export function recapPlacementFor(input: {
   readonly pending: boolean;
   readonly inline: boolean;
   readonly finished: boolean;
+  /**
+   * The docked phase is holding the decision back (the owner's call, 2026-10-14): before the player started the phase,
+   * or until they press ANSWER on its notice. The sheet stays hidden under the phase until then.
+   */
+  readonly held?: boolean;
 }): RecapPlacement {
   if (!input.pending) return { recapOnTop: true, recapTakesInput: true };
-  const onTop = input.inline || input.finished;
+  const onTop = input.inline || input.finished || input.held === true;
   return { recapOnTop: onTop, recapTakesInput: onTop };
 }

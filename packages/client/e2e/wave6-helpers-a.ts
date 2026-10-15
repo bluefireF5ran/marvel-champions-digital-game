@@ -197,11 +197,56 @@ interface PendingChoiceView {
 }
 
 /**
+ * The defend decision drawn in the docked villain phase (`ui/villain-defend-panel.ts`), answered like the sheet's: the
+ * first option picked with a real press, then Confirm. False when no docked defend is up.
+ */
+export async function answerDockedDefend(page: Page): Promise<boolean> {
+  const rects = async (): Promise<{ confirm: Rect | null; first: Rect | null }> =>
+    page.evaluate(() => {
+      const dbg = (
+        window as unknown as {
+          __mcVillainPhaseDebug?: {
+            confirmRect?: () => Rect | null;
+            defendOptionIds?: () => string[];
+            defendOptionRect?: (id: string) => Rect | null;
+          };
+        }
+      ).__mcVillainPhaseDebug;
+      const confirm = dbg?.confirmRect?.() ?? null;
+      const id = dbg?.defendOptionIds?.()[0];
+      return { confirm, first: id === undefined ? null : (dbg?.defendOptionRect?.(id) ?? null) };
+    });
+  const before = await rects();
+  if (!before.confirm || !before.first) return false;
+  await pressAt(page, before.first.x + before.first.width / 2, before.first.y + before.first.height / 2);
+  await settle(page);
+  const after = await rects();
+  const confirm = after.confirm ?? before.confirm;
+  await pressAt(page, confirm.x + confirm.width / 2, confirm.y + confirm.height / 2);
+  await settle(page);
+  return true;
+}
+
+/**
  * Answers the open pending-choice sheet with the first legal option(s): the options the sheet itself offers (read
  * from the same pending choice it draws), clicked with real pointer events, then Confirm. A lone option starts
  * picked (`initialChoiceSelection`), so only Confirm is pressed then.
  */
 export async function answerChoiceSheet(page: Page): Promise<void> {
+  // The docked villain phase answers its own interrupt window (the sheet is hidden under it): let it resolve there.
+  const inlineResolve = await page.evaluate(
+    () =>
+      (
+        window as unknown as { __mcVillainPhaseDebug?: { resolveRect?: () => Rect | null } }
+      ).__mcVillainPhaseDebug?.resolveRect?.() ?? null,
+  );
+  if (inlineResolve) {
+    await pressAt(page, inlineResolve.x + inlineResolve.width / 2, inlineResolve.y + inlineResolve.height / 2);
+    await settle(page);
+    return;
+  }
+  // The docked villain phase answers a defend on its own panel (no sheet): the first defender, then Confirm.
+  if (await answerDockedDefend(page)) return;
   // In a game with more than one seat, cards from a deck wait behind the privacy cover until the looking player taps
   // it (a setup search of one's own deck included): tapped here the way that player would.
   const cover = (await visibleTexts(page)).find((t) => t.scene === "ChoiceOverlay" && /tap to reveal/i.test(t.text));
@@ -346,6 +391,10 @@ export async function endTurnToNextRound(
           null,
       );
       if (rect) await pressAt(page, rect.x + rect.width / 2, rect.y + rect.height / 2);
+    } else if (scenes.includes("PileViewOverlay")) {
+      // A press meant for a sheet that was already leaving (a slow runner) landed on the board's discard pile under it:
+      // close the pile the way a player would, then carry on.
+      await pressKey(page, "Escape");
     } else if (scenes.includes("ChoiceOverlay")) {
       await answerChoiceSheet(page);
     } else if (scenes.includes("VillainPhaseOverlay")) {

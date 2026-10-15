@@ -46,6 +46,12 @@ describe("SettingsStore", () => {
     ["sound", false],
     ["confirmBeforeEndTurn", false],
     ["sameNameHeroAllyConflict", false],
+    ["villainAutoAdvance", "afterPause"],
+    ["holdEncounterCards", false],
+    ["villainBeatSpeed", "fast"],
+    ["villainDockTable", false],
+    ["cardHoverScale", "2.5x"],
+    ["cardHoverScale", "off"],
   ])("%s survives a restart", (field, value) => {
     const storage = new MapStorage();
     const first = new SettingsStore(storage, device(false, 2));
@@ -133,6 +139,41 @@ describe("parseSettingsOverrides", () => {
         JSON.stringify({ version: 1, sound: false, largeCardText: "yes", textResolution: "big", extra: 1 }),
       ),
     ).toEqual({ sound: false });
+  });
+
+  test("villain phase fields: wrong types and unknown enum values fall back to default", () => {
+    expect(
+      parseSettingsOverrides(
+        JSON.stringify({
+          villainAutoAdvance: "sometimes",
+          villainBeatSpeed: 3,
+          holdEncounterCards: "no",
+          villainDockTable: 1,
+        }),
+      ),
+    ).toEqual({});
+    expect(
+      parseSettingsOverrides('{"villainAutoAdvance":"on","villainBeatSpeed":"slow","holdEncounterCards":false}'),
+    ).toEqual({
+      villainAutoAdvance: "on",
+      villainBeatSpeed: "slow",
+      holdEncounterCards: false,
+    });
+  });
+
+  test("cardSize: only the three known values are read", () => {
+    expect(parseSettingsOverrides('{"cardSize":"xlarge"}')).toEqual({ cardSize: "xlarge" });
+    expect(parseSettingsOverrides('{"cardSize":"large"}')).toEqual({ cardSize: "large" });
+    expect(parseSettingsOverrides('{"cardSize":1.5}')).toEqual({});
+    expect(parseSettingsOverrides('{"cardSize":"huge"}')).toEqual({});
+  });
+
+  test("cardHoverScale: only the five known values are read (a saved 5x falls back to the default)", () => {
+    expect(parseSettingsOverrides('{"cardHoverScale":"1.5x"}')).toEqual({ cardHoverScale: "1.5x" });
+    expect(parseSettingsOverrides('{"cardHoverScale":"off"}')).toEqual({ cardHoverScale: "off" });
+    expect(parseSettingsOverrides('{"cardHoverScale":3}')).toEqual({});
+    expect(parseSettingsOverrides('{"cardHoverScale":"4x"}')).toEqual({ cardHoverScale: "4x" });
+    expect(parseSettingsOverrides('{"cardHoverScale":"5x"}')).toEqual({});
   });
 
   test.each([null, "", "{nope", "42", "null", "[1]"])("%j is no record", (raw) => {

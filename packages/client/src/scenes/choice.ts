@@ -13,6 +13,8 @@
  */
 
 import { triggerCaption, triggerOrdinal } from "../view/trigger-caption.js";
+import { choiceDock } from "../view/choice-dock.js";
+import { triggerWindowContextOf, type TriggerWindowContext } from "../view/trigger-window-context.js";
 import Phaser from "phaser";
 import {
   cardOf,
@@ -42,6 +44,7 @@ import { cardArt, drawArt } from "../art/card-art.js";
 import { CARD_BACKS, artFor } from "../art/art-source.js";
 import { abilityFaceOf, characterPanel, faceOf } from "../view/board-model.js";
 import type { Rect } from "../view/layout.js";
+import { CHOICE_MIN_CARD_HEIGHT, choiceCardLayout, choiceRowLayout } from "../view/choice-options-layout.js";
 import { cardChoiceSlots, formFactorFor, isTabbed } from "../view/layout.js";
 import { authorityTagOf, decisionLabel, enemyTeamNoticeOf } from "../view/villain-walkthrough.js";
 import { abilityShortLabelOf } from "../view/ability-label.js";
@@ -170,6 +173,14 @@ export class ChoiceOverlay extends Phaser.Scene {
   #pairCard: InstanceId | null = null;
   /** The pair sheet's rows scroll when the characters outrun the sheet (a phone); the offset survives each redraw. */
   readonly #pairScroll = new VariableListScroll();
+  /**
+   * The option cards or rows scroll when they do not fit the area at a readable size (a phone held sideways,
+   * `view/choice-options-layout.ts`); the offset survives each redraw and starts again at 0 for a new choice.
+   */
+  readonly #optionScroll = new VariableListScroll();
+  #optionRegion: McScrollRegion | null = null;
+  /** Option key -> its row in the scroll, for the options drawn inside the scroll region. */
+  #scrolledRows = new Map<string, number>();
   /** Keyboard/pad focus: what is focused, not where — the rect is re-read each rebuild. */
   #focus: ChoiceFocusTarget | null = null;
   #route: readonly ChoiceFocusTarget[] = [];
@@ -220,12 +231,20 @@ export class ChoiceOverlay extends Phaser.Scene {
    * the decision back after a short grace, instead of ignoring clicks until the game is reloaded.
    */
   override update(time: number): void {
-    // Under the villain phase's inline interrupt window the sheet is hidden *and* inert (`sheetIsCovered`).
+    // Under the villain phase's inline interrupt window the sheet is hidden *and* inert (`sheetIsCovered`). Hidden
+    // outright, not only drawn over: the docked phase leaves the table in view, and the sheet would show on it.
+    // Held every frame while covered, not only when it changes: a redraw's `OverlayMotion.enter` switches input back
+    // on, and the sheet's full-screen modal zone then swallowed every press and hover on the table beside the docked
+    // villain phase.
     const covered = this.#covered();
-    if (covered !== this.#wasCovered) {
-      this.#wasCovered = covered;
-      this.input.enabled = !covered && !this.#motion.leaving;
+    if (covered) {
+      this.input.enabled = false;
+      this.sys.setVisible(false);
+    } else if (this.#wasCovered) {
+      this.input.enabled = !this.#motion.leaving;
+      this.sys.setVisible(true);
     }
+    this.#wasCovered = covered;
     const state = appSession().store.state;
     const pendingChoiceId = state.game?.pendingChoice?.choiceId ?? null;
     const idle =
@@ -269,6 +288,9 @@ export class ChoiceOverlay extends Phaser.Scene {
   create(): void {
     this.#motion = new OverlayMotion();
     this.#idleSince = null;
+    // A relaunch starts uncovered and shown, whatever the last run left (`update` hides a covered sheet).
+    this.#wasCovered = false;
+    this.sys.setVisible(true);
     const { store } = appSession();
     this.#unsubscribe = store.subscribe(() => this.#rebuild());
     const onResize = (): void => this.#rebuild();
@@ -315,10 +337,12 @@ export class ChoiceOverlay extends Phaser.Scene {
     if (import.meta.env.DEV) {
       (window as unknown as { __mcChoiceDebug?: unknown }).__mcChoiceDebug = {
         optionRect: (optionId: string) =>
-          this.#covered() ? null : (this.#focusRects.get(choiceFocusKey({ kind: "option", optionId })) ?? null),
+          this.#covered() ? null : this.#screenRect(choiceFocusKey({ kind: "option", optionId })),
         guideOptionRect: (id: string) =>
           this.#covered() ? null : (this.#guideOptionRects.get(id as InstanceId) ?? null),
-        allRects: () => (this.#covered() ? [] : [...this.#focusRects.entries()]),
+        allRects: () =>
+          this.#covered() ? [] : [...this.#focusRects.keys()].map((key) => [key, this.#screenRect(key)] as const),
+        scrollOffset: () => this.#optionScroll.offsetPx,
       };
     }
   }
@@ -326,9 +350,21 @@ export class ChoiceOverlay extends Phaser.Scene {
   /** The live Board scene, when one is running underneath — mirrors `scenes/inspect.ts`'s own `#boardScene`
    * (guided mode G7c: the guide rail's own reserved width and the bottom guide strip's content both come from
    * here — `docs/guided-mode.md` §4 "Left for G7"). */
+  /** A focus rect as it is on screen now: the options inside the scroll region move with it. */
+  #screenRect(key: string): Rect | null {
+    const rect = this.#focusRects.get(key);
+    if (!rect) return null;
+    return this.#scrolledRows.has(key) ? { ...rect, y: rect.y - this.#optionScroll.offsetPx } : rect;
+  }
+
   #boardScene(): BoardScene | null {
     if (!this.scene.isActive(SCENES.board)) return null;
     return this.scene.get(SCENES.board) as BoardScene;
+  }
+
+  /** A screen that hosts the sheet (the setup screen's dock) asks for a redraw after it moves the dock. */
+  refresh(): void {
+    this.#rebuild();
   }
 
   #rebuild(): void {
@@ -361,6 +397,7 @@ export class ChoiceOverlay extends Phaser.Scene {
       this.#breakManual = false;
       this.#pairing = beginPairing(choice);
       this.#pairCard = null;
+      this.#optionScroll.reset();
       if (this.#pairing) this.#selected = [...selectionOf(this.#pairing)];
     }
     this.#maxSelections = choice.maxSelections;
@@ -372,6 +409,8 @@ export class ChoiceOverlay extends Phaser.Scene {
     this.#focusRing?.destroy();
     this.#focusRing = null;
     this.#focusRects.clear();
+    this.#scrolledRows.clear();
+    this.#optionRegion = null;
     this.#guideOptionRects.clear();
     destroyChildren(this);
 
@@ -427,7 +466,10 @@ export class ChoiceOverlay extends Phaser.Scene {
     // its own (MC27 p. 22's reputation node 9) still names itself on the frame it pushed (`choiceInstructionOf`),
     // so the panel slot shows that instruction's own text/citation instead of going blank.
     const instruction = sourcePanel ? null : choiceInstructionOf(state.game, choice);
-    const panelMode = sourcePanel || instruction ? sourcePanelModeFor(formFactor) : null;
+    // Docked beside the screen's own content (the setup screen offers its right-hand column): no scrim over the rest
+    // of the screen, no source rail, the same ink ground and paper border the villain phase's dock wears.
+    const docked = formFactor === "phone" ? null : choiceDock();
+    const panelMode = !docked && (sourcePanel || instruction) ? sourcePanelModeFor(formFactor) : null;
     const railWidth = panelMode === "rail" ? railReserve(formFactor) : 0;
     // The strip holds a setup instruction's whole rule, so it grows to the wrapped text (a card's stays the fixed strip).
     const stripWidthGuess = Math.max(280, Math.min(width - guideRailWidth - 16, asCards ? 1040 : 560));
@@ -444,25 +486,53 @@ export class ChoiceOverlay extends Phaser.Scene {
     const areaWidth = width - guideRailWidth;
     const areaHeight = height - stripHeight;
     const scrim = this.add.graphics();
-    scrim.fillStyle(surface.ink.hex, 0.7).fillRect(areaX, 0, areaWidth, areaHeight);
-    // Modal: a tap or right-click on no control of this sheet's own must not reach the board card underneath.
-    this.add.zone(areaX, 0, areaWidth, areaHeight).setOrigin(0, 0).setInteractive();
+    if (docked) {
+      // Only the dock itself is modal; the rest of the screen stays visible and is not covered.
+      this.add.zone(docked.x, docked.y, docked.width, docked.height).setOrigin(0, 0).setInteractive();
+    } else {
+      scrim.fillStyle(surface.ink.hex, 0.7).fillRect(areaX, 0, areaWidth, areaHeight);
+      // Modal: a tap or right-click on no control of this sheet's own must not reach the board card underneath.
+      this.add.zone(areaX, 0, areaWidth, areaHeight).setOrigin(0, 0).setInteractive();
+    }
     const panelsFrom = this.children.list.length;
 
-    const sheetWidth = Math.max(280, Math.min(areaWidth - (phone ? 16 : 80) - railWidth, asCards ? 1040 : 560));
-    const sheetHeight = Math.min(areaHeight - (phone ? 16 : 80), (asCards ? 620 : 560) + extraHeight);
+    const DOCK_INSET = 8;
+    const sheetWidth = docked
+      ? docked.width - DOCK_INSET * 2
+      : Math.max(280, Math.min(areaWidth - (phone ? 16 : 80) - railWidth, asCards ? 1040 : 560));
+    // What the optional interrupt/response window is about, measured now so the sheet grows to hold it.
+    const triggerContext = triggerWindowContextOf(
+      state.game,
+      choice,
+      state.perspectiveId ?? choice.playerId,
+      POOL_DEPS,
+    );
+    const contextHeight = triggerContext
+      ? this.#drawTriggerContext(triggerContext, 0, 0, sheetWidth - 24, true) + 10
+      : 0;
+    const sheetHeight = docked
+      ? docked.height - DOCK_INSET * 2
+      : Math.min(areaHeight - (phone ? 16 : 80), (asCards ? 620 : 560) + extraHeight + contextHeight);
     // In rail mode the rail and the sheet are centered together as one group — the same composition Inspect's D08
     // pair uses for its own card/rules panels (`view/inspect-layout.ts`) — rather than the sheet alone staying
     // centered and the rail hanging off whichever side has room.
     const groupWidth = sheetWidth + railWidth;
-    const sheet: Rect = {
-      x: areaX + (areaWidth - groupWidth) / 2 + railWidth,
-      y: (areaHeight - sheetHeight) / 2,
-      width: sheetWidth,
-      height: sheetHeight,
-    };
+    const sheet: Rect = docked
+      ? { x: docked.x + DOCK_INSET, y: docked.y + DOCK_INSET, width: sheetWidth, height: sheetHeight }
+      : {
+          x: areaX + (areaWidth - groupWidth) / 2 + railWidth,
+          y: (areaHeight - sheetHeight) / 2,
+          width: sheetWidth,
+          height: sheetHeight,
+        };
     const g = this.add.graphics();
+    if (docked) {
+      g.fillStyle(surface.ink.hex, 1).fillRect(docked.x, docked.y, docked.width, docked.height);
+      g.lineStyle(2, surface.paper.hex, 1).strokeRect(docked.x + 1, docked.y + 1, docked.width - 2, docked.height - 2);
+    }
     paintPanel(g, sheet, "card", "rest");
+    if (docked)
+      g.lineStyle(3, signal.caution.hex, 1).strokeRect(sheet.x + 1.5, sheet.y + 1.5, sheet.width - 3, sheet.height - 3);
 
     if (panelMode === "rail" && sourcePanel) {
       drawSourceCardPanel(this, sourceRailPlacement(sheet), sourcePanel, () =>
@@ -566,6 +636,10 @@ export class ChoiceOverlay extends Phaser.Scene {
     // The compact strip (phone, phone landscape, tablet portrait): there's no width to spare beside the sheet at
     // these sizes, so the source card sits inside it instead, just under the title bar and above everything else.
     let bodyTop = bar.y + bar.height;
+    if (triggerContext) {
+      this.#drawTriggerContext(triggerContext, sheet.x + 12, bodyTop + 8, sheet.width - 24, false);
+      bodyTop += contextHeight;
+    }
     if (panelMode === "strip" && (sourcePanel || instruction)) {
       const stripArea: Rect = { x: sheet.x, y: bodyTop, width: sheet.width, height: extraHeight - 10 };
       if (sourcePanel) {
@@ -673,7 +747,7 @@ export class ChoiceOverlay extends Phaser.Scene {
       return;
     }
 
-    if (asCards && listHeight >= 120) {
+    if (asCards && listHeight >= CHOICE_MIN_CARD_HEIGHT + 16) {
       this.#route = choiceFocusOrder(cardChoiceDisplayOrder(choice.options, this.#selected), canDeclineChoice(choice));
       this.#drawCardChoice(
         {
@@ -754,55 +828,48 @@ export class ChoiceOverlay extends Phaser.Scene {
         (text.split("\n").length > 2 ? text.split("\n").length - 2 : 0) * 15 +
         (text.includes("\n") ? 8 : 0),
     );
-    let capacity = 0;
-    for (let used = 0; capacity < heights.length; capacity++) {
-      used += heights[capacity]! + 4;
-      if (used > listHeight && capacity > 0) break;
-    }
-    capacity = Math.max(1, capacity);
-    const shown = choice.options.slice(0, capacity);
-    const tops = heights.map((_, index) => listTop + heights.slice(0, index).reduce((sum, h) => sum + h + 4, 0));
+    // Every option is drawn; when they outrun the area they scroll in it (`view/choice-options-layout.ts`), never cut off.
+    const rowsLayout = choiceRowLayout(listTop, listHeight, heights);
+    const tops = rowsLayout.tops;
+    const viewport: Rect = { x: sheet.x + 12, y: listTop, width: sheet.width - 24, height: listHeight };
+    const rowWidth = sheet.width - 24 - (rowsLayout.scrolls ? 10 : 0);
     this.#route = choiceFocusOrder(
-      shown.map((option) => option.optionId),
+      choice.options.map((option) => option.optionId),
       canDeclineChoice(choice),
     );
 
-    shown.forEach((option, index) => {
+    const rowButtons: McButton[] = [];
+    choice.options.forEach((option, index) => {
       const order = this.#selected.indexOf(option.optionId);
       const text = texts[index]!;
       const rowLabel = choice.ordered && order >= 0 ? `${order + 1}. ${text}` : text;
-      this.#buttons.push(
-        new McButton(this, {
-          kind: "secondary",
-          label: rowLabel,
-          type: typeRole.rowTitle,
-          rect: {
-            x: sheet.x + 12,
-            y: tops[index]!,
-            width: sheet.width - 24,
-            height: heights[index]!,
-          },
-          selected: order >= 0,
-          onClick: () => this.#toggle(option.optionId, choice.maxSelections),
-        }),
-      );
-      this.#focusRects.set(choiceFocusKey({ kind: "option", optionId: option.optionId }), {
-        x: sheet.x + 12,
-        y: tops[index]!,
-        width: sheet.width - 24,
-        height: heights[index]!,
+      const rect: Rect = { x: sheet.x + 12, y: tops[index]!, width: rowWidth, height: heights[index]! };
+      const button = new McButton(this, {
+        kind: "secondary",
+        label: rowLabel,
+        type: typeRole.rowTitle,
+        rect,
+        selected: order >= 0,
+        ...(rowsLayout.scrolls ? { clip: () => viewport } : {}),
+        onClick: () => this.#toggle(option.optionId, choice.maxSelections),
       });
+      this.#buttons.push(button);
+      rowButtons.push(button);
+      const key = choiceFocusKey({ kind: "option", optionId: option.optionId });
+      this.#focusRects.set(key, rect);
+      if (rowsLayout.scrolls) this.#scrolledRows.set(key, index);
     });
-    if (choice.options.length > capacity) {
-      label(
-        this,
-        sheet.x + 12,
-        commitTop - 16,
-        `+${choice.options.length - capacity} more options — resize to see them`,
-        typeRole.label,
-        signal.caution.hex,
-        ink.body,
-      );
+    if (rowsLayout.scrolls) {
+      const region = new McScrollRegion(this, {
+        rect: viewport,
+        heights: rowsLayout.scrollHeights,
+        scroll: this.#optionScroll,
+        clipInteractive: true,
+        onScroll: () => this.#drawFocusRing(),
+      });
+      region.content.add(rowButtons.map((button) => button.container));
+      region.refresh();
+      this.#optionRegion = region;
     }
 
     this.#drawCommit(sheet, commitTop, choice);
@@ -1534,8 +1601,22 @@ export class ChoiceOverlay extends Phaser.Scene {
     const gridArea: Rect = { ...area, y: area.y + captionHeight, height: area.height - captionHeight };
     const game = appSession().store.state.game;
     const divideTally = game ? (divideSheetOf(game, choice, this.#selected)?.tally ?? "") : "";
-    const gridSlots = cardChoiceSlots(gridArea, choice.options.length, { gap: 6 });
-    if (gridSlots.length > 1 && (choice.ordered || gridSlots[0]!.y !== gridSlots.at(-1)!.y)) {
+    // Cards that do not fit the area whole at a readable height (a phone held sideways, a dozen options) scroll
+    // in a grid inside the area instead of being cut off or shrunk (`view/choice-options-layout.ts`).
+    let layout = choiceCardLayout(gridArea, choice.options.length, { gap: 6 });
+    // Room for the scrollbar beside the grid.
+    if (layout.scrolls)
+      layout = choiceCardLayout({ ...gridArea, width: gridArea.width - 10 }, choice.options.length, { gap: 6 });
+    const gridSlots = layout.slots;
+    // Under two readable card heights the picked row cannot be lifted out into a second row, so the cards keep
+    // their places and wear their rings instead.
+    const stable =
+      gridSlots.length > 1 &&
+      (choice.ordered ||
+        layout.scrolls ||
+        gridSlots[0]!.y !== gridSlots.at(-1)!.y ||
+        area.height < CHOICE_MIN_CARD_HEIGHT * 2 + captionHeight * 2 + 10);
+    if (stable) {
       label(
         this,
         area.x,
@@ -1545,16 +1626,34 @@ export class ChoiceOverlay extends Phaser.Scene {
           : divideTally
             ? divideTally
             : this.#selected.length > 0
-              ? `selected ${this.#selected.length} · tap to add or remove`
-              : "tap to select · long press/right click to read it",
+              ? `selected ${this.#selected.length} · tap to add or remove${layout.scrolls ? " · scroll for more" : ""}`
+              : `tap to select · long press/right click to read it${layout.scrolls ? " · scroll for more" : ""}`,
         typeRole.label,
         surface.ink.hex,
         ink.label,
       );
+      const region = layout.scrolls
+        ? new McScrollRegion(this, {
+            rect: gridArea,
+            heights: layout.rowHeights,
+            scroll: this.#optionScroll,
+            clipInteractive: true,
+            onScroll: () => this.#drawFocusRing(),
+          })
+        : null;
+      this.#optionRegion = region;
+      const drawnFrom = this.children.list.length;
       choice.options.forEach((option, index) => {
         const slot = gridSlots[index];
-        if (slot) this.#drawCardOption(slot, option, choice.ordered);
+        if (!slot) return;
+        this.#drawCardOption(slot, option, choice.ordered);
+        if (region)
+          this.#scrolledRows.set(choiceFocusKey({ kind: "option", optionId: option.optionId }), layout.rowOf[index]!);
       });
+      if (region) {
+        region.content.add(this.children.list.slice(drawnFrom));
+        region.refresh();
+      }
       return;
     }
     const gap = 10;
@@ -1745,6 +1844,37 @@ export class ChoiceOverlay extends Phaser.Scene {
   #canCommit(choice: PendingChoice): boolean {
     const payment = this.#paymentSheet(choice);
     return payment ? payment.canConfirm : canConfirmChoice(choice, this.#selected.length);
+  }
+
+  /**
+   * An optional interrupt/response window's plain-words context (`view/trigger-window-context.ts`): the headline
+   * (what is about to happen or just happened), why now, and what confirming does. Returns the height used;
+   * `measureOnly` builds and destroys the text so the sheet can be sized to fit it.
+   */
+  #drawTriggerContext(
+    context: TriggerWindowContext,
+    x: number,
+    y: number,
+    width: number,
+    measureOnly: boolean,
+  ): number {
+    const made: Phaser.GameObjects.Text[] = [];
+    let cursor = y;
+    const add = (text: string, size: number, weight: "bold" | "normal", color: number, alpha: number): void => {
+      const object = this.add
+        .text(x, cursor, text, textStyle(typeRole.body, color, alpha))
+        .setFontSize(size)
+        .setFontStyle(weight)
+        .setWordWrapWidth(width);
+      made.push(object);
+      cursor += object.height + 4;
+    };
+    add(context.headline, 18, "bold", surface.ink.hex, 1);
+    if (context.whyNow) add(context.whyNow, 13, "normal", surface.ink.hex, ink.secondary);
+    for (const effect of context.effects) add(`If you confirm: ${effect}`, 13, "bold", surface.ink.hex, 1);
+    const used = cursor - y;
+    if (measureOnly) made.forEach((object) => object.destroy());
+    return used;
   }
 
   /** One red commit, plus a quiet alternative when declining is legal. */
@@ -2215,6 +2345,11 @@ export class ChoiceOverlay extends Phaser.Scene {
         const at = this.#route.findIndex((target) => sameChoiceTarget(target, this.#focus));
         const next = stepFocus(this.#route, at, intent === "next" ? 1 : -1);
         this.#focus = next >= 0 ? (this.#route[next] ?? null) : null;
+        // A card scrolled out of the options area comes into view before the ring is drawn on it.
+        if (this.#focus?.kind === "option") {
+          const row = this.#scrolledRows.get(choiceFocusKey(this.#focus));
+          if (row !== undefined) this.#optionRegion?.scrollIntoView(row);
+        }
         this.#drawFocusRing();
         break;
       }
@@ -2369,7 +2504,7 @@ export class ChoiceOverlay extends Phaser.Scene {
       this.#focus = null;
       return;
     }
-    const rect = this.#focusRects.get(choiceFocusKey(focus));
+    const rect = this.#screenRect(choiceFocusKey(focus));
     if (!rect) return;
     this.#focusRing = new McSelectionRing(this);
     this.#focusRing.show(rect, "static", true);

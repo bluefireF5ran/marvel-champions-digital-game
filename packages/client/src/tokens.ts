@@ -294,6 +294,8 @@ export const guideTag = {
 export const motion = {
   /** A ghost card traveling between two zones (`view/travel.ts`). */
   cardMoveMs: 220,
+  /** A card flying from the deck into the hand (`view/travel.ts`): longer than a move, so the deal is seen. */
+  cardDrawMs: 340,
   /** A damage or heal beat, and the HP number counting to its new value. */
   damageMs: 260,
   /** The threat meter's fill sliding to its new length. */
@@ -308,6 +310,10 @@ export const motion = {
   overlayEnterMs: 180,
   /** The same overlay leaving. Shorter: the player has already decided. */
   overlayExitMs: 120,
+  /** The docked villain phase sliding in from its edge as the phase begins (rail, band, tab). */
+  dockSlideInMs: 320,
+  /** The villain phase sliding back out after its recap. */
+  dockSlideOutMs: 260,
   /** One full screen giving way to the next (Title → Scenario, Setup → Board). */
   screenFadeMs: 200,
 } as const;

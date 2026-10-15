@@ -237,14 +237,49 @@ export function villainPhaseFocusOrder(
   finished: boolean,
   interruptOptionIds: readonly string[] = [],
   guideStrip?: { readonly hasPrimary: boolean },
+  recap: boolean = false,
+  /** The docked recap's EXPAND (full-screen recap), after the toggle and FULL LOG. */
+  expand: boolean = false,
 ): readonly string[] {
   return [
     ...(finished ? ["continue"] : []),
+    // The held-open recap's own controls (`view/villain-recap-layout.ts`): the auto-advance toggle and FULL LOG.
+    ...(finished && recap ? ["toggle", "full-log", ...(expand ? ["expand"] : [])] : []),
     ...interruptOptionIds.map((id) => `interrupt:${id}`),
     ...(interruptOptionIds.length > 0 ? ["resolve"] : []),
     "skip",
     ...(guideStrip ? [...(guideStrip.hasPrimary ? ["guide-primary"] : []), "guide-skip", "guide-stop"] : []),
   ];
+}
+
+/**
+ * The docked villain phase (D1/D2 rail): the interrupt window's answer first when one is open (each option, the
+ * USE confirm when there are several to pick from, then LET IT RESOLVE), then Skip, Hide and the footer's
+ * AUTO-ADVANCE toggle. With one option its USE button is that option's own stop. A held encounter card's Next card
+ * comes first of all.
+ */
+export function villainRailFocusOrder(interruptOptionIds: readonly string[] = [], next = false): readonly string[] {
+  return [
+    // START VILLAIN PHASE, or a held decision's ANSWER: whichever the phase is waiting on (only one is ever drawn).
+    "start",
+    "answer",
+    // Next card, while the reveal is held on an encounter card: the one thing the screen is waiting on.
+    ...(next ? ["next"] : []),
+    ...interruptOptionIds.map((id) => `interrupt:${id}`),
+    ...(interruptOptionIds.length > 1 ? ["confirm"] : []),
+    ...(interruptOptionIds.length > 0 ? ["resolve"] : []),
+    "skip",
+    "hide",
+    "toggle",
+  ];
+}
+
+/**
+ * The docked defend decision (`ui/villain-defend-panel.ts`): each defender option in order, then CONFIRM, then EXPAND
+ * (the full-screen sheet instead).
+ */
+export function villainDefendFocusOrder(optionIds: readonly string[]): readonly string[] {
+  return [...optionIds.map((id) => `option:${id}`), "confirm", "expand"];
 }
 
 /**

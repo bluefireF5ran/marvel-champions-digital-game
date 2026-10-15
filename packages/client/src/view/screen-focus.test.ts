@@ -14,6 +14,8 @@ import {
   titleFocusOrder,
   titleMenuFocusOrder,
   villainPhaseFocusOrder,
+  villainDefendFocusOrder,
+  villainRailFocusOrder,
 } from "./screen-focus.js";
 
 describe("screen focus routes", () => {
@@ -351,9 +353,30 @@ describe("screen focus routes", () => {
     expect(villainPhaseFocusOrder(true)).toEqual(["continue", "skip"]);
   });
 
+  test("the held-open recap adds its toggle and FULL LOG after Start player phase", () => {
+    expect(villainPhaseFocusOrder(true, [], undefined, true)).toEqual(["continue", "toggle", "full-log", "skip"]);
+    expect(villainPhaseFocusOrder(false, [], undefined, true)).toEqual(["skip"]);
+  });
+
   test("the inline interrupt window's own controls come right after Continue and before Skip", () => {
     expect(villainPhaseFocusOrder(false, ["a:1"])).toEqual(["interrupt:a:1", "resolve", "skip"]);
     expect(villainPhaseFocusOrder(false, [])).toEqual(["skip"]);
+  });
+
+  test("the docked rail puts the interrupt answer first, then Skip, Hide and the auto-advance toggle", () => {
+    expect(villainRailFocusOrder().slice(0, 2)).toEqual(["start", "answer"]);
+    expect(villainRailFocusOrder().slice(2)).toEqual(["skip", "hide", "toggle"]);
+    expect(villainRailFocusOrder([], true).slice(2)).toEqual(["next", "skip", "hide", "toggle"]);
+    expect(villainRailFocusOrder(["a:1"]).slice(2)).toEqual(["interrupt:a:1", "resolve", "skip", "hide", "toggle"]);
+    expect(villainRailFocusOrder(["a:1", "a:2"]).slice(2)).toEqual([
+      "interrupt:a:1",
+      "interrupt:a:2",
+      "confirm",
+      "resolve",
+      "skip",
+      "hide",
+      "toggle",
+    ]);
   });
 
   test("the guide strip's own controls (§3.10, §7 accessibility fix) come last, after Skip", () => {
@@ -799,5 +822,11 @@ describe("seatsFocusOrder with a Recommended shelf", () => {
     expect(
       seatsFocusOrder({ seatCount: 4, deckIds: ["a"], hasRecommended: true }).filter((k) => k.startsWith("hero-rec")),
     ).toEqual([]);
+  });
+});
+
+describe("villainDefendFocusOrder", () => {
+  it("walks the options, then CONFIRM, then EXPAND", () => {
+    expect(villainDefendFocusOrder(["decline", "i3"])).toEqual(["option:decline", "option:i3", "confirm", "expand"]);
   });
 });

@@ -7,6 +7,7 @@
  * through the controller.
  */
 
+import type { VillainHandTag } from "../../view/villain-hand-tags.js";
 import type { ReferenceCardView } from "../../view/reference-cards.js";
 import type Phaser from "phaser";
 import type { InstanceId, PlayerId } from "@mc/engine";
@@ -48,6 +49,11 @@ export interface BoardFrame {
   readonly masks: Phaser.GameObjects.Graphics[];
   /** Scroll regions this draw made (the schemes column). They hold scene input listeners, so each is destroyed before the next draw. */
   readonly regions: { destroy(): void }[];
+  /**
+   * Screen areas where a wheel or a touch drag scrolls something of its own (the schemes column when it overflows, the
+   * log), so the table's own scroll at a larger Card size leaves them alone.
+   */
+  readonly innerScroll: Rect[];
 }
 
 export const emptyFrame = (): BoardFrame => ({
@@ -58,6 +64,7 @@ export const emptyFrame = (): BoardFrame => ({
   rings: [],
   masks: [],
   regions: [],
+  innerScroll: [],
 });
 
 /**
@@ -87,6 +94,8 @@ export interface BoardDrawContext {
   readonly marks: Highlights | null;
   /** Whether this draw lays the board out as phone tabs. */
   readonly tabbed: boolean;
+  /** The Card size setting's factor this draw was laid out at (1 at Fit to screen); the scheme rows grow with it. */
+  readonly cardScale: number;
   readonly controller: BoardController;
   readonly hand: HandScroll;
   /** The schemes column's scroll position, kept across draws like the hand's (`schemes.ts`). */
@@ -104,6 +113,10 @@ export interface BoardDrawContext {
   readonly teamUpRings?: TeamUpRings | undefined;
   /** What each hand card has to do with a Team-Up (`view/team-up-model.ts#teamUpRoleOf`): the tag on it. */
   readonly teamUpRoles?: ReadonlyMap<InstanceId, TeamUpRole> | undefined;
+  /** A villain phase is replaying: the action bar has no End turn or Undo to offer until it closes. */
+  readonly actionsHeld?: boolean;
+  /** While the villain phase is up: when each hand card can answer it (`view/villain-hand-tags.ts`), set by that scene. */
+  readonly villainHandTags?: ReadonlyMap<InstanceId, VillainHandTag> | null | undefined;
   /**
    * Registers a card as a tap target: a tap acts (answering an open target or
    * payment prompt first, `onTap` otherwise), a hold or right-click inspects,
@@ -118,6 +131,8 @@ export interface BoardDrawContext {
   ): void;
   /** Opens a card. `siblings` is the list ◂ ▸ steps through; without it, the hand when the card is in it. */
   inspect(id: InstanceId, siblings?: readonly InstanceId[]): void;
+  /** Fans a pile out (`scenes/pile-view.ts`): every card in it, most recent first. */
+  openPile(name: string, ids: readonly InstanceId[]): void;
   /** Opens one of the scenario's printed rules cards (`Scenario.referenceCards`), which has no instance. */
   inspectReference(reference: ReferenceCardView): void;
 }

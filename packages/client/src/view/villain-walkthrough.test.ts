@@ -711,6 +711,9 @@ describe("window timing", () => {
     expect(windowTitleOf(windowTimingOf(response))).toBe("Your response window");
     expect(windowTitleOf(windowTimingOf(interrupt))).toBe("Your interrupt window");
     expect(windowTitleOf(windowTimingOf(other))).toBe("Your interrupt window");
+    // With more than one seat playing, the window names whose it is.
+    expect(windowTitleOf("interrupt", "She-Hulk")).toBe("She-Hulk — Your interrupt window");
+    expect(windowTitleOf("response", null)).toBe("Your response window");
   });
 });
 
@@ -832,6 +835,16 @@ describe("enemy team choices (MC56 p. 6, the grim rule)", () => {
   });
 });
 
+describe("recapPlacementFor: a decision the docked phase holds back", () => {
+  test("held, the phase stays on top and takes the clicks (its START or ANSWER is the way on)", () => {
+    expect(recapPlacementFor({ pending: true, inline: false, finished: false, held: true })).toEqual({
+      recapOnTop: true,
+      recapTakesInput: true,
+    });
+    expect(recapPlacementFor({ pending: true, inline: false, finished: false, held: false }).recapOnTop).toBe(false);
+  });
+});
+
 describe("recapPlacementFor: the recap against an open decision (click-through F1)", () => {
   test("with nothing open the recap takes its own clicks", () => {
     expect(recapPlacementFor({ pending: false, inline: false, finished: false })).toEqual({
@@ -861,5 +874,71 @@ describe("recapPlacementFor: the recap against an open decision (click-through F
         recapTakesInput: true,
       });
     }
+  });
+});
+
+describe("walkthrough encounter tracking", () => {
+  let played: Played;
+
+  beforeAll(async () => {
+    played = await playThroughVillainPhase();
+  }, 60_000);
+
+  test("records the dealt and revealed encounter cards of the phase, in order", () => {
+    const { encounter } = played.walkthrough;
+    expect(encounter.dealt.length).toBeGreaterThan(0);
+    expect(encounter.dealt.every((card) => card.playerId === played.viewer)).toBe(true);
+    expect(encounter.revealed.length).toBeGreaterThan(0);
+    for (const card of encounter.revealed) {
+      expect(card.playerId).toBe(played.viewer);
+      expect(card.cardId.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("no card is current once the phase is complete", () => {
+    expect(played.walkthrough.complete).toBe(true);
+    expect(played.walkthrough.encounter.current).toBeNull();
+  });
+
+  test("beats under a reveal carry that card's instance id; earlier steps carry none", () => {
+    const [first] = played.walkthrough.encounter.revealed;
+    const steps = played.walkthrough.steps;
+    const stamped = steps[3]!.beats.filter((beat) => beat.encounterInstanceId);
+    expect(stamped.length).toBeGreaterThan(0);
+    expect(stamped[0]!.encounterInstanceId).toBe(first!.instanceId);
+    expect(stamped[0]!.eventType).toBe("encounterCardRevealed");
+    for (const step of steps.slice(0, 3)) expect(step.beats.every((beat) => !beat.encounterInstanceId)).toBe(true);
+  });
+
+  test("current is the last revealed card while the reveal step is running", async () => {
+    const store = new SessionStore(new LocalEngineHost());
+    await store.start({
+      scenarioId: "rhino",
+      difficulty: "standard",
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 2026,
+    });
+    const viewer = store.state.game!.players[0]!.playerId;
+    for (let i = 0; i < 20 && !store.state.lastEvents.some((e) => e.type === "encounterCardRevealed"); i++) {
+      const { actions } = store.state.legal!;
+      if (actions.kind === "choice") {
+        await store.resolveChoice(actions.choice.options.slice(0, actions.choice.minSelections).map((o) => o.optionId));
+      } else if (actions.kind === "turn") {
+        await store.dispatch(actions.legal.find((entry) => entry.action.kind === "endTurn")!.example);
+      }
+    }
+    const events = store.state.lastEvents;
+    const reveal = events.findIndex((event) => event.type === "encounterCardRevealed");
+    expect(reveal).toBeGreaterThan(-1);
+    // Cut the stream just after the first reveal: the step is active and that card is current.
+    const walk = appendWalkthrough(
+      emptyWalkthrough(1),
+      events.slice(0, reveal + 1),
+      store.state.game!,
+      viewer,
+      POOL_DEPS,
+    );
+    expect(walk.activeStep).toBe(4);
+    expect(walk.encounter.current?.instanceId).toBe(walk.encounter.revealed[0]!.instanceId);
   });
 });
