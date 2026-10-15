@@ -3,7 +3,7 @@
  * place the engine does something an official source forbids, and flips to a failure when it is fixed.
  */
 import { cardId } from "@mc/content";
-import { activeVillain, createGame, remainingHitPoints, type GameState, type InstanceId } from "@mc/engine";
+import { activeVillain, createGame, type GameState, type InstanceId } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
 import {
   P1,
@@ -57,7 +57,7 @@ describe("Ruling 148, Feb 15, 2024 (post-RRG 1.5): a canceled attack still ends,
 });
 
 describe("Ruling 150, Mar 15, 2024: Deadpool ally healing 3 from excess consequential damage is still defeated if HP is not positive (RRG 1.8 'Damage' p. 14)", () => {
-  it.fails("2 damage on him, 4 consequential damage: 2 + 4 - 3 = 3 on 3 hit points, so he is defeated (one token is added)", () => {
+  it("2 damage on him, 4 consequential damage: 2 + 4 - 3 = 3 on 3 hit points, so he is defeated (one token is added)", () => {
     const base = withPatrolMinion(rhino());
     const minion = base.players
       .find((p) => p.playerId === P1)!
@@ -81,8 +81,7 @@ describe("Ruling 150, Mar 15, 2024: Deadpool ally healing 3 from excess conseque
     );
     expect(done.accepted).toBe(true);
     expect(done.state.mainScheme.accelerationTokens - tokens).toBe(1);
-    // Actual: he stays in play with 0 remaining hit points.
-    expect(remainingHitPoints(done.state, placed.id)).toBe(0);
+    expect(done.events.some((e) => e.type === "characterDefeated" && e.instanceId === placed.id)).toBe(true);
     expect(playerOf(done.state, P1).playArea).not.toContain(placed.id);
   });
 });
