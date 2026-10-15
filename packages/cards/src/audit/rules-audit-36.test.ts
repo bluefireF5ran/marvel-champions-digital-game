@@ -37,7 +37,7 @@ const sheHulk = () =>
   startCoreGame(coreScenario("rhino", { players: [{ starterDeckId: "core-she-hulk-aggression" }], seed: 21 }));
 
 describe("Superhuman Strength (01028) when the attacked enemy leaves play (FFG ruling May 25, 2023 - Ruling 13; May 30, 2023 - Ruling 14 third bullet)", () => {
-  it.fails("She-Hulk's attack defeats the enemy: the Forced Response has no valid target, does not initiate, and the upgrade is not discarded", () => {
+  it("She-Hulk's attack defeats the enemy: the Forced Response has no valid target, does not initiate, and the upgrade is not discarded", () => {
     const given = moveToHand(sheHulk(), P1, "01028");
     const [strength] = given.ids as [InstanceId];
     const hero = settle(run(given.state, toHero()));

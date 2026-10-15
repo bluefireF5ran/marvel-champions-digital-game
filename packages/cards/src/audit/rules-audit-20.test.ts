@@ -28,7 +28,7 @@ const vsRhino = () =>
   startCoreGame(coreScenario("rhino", { players: [{ starterDeckId: "core-she-hulk-aggression" }], seed: 21 }));
 
 describe("Superhuman Strength (01028) against an enemy that cannot be stunned (FAQ p. 57)", () => {
-  it.fails("an already stunned villain: the upgrade is not discarded", () => {
+  it("an already stunned villain: the upgrade is not discarded", () => {
     const given = moveToHand(vsRhino(), P1, "01028");
     const [strength] = given.ids as [InstanceId];
     const hero = settle(run(given.state, toHero()));
