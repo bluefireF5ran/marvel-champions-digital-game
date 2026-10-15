@@ -16,7 +16,7 @@ describe("Hela stage numbers (Sep 5, 2024 ruling 11)", () => {
   it("A1 is stage 1", () => {
     expect(hela.sides[0]!.stages[0]!.stageNumber).toBe(1);
   });
-  it.fails("A2 is stage 2 (data says 1, so Muster Courage's X reads 1)", () => {
+  it("A2 is stage 2 (data says 1, so Muster Courage's X reads 1)", () => {
     expect(hela.sides[1]!.stages[0]!.stageNumber).toBe(2);
   });
 });
