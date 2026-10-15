@@ -124,7 +124,15 @@ export const GAMBIT_EVENTS = defineAbilities({
 
   "37020.hit-and-run-constant": heroAction({ label: ["attack", "thwart"] }, attackAnEnemy(2), thwartAScheme(2)),
 
+  // Neither sentence can resolve with no identity-specific card in the discard pile and no X-Mansion in play, so the card
+  // cannot be played (FFG ruling May 22, 2023 #9 answers 3-4, same shape as X-Men Instruction; RRG 1.8 "Target" p. 42).
   "37021.mutant-education-action": alterEgoAction(
+    {
+      while: anyOf(
+        valueAtLeast(zoneCountOf("discard", you, query([], { identitySetOf: you })), 1),
+        inPlay("X-Mansion"),
+      ),
+    },
     chooseCards("found", fromDiscard(query([], { identitySetOf: you })), { min: 0, max: 2 }),
     moveCards(cards(chosen("found")), "deckShuffle"),
     ifThen(inPlay("X-Mansion"), draw(1)),
