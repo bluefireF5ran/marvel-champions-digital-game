@@ -55,7 +55,7 @@ describe("June 20, 2024 - Ruling 216 answer 2 (post-RRG 1.5): Rogue plays Chill 
   // Ruling 216: "As long as the event Rogue is playing doesn't require her to pay a cost with a card she doesn't
   // control, she can resolve the event as written ... attach a set-aside copy of Frostbite to an enemy". The script
   // reads `setAside(you, FROSTBITE)`, i.e. only the playing player's own set-aside area, which holds no copy.
-  it.fails("Rogue (P1) plays a Chill Out! while Iceman (P2) holds the set-aside Frostbite: a copy is attached to an enemy", () => {
+  it("Rogue (P1) plays a Chill Out! while Iceman (P2) holds the set-aside Frostbite: a copy is attached to an enemy", () => {
     const start = rhino(3, "rogue-protection", "rhino", ["iceman-aggression"]);
     const { state, id } = conjure(start, "46011");
     const played = playOut(state, id, 2, {});
