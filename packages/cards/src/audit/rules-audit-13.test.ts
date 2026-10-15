@@ -8,14 +8,14 @@
  * -> discard this card"; the script is an ordinary typed `spend(...)`, which accepts a wild declared as any type.
  */
 import { cardId, encounterSetId } from "@mc/content";
-import { activeEncounterDeckId, activeVillain, createGame, type GameState } from "@mc/engine";
+import { activeEncounterDeckId, activeVillain, applyCommand, createGame, type GameState } from "@mc/engine";
 import { describe, expect, it } from "vitest";
 import { firstLegal, inst, moveToHand, playerOf, settle, toHero, use, P1 } from "../testing/harness.js";
 import { runWave5, WAVE5_DEPS } from "../wave5/testing.js";
 import { ghostSpiderScenarioWithExtras } from "../wave5/sm/ghost-spider/support.js";
 
 describe("RRG 1.8 p. 35 'Printed': a cost paid with printed resources", () => {
-  it.fails("We Are One cannot be paid with three printed wild resources", () => {
+  it("We Are One cannot be paid with three printed wild resources", () => {
     // Spider-Woman (01011), Hellcat (01020) and War Machine (01030) each print one wild resource icon.
     const config = ghostSpiderScenarioWithExtras("venom-goblin", {
       seed: 7,
@@ -49,7 +49,7 @@ describe("RRG 1.8 p. 35 'Printed': a cost paid with printed resources", () => {
     };
     const hero = playerOf(attached, P1).identity.form === "hero" ? attached : runWave5(attached, toHero(P1));
     const given = moveToHand(hero, P1, "01011", "01020", "01030");
-    const paid = runWave5(
+    const result = applyCommand(
       given.state,
       use(
         P1,
@@ -57,10 +57,11 @@ describe("RRG 1.8 p. 35 'Printed': a cost paid with printed resources", () => {
         "27120.we-are-one-action",
         given.ids.map((fromHand) => ({ fromHand })),
       ),
+      WAVE5_DEPS,
     );
     // Control: it was attached before and the three cards were in hand.
     expect(inst(attached, weAreOne).attachedTo).toBe(villain);
-    // Wild is not energy, mental or physical for a "printed resources" cost, so the card stays attached.
-    expect(inst(paid, weAreOne).attachedTo).toBe(villain);
+    // Wild is not energy, mental or physical for a "printed resources" cost, so the payment is refused.
+    expect(result.ok).toBe(false);
   });
 });

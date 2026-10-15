@@ -25,7 +25,7 @@ import {
   resolveSpecialsOf,
   revealCard,
   self,
-  spend,
+  spendPrinted,
   superlative,
   threatOn,
   whenRevealed,
@@ -65,8 +65,8 @@ const SCHEME_WITH_GLIDER = each(query("mainScheme", { hasCounter: "glider" }));
 export const VENOM_GOBLIN_ENCOUNTER_SET = defineAbilities({
   // We Are One (27120, attachment to Venom Goblin; +3 ATK/+3 SCH and "Attach to Venom Goblin" are data) — Hero
   // Action: Spend [energy][mental][physical] printed resources → discard this card (Improvised Weapons's own
-  // precedent, `wave5/sm/venom/symbiotic-strength.ts` 27164).
-  "27120.we-are-one-action": heroAction({ cost: spend({ energy: 1, mental: 1, physical: 1 }) }, discard(self)),
+  // precedent, `wave5/sm/venom/symbiotic-strength.ts` 27164, which says "resources", not "printed"; RRG 1.8 p. 35).
+  "27120.we-are-one-action": heroAction({ cost: spendPrinted({ energy: 1, mental: 1, physical: 1 }) }, discard(self)),
 
   // Symbiotic Berserker (27121, minion; ATK 3 is data) — [star] While a [Symbiote] environment is in play, Symbiotic
   // Berserker gains quickstrike.

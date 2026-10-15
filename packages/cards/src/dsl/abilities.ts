@@ -2080,6 +2080,14 @@ export const flipThis: AbilityCost = { flipSelf: true };
 /** "Spend a [energy] resource" → `spend({ energy: 1 })`; "Spend [E][M][P]" → one of each. */
 export const spend = (resources: ResourceRequirement | number): AbilityCost => ({ resources });
 /**
+ * "Spend [energy][mental][physical] printed resources →" (We Are One, `sm` 27120): RRG 1.8 "Printed" (p. 35), a wild
+ * resource cannot be spent as another type for such a cost, so each typed slot takes a resource of that type.
+ */
+export const spendPrinted = (resources: ResourceRequirement | number): AbilityCost => ({
+  resources,
+  printedResourcesOnly: true,
+});
+/**
  * "Spend 3 resources of the same type →" (Kree Combat Armor, `gmw` 16131; docs/phase7-wave3.md §3.43): `n` resources,
  * all of one type the payer chooses. A wild counts as any type; a two-type card may give one icon and overpay the other.
  */

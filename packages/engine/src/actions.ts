@@ -223,6 +223,7 @@ import {
   countUsableAs,
   EMPTY_POOL,
   payableWithOneType,
+  satisfiesPrinted,
   canBePaidFor,
   declaredPool,
   paidSetsAsDeclared,
@@ -3846,6 +3847,13 @@ export function resourceVars(
     if (!payableWithOneType(pool, count, requirement)) {
       return { code: "insufficient_resources", message: `spend ${count} resources of the same type` };
     }
+  }
+  if (cost?.printedResourcesOnly && !satisfiesPrinted(pool, requirement)) {
+    // RRG 1.8 "Printed" (p. 35): wild resources cannot be spent as other types for a printed-resources cost.
+    return {
+      code: "insufficient_resources",
+      message: `Needs ${describeRequirement(requirement)} printed resources; a wild cannot be spent as another type.`,
+    };
   }
   if (cost?.distinctResourceTypes !== undefined) {
     if (distinctTypeCount(pool) < cost.distinctResourceTypes) {

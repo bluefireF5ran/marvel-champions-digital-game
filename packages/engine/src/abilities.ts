@@ -2924,6 +2924,13 @@ export interface AbilityCost {
    */
   readonly sameResourceType?: true;
   /**
+   * "Spend [energy][mental][physical] printed resources →" (We Are One, `sm` 27120): RRG 1.8 "Printed" (p. 35), "Wild
+   * resources cannot be spent as other resource types for such a cost". Each typed slot is paid by a resource of that
+   * type only; a wild never fills it (it still pays a generic or a `wild` slot). Checked wherever the payment is
+   * (`resourceVars`) and when `legalActions` decides whether the ability can be offered.
+   */
+  readonly printedResourcesOnly?: true;
+  /**
    * "Exhaust Captain America's Shield →" (min 1, max 1) / "Exhaust any number of allies you control →" (min 1, no
    * max): exhaust cards in play, other than this ability's own card (`exhaustSelf`) or your identity
    * (`exhaustIdentity`). See `InPlayCostPick` for how the cards are picked and when the cost is payable.
