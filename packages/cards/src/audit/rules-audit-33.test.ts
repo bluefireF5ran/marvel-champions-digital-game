@@ -109,9 +109,9 @@ describe("audit 33.25: Multitalented is an attack and a thwart whatever was paid
   // 'attack' and a 'thwart,' and by playing it your hero is considered to have 'attacked' and 'thwarted' ... Something
   // you could do if you only healed using Multitalented would be triggering Surprise! and/or playing Pitchback."
   // RRG 1.8 p. 26 "Labeled Ability": resolving a labeled ability is considered to be that labeled effect by the identity.
-  // The engine makes the attack only when the [physical] damage line runs and pins the opposite in
-  // `wave8/jubilee/aspect-basic.test.ts` > "Q48 = A: ... with no [physical] paid there is no damage and no attack".
-  it.fails("paid with [energy] and [mental] only, Jubilee is still considered to have attacked", () => {
+  // Fixed (contributor's rules call (bluefireF5ran), 2026-10-15): every "(attack)" ability begins its attack as it begins resolving,
+  // whether or not its damage line runs (`beginLabelAttack`, engine `resolve/attack-ability.ts`).
+  it("paid with [energy] and [mental] only, Jubilee is still considered to have attacked", () => {
     const jubilee = WAVE8_STARTER_DECKS.find((d) => d.id === "jubilee-justice")!;
     const deck = jubilee.cards.flatMap((c) => Array.from({ length: c.quantity }, () => c.cardId));
     const abilities = mergeRegistries(WAVE7_ABILITIES, JUBILEE_ABILITIES);

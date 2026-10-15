@@ -1250,7 +1250,7 @@ function holdsAttackInstruction(value: unknown): boolean {
  * The ability cannot be initiated when it has at least one such instruction and none of them is valid: one with another
  * enemy it may attack ("Deal 2 damage to the villain. Deal 1 damage to each minion", with the guard minion engaged)
  * still initiates, and the villain is skipped as it resolves (Q49). Nothing is refused on a guess: an instruction
- * inside a branch or an option (the ability may resolve without attacking, as `openLabelAttack` allows), one whose
+ * inside a branch or an option (the ability may resolve without damaging an enemy: an attack on nobody), one whose
  * target or attacker reads a binding, one that could also name a card that is not an enemy, and an effect container
  * this module does not open all count as valid. A stunned identity never reaches here (`abilityTargetFault`).
  */
