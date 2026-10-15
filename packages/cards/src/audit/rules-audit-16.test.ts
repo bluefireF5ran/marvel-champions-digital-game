@@ -28,7 +28,7 @@ import { playFromHand, startWave4Game } from "../wave4/testing.js";
 import { nebulaScenario } from "../wave4/nebu/support.js";
 
 describe("Combat Protocols (22001a) with a technique whose Special is replaced by a stunned status card", () => {
-  it.fails("Weapons Master (22007) with Nebula stunned: its (attack) Special is replaced by the stun, so it is not discarded (FFG ruling Oct 18, 2024 #26 (3))", () => {
+  it("Weapons Master (22007) with Nebula stunned: its (attack) Special is replaced by the stun, so it is not discarded (FFG ruling Oct 18, 2024 #26 (3))", () => {
     const hero = runWith(WAVE4_DEPS, startWave4Game(nebulaScenario("rhino", { seed: 9 })), toHero());
     const identity = identityOf(hero, P1);
     const { state: withTech, id: tech } = playFromHand(hero, "22007", 1);
@@ -42,5 +42,20 @@ describe("Combat Protocols (22001a) with a technique whose Special is replaced b
     expect(inst(after, villain).damage - damageBefore).toBeLessThan(4);
     // ... and the technique must stay in play.
     expect(playerOf(after, P1).discard).not.toContain(tech);
+  });
+
+  it("two Weapons Master with Nebula stunned: the first Special is replaced (stays), the second resolves (discarded)", () => {
+    const hero = runWith(WAVE4_DEPS, startWave4Game(nebulaScenario("rhino", { seed: 9 })), toHero());
+    const identity = identityOf(hero, P1);
+    const { state: one, id: first } = playFromHand(hero, "22007", 1);
+    const { state: two, id: second } = playFromHand(one, "22007", 1);
+    const stunned = patchInstance(two, identity, { statuses: { ...inst(two, identity).statuses, stunned: 1 } });
+    const villain = activeVillain(stunned).instanceId;
+    const damageBefore = inst(stunned, villain).damage;
+    const after = settle(runWith(WAVE4_DEPS, stunned, endTurn()), firstLegal, undefined, WAVE4_DEPS);
+    const discarded = [first, second].filter((id) => playerOf(after, P1).discard.includes(id));
+    expect(discarded).toHaveLength(1);
+    expect(inst(after, identity).statuses.stunned ?? 0).toBe(0);
+    expect(inst(after, villain).damage - damageBefore).toBeGreaterThan(0);
   });
 });

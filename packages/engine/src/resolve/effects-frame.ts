@@ -251,6 +251,13 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
         const vars: Record<string, number> = { ...parent.vars };
         for (const [key, amount] of Object.entries(frame.vars))
           vars[`${prefix}.${key}`] = (vars[`${prefix}.${key}`] ?? 0) + amount;
+        // `<prefix>.resolved`: the cards whose Special resolved. One a stunned/confused status card or an interrupt
+        // replaced never reaches its effects, and one cut short by `settleLabelCancel` lost its announcement, so
+        // neither is listed ("each technique upgrade resolved this way"; FFG ruling Oct 18, 2024, post-RRG 1.6 #26 (3)).
+        if (frame.announceResolved && frame.selfInstanceId)
+          bindings[`${prefix}.resolved`] = [
+            ...new Set([...(bindings[`${prefix}.resolved`] ?? []), frame.selfInstanceId]),
+          ];
         return { ...parent, bindings, vars };
       });
     } else if (frame.returnBindingsTo) {
