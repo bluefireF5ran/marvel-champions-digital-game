@@ -82,9 +82,11 @@ import { CivilWarBuilderScene } from "./scenes/civil-war-builder.js";
 import { AspectLessonScene } from "./scenes/aspect-lesson.js";
 import { installDebugDump } from "./ui/debug-dump.js";
 import { installFrameGuard } from "./ui/frame-guard.js";
+import { installStartupWatchdog, probeWebgl } from "./ui/startup-watchdog.js";
 import { installDesktopType, setDesktopType } from "./ui/desktop-type.js";
 import { formFactorFor } from "./view/layout.js";
 import { applyViewportFit } from "./platform/platform.js";
+import { isAndroidEdge, rendererOptionsOf } from "./platform/renderer-options.js";
 
 // The one `Settings` instance for the whole app (`appSession().settings`), not a
 // second copy: `scenes/settings.ts` mutates that same object, and every text
@@ -101,8 +103,25 @@ installLazyText();
 installDesktopType();
 setDesktopType(formFactorFor(window.innerWidth, window.innerHeight) === "desktop");
 
+// A device whose WebGL cannot draw gets a plain-text reason instead of a black page (`ui/startup-watchdog.ts`).
+const watchStartup = installStartupWatchdog();
+// Edge on Android reads its WebGL renderer first: on ANGLE's Vulkan backend its multisampled canvas shows black (#157).
+const rendererOptions = rendererOptionsOf(
+  window.location.search,
+  isAndroidEdge(navigator.userAgent)
+    ? { userAgent: navigator.userAgent, webglRenderer: probeWebgl()?.renderer ?? null }
+    : null,
+);
+
 const game = new Phaser.Game({
-  type: Phaser.WEBGL,
+  // `?renderer=canvas` and `?gl=…` test links for a device whose WebGL shows black (`platform/renderer-options.ts`).
+  type: rendererOptions.canvas ? Phaser.CANVAS : Phaser.WEBGL,
+  ...(rendererOptions.transparent ? { transparent: true } : {}),
+  render: {
+    ...(rendererOptions.preserveDrawingBuffer ? { preserveDrawingBuffer: true } : {}),
+    ...(rendererOptions.antialiasGL === false ? { antialiasGL: false } : {}),
+    ...(rendererOptions.powerPreference ? { powerPreference: rendererOptions.powerPreference } : {}),
+  },
   parent: "game",
   backgroundColor: cssOf(surface.void.hex),
   // Off by default in Phaser 4; the Board's focus route is otherwise wired
@@ -184,6 +203,8 @@ const game = new Phaser.Game({
     MusicScene,
   ],
 });
+watchStartup(game);
+
 // Registered before any scene's own resize listener, so a screen redrawing on resize already draws at the new size.
 game.scale.on("resize", (size: Phaser.Structs.Size) =>
   setDesktopType(formFactorFor(size.width, size.height) === "desktop"),
