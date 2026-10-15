@@ -148,7 +148,7 @@ describe("Adam Warlock's Karmic Blast (21038) and Cosmic Awareness (21039) while
 });
 
 describe("X-Men Instruction (37031) with nothing to resolve (FFG ruling May 22, 2023 - Ruling 9, answers 3 and 4; RRG 1.8 'Target' p. 42)", () => {
-  it.fails("no X-MEN ally in the discard pile and no X-Mansion in play: the event cannot be played", () => {
+  it("no X-MEN ally in the discard pile and no X-Mansion in play: the event cannot be played", () => {
     const base = gambitGame("rhino", { seed: 1 }); // alter-ego form, empty discard pile, no X-Mansion
     const top = playerOf(base, P1).deck[0]!;
     const hand = moveToHand(patchInstance(base, top, { cardId: cardId("37031") }), P1, "37031");
