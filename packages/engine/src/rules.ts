@@ -51,6 +51,7 @@ import {
   resolveValue,
   restrictedCardsOf,
   restrictedLoadOf,
+  restrictedWeightOf,
   rulePlayers,
   textBoxBlankFor,
   timingWordOf,
@@ -1574,6 +1575,7 @@ export const BASE_RESTRICTED_LIMIT = 2;
 /**
  * How many restricted cards `playerId` may control if they held exactly `held` (docs/phase7-wave3.md §3.22): two, plus
  * each `restrictedLimit` rule for that player — a rule with `cards` adds room only for as many of `held` as match it.
+ * `held` lists every card weighing on the limit, a weighted card once per unit of weight (`restrictedStanding`).
  */
 export function restrictedLimitFor(
   state: GameState,
@@ -1596,9 +1598,11 @@ export function restrictedLimitFor(
 
 /**
  * Where a player stands against the restricted limit (docs/phase7-wave7.md §3.82), counting what they control in play.
- * `load` is `restrictedLoadOf`; `held` is the cards with the keyword, the only ones a `restrictedLimit` rule's `cards`
- * makes room for and the only ones discarded for the limit (§4.1 Q52 = B: a card that "counts as 2 restricted cards"
- * weighs on the limit and is not itself a restricted card). The player is over the limit when `load > limit`.
+ * `load` is `restrictedLoadOf`; `held` is the cards with the keyword, the only ones discarded for the limit (§4.1 Q52 =
+ * B). A `restrictedLimit` rule's `cards` makes room for every card that weighs on the limit, a card that "counts as N
+ * restricted cards" counted N times: FFG ruling 152 (March 22, 2024), "Laser Swords counts as two Restricted Weapon
+ * cards, so it does interact with Side Holster" (contributor's rules call (bluefireF5ran), overriding upstream Q52 = B on this point).
+ * The player is over the limit when `load > limit`.
  */
 export function restrictedStanding(
   state: GameState,
@@ -1606,9 +1610,14 @@ export function restrictedStanding(
   playerId: PlayerId,
 ): { readonly load: number; readonly limit: number; readonly held: readonly InstanceId[] } {
   const held = restrictedCardsOf(state, playerId, deps);
+  const weighing: InstanceId[] = [];
+  for (const id of cardsInPlay(state)) {
+    if (controllerOf(state, id) !== playerId) continue;
+    for (let n = restrictedWeightOf(state, id, deps); n > 0; n--) weighing.push(id);
+  }
   return {
     load: restrictedLoadOf(state, playerId, deps),
-    limit: restrictedLimitFor(state, deps, playerId, held),
+    limit: restrictedLimitFor(state, deps, playerId, weighing),
     held,
   };
 }

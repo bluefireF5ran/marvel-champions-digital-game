@@ -103,12 +103,12 @@ describe("Ruling 151, Mar 15, 2024: Defiance (26018) cannot be played while an a
 });
 
 describe("Ruling 152, Mar 22, 2024: Laser Swords counts as two Restricted Weapon cards and interacts with Side Holster", () => {
-  it.fails("Captain America's Shield (restricted Item) + Side Holster in play, then Laser Swords: nothing is discarded", () => {
+  it("Captain America's Shield (restricted Item) + Side Holster in play, then Laser Swords: nothing is discarded", () => {
     let s = game("rhino", ["deadpool-pool"], ["the_doomsday_chair"]);
     s = attached(s, "03009").state;
     s = inPlayArea(s, "20021").state;
     const run = playCard(s, "44055", 3, { chooseCards: fewest });
-    // Actual: the limit stays 2 (Holster only makes room for a restricted-keyword Weapon), load 3: the Shield goes.
+    // Was: the limit stayed 2 (Holster only made room for a restricted-keyword Weapon), load 3: the Shield went.
     expect(attachedCodes(run.state, identityOf(run.state)).sort()).toEqual(["03009", "44055"]);
     expect(discardCodes(run.state)).not.toContain("03009");
   });

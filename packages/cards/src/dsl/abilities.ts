@@ -1839,8 +1839,9 @@ export const keepsExhausted = (target: TargetQuery, opts: { readonly while?: Pre
  * "You can control 1 additional [X] upgrade that has the restricted keyword." (Venom / Flash Thompson, `vnm`
  * 20001a/b; Side Holster, 20021; docs/phase7-wave3.md §3.22). RRG 1.8 "Restricted" (p. 38) fixes the base limit at
  * two; each rule raises it by `amount` for `player` (absent: the rule's own speaker, the card's controller —
- * "you can control", not "any player can"). `cards` scopes the extra room to matching held cards only ("1
- * additional **[Weapon]** upgrade"); omit it for an unscoped raise.
+ * "you can control", not "any player can"). `cards` scopes the extra room to matching cards that weigh on the limit
+ * ("1 additional **[Weapon]** upgrade"; a "Counts as 2 restricted cards" Weapon matches, FFG ruling 152, Mar 22,
+ * 2024); omit it for an unscoped raise.
  */
 export const restrictedLimit = (
   amount: number,

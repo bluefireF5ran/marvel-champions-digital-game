@@ -203,10 +203,11 @@ describe("§3.82 playing against the load", () => {
     expect(owed(tryPlay(two.state, SWORDS.id))).toEqual({ offered: two.ids.slice(0, 2), count: 1, limit: 3 });
   });
 
-  it("'1 additional [Weapon] upgrade that has the restricted keyword' makes no room for the weighted Weapon", () => {
-    // Swords is a Weapon without the keyword: the rule's room is for a keyword Weapon only.
+  it("'1 additional [Weapon] upgrade that has the restricted keyword' makes room for the weighted Weapon", () => {
+    // FFG ruling 152 (Mar 22, 2024): the Swords count as two restricted Weapons, so the Holster's room covers them
+    // (contributor's rules call (bluefireF5ran), overriding upstream Q52 = B here): limit 3, load 1 + 2, nothing owed.
     const gadget = start([GADGET.id, HOLSTER_CARD.id]);
-    expect(owed(tryPlay(gadget.state, SWORDS.id))).toEqual({ offered: [gadget.ids[0]], count: 1, limit: 2 });
+    expect(owed(tryPlay(gadget.state, SWORDS.id))).toBeNull();
     // A keyword Weapon in play earns the room: limit 3, load 1 + 2.
     expect(owed(tryPlay(start([GUN.id, HOLSTER_CARD.id]).state, SWORDS.id))).toBeNull();
   });
