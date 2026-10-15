@@ -111,7 +111,7 @@ import { startWave4Game } from "../wave4/testing.js";
 import { nebulaScenario } from "../wave4/nebu/support.js";
 
 describe("audit 34: Inferiority Complex offers only the option Nebula can fully resolve (ruling Sep 15, 2025, 69.105)", () => {
-  it.fails("a ready alter-ego with no Technique upgrades is not offered the discard option", () => {
+  it("a ready alter-ego with no Technique upgrades is not offered the discard option", () => {
     const state = startWave4Game(nebulaScenario("rhino", { seed: 3 }));
     const deckId = activeEncounterDeckId(state);
     const pile = state.encounterDecks[deckId]!;
@@ -123,13 +123,10 @@ describe("audit 34: Inferiority Complex offers only the option Nebula can fully 
       encounterDecks: { ...state.encounterDecks, [deckId]: { ...pile, deck: [filler!, id, ...rest] } },
     };
     let current = runWith(WAVE4_DEPS, staged, endTurn());
-    let offered: string[] | undefined;
+    const offered: string[] = [];
     for (let guard = 0; guard < 20 && current.pendingChoice; guard++) {
       const choice = current.pendingChoice;
-      if (choice.options.some((o) => o.label.startsWith("Exhaust"))) {
-        offered = choice.options.map((o) => o.label);
-        break;
-      }
+      offered.push(...choice.options.map((o) => o.label));
       const r = applyCommand(
         current,
         {
@@ -143,9 +140,10 @@ describe("audit 34: Inferiority Complex offers only the option Nebula can fully 
       if (!r.ok) throw new Error(r.error.message);
       current = r.state;
     }
-    expect(offered, "the chooseOne prompt was reached").toBeDefined();
-    expect(offered).toHaveLength(1);
-    expect(offered![0]).toMatch(/^Exhaust/);
+    // The one resolvable option (exhaust) is taken without a prompt; the discard option is never offered.
+    expect(offered.some((l) => l.startsWith("Choose and discard"))).toBe(false);
+    const [obligation] = Object.keys(current.instances).filter((i) => current.instances[i]?.cardId === "22027");
+    expect(current.removedFromGame).toContain(obligation);
   });
 });
 

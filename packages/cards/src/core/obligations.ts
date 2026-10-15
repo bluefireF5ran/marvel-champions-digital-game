@@ -14,7 +14,7 @@ import {
   you,
   yourIdentity,
 } from "../dsl/index.js";
-import type { AbilityDefinition } from "@mc/engine";
+import type { AbilityDefinition, Predicate } from "@mc/engine";
 
 /**
  * The Core obligations share one shape (current Core text):
@@ -54,12 +54,17 @@ export const discardThisObligation = moveCards(cards(self), "discard");
 
 export const obligation = (
   alterEgo: string,
-  alternative: { readonly label: string; readonly effects: readonly EffectArg[] },
+  alternative: { readonly label: string; readonly effects: readonly EffectArg[]; readonly when?: Predicate },
 ): AbilityDefinition =>
   whenRevealed(
     mayFlipToAlterEgo,
     chooseOne(
       exhaustAlterEgoToRemove(alterEgo),
-      option(alternative.label, ...alternative.effects, discardThisObligation),
+      option(
+        alternative.label,
+        ...(alternative.when ? [{ when: alternative.when }] : []),
+        ...alternative.effects,
+        discardThisObligation,
+      ),
     ),
   );

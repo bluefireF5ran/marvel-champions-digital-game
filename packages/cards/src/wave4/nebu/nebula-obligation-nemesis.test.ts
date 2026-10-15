@@ -107,13 +107,22 @@ describe("Nebula's obligation (Inferiority Complex, 22027)", () => {
 
   it("(22027.obligation): with no technique upgrades to discard, the card gains surge instead", () => {
     const start = nebulaVsRhino(3);
-    const staged = stageWithFiller(start, "22027");
+    // Ruling 69.105 (Sep 15, 2025): a ready alter-ego must exhaust (the option she can fully resolve), so the discard
+    // option is only offered when she cannot exhaust: here in hero form (stay in it rather than flipping).
+    const staged = stageWithFiller(runWith(WAVE4_DEPS, start, toHero()), "22027");
     // No technique upgrades to choose from (`chooseCards`'s own `minSelections`/`max` both cap to 0 candidates), so
     // the "if no upgrade was discarded" branch gains surge. `driveEventsWith` (not `settle`, which only returns the
     // final state) is what proves surge actually fired: the extra card it deals doesn't reliably land back in the
     // discard pile to count there (it might resolve into play instead), so the `surgeTriggered` event itself is the
     // real signal.
-    const { events } = driveEventsWith(staged, pickingLabelStartingWith("Choose and discard 2 Technique"), endTurn());
+    const { events } = driveEventsWith(
+      staged,
+      (state) => {
+        const hit = state.pendingChoice?.options.find((o) => o.label.startsWith("Stay in hero"));
+        return hit ? [hit.optionId] : pickingLabelStartingWith("Choose and discard 2 Technique")(state);
+      },
+      endTurn(),
+    );
     expect(events.some((e) => e.type === "surgeTriggered")).toBe(true);
   });
 });
