@@ -20,7 +20,7 @@ import { ASPECT_DEPS as DEPS, aspectHero } from "../wave9/falcon/aspect-basic.te
 vi.setConfig({ testTimeout: 120_000 });
 
 describe("audit 34: Spectrum tucking a [mental] + [wild] card (ruling Aug 22, 2025, 69.95)", () => {
-  it.fails("gets +4 THW, +2 ATK (Mental and Wild both count)", () => {
+  it("gets +4 THW, +2 ATK (Mental and Wild both count)", () => {
     const base = aspectHero();
     const given = moveToHand(base, P1, "53018", "53025", "53026", "53002");
     const [spectrum, energy, genius, redwing] = given.ids as [InstanceId, InstanceId, InstanceId, InstanceId];
