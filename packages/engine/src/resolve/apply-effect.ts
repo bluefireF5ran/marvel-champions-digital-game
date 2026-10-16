@@ -1446,6 +1446,29 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       }
       // The card's own "you", as at its count (`stepBoostCard`): an attack's defending player, a scheme's player.
       const activatedAgainst = procedure.kind === "enemyAttack" ? procedure.targetPlayerId : procedure.playerId;
+      // In the turned-faceup window of a card applied "as if it were a boost card" (`applyAsBoostCard`), the cancel
+      // reaches that card's icons, not the resolving boost card's (ruling Sept 5, 2024 #8: Preemptive Strike on "I Am
+      // Inevitable"'s Infinity Stone).
+      const faceupWindow = ctx.state.stack.find(
+        (f): f is Frame<"event"> => f.kind === "event" && f.event.kind === "boostCardTurnedFaceup",
+      );
+      const windowCard =
+        faceupWindow?.event.kind === "boostCardTurnedFaceup" ? faceupWindow.event.boostInstanceId : null;
+      const applied = boost.appliedAsBoost?.find((a) => a.instanceId === windowCard);
+      if (applied && faceupWindow) {
+        const appliedIcons = applied.iconsCancelled
+          ? 0
+          : boostIconsFor(ctx.state, ctx.deps, applied.instanceId, activatedAgainst);
+        if (appliedIcons <= 0) return report(0);
+        const appliedAsBoost = (boost.appliedAsBoost ?? []).map((a) =>
+          a.instanceId === applied.instanceId ? { ...a, iconsCancelled: true } : a,
+        );
+        setFrame(ctx, { ...procedure, boost: { ...boost, appliedAsBoost } });
+        if (faceupWindow.event.kind === "boostCardTurnedFaceup")
+          setFrame(ctx, { ...faceupWindow, event: { ...faceupWindow.event, boostIcons: 0 } });
+        emit(ctx, { type: "boostCancelled", instanceId: applied.instanceId, scope: "icons" });
+        return report(1, appliedIcons);
+      }
       const icons = boost.iconsCancelled ? 0 : boostIconsFor(ctx.state, ctx.deps, boost.instanceId, activatedAgainst);
       if (icons <= 0) return report(0);
       setFrame(ctx, { ...procedure, boost: { ...boost, iconsCancelled: true } });
@@ -1549,6 +1572,46 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         const [card] = resolveRef(ctx.state, effect.card, context);
         if (card) setFrame(ctx, { ...procedure, boost: { ...boost, countFrom: card } });
       }
+      return;
+    }
+    case "applyAsBoostCard": {
+      // From a "Boost" ability (step 3b, RRG 1.8 p. 9): the activation whose boost card is resolving its ability.
+      const procedure = ctx.state.stack.find(
+        (f): f is Frame<"enemyAttack"> | Frame<"enemyScheme"> =>
+          (f.kind === "enemyAttack" || f.kind === "enemyScheme") && f.boost?.step === "ability",
+      );
+      const boost = procedure?.boost;
+      const [card] = resolveRef(ctx.state, effect.card, context);
+      if (!procedure || !boost || !card) return;
+      // Inside a borrowed Boost ability, icons join only the counts it names (as `adjustBoostCount`).
+      const borrowedFor = context.bindings[BORROWED_BOOST_ICONS_SLOT];
+      if (borrowedFor && !borrowedFor.includes(boost.instanceId)) return;
+      const activatedAgainst = procedure.kind === "enemyAttack" ? procedure.targetPlayerId : procedure.playerId;
+      setFrame(ctx, {
+        ...procedure,
+        boost: {
+          ...boost,
+          appliedAsBoost: [...(boost.appliedAsBoost ?? []), { instanceId: card, iconsCancelled: false }],
+        },
+      });
+      // Treated as a boost card turned faceup: abilities that affect boost cards may be used on it (ruling Sept 5, 2024
+      // #8). Its icons are added at the count step (`stepBoostCard`) unless cancelled in this window.
+      const icons = boostIconsFor(ctx.state, ctx.deps, card, activatedAgainst);
+      emit(ctx, {
+        type: "boostCardFlipped",
+        enemyInstanceId: procedure.enemyInstanceId,
+        instanceId: card,
+        boostIcons: icons,
+      });
+      pushEvent(ctx, {
+        kind: "boostCardTurnedFaceup",
+        enemyInstanceId: procedure.enemyInstanceId,
+        boostInstanceId: card,
+        activation: procedure.kind === "enemyAttack" ? "attack" : "scheme",
+        boostIcons: icons,
+        playerId: activatedAgainst,
+        ...(procedure.kind === "enemyAttack" ? { targetInstanceId: procedure.targetInstanceId } : {}),
+      });
       return;
     }
     case "countBoostIcons": {

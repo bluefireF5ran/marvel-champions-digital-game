@@ -137,6 +137,11 @@ export interface BoostInProgress {
   readonly boostAbilityAdjust?: number;
   /** "Count the number of boost icons on that card instead" (`replaceBoostCount`): the card whose icons are counted. */
   readonly countFrom?: InstanceId;
+  /**
+   * Cards its "Boost" ability applied "as if it were a boost card" (`applyAsBoostCard`): each adds its own icons to the
+   * count unless they were cancelled in its own turned-faceup window (ruling Sept 5, 2024 #8).
+   */
+  readonly appliedAsBoost?: readonly { readonly instanceId: InstanceId; readonly iconsCancelled: boolean }[];
 }
 
 /** Effects waiting for a timing point ("at the end of this attack"), with the context that created them. */

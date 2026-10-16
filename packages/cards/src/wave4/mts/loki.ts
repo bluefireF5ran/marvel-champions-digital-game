@@ -1,6 +1,7 @@
 import {
   advanceToSetAsideVillain,
   after,
+  applyAsBoostCard,
   attachCard,
   attacksGainKeywords,
   boost,
@@ -27,7 +28,6 @@ import {
   preventDamage,
   query,
   refMatches,
-  replaceBoostCount,
   response,
   revealCard,
   rule,
@@ -211,7 +211,7 @@ export const LOKI = defineAbilities({
   // Infinite Mischief (treachery x2, 21175) — When Revealed: Shuffle the infinity stone deck discard pile into the
   // infinity stone deck (`scenarioDeckShuffle`, docs/phase7-wave4.md §3.49) and reveal the top card. [star] Boost:
   // Discard the top card of the infinity stone deck. Apply its boost icons for this activation as if it were a boost
-  // card (`replaceBoostCount`, `thanos.ts`'s own "I Am Inevitable" shape).
+  // card (`applyAsBoostCard`, `thanos.ts`'s own "I Am Inevitable" shape).
   "21175.when-revealed": whenRevealed(
     moveCards(scenarioDeck(STONE_DECK, { zones: ["discard"] }), "scenarioDeckShuffle"),
     selectCards("stone", scenarioDeck(STONE_DECK, { top: 1 })),
@@ -220,7 +220,7 @@ export const LOKI = defineAbilities({
   "21175.boost": boost(
     selectCards("stone", scenarioDeck(STONE_DECK, { top: 1 })),
     moveCards(cards(chosen("stone")), "discard"),
-    replaceBoostCount(chosen("stone")),
+    applyAsBoostCard(chosen("stone")),
   ),
 
   // The Trickster (treachery x3, 21176) — When Revealed: Swap Loki with a random set-aside Loki villain. Loki

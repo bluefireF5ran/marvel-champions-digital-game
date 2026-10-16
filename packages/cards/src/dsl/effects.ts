@@ -3306,6 +3306,12 @@ export const adjustBoostCount = (delta: Amount): EffectSpec => ({ kind: "adjustB
 /** "…discard the top card of the encounter deck and count the number of boost icons on that card instead" (Chaos Control). */
 export const replaceBoostCount = (card: TargetRef): EffectSpec => ({ kind: "replaceBoostCount", card });
 /**
+ * "Apply its boost icons for this activation as if it were a boost card" ("I Am Inevitable"): from a Boost ability,
+ * the card is applied as a boost card turned faceup, so abilities that affect boost cards may be used on it (FFG ruling
+ * Sept 5, 2024 #8, Preemptive Strike).
+ */
+export const applyAsBoostCard = (card: TargetRef): EffectSpec => ({ kind: "applyAsBoostCard", card });
+/**
  * A card effect counting boost icons ("the number of boost icons on that card", "for each boost icon discarded this
  * way"): counts `cards` and writes the total to `<bind>.boostIcons`, which the effects after it read with
  * `varOf("<bind>.boostIcons")`. Each encounter card's count opens the "when boost icons on an encounter card would be

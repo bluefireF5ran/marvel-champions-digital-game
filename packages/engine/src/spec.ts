@@ -2432,6 +2432,14 @@ export type EffectSpec =
    */
   | { readonly kind: "replaceBoostCount"; readonly card: TargetRef }
   /**
+   * "Apply its boost icons for this activation as if it were a boost card" ("I Am Inevitable", Infinite Mischief): from
+   * a "Boost" ability, the first card `card` names is applied to the current activation as a boost card turned faceup.
+   * Its `boostCardTurnedFaceup` event opens the windows of abilities that affect boost cards (FFG ruling Sept 5, 2024
+   * #8: Preemptive Strike may cancel its icons), then its icons, unless cancelled, join the activation's count. Unlike
+   * `replaceBoostCount` (Chaos Control: count another card instead), the resolving boost card's own count stands.
+   */
+  | { readonly kind: "applyAsBoostCard"; readonly card: TargetRef }
+  /**
    * A card effect counting boost icons: "take damage equal to the number of boost icons on that card" (Taskmaster),
    * "for each boost icon discarded this way" (Molecular Decay, Machine Gun), "for each card discarded this way that
    * has boost icons equal to …" (Hex Bolt). Counts every card `cards` names, wherever it is now, and writes the total
