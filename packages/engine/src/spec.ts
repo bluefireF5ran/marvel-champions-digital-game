@@ -1873,7 +1873,20 @@ export type EffectSpec =
     }
   /** "Heal N damage"; with `bind`, "if no damage was healed this way" reads `<bind>.amount`. */
   | { readonly kind: "heal"; readonly target: TargetRef; readonly amount: ValueSpec; readonly bind?: string }
-  | { readonly kind: "placeThreat"; readonly target: TargetRef; readonly amount: ValueSpec; readonly bind?: string }
+  | {
+      readonly kind: "placeThreat";
+      readonly target: TargetRef;
+      readonly amount: ValueSpec;
+      readonly bind?: string;
+      /**
+       * "When threat is removed from this scheme, place that threat on …" (Show of Empathy, `bp` 51017): the tokens
+       * placed are the ones the triggering `removeThreat` takes. When that removal is the first half of a move
+       * (`TriggerEvent removeThreat.movePlacementFrameId`), the move's placement loses that many tokens: the interrupt
+       * changes the destination of the moved threat rather than adding to it (FFG ruling Nov 21, 2025, 69.131, on RRG
+       * 1.8 "Move", p. 30). Without a move it is a plain placement.
+       */
+      readonly ofRemovedThreat?: true;
+    }
   /**
    * `ignoreCrisis`: "…, ignoring any crisis icons in play" (Cable Arrow 04008). RRG 1.8 "Crisis Icon" (p. 14) stops
    * *players* removing threat from the main scheme while one is in play; this one effect steps over that check only.

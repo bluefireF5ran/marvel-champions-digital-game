@@ -231,6 +231,12 @@ export type TriggerEventBody =
        * player. It is still a player card's removal: a crisis icon stops it (RRG 1.8 "Crisis Icon", p. 14).
        */
       readonly noPlayer?: true;
+      /**
+       * This removal is the first half of a move (`EffectSpec moveThreat`; RRG 1.8 "Move", p. 30): the frame of the
+       * move's `placeThreat`, still on the stack below it. An interrupt that places "that threat" elsewhere
+       * (`EffectSpec placeThreat.ofRemovedThreat`) takes its tokens out of that placement (ruling Nov 21, 2025, 69.131).
+       */
+      readonly movePlacementFrameId?: FrameId;
     }
   | {
       readonly kind: "attack";

@@ -151,11 +151,20 @@ export const takeDamage = (n: Amount, player: PlayerRef = you): EffectSpec => ({
   amount: amount(n),
   taken: true,
 });
-export const placeThreat = (n: Amount, target: TargetRef, opts: { readonly bind?: string } = {}): EffectSpec => ({
+/**
+ * `ofRemovedThreat`: "place that threat on …" in an interrupt to a removal; when the removal is part of a move, the
+ * moved threat goes here instead of to the move's destination (`EffectSpec placeThreat.ofRemovedThreat`).
+ */
+export const placeThreat = (
+  n: Amount,
+  target: TargetRef,
+  opts: { readonly bind?: string; readonly ofRemovedThreat?: true } = {},
+): EffectSpec => ({
   kind: "placeThreat",
   target,
   amount: amount(n),
   ...withBind(opts.bind),
+  ...(opts.ofRemovedThreat ? { ofRemovedThreat: true as const } : {}),
 });
 /**
  * "Remove N threat" — not a thwart, unless the ability is labeled "(thwart)": the engine then resolves it as `thwart`

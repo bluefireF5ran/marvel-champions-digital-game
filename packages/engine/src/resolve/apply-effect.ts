@@ -459,6 +459,25 @@ export function threatRemoverOf(ctx: Ctx, frame: Frame<"effects">): PlayerId | n
   return sourcePlayerOf(ctx.state, { sourceInstanceId: frame.selfInstanceId });
 }
 
+/**
+ * "Place that threat on …" answering a removal that is the first half of a move (`placeThreat.ofRemovedThreat`): the
+ * tokens it places are the moved ones, so the move's pending placement loses them, and a placement left with none is
+ * cancelled (it never happens: no "after threat is placed" window). FFG ruling Nov 21, 2025, 69.131 (Beat Cop moving
+ * threat off Show of Empathy): the interrupt "change[s] the destination of the threat token". RRG 1.8 "Move" (p. 30).
+ */
+function redirectMovedThreat(ctx: Ctx, frame: Frame<"effects">, placed: number): void {
+  const removal = frame.event;
+  if (removal?.kind !== "removeThreat" || !removal.movePlacementFrameId || placed <= 0) return;
+  const placement = findFrame(ctx.state, removal.movePlacementFrameId);
+  if (placement?.kind !== "event" || placement.event.kind !== "placeThreat" || placement.cancelled) return;
+  const left = Math.max(0, placement.event.amount - placed);
+  setFrame(ctx, {
+    ...placement,
+    event: { ...placement.event, amount: left },
+    ...(left === 0 ? { cancelled: true } : {}),
+  });
+}
+
 export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext, frame: Frame<"effects">): void {
   // Announcements pushed only when an ability listens, so a game with no listener resolves as before.
   const pushHeard = (events: readonly TriggerEvent[]): void => {
@@ -602,6 +621,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     }
     case "placeThreat": {
       const amount = value(effect.amount);
+      if (effect.ofRemovedThreat) redirectMovedThreat(ctx, frame, amount * targets(effect.target).length);
       pushEvents(
         ctx,
         targets(effect.target).map((id) => ({
@@ -2726,7 +2746,14 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         if (effect.bind) addFrameVars(ctx, frame.frameId, { [`${effect.bind}.made`]: 0 });
         return;
       }
-      // Removed from the source, then placed on the destination; only the placement reports to `bind`.
+      // Removed from the source, then placed on the destination; only the placement reports to `bind`. The removal
+      // names the placement, so an interrupt that sends "that threat" elsewhere takes it out of the move (ruling Nov
+      // 21, 2025, 69.131; `placeThreat.ofRemovedThreat`).
+      const placement = eventFrame(
+        ctx,
+        { kind: "placeThreat", schemeInstanceId: to, amount, sourceInstanceId: frame.selfInstanceId },
+        reportTo(effect.bind),
+      );
       pushFrames(ctx, [
         eventFrame(ctx, {
           kind: "removeThreat",
@@ -2734,12 +2761,9 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           amount,
           sourceInstanceId: frame.selfInstanceId,
           playerId: remover,
+          movePlacementFrameId: placement.frameId,
         }),
-        eventFrame(
-          ctx,
-          { kind: "placeThreat", schemeInstanceId: to, amount, sourceInstanceId: frame.selfInstanceId },
-          reportTo(effect.bind),
-        ),
+        placement,
       ]);
       return;
     }
