@@ -41,6 +41,7 @@ import {
   removeStatus,
   discardStatusCards,
   type StatusDiscarded,
+  type StatusGiver,
   setActiveVillain,
   shuffleZone,
   swapIdentity,
@@ -1606,7 +1607,13 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       return;
     case "giveStatus": {
       // Whose effect placed it (`TriggerEvent statusPlaced`, docs/phase7-wave7.md §3.27).
-      const by = { sourceInstanceId: frame.selfInstanceId, playerId: threatRemoverOf(ctx, frame) };
+      // A replacement is not a placement: its card is not announced as placed (`StatusGiver.replacing`; ruling May 10,
+      // 2024, Ruling 181). The replaced card is still discarded and announced as such: the ruling speaks only to placing.
+      const by: StatusGiver = {
+        sourceInstanceId: frame.selfInstanceId,
+        playerId: threatRemoverOf(ctx, frame),
+        ...(effect.replacing !== undefined ? { replacing: true as const } : {}),
+      };
       // docs/phase7-wave4.md §3.60: "If no tough status card was given this way" reads `<bind>.amount`. A card that
       // waits for its "would gain a status card" window (docs/phase7-wave9.md §3.33) counts once it lands.
       const countOn = effect.bind ? { frameId: frame.frameId, name: `${effect.bind}.amount` } : undefined;

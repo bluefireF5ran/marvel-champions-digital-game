@@ -391,7 +391,7 @@ describe("Invocation cards", () => {
 describe("Vapors of Valtorr vs Mister Sinister (ruling May 10, 2024, Ruling 181)", () => {
   // Ruling 181: replacing a status card on Mister Sinister does not trigger his "After a status card is placed on
   // Mister Sinister" Forced Response. RRG 1.8 is silent on "replace" for status cards.
-  it.fails("replacing his stunned status with confused places no threat", () => {
+  it("replacing his stunned status with confused places no threat", () => {
     const created = createGame(
       playableScenario("mister-sinister", { seed: 3, players: [{ starterDeckId: "drs-protection" }] }),
       PLAYABLE_DEPS,

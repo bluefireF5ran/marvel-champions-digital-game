@@ -71,6 +71,7 @@ export function giveStatusOrAnnounce(
         status,
         sourceInstanceId: by.sourceInstanceId,
         playerId: by.playerId,
+        ...(by.replacing ? { replacing: true as const } : {}),
         ...(countOn ? { countOn } : {}),
       };
       const waits =
@@ -93,7 +94,11 @@ export const statusStillToGive = (ctx: Ctx, event: BeingGiven): boolean =>
  * interrupt that filled the character's room, or took it out of play, leaves nothing to give.
  */
 export function applyStatusBeingGiven(ctx: Ctx, event: BeingGiven): boolean {
-  const by = { sourceInstanceId: event.sourceInstanceId, playerId: event.playerId };
+  const by: StatusGiver = {
+    sourceInstanceId: event.sourceInstanceId,
+    playerId: event.playerId,
+    ...(event.replacing ? { replacing: true as const } : {}),
+  };
   if (!giveStatus(ctx, event.instanceId, event.status, by)) return false;
   if (event.countOn) addFrameVars(ctx, event.countOn.frameId, { [event.countOn.name]: 1 });
   return true;

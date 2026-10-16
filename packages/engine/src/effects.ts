@@ -275,6 +275,13 @@ export function healDamage(
 export interface StatusGiver {
   readonly sourceInstanceId: InstanceId | null;
   readonly playerId: PlayerId | null;
+  /**
+   * The card replaces another status card (`EffectSpec giveStatus.replacing`): it lands like any other, but a
+   * replacement is not a placement, so it is not announced as `statusPlaced` (ruling May 10, 2024, Ruling 181: Vapors
+   * of Valtorr replacing a status card on Mister Sinister does not trigger his "After a status card is placed" Forced
+   * Response).
+   */
+  readonly replacing?: true;
 }
 
 const LISTENS_FOR_STATUS_PLACED = new WeakMap<EngineDeps, boolean>();
@@ -300,7 +307,8 @@ function listensForStatusPlaced(deps: EngineDeps): boolean {
  *
  * The only place a status card is put on a card, so the only place one is recorded for its `statusPlaced` announcement
  * (docs/phase7-wave7.md §3.27; `GameState.pendingStatusPlaced`, announced between frames by `announceStatusPlaced`):
- * one per card that lands, none for a give that placed nothing.
+ * one per card that lands, none for a give that placed nothing, and none for a card that replaces another
+ * (`StatusGiver.replacing`; ruling May 10, 2024, Ruling 181).
  */
 export function giveStatus(
   ctx: Ctx,
@@ -314,7 +322,7 @@ export function giveStatus(
   const held = instance.statuses[status] + 1;
   updateInstance(ctx, id, (i) => ({ ...i, statuses: { ...i.statuses, [status]: held } }));
   emit(ctx, { type: "statusGiven", instanceId: id, status, ...(reason ? { reason } : {}) });
-  if (listensForStatusPlaced(ctx.deps)) {
+  if (!by.replacing && listensForStatusPlaced(ctx.deps)) {
     const placed = { instanceId: id, status, sourceInstanceId: by.sourceInstanceId, playerId: by.playerId };
     ctx.state = { ...ctx.state, pendingStatusPlaced: [...(ctx.state.pendingStatusPlaced ?? []), placed] };
   }

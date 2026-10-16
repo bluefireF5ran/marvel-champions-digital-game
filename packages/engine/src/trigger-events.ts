@@ -953,6 +953,8 @@ export type TriggerEventBody =
       readonly status: StatusName;
       readonly sourceInstanceId: InstanceId | null;
       readonly playerId: PlayerId | null;
+      /** The card replaces another (`StatusGiver.replacing`): landed, it is not announced as `statusPlaced` (Ruling 181). */
+      readonly replacing?: true;
       readonly countOn?: { readonly frameId: FrameId; readonly name: string };
     }
   /**
