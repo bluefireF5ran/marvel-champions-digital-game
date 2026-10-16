@@ -37,6 +37,7 @@ export const ROCKET_OBLIGATION_NEMESIS = defineAbilities({
         discard(
           superlative("highest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate")), {
             ties: "first",
+            leavesPlay: true,
           }),
         ),
         surge(),

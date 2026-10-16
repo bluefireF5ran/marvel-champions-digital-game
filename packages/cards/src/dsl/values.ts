@@ -284,12 +284,16 @@ export const named = (name: string): TargetRef => ({ kind: "named", name });
  * then `chooseTarget({ inSlot })`). Several packs (`wave1/{gob,hlk,twc,bkw,drs}/local.ts`) carry an identical
  * per-pack copy of this builder predating its centralization here — not deduplicated by this change, since doing so
  * safely means touching every one of those packs' own files.
+ *
+ * `leavesPlay: true` when the effect it feeds makes the card leave play ("discard the lowest-cost upgrade you
+ * control"): a permanent card that ability cannot remove is not ranked, so the next card that fits is the one
+ * (RRG 1.8 "Permanent", p. 32).
  */
 export const superlative = (
   order: "highest" | "lowest",
   among: TargetRef,
   measure: ValueSpec,
-  opts: { readonly ties?: "all" | "first"; readonly slot?: string } = {},
+  opts: { readonly ties?: "all" | "first"; readonly slot?: string; readonly leavesPlay?: true } = {},
 ): TargetRef => ({ kind: "superlative", among, order, measure, ...opts });
 
 // ---------------------------------------------------------------------------

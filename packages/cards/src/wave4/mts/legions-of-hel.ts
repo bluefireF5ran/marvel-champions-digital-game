@@ -91,6 +91,7 @@ export const LEGIONS_OF_HEL = defineAbilities({
               "highest",
               each(query(["upgrade", "support"], { controlledBy: thatPlayer })),
               printedCostOf(chosen("candidate")),
+              { leavesPlay: true },
             ),
           ),
           chooseTarget("discarded", { inSlot: "highestCost" }, { chooser: thatPlayer }),

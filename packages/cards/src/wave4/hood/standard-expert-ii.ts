@@ -150,7 +150,9 @@ export const STANDARD_EXPERT_II = defineAbilities({
       [
         bindTargets(
           "highest",
-          superlative("highest", each(YOUR_UPGRADES_AND_SUPPORTS), printedCostOf(chosen("candidate"))),
+          superlative("highest", each(YOUR_UPGRADES_AND_SUPPORTS), printedCostOf(chosen("candidate")), {
+            leavesPlay: true,
+          }),
         ),
         chooseTarget("pick", { inSlot: "highest" }, { chooser: firstPlayer }),
         discard(chosen("pick")),

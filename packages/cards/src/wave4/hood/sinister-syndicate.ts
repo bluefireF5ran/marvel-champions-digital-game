@@ -77,7 +77,9 @@ export const SINISTER_SYNDICATE = defineAbilities({
     after.enemyAttacks("self", { damagesYou: true }),
     bindTargets(
       "lowest",
-      superlative("lowest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate"))),
+      superlative("lowest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate")), {
+        leavesPlay: true,
+      }),
     ),
     chooseTarget("pick", { inSlot: "lowest" }),
     discard(chosen("pick")),
@@ -115,7 +117,9 @@ export const SINISTER_SYNDICATE = defineAbilities({
   "24046.boost": boost(
     bindTargets(
       "lowest",
-      superlative("lowest", each(query("support", { controller: "you" })), printedCostOf(chosen("candidate"))),
+      superlative("lowest", each(query("support", { controller: "you" })), printedCostOf(chosen("candidate")), {
+        leavesPlay: true,
+      }),
     ),
     chooseTarget("pick", { inSlot: "lowest" }),
     discard(chosen("pick")),

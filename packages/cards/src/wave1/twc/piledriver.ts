@@ -181,6 +181,7 @@ export const PILEDRIVER_SET = defineAbilities({
       discard(
         superlative("highest", each(query("support", { controller: "you" })), printedCostOf(chosen("candidate")), {
           ties: "first",
+          leavesPlay: true,
         }),
       ),
       placeThreat(2, signatureSideSchemeOf(theVillain)),

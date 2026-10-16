@@ -173,7 +173,10 @@ export const JUGGERNAUT: AbilityRegistry = defineAbilities({
         { when: exists(YOUR_UPGRADES_AND_SUPPORTS) },
         bindTargets(
           "highest",
-          superlative("highest", each(YOUR_UPGRADES_AND_SUPPORTS), printedCostOf(chosen("candidate")), { ties: "all" }),
+          superlative("highest", each(YOUR_UPGRADES_AND_SUPPORTS), printedCostOf(chosen("candidate")), {
+            ties: "all",
+            leavesPlay: true,
+          }),
         ),
         chooseTarget("pick", { inSlot: "highest" }),
         discard(chosen("pick")),

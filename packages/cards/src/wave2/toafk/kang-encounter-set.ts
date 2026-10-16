@@ -198,6 +198,7 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
         "highest",
         each(query(["ally", "upgrade", "support"], { controller: "you" })),
         printedCostOf(chosen("candidate")),
+        { leavesPlay: true },
       ),
     ),
     chooseTarget("pick", { inSlot: "highestCost" }),

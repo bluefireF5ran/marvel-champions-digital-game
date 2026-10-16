@@ -65,11 +65,15 @@ export const SUPER_STRENGTH: AbilityRegistry = defineAbilities({
       hasTrait(theVillain, PSIONIC),
       bindTargets(
         "extreme",
-        superlative("highest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate"))),
+        superlative("highest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate")), {
+          leavesPlay: true,
+        }),
       ),
       bindTargets(
         "extreme",
-        superlative("lowest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate"))),
+        superlative("lowest", each(query("upgrade", { controller: "you" })), printedCostOf(chosen("candidate")), {
+          leavesPlay: true,
+        }),
       ),
     ),
     chooseTarget("pick", { inSlot: "extreme" }),

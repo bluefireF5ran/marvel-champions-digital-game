@@ -202,7 +202,10 @@ export const MUSEUM = defineAbilities({
     ifThen(
       exists(CARDS_YOU_CONTROL),
       [
-        bindTargets("lowest", superlative("lowest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")))),
+        bindTargets(
+          "lowest",
+          superlative("lowest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), { leavesPlay: true }),
+        ),
         chooseTarget("moved", { inSlot: "lowest" }),
         moveCards(cards(chosen("moved")), { scenarioArea: COLLECTION }),
       ],

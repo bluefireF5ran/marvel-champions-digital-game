@@ -106,12 +106,22 @@ export const SINISTER_SIX_TREACHERIES = defineAbilities({
   "27109.when-revealed": whenRevealed(
     ifThen(
       villainAlreadyInPlay("Electro"),
-      discard(superlative("highest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), { ties: "first" })),
+      discard(
+        superlative("highest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), {
+          ties: "first",
+          leavesPlay: true,
+        }),
+      ),
       putSetAsideVillainIntoPlay("Electro", "electro"),
     ),
     ifThen(
       villainAlreadyInPlay("Kraven the Hunter"),
-      discard(superlative("lowest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), { ties: "first" })),
+      discard(
+        superlative("lowest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), {
+          ties: "first",
+          leavesPlay: true,
+        }),
+      ),
       putSetAsideVillainIntoPlay("Kraven the Hunter", "kraven"),
     ),
   ),

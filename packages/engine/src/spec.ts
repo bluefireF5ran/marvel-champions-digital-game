@@ -797,6 +797,15 @@ export type TargetRef =
    * `firstPlayerTargets` authority (RRG 1.8 "First Player", p. 19), or `chooser: controller` on a player card.
    * `ties: "first"` takes the first candidate in the pool's stable order, for a card whose text makes the choice
    * irrelevant.
+   *
+   * `leavesPlay`: the effect this ref feeds makes the card leave play ("discard the lowest-cost upgrade you control",
+   * "return the highest-cost support to its owner's hand"). A permanent card that this ability cannot make leave play
+   * (one not of its source card's set) is no candidate, so the ranking is over the rest: RRG 1.8 "Permanent" (p. 32),
+   * "that effect instead targets the non-permanent card that fits its criteria".
+   *
+   * A `measure` that reads a stat of the candidate itself (`stat` of the `slot`) ranks only candidates that have that
+   * stat at all (`hasStat`): an alter-ego has no ATK, so it is not "the character with the highest ATK" (ruling
+   * April 17, 2025, 69.42).
    */
   | {
       readonly kind: "superlative";
@@ -805,6 +814,7 @@ export type TargetRef =
       readonly measure: ValueSpec;
       readonly slot?: string;
       readonly ties?: "all" | "first";
+      readonly leavesPlay?: true;
     };
 
 export type PlayerRef =

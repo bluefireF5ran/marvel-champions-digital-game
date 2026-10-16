@@ -123,7 +123,9 @@ const overburdened = () =>
 const returnHighestSupport = (): EffectSpec[] => [
   bindTargets(
     "highest",
-    superlative("highest", each(query("support", { controller: "you" })), printedCostOf(chosen("candidate"))),
+    superlative("highest", each(query("support", { controller: "you" })), printedCostOf(chosen("candidate")), {
+      leavesPlay: true,
+    }),
   ),
   chooseTarget("pick", { inSlot: "highest" }),
   moveCards(cards(chosen("pick")), "hand"),

@@ -29,6 +29,7 @@ import {
   canTakeStatus,
   hasGrantedPermanent,
   hasKeyword,
+  isPermanent,
   printedFormTypes,
   queryHasKeyword,
   statusActive,
@@ -84,6 +85,7 @@ import {
   scenarioPlayAreaOf,
   isOwnedEncounterCard,
   playerCardOwnerOf,
+  hasStat,
 } from "./query.js";
 import type { LogValue } from "./campaign.js";
 import {
@@ -2706,7 +2708,9 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       // Each candidate is measured with itself bound to `slot`, so the measure can read another card ("the villain
       // whose side scheme has the most threat"). Ties resolve to every tied card; see the `TargetRef` comment.
       const slot = ref.slot ?? "candidate";
-      const candidates = resolveRef(state, ref.among, context).filter((id) => getInstance(state, id) !== undefined);
+      const candidates = resolveRef(state, ref.among, context).filter(
+        (id) => getInstance(state, id) !== undefined && rankedForSuperlative(state, ref, id, context),
+      );
       if (candidates.length === 0) return [];
       const measured = candidates.map((id) => ({
         id,
@@ -2718,6 +2722,31 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       return ref.ties === "first" ? tied.slice(0, 1) : tied;
     }
   }
+}
+
+/**
+ * Whether a card in a `superlative`'s pool is ranked at all (see the `TargetRef` comment). With `leavesPlay`, a
+ * permanent card this ability cannot make leave play is not: RRG 1.8 "Permanent" (p. 32), "If a permanent card would be
+ * targeted by such an effect (for example, 'discard the lowest-cost support you control'), that effect instead targets
+ * the non-permanent card that fits its criteria." Its own set's ability can (`ofPermanentCardsSet`, the exception
+ * `effects.ts` `permanentStopsLeaving` makes). A measure reading the candidate's own stat skips a candidate without
+ * that stat (`hasStat`; ruling April 17, 2025, 69.42: an alter-ego is not "the character with the highest ATK").
+ */
+function rankedForSuperlative(
+  state: GameState,
+  ref: Extract<TargetRef, { kind: "superlative" }>,
+  id: InstanceId,
+  context: EffectContext,
+): boolean {
+  if (ref.leavesPlay && isPermanent(state, id, context.deps ?? DEFAULT_DEPS)) {
+    const source = context.selfInstanceId ? getInstance(state, context.selfInstanceId)?.cardId : undefined;
+    if (source === undefined || !ofPermanentCardsSet(state, id, source)) return false;
+  }
+  const measure = ref.measure;
+  if (measure.kind === "stat" && measure.of.kind === "slot" && measure.of.slot === (ref.slot ?? "candidate")) {
+    return hasStat(state, id, measure.stat);
+  }
+  return true;
 }
 
 /**
