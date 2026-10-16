@@ -29,7 +29,7 @@ describe("chunk 23: Energy Transfer (#7, Rogue hero pack) with Touched already o
   // character, and an upgrade can't attach to a character it's already attached to."
   // RRG 1.8 p. 68-69 (erratum: "Find Touched and attach it to a character other than Rogue ...") does not reverse it.
   // Engine: `canAttachTo` (engine/src/resolve/attach.ts) lets "a card already on that host pass", so the cost accepts it.
-  it.fails("Energy Transfer cannot name the character Touched is already attached to", () => {
+  it("Energy Transfer cannot name the character Touched is already attached to", () => {
     const base = withForm(rogueGame("rhino", { seed: 1 }), { heroForm: 0 });
     const minion = engageMinion(base, "01101", P1);
     // Skin Contact puts Touched on the minion.
