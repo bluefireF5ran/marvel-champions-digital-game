@@ -46,6 +46,7 @@ import {
   theMainScheme,
   thisCardGenerates,
   min,
+  onChosenMainScheme,
   valueAtMost,
   valueEquals,
   host,
@@ -58,8 +59,11 @@ const ELITE = trait("ELITE");
 const WEAPON = trait("WEAPON");
 const A_WEAPON_UPGRADE = { categories: ["upgrade"], aspects: fromAnyAspect, traits: [WEAPON] } as const;
 
-/** "1 more for each acceleration token on the main scheme, to a maximum of 3" (Montage, Cable). */
-const TOKENS_TO_3 = min(accelerationTokensOn(theMainScheme), 3);
+/**
+ * "1 more for each acceleration token on the main scheme, to a maximum of 3" (Montage, Cable). With several main
+ * schemes, the player chooses the one to count on (RRG 1.8 p. 63, Venom Goblin FAQ; Ruling 132, Dec 22, 2023).
+ */
+const TOKENS_TO_3 = onChosenMainScheme(min(accelerationTokensOn(theMainScheme), 3), "most");
 
 /** Triple with no damage sustained, double with less than 5, otherwise as printed (the three Self resources). */
 const SELF_FACTOR = ifElse(

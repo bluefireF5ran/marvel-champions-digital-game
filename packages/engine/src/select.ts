@@ -816,6 +816,36 @@ export function gliderMainSchemeId(state: GameState, deps: EngineDeps): Instance
 }
 
 /**
+ * Reads `read` once for each main scheme a player card's "the main scheme" could be chosen as (RRG 1.8 p. 63, Venom
+ * Goblin FAQ; Ruling 132, Dec 22, 2023): every main scheme in the shared area, each bound as the ability's
+ * `MAIN_SCHEME_CHOICE`. Once, as is, when there is nothing to choose: one main scheme, a separate game area's own stage,
+ * a choice already made, a card that is not a player's, or a Focused Defense naming the scheme a player card's constant
+ * "always refers to" (MC21 p. 10). The glider counter (`encounterCards: "focused"`) does not decide it: it names the
+ * encounter cards' main scheme, and the FAQ lets the player choose any.
+ */
+function readEachChoosableMainScheme<T>(
+  state: GameState,
+  context: EffectContext,
+  read: (context: EffectContext) => T,
+): readonly T[] {
+  const deps = context.deps ?? DEFAULT_DEPS;
+  const choosable =
+    (state.extraMainSchemes ?? []).length > 0 &&
+    !contextArea(state, context) &&
+    context.bindings[MAIN_SCHEME_CHOICE] === undefined &&
+    isPlayerCard(state, context.selfInstanceId) &&
+    !activeRules(state, deps, "focusedMainScheme").some(
+      ({ rule, context: ruleContext }) =>
+        rule.encounterCards !== "focused" &&
+        resolveRef(state, rule.scheme, ruleContext).some((id) => mainSchemeStateOf(state, id) !== undefined),
+    );
+  if (!choosable) return [read(context)];
+  return sharedMainSchemes(state).map((scheme) =>
+    read({ ...context, bindings: { ...context.bindings, [MAIN_SCHEME_CHOICE]: [scheme.instanceId] } }),
+  );
+}
+
+/**
  * Acceleration tokens on cards in play that are not main schemes (their `acceleration` counter, docs/phase7-wave5.md
  * §3.4). RRG 1.8 "Acceleration Token" (p. 5): they "still add threat to the main scheme during step one" — to "the main
  * scheme", so to the glider's when there is one (MC27 p. 17), else the central one.
@@ -3007,6 +3037,12 @@ export function resolveValue(
       return Math.min(...value.values.map((part) => resolveValue(state, part, context, deps)));
     case "max":
       return Math.max(...value.values.map((part) => resolveValue(state, part, context, deps)));
+    case "chosenMainSchemeValue": {
+      const readings = readEachChoosableMainScheme(state, context, (each) =>
+        resolveValue(state, value.value, each, deps),
+      );
+      return value.prefer === "most" ? Math.max(...readings) : Math.min(...readings);
+    }
     case "deckCount": {
       // The player deck only: a separate deck (`PlayerState.separateDecks`) is its own deck, not part of this one.
       const [playerId] = resolvePlayers(state, value.player, context);
@@ -3187,6 +3223,8 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
     }
     case "not":
       return !evaluate(state, predicate.of, context);
+    case "onChosenMainScheme":
+      return readEachChoosableMainScheme(state, context, (each) => evaluate(state, predicate.of, each)).some(Boolean);
     case "paidWith": {
       const vars = paidVarsOf(state, predicate.of, context);
       return (vars[`paid.${predicate.resource}`] ?? 0) > 0 || (vars["paid.wild"] ?? 0) > 0;

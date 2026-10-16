@@ -967,6 +967,24 @@ export const max = (...values: readonly [Amount, Amount, ...Amount[]]): ValueSpe
   kind: "max",
   values: values.map(amount) as [ValueSpec, ...ValueSpec[]],
 });
+/**
+ * `value` read with `theMainScheme` as the main scheme its player would choose, keeping the reading `prefer` names
+ * (`most` / `least`) when several main schemes share the play area (RRG 1.8 p. 63, Venom Goblin FAQ; Ruling 132, Dec
+ * 22, 2023): "1 more for each acceleration token on the main scheme" (Cable 44002) is `"most"`.
+ */
+export const onChosenMainScheme = (value: Amount, prefer: "most" | "least"): ValueSpec => ({
+  kind: "chosenMainSchemeValue",
+  value: amount(value),
+  prefer,
+});
+/**
+ * `condition` with `theMainScheme` as the main scheme its player would choose: true when it holds for any of them
+ * (RRG 1.8 p. 63; Ruling 132, Dec 22, 2023). "While there is no threat on the main scheme" (Venom 22013).
+ */
+export const whileOnChosenMainScheme = (condition: Predicate): Predicate => ({
+  kind: "onChosenMainScheme",
+  of: condition,
+});
 /** "N (M instead if …)". */
 export const ifElse = (condition: Predicate, then: Amount, otherwise: Amount): ValueSpec => ({
   kind: "conditional",

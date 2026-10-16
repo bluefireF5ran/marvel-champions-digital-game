@@ -1043,6 +1043,15 @@ export type ValueSpec =
   | { readonly kind: "min"; readonly values: readonly [ValueSpec, ...ValueSpec[]] }
   | { readonly kind: "max"; readonly values: readonly [ValueSpec, ...ValueSpec[]] }
   /**
+   * `value` read with "the main scheme" (`TargetRef mainScheme`) as whichever main scheme its player would choose. RRG
+   * 1.8 p. 63 (Venom Goblin FAQ: "The player using the effect chooses one main scheme on which to count the acceleration
+   * tokens") and Ruling 132 (Dec 22, 2023: a player card's constant affected by "the main scheme" lets its controller
+   * choose any main scheme each time it has an effect). With several main schemes in the shared area, on a player card,
+   * with no choice already made and no Focused Defense naming one, `value` is read once per main scheme and the one
+   * `prefer` names is kept (`most`: the highest, `least`: the lowest); otherwise it is just `value`.
+   */
+  | { readonly kind: "chosenMainSchemeValue"; readonly value: ValueSpec; readonly prefer: "most" | "least" }
+  /**
    * The facedown encounter cards dealt to a player and not yet revealed, "in front of" them (RRG 1.8 "Deal", p. 14):
    * "for each facedown encounter card in front of you" (Star-Lord: Gutsy Move, Sliding Shot, Jet Boots, Star-Lord's
    * Helmet, `stld`). docs/phase7-wave3.md §3.10.
@@ -1425,6 +1434,12 @@ export type Predicate =
   | { readonly kind: "counterAtLeast"; readonly of: TargetRef; readonly counterType: string; readonly amount: number }
   | { readonly kind: "damagedAtLeast"; readonly of: TargetRef; readonly amount: number }
   | { readonly kind: "not"; readonly of: Predicate }
+  /**
+   * `of` with "the main scheme" as whichever main scheme its player would choose (the `ValueSpec chosenMainSchemeValue`
+   * reading, RRG 1.8 p. 63 and Ruling 132, Dec 22, 2023): true when `of` holds for any main scheme they could choose.
+   * "While there is no threat on the main scheme" (Venom 22013) holds while any main scheme has no threat.
+   */
+  | { readonly kind: "onChosenMainScheme"; readonly of: Predicate }
   /**
    * "If you paid for this card using a [X] resource" (a wild can be declared as X). Read from the ability's own vars
    * (its own card's play, `abilityFrame`), or with `of`, from the play of the card `of` names while that play is still

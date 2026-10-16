@@ -1,0 +1,121 @@
+/**
+ * A constant on a player card that reads "the main scheme" while several main schemes share the play area lets its
+ * controller choose which one counts, each time it has an effect: RRG 1.8 p. 63 (Venom Goblin FAQ, "The player using
+ * the effect chooses one main scheme on which to count the acceleration tokens") and post-RRG 1.5 #132 (Dec 22, 2023:
+ * Venom 22013 and Cable 44002 by name). Engine interpretation, contributor's rules call 2026-10-16 (bluefireF5ran): the
+ * engine takes the choice best for that player instead of asking, the most tokens for Cable, and Venom's reduction if
+ * any scheme has no threat; Montage follows Cable's ruling by analogy.
+ */
+import { cardId } from "@mc/content";
+import { createGame, currentName, statBonus, type GameSetupConfig, type GameState, type InstanceId } from "@mc/engine";
+import { describe, expect, it } from "vitest";
+import { firstLegal, instancesOf, moveToHand, P1, patchInstance, settle } from "./testing/harness.js";
+import { towerDefenseScenario } from "./wave4/mts/tower-defense-setup.js";
+import { ghostSpiderScenarioWithExtras } from "./wave5/sm/ghost-spider/support.js";
+import { WAVE7_CARDS, WAVE7_DEPS as DEPS } from "./wave7/index.js";
+
+/** Venom Goblin, one player (Lower 1 threat, Midtown 2 with the glider, Upper 0), with `codes` in play under P1. */
+function venomGoblinWith(...codes: readonly string[]): { readonly state: GameState; readonly ids: InstanceId[] } {
+  return startWith(ghostSpiderScenarioWithExtras("venom-goblin", { seed: 7, extraCodes: codes }), codes);
+}
+
+/** Tower Defense (two main schemes, Focused Defense on one), one player, with `codes` in play under P1. */
+function towerDefenseWith(...codes: readonly string[]): { readonly state: GameState; readonly ids: InstanceId[] } {
+  const base = towerDefenseScenario({ seed: 1, players: [{ starterDeckId: "spectrum-leadership" }] });
+  const config: GameSetupConfig = {
+    ...base,
+    requireLegalDecks: false,
+    players: base.players.map((p) => ({ ...p, deck: [...p.deck, ...codes.map((code) => cardId(code))] })),
+  };
+  return startWith(config, codes);
+}
+
+function startWith(
+  config: GameSetupConfig,
+  codes: readonly string[],
+): { readonly state: GameState; readonly ids: InstanceId[] } {
+  const created = createGame({ ...config, cards: WAVE7_CARDS }, DEPS);
+  if (!created.ok) throw new Error(created.error.message);
+  const started = settle(created.state, firstLegal, (s) => s.step.phase === "player", DEPS);
+  const given = moveToHand(started, P1, ...codes);
+  const ids = [...given.ids];
+  const state: GameState = {
+    ...given.state,
+    players: given.state.players.map((p) =>
+      p.playerId === P1
+        ? { ...p, hand: p.hand.filter((id) => !ids.includes(id)), playArea: [...p.playArea, ...ids] }
+        : p,
+    ),
+  };
+  return {
+    ids,
+    state: ids.reduce((s, id) => patchInstance(s, id, { controllerId: P1, faceup: true }), state),
+  };
+}
+
+const schemeIds = (state: GameState): readonly InstanceId[] => [
+  state.mainScheme.instanceId,
+  ...(state.extraMainSchemes ?? []).map((s) => s.instanceId),
+];
+const schemeNamed = (state: GameState, name: string): InstanceId => {
+  const found = schemeIds(state).find((id) => currentName(state, id) === name);
+  if (!found) throw new Error(`no main scheme named ${name}`);
+  return found;
+};
+function withTokens(state: GameState, name: string, accelerationTokens: number): GameState {
+  const id = schemeNamed(state, name);
+  return state.mainScheme.instanceId === id
+    ? { ...state, mainScheme: { ...state.mainScheme, accelerationTokens } }
+    : {
+        ...state,
+        extraMainSchemes: (state.extraMainSchemes ?? []).map((s) =>
+          s.instanceId === id ? { ...s, accelerationTokens } : s,
+        ),
+      };
+}
+
+describe("RRG 1.8 p. 63 / Ruling 132 (Dec 22, 2023): a player card's constant chooses which main scheme counts", () => {
+  it("Cable (44002) counts the acceleration tokens on the main scheme best for his controller, to a maximum of 3", () => {
+    const { state, ids } = venomGoblinWith("44002");
+    const [cable] = ids as [InstanceId];
+    // The glider's scheme (Midtown) has none; Upper has 2.
+    const two = withTokens(withTokens(state, "Midtown Manhattan", 0), "Upper Manhattan", 2);
+    expect(statBonus(two, DEPS, cable, "thw")).toBe(2);
+    expect(statBonus(two, DEPS, cable, "atk")).toBe(2);
+    const five = withTokens(two, "Lower Manhattan", 5);
+    expect(statBonus(five, DEPS, cable, "thw")).toBe(3);
+  });
+
+  it("Venom (22013) takes 1 less consequential damage while any main scheme has no threat", () => {
+    const { state, ids } = venomGoblinWith("22013");
+    const [venom] = ids as [InstanceId];
+    const staged = patchInstance(
+      patchInstance(
+        patchInstance(state, schemeNamed(state, "Lower Manhattan"), { threat: 1 }),
+        schemeNamed(state, "Midtown Manhattan"),
+        {
+          threat: 2,
+        },
+      ),
+      schemeNamed(state, "Upper Manhattan"),
+      { threat: 0 },
+    );
+    expect(statBonus(staged, DEPS, venom, "consequentialAttack")).toBe(-1);
+    expect(statBonus(staged, DEPS, venom, "consequentialThwart")).toBe(-1);
+    // Threat on every main scheme: no scheme to choose that satisfies "no threat".
+    const allThreat = patchInstance(staged, schemeNamed(staged, "Upper Manhattan"), { threat: 1 });
+    expect(statBonus(allThreat, DEPS, venom, "consequentialAttack")).toBe(0);
+  });
+
+  it("with Focused Defense (Tower Defense), a player card's constant reads only the scheme it is attached to (MC21 p. 10)", () => {
+    const { state, ids } = towerDefenseWith("22013");
+    const [venom] = ids as [InstanceId];
+    const [focusedDefense] = instancesOf(state, "21101") as [InstanceId];
+    const focused = state.instances[focusedDefense]!.attachedTo!;
+    const other = schemeIds(state).find((id) => id !== focused)!;
+    const otherEmpty = patchInstance(patchInstance(state, focused, { threat: 2 }), other, { threat: 0 });
+    expect(statBonus(otherEmpty, DEPS, venom, "consequentialAttack")).toBe(0);
+    const focusedEmpty = patchInstance(patchInstance(state, focused, { threat: 0 }), other, { threat: 2 });
+    expect(statBonus(focusedEmpty, DEPS, venom, "consequentialAttack")).toBe(-1);
+  });
+});

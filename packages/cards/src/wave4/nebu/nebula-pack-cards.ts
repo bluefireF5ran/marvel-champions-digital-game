@@ -44,9 +44,11 @@ import {
   self,
   shuffleEncounterDeck,
   statOf,
+  theMainScheme,
   threatOn,
   valueAtMost,
   varOf,
+  whileOnChosenMainScheme,
   you,
   yourIdentity,
   YOUR_HERO,
@@ -94,14 +96,15 @@ export const NEBULA_PACK_CARDS = defineAbilities({
   // Venom (ally, 22013) — While there is no threat on the main scheme, reduce all consequential damage Venom takes
   // by 1. Read as the two consequential-damage stat modifiers (`gets("consequentialAttack"/"consequentialThwart",
   // …)`, `packages/cards/src/dsl/abilities.ts`), not `RuleSpec reduceDamageTaken` (which is for damage dealt *from
-  // an attack*, `fromAttack: true` — consequential damage is neither, RRG 1.8 "Consequential Damage", p. 14). "The
-  // main scheme" with one main scheme in play reads as the central scheme (docs/phase7-wave4.md §4 Q2 precedent).
+  // an attack*, `fromAttack: true` — consequential damage is neither, RRG 1.8 "Consequential Damage", p. 14). With
+  // several main schemes, his controller chooses which is "the main scheme" each time (Ruling 132, Dec 22, 2023), so
+  // the reduction applies while any main scheme has no threat.
   "22013.venom-constant": constant(
     gets("consequentialAttack", -1, query("ally", { self: true }), {
-      while: valueAtMost(threatOn(centralMainScheme), 0),
+      while: whileOnChosenMainScheme(valueAtMost(threatOn(theMainScheme), 0)),
     }),
     gets("consequentialThwart", -1, query("ally", { self: true }), {
-      while: valueAtMost(threatOn(centralMainScheme), 0),
+      while: whileOnChosenMainScheme(valueAtMost(threatOn(theMainScheme), 0)),
     }),
   ),
 
