@@ -262,6 +262,25 @@ describe("§3.2 two main schemes, each belonging to a villain", () => {
     );
     expect(player).toEqual([scheme(state, "Corvus Glaive")]);
   });
+
+  // MC21 p. 10 "Two Main Schemes": "Each main scheme gains threat during step 1 of the villain phase"; p. 10 "Two
+  // Villains": "When either of the two villains schemes, place the threat on their matching main scheme card only";
+  // p. 11 "The Active Villain": the active villain "is the only villain who activates during step 2". Confirmed by the
+  // contributor (bluefireF5ran) (2026-10-16).
+  it("over two rounds both schemes get step one's threat every round, and only the active villain schemes, on its own scheme", () => {
+    const start0 = start();
+    expect(activeName(start0)).toBe("Corvus Glaive");
+    // Round 1: Focused Defense moves to Proxima's scheme; she alone activates (SCH 2).
+    const r1 = endRound(start0).state;
+    expect(activeName(r1)).toBe("Proxima Midnight");
+    expect(threat(r1, "Proxima Midnight")).toBe(1 + 1 + 2);
+    expect(threat(r1, "Corvus Glaive")).toBe(1 + 1); // Corvus did not scheme (his SCH 3 is absent)
+    // Round 2: it moves back to Corvus's scheme; he alone activates (SCH 3) onto his own scheme.
+    const r2 = endRound(r1).state;
+    expect(activeName(r2)).toBe("Corvus Glaive");
+    expect(threat(r2, "Corvus Glaive")).toBe(2 + 1 + 3);
+    expect(threat(r2, "Proxima Midnight")).toBe(4 + 1); // step one only; Proxima did not scheme
+  });
 });
 
 /**
