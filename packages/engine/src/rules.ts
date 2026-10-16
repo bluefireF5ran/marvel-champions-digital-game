@@ -49,8 +49,6 @@ import {
   resolvePlayers,
   resolveRef,
   resolveValue,
-  restrictedCardsOf,
-  restrictedLoadOf,
   restrictedWeightOf,
   rulePlayers,
   textBoxBlankFor,
@@ -1598,10 +1596,11 @@ export function restrictedLimitFor(
 
 /**
  * Where a player stands against the restricted limit (docs/phase7-wave7.md §3.82), counting what they control in play.
- * `load` is `restrictedLoadOf`; `held` is the cards with the keyword, the only ones discarded for the limit (§4.1 Q52 =
- * B). A `restrictedLimit` rule's `cards` makes room for every card that weighs on the limit, a card that "counts as N
- * restricted cards" counted N times: FFG ruling 152 (March 22, 2024), "Laser Swords counts as two Restricted Weapon
- * cards, so it does interact with Side Holster" (contributor's rules call (bluefireF5ran), overriding upstream Q52 = B on this point).
+ * `load` is `restrictedLoadOf`; `held` is `restrictedCardsOf`, the cards offered for the discard, a weighted card among
+ * them (contributor's rules call (bluefireF5ran) 2026-10-16, reversing upstream Q52 = B). A `restrictedLimit` rule's `cards` makes room
+ * for every card that weighs on the limit, a card that "counts as N restricted cards" counted N times: FFG ruling 152
+ * (March 22, 2024), "Laser Swords counts as two Restricted Weapon cards, so it does interact with Side Holster" (fork
+ * owner's decision, overriding upstream Q52 = B on this point).
  * The player is over the limit when `load > limit`.
  */
 export function restrictedStanding(
@@ -1609,17 +1608,21 @@ export function restrictedStanding(
   deps: EngineDeps,
   playerId: PlayerId,
 ): { readonly load: number; readonly limit: number; readonly held: readonly InstanceId[] } {
-  const held = restrictedCardsOf(state, playerId, deps);
+  // One reading of each controlled card's weight (the same answer `restrictedCardsOf` and `restrictedLoadOf` give, each of
+  // which reads it again): a weight needs the card's keywords with every grant, the engine's hottest read, and this runs
+  // between every two frames of a game whose registry can grant `restricted`.
+  const held: InstanceId[] = [];
   const weighing: InstanceId[] = [];
+  let load = 0;
   for (const id of cardsInPlay(state)) {
     if (controllerOf(state, id) !== playerId) continue;
-    for (let n = restrictedWeightOf(state, id, deps); n > 0; n--) weighing.push(id);
+    const weight = restrictedWeightOf(state, id, deps);
+    if (weight === 0) continue;
+    held.push(id);
+    load += weight;
+    for (let n = weight; n > 0; n--) weighing.push(id);
   }
-  return {
-    load: restrictedLoadOf(state, playerId, deps),
-    limit: restrictedLimitFor(state, deps, playerId, weighing),
-    held,
-  };
+  return { load, limit: restrictedLimitFor(state, deps, playerId, weighing), held };
 }
 
 /** "Ronan the Accuser cannot be stunned." (`cannotHaveStatus`; docs/phase7-wave3.md §3.7). */
