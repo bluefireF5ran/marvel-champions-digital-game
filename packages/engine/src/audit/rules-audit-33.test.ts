@@ -107,7 +107,7 @@ describe("audit 33.34: Piercing Strike against a Tough enemy that cannot take da
   const SHIELD = stubSupport({ id: "shield", cost: 0, abilities: [SHIELD_ABILITY.ref] });
   const deps = depsOf(STRIKE_ABILITY, SHIELD_ABILITY);
 
-  it.fails("the Tough status card is discarded although the villain cannot take the damage", () => {
+  it("the Tough status card is discarded although the villain cannot take the damage", () => {
     const start = newGame({
       villain: VILLAIN,
       mainScheme: SCHEME,

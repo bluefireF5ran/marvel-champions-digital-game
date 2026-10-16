@@ -63,7 +63,7 @@
  * `attack`, `discardFromPlay`, `flipCard`, `defeat`, `heal` aimed straight at the slot, `moveThreat` from it) is assumed able to affect
  * the target: the "multiple effects" bullet makes the target valid if any one effect can, so an effect this module
  * cannot judge never makes a target invalid. An attack that also stuns its target keeps a target that cannot take its
- * damage.
+ * damage, and so does a piercing attack on a target with a tough card (`attackPiercesTough`; ruling Jul 11, 2025).
  */
 
 import type { AbilityDefinition, EngineDeps } from "../abilities.js";
@@ -78,6 +78,7 @@ import {
   cannotLeavePlay,
   cannotTakeDamage,
   iconsInPlay,
+  lostAttackKeywords,
   patrolledBy,
   schemeActivationDestination,
 } from "../rules.js";
@@ -94,7 +95,7 @@ import {
   selectTargets,
   reachOf,
 } from "../select.js";
-import type { CardSelector, EffectSpec, TargetRef } from "../spec.js";
+import type { AttackKeyword, CardSelector, EffectSpec, TargetRef } from "../spec.js";
 import type { GameState } from "../state.js";
 import { carriedByEvent, type TriggerEvent } from "../trigger-events.js";
 import { createCtx } from "../ctx.js";
@@ -210,6 +211,24 @@ export const canDiscardFromPlay = (
   return !permanentStopsLeaving(state, deps, id, sourceCardId) && !cannotLeavePlay(state, deps, id, sourceCardId, true);
 };
 
+/**
+ * Whether an attack with these keywords would discard a tough status card from `id`, the character it attacks: it has
+ * piercing (not lost against `id`, `attacksLoseKeywords`) and `id` has a tough card. RRG 1.8 "Piercing" (p. 32) discards
+ * them "before this attack deals damage", so piercing is an effect of the attack on its target besides its damage, and
+ * one the target "cannot take damage" does not stop: ruling July 11, 2025 (Ruling 69.76), "Piercing Strike's alteration
+ * effect makes it so that an enemy with Tough can still be its target, even if that same enemy 'cannot take damage,'
+ * resulting in the Tough status card being removed" (RRG 1.8 "Target", p. 43: valid if any part can affect it).
+ */
+export const attackPiercesTough = (
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  keywords: readonly AttackKeyword[],
+): boolean =>
+  keywords.includes("piercing") &&
+  !lostAttackKeywords(state, deps, id).includes("piercing") &&
+  statusActive(state, id, "tough", deps);
+
 /** The character an `attack` effect attacks with: its `attacker`, else the controller's identity (`apply-effect.ts`). */
 const attackerOf = (
   state: GameState,
@@ -246,6 +265,8 @@ function attackCanDamage(
     basic: false,
     ...(effect.keywords ? { keywords: effect.keywords } : {}),
   });
+  // Piercing that would discard the target's tough card affects it whether or not it can take the damage.
+  if (attackPiercesTough(state, deps, id, has)) return true;
   return !cannotTakeDamage(state, deps, id, [attacker, via], {
     attackerInstanceId: attacker,
     cardInstanceId: via,

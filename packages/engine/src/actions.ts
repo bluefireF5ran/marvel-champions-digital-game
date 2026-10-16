@@ -215,7 +215,12 @@ import {
 } from "./resolve/index.js";
 import { limitReached } from "./resolve/ability.js";
 import { thwartBlockedOn } from "./resolve/event.js";
-import { abilityLacksValidTarget, abilityTargetFault, TARGET_FAULT_MESSAGE } from "./resolve/target-validity.js";
+import {
+  abilityLacksValidTarget,
+  abilityTargetFault,
+  attackPiercesTough,
+  TARGET_FAULT_MESSAGE,
+} from "./resolve/target-validity.js";
 import { moveCardsTo } from "./resolve/cards.js";
 import { addFrameSlots, eventFrame } from "./resolve/frames.js";
 import {
@@ -6421,7 +6426,12 @@ function basicAttackPaying(
       cardInstanceId: null,
       keywords: attackKeywordsOf(ctx.state, ctx.deps, { attackerInstanceId: command.attackerInstanceId, basic: true }),
     };
-    if (cannotTakeDamage(ctx.state, ctx.deps, targetInstanceId, [command.attackerInstanceId], attack)) {
+    // A piercing attack on a character with a tough card affects it through piercing (`attackPiercesTough`; ruling
+    // July 11, 2025, Ruling 69.76), so that target stays valid.
+    if (
+      !attackPiercesTough(ctx.state, ctx.deps, targetInstanceId, attack.keywords) &&
+      cannotTakeDamage(ctx.state, ctx.deps, targetInstanceId, [command.attackerInstanceId], attack)
+    ) {
       return engineError("no_valid_target", "that enemy cannot take damage from this attack", command);
     }
   }
