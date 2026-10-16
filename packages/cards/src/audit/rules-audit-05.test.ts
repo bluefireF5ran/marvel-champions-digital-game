@@ -87,7 +87,8 @@ describe("'Cannot be confused' stops new status cards only (FFG ruling July 13, 
 });
 
 describe("Damage order, step 1 before step 2 (RRG 1.8 'Damage', p. 14; FFG ruling relayed in Discord 8798-02506: the RRG line putting Tough ahead of 'would deal' interrupts was an error)", () => {
-  it.fails("a 'would be dealt damage' forced interrupt (Bell Tower, Ringing) resolves before the hero's Tough status card is used", () => {
+  // Fixed upstream in #181, audit finding 17 (wouldBeDealt: "would be dealt", then tough, then "would be taken").
+  it("a 'would be dealt damage' forced interrupt (Bell Tower, Ringing) resolves before the hero's Tough status card is used", () => {
     const state = startWave5Game(
       ghostSpiderScenario("venom", { seed: 1, modularSetIds: [encounterSetId("bomb_scare")] }),
     );
