@@ -4,7 +4,6 @@ import {
   alterEgoAction,
   attackAnEnemy,
   cards,
-  centralMainScheme,
   chooseCards,
   chooseTarget,
   chosen,
@@ -134,7 +133,7 @@ export const NEBULA_PACK_CARDS = defineAbilities({
 
   // Determination (resource, 22016) — Max 1 per deck (data). Hero Response: After you spend this card, remove 1
   // threat from the main scheme.
-  "22016.determination-response": heroResponse(on.youSpendThis(), removeThreat(1, centralMainScheme)),
+  "22016.determination-response": heroResponse(on.youSpendThis(), removeThreat(1, theMainScheme)),
 
   // The Power of Justice (resource, 22017) — Max 2 per deck (data). Double the number of resources this card
   // generates while paying for a Justice (yellow) card. Reprints Core's own The Power of Justice (01062,

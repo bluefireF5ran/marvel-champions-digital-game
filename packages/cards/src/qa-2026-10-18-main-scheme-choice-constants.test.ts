@@ -9,7 +9,18 @@
 import { cardId } from "@mc/content";
 import { createGame, currentName, statBonus, type GameSetupConfig, type GameState, type InstanceId } from "@mc/engine";
 import { describe, expect, it } from "vitest";
-import { firstLegal, instancesOf, moveToHand, P1, patchInstance, settle } from "./testing/harness.js";
+import {
+  firstLegal,
+  instancesOf,
+  moveToHand,
+  P1,
+  patchInstance,
+  play,
+  runWith,
+  settle,
+  toHero,
+  type Picker,
+} from "./testing/harness.js";
 import { towerDefenseScenario } from "./wave4/mts/tower-defense-setup.js";
 import { ghostSpiderScenarioWithExtras } from "./wave5/sm/ghost-spider/support.js";
 import { WAVE7_CARDS, WAVE7_DEPS as DEPS } from "./wave7/index.js";
@@ -117,5 +128,70 @@ describe("RRG 1.8 p. 63 / Ruling 132 (Dec 22, 2023): a player card's constant ch
     expect(statBonus(otherEmpty, DEPS, venom, "consequentialAttack")).toBe(0);
     const focusedEmpty = patchInstance(patchInstance(state, focused, { threat: 0 }), other, { threat: 2 });
     expect(statBonus(focusedEmpty, DEPS, venom, "consequentialAttack")).toBe(-1);
+  });
+});
+
+describe("Determination (22016): 'remove 1 threat from the main scheme' asks which one (RRG 1.8 p. 63; Ruling 132; MC21 p. 10)", () => {
+  /** Spends Determination to pay for Heroic Intuition, answering the main scheme prompt with `scheme`. */
+  function spendDetermination(
+    start: GameState,
+    ids: readonly InstanceId[],
+    scheme: (offered: readonly string[]) => string,
+  ) {
+    const [determination, intuition] = ids as [InstanceId, InstanceId];
+    // The helpers put the cards in play; Determination and Heroic Intuition belong in hand.
+    const inHand = {
+      ...start,
+      players: start.players.map((p) =>
+        p.playerId === P1
+          ? { ...p, hand: [...p.hand, ...ids], playArea: p.playArea.filter((id) => !ids.includes(id)) }
+          : p,
+      ),
+    };
+    const given = { state: settle(runWith(DEPS, inHand, toHero()), firstLegal, undefined, DEPS) };
+    const filler = given.state.players.find((p) => p.playerId === P1)!.hand.find((id) => !ids.includes(id))!;
+    const offers: (readonly string[])[] = [];
+    const pick: Picker = (s) => {
+      const choice = s.pendingChoice!;
+      const offered = choice.options.map((o) => o.optionId);
+      const hit = offered.find(
+        (o) => o.endsWith(":22016.determination-response") || o === "22016.determination-response",
+      );
+      if (hit) return [hit];
+      if (offered.every((o) => schemeIds(s).includes(o as InstanceId))) {
+        offers.push(offered);
+        return [scheme(offered)];
+      }
+      return firstLegal(s);
+    };
+    const after = settle(
+      runWith(DEPS, given.state, play(P1, intuition, [determination, filler])),
+      pick,
+      undefined,
+      DEPS,
+    );
+    return { after, offers };
+  }
+
+  it("Venom Goblin: the player is offered all three main schemes and the chosen one loses the threat", () => {
+    const { state, ids } = venomGoblinWith("22016", "22019");
+    const staged = schemeIds(state).reduce((s, id) => patchInstance(s, id, { threat: 3 }), state);
+    const upper = schemeNamed(staged, "Upper Manhattan");
+    const { after, offers } = spendDetermination(staged, ids, () => upper);
+    expect([...offers[0]!].sort()).toEqual([...schemeIds(staged)].sort());
+    expect(offers[0]).toHaveLength(3);
+    expect(after.instances[upper]!.threat).toBe(2);
+    expect(schemeIds(after).filter((id) => after.instances[id]!.threat === 3)).toHaveLength(2);
+  });
+
+  it("Tower Defense: the player is asked which of the two main schemes", () => {
+    const { state, ids } = towerDefenseWith("22016", "22019");
+    const staged = schemeIds(state).reduce((s, id) => patchInstance(s, id, { threat: 3 }), state);
+    const [, second] = schemeIds(staged) as [InstanceId, InstanceId];
+    const { after, offers } = spendDetermination(staged, ids, () => second);
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toHaveLength(2);
+    expect(after.instances[second]!.threat).toBe(2);
+    expect(after.instances[state.mainScheme.instanceId]!.threat).toBe(3);
   });
 });
