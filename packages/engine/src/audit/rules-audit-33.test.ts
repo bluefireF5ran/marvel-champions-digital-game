@@ -12,7 +12,6 @@ import { activeVillain } from "../query.js";
 import type { InstanceId } from "../ids.js";
 import { mustInstance, mustPlayer } from "../query.js";
 import { depsOf, stubAbility } from "../testing/abilities.js";
-import { driveSession } from "../testing/drive.js";
 import {
   stubAlly,
   stubEvent,
@@ -24,7 +23,6 @@ import {
 } from "../testing/fixtures.js";
 import { giveCard, newGame, RESOURCE, runWith, settle } from "../testing/scenario.js";
 import { encounterCardInVillainArea, gameAtFirstTurn, P1, playerCardIntoPlay } from "../testing/wave3.js";
-import { startSession } from "../engine.js";
 
 /** "Interrupt: When a character thwarts this side scheme, they may use their ATK instead of their THW" (The Red House). */
 const MAY_USE_ATK = stubAbility("optional.constant", {
@@ -41,7 +39,7 @@ describe("audit 33.20: a character with a dash THW cannot thwart The Red House (
   // triggering its interrupt to use their ATK, and since Hulk has a 'dash' (-) value for his THW, he cannot exhaust to
   // initiate a basic thwart this way." Assault is different (always in effect): a dash-THW character can thwart it.
   // RRG 1.8 p. 44 "Thwart" says a basic thwart needs the character's THW; the RRG does not address this card.
-  it.fails("an ally with THW dash and ATK 4 using ATK against the Red House is refused", () => {
+  it("an ally with THW dash and ATK 4 using ATK against the Red House is refused", () => {
     let state = gameAtFirstTurn({
       cards: [HULK, HOUSE],
       deps,
@@ -58,9 +56,12 @@ describe("audit 33.20: a character with a dash THW cannot thwart The Red House (
       schemeInstanceId: house.id,
       useAtk: true,
     };
-    const driven = driveSession(startSession(house.state), deps, [command]);
-    // Expected: refused, the scheme keeps its 10 threat. Actual: the thwart goes through (ATK 4 removes 4).
-    expect(mustInstance(driven.session.state, house.id).threat).toBe(10);
+    // Refused (the engine used to let the thwart through, ATK 4 removing 4 threat); the scheme keeps its 10 threat.
+    const result = applyCommand(house.state, command, deps);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("cannot initiate a thwart");
+    expect(mustInstance(house.state, house.id).threat).toBe(10);
+    expect(mustInstance(house.state, hulk).exhausted).toBe(false);
   });
 });
 

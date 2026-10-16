@@ -6656,9 +6656,15 @@ function basicThwartWith(
   ) {
     return engineError("no_valid_target", "this thwart cannot use ATK", command);
   }
+  const missingStats = characterProfile(ctx.state, command.thwarterInstanceId, ctx.deps)?.missing ?? [];
+  // Ruling 69.62 (June 17, 2025; RRG 1.8 "Dash (Value)", p. 15): a triggered "may use their ATK instead" applies only
+  // once the character can initiate a basic thwart, which a '—' THW forbids. Assault (always in effect) is exempt.
+  if (command.useAtk && !assault && missingStats.includes("thw")) {
+    return engineError("no_valid_target", "a character with a printed '—' THW cannot initiate a thwart", command);
+  }
   const useAtk = assault || command.useAtk === true;
   const thwartStat = useAtk ? "atk" : "thw";
-  if (characterProfile(ctx.state, command.thwarterInstanceId, ctx.deps)?.missing.includes(thwartStat)) {
+  if (missingStats.includes(thwartStat)) {
     return engineError(
       "no_valid_target",
       `a character with a printed '—' ${thwartStat.toUpperCase()} cannot thwart this way`,
