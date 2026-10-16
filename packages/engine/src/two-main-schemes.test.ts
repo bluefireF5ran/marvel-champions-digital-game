@@ -275,7 +275,8 @@ describe("§3.2 two main schemes, each belonging to a villain", () => {
  * The shipped script is `51034.when-defeated` = `whenDefeated(moveThreat(find(Manipulated M.U.S.I.C.), theMainScheme))`
  * (`cards/src/wave9/bp/black-panther/obligation-nemesis.ts`); this is its shape on synthetic cards. The engine's
  * `moveThreat` takes the first of the targets `{ kind: "mainScheme" }` resolves to for an encounter card, which is
- * both main schemes in `sharedMainSchemes` order, not the one holding Focused Defense.
+ * both main schemes in `sharedMainSchemes` order, not the one holding Focused Defense. Fixed: a `moveThreat` whose
+ * destination resolves to more than one scheme moves to the Focused Defense one (`resolve/apply-effect.ts`).
  */
 describe("M.U.S.I.C. defeated in Tower Defense moves the threat to the Focused Defense scheme (ruling Oct 10, 2025)", () => {
   const MANIPULATED = stubSideScheme({ id: "manipulated-music", startingThreat: 3 });
@@ -297,7 +298,7 @@ describe("M.U.S.I.C. defeated in Tower Defense moves the threat to the Focused D
   const KILL = stubEvent({ id: "kill", cost: 0, abilities: [KILL_ABILITY.ref] });
   const musicDeps = depsOf(FOCUSED_RULE, FOCUSED_MOVE, SETUP, ARMIES_REVEALED, WHEN_DEFEATED, KILL_ABILITY);
 
-  it.fails("all 3 threat go to the main scheme with Focused Defense, none to the other", () => {
+  it("all 3 threat go to the main scheme with Focused Defense, none to the other", () => {
     const result = createGame(
       {
         seed: 11,

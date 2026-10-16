@@ -105,6 +105,7 @@ import {
   type EffectContext,
   evaluate,
   cannotBeDefeatedAgain,
+  focusedMainSchemeId,
   matchesQuery,
   resolvePlayers,
   isPlayerCard as isAPlayersCard,
@@ -2697,7 +2698,11 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // and then discarded for the player side scheme limit takes no threat (docs/phase7-wave7.md §3.49).
       const schemesInPlay = cardsInPlay(ctx.state);
       const [from] = targets(effect.from).filter((id) => schemesInPlay.includes(id));
-      const [to] = targets(effect.to).filter((id) => schemesInPlay.includes(id));
+      const destinations = targets(effect.to).filter((id) => schemesInPlay.includes(id));
+      // A move places a fixed number of tokens on one card and cannot be split: when "the main scheme" is both of
+      // Tower Defense's, the threat goes to just the one with Focused Defense (ruling Oct 10, 2025, 69.111).
+      const focused = destinations.length > 1 ? focusedMainSchemeId(ctx.state, ctx.deps) : null;
+      const to = focused && destinations.includes(focused) ? focused : destinations[0];
       const available = from ? mustInstance(ctx.state, from).threat : 0;
       const amount = Math.min(available, effect.amount ? Math.max(0, value(effect.amount)) : available);
       // RRG 1.8 "Move" (p. 30): no move to the current placement, and none without a valid source and destination.
