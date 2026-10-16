@@ -2319,6 +2319,15 @@ export const removeThreatUpToCost = (from: TargetRef, max: number): AbilityCost 
   removeThreat: { from, amount: { choose: { min: 1, max } } },
 });
 /**
+ * "Remove 3 threat from a scheme … →" (Cosmic Awareness, `mts` 21039): the payer picks the card, one matching `query`
+ * that holds all `n` threat (and that threat can come off), bound to `slot` for the effects after the arrow
+ * ("remove 1 additional threat from that scheme" is `chosen(slot)`). With none the cost cannot be paid, so the ability
+ * is not offered (RRG 1.8 "Cost", p. 13; FFG ruling November 29, 2023 #114).
+ */
+export const removeThreatFromChosenCost = (slot: string, query: TargetQuery, n: number): AbilityCost => ({
+  removeThreat: { from: { kind: "slot", slot }, amount: n, choose: { slot, query } },
+});
+/**
  * "Choose to either exhaust your hero or spend 2 resources of any type →" (The Grand Collection 1B, `gmw` 16073b;
  * docs/phase7-wave3.md §3.36): exactly one branch is paid, the player's choice (`costSelection.branch`, the branch's
  * index here). Each branch is one cost or a list merged like `cost: [...]`. Other components of the ability's cost

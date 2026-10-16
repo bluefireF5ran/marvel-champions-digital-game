@@ -182,7 +182,7 @@ describe("audit 39.9 Cosmic Awareness: the 3 threat is the cost, so a scheme nee
     expect(playable(10)).toBe(true);
   });
 
-  it.fails("with only 2 threat on the only scheme (the main scheme) the event cannot be played", () => {
+  it("with only 2 threat on the only scheme (the main scheme) the event cannot be played", () => {
     expect(playable(2)).toBe(false);
   });
 });

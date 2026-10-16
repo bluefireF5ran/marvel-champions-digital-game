@@ -46,7 +46,7 @@ describe("Consequential damage when the basic attack's target leaves play (RRG 1
 });
 
 describe("Cost arrow with a confused hero (FFG ruling April 30, 2026 (2); RRG 1.8 'Confuse' p. 12, 'Cost Arrow Icon' p. 13)", () => {
-  it.fails("Defender of the Nine Realms (06003) played while confused: the minion (cost) still comes, the confused card replaces the thwart", () => {
+  it("Defender of the Nine Realms (06003) played while confused: the minion (cost) still comes, the confused card replaces the thwart", () => {
     const base = rhino();
     const me = identityOf(base);
     // Two Sentinel Mark IV minions on top of the encounter deck for the "discard until a minion" cost.

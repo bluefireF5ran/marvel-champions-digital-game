@@ -166,6 +166,7 @@ import {
   REMOVE_THREAT_VAR,
   removeThreatCostEffects,
   removeThreatCostPlan,
+  planRemoveThreatChoice,
 } from "./remove-threat-cost.js";
 import { dealBoostCard } from "./resolve/enemy-activation.js";
 import {
@@ -3316,6 +3317,21 @@ export function planCost(
   // "Remove up to 3 threat from here →" (`remove-threat-cost.ts`, docs/phase7-wave9.md §3.7 (b)): the card and the
   // range the payer will pick from as the cost is paid, read now with the picks above bound.
   if (cost.removeThreat) {
+    // "Remove 3 threat from a scheme →" (`removeThreat.choose`): the payer's pick, bound for the plan and the effects.
+    if (cost.removeThreat.choose) {
+      const picked = planRemoveThreatChoice(
+        state,
+        deps,
+        sourceId,
+        playerId,
+        cost.removeThreat,
+        choices,
+        bindings,
+        vars,
+      );
+      if (isFault(picked)) return picked;
+      Object.assign(bindings, picked);
+    }
     const planned = removeThreatCostPlan(state, deps, sourceId, playerId, cost.removeThreat, bindings, vars);
     if ("fault" in planned) return { code: "insufficient_resources", message: planned.fault };
     // The amount named up front (`CostSelection.removeThreat`) is a range of one number, which is not asked.

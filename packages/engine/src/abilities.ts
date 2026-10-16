@@ -2443,6 +2443,14 @@ export interface DeckDiscardChoice {
 export interface RemoveThreatCost {
   readonly from: TargetRef;
   readonly amount: number | { readonly choose: { readonly min: number; readonly max: number } };
+  /**
+   * "Remove 3 threat from **a scheme** … →" (Cosmic Awareness 21039): the payer picks the card, one in play matching
+   * `query` that can pay in full (it holds at least the amount and threat can be removed from it), bound to `slot`
+   * for the effects ("remove 1 additional threat from that scheme") and read as `from` when `from` is that slot.
+   * With none that can pay the cost cannot be paid and the ability is not offered (RRG 1.8 "Cost", p. 13).
+   * `legalActions` offers one variant per candidate; the pick is forced with one candidate.
+   */
+  readonly choose?: { readonly slot: string; readonly query: TargetQuery };
 }
 
 /** "Take any amount of damage up to … →": the payer's choice of a `damageSelf` cost's amount (`AbilityCost.damageSelf`). */

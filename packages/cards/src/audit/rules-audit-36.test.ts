@@ -123,7 +123,7 @@ describe("Adam Warlock's Karmic Blast (21038) and Cosmic Awareness (21039) while
       return hits.length > 0 ? hits.slice(0, choice.maxSelections) : firstLegal(state);
     };
 
-  it.fails("Stunned Adam plays Karmic Blast: the 4 damage (the cost) is still dealt and the stunned card is discarded", () => {
+  it("Stunned Adam plays Karmic Blast: the 4 damage (the cost) is still dealt and the stunned card is discarded", () => {
     const hero = heroGame(20);
     const me = identityOf(hero);
     const stunned = patchInstance(hero, me, { statuses: { ...inst(hero, me).statuses, stunned: 1 } });
@@ -135,7 +135,7 @@ describe("Adam Warlock's Karmic Blast (21038) and Cosmic Awareness (21039) while
     expect(inst(state, villain).damage - before).toBeGreaterThanOrEqual(4);
   });
 
-  it.fails("Confused Adam plays Cosmic Awareness: the 3 threat (the cost) is still removed and the confused card is discarded", () => {
+  it("Confused Adam plays Cosmic Awareness: the 3 threat (the cost) is still removed and the confused card is discarded", () => {
     const hero = heroGame(21, (s) => patchInstance(s, s.mainScheme.instanceId, { threat: 10 }));
     const me = identityOf(hero);
     const confused = patchInstance(hero, me, { statuses: { ...inst(hero, me).statuses, confused: 1 } });
