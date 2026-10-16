@@ -420,7 +420,7 @@ describe("June 20, 2024 - Ruling 215 answer 1 (post-RRG 1.5): Vapors of Valtorr 
   // Ruling 215: a Stalwart enemy with a tough status card "is not a valid target for Vapors of Valtorr's ability, as a
   // Stalwart enemy cannot be stunned or confused". RRG 1.8 p. 43 "Target": a target is valid only if the ability can
   // affect it (the replacement for Tough can only be stunned or confused). Mister Sinister (33028) is Stalwart.
-  it.fails("Vapors of Valtorr cannot take the tough card off the Stalwart minion Mister Sinister: he keeps it", () => {
+  it("Vapors of Valtorr cannot take the tough card off the Stalwart minion Mister Sinister: he keeps it", () => {
     const created = createGame(
       playableScenario("mister-sinister", { seed: 3, players: [{ starterDeckId: "drs-protection" }] }),
       PLAYABLE_DEPS,

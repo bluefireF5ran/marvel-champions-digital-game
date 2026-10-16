@@ -1783,6 +1783,8 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
       bindsOf(effect, scope);
       return;
     }
+    if (effect.kind === "giveStatus" && effect.replacing === effect.status)
+      problems.push(`${where}: a status card is replaced with a different status card (replacing equals status)`);
     if (
       effect.kind === "removeStatus" &&
       effect.count !== undefined &&

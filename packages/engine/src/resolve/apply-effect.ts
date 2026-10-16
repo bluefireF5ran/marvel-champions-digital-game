@@ -226,7 +226,7 @@ import {
   withMovedAttackTarget,
 } from "./attack-ability.js";
 import { abilityRootFrameId, addSessionExtraThreat } from "./thwart-session.js";
-import { readsDeck } from "./target-validity.js";
+import { readsDeck, replacesStatusOn } from "./target-validity.js";
 import { markPreThenUnresolved, UNRESOLVED_VAR } from "./then.js";
 import { heard } from "./triggers.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
@@ -1610,7 +1610,18 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // docs/phase7-wave4.md §3.60: "If no tough status card was given this way" reads `<bind>.amount`. A card that
       // waits for its "would gain a status card" window (docs/phase7-wave9.md §3.33) counts once it lands.
       const countOn = effect.bind ? { frameId: frame.frameId, name: `${effect.bind}.amount` } : undefined;
-      const gives = targets(effect.target).map((instanceId) => ({ instanceId, count: 1 }));
+      let receivers = targets(effect.target);
+      if (effect.replacing !== undefined) {
+        // A replacement is one effect: only a target holding the card to replace and with room for the new one is
+        // replaced, the rest are left as they were (`replacesStatusOn`; ruling Jun 20, 2024, 215).
+        const replacing = effect.replacing;
+        receivers = receivers.filter((id) => replacesStatusOn(ctx.state, ctx.deps, id, replacing, effect.status));
+        announceStatusDiscarded(
+          ctx,
+          receivers.flatMap((id) => removeStatus(ctx, id, replacing, 1)),
+        );
+      }
+      const gives = receivers.map((instanceId) => ({ instanceId, count: 1 }));
       const given = giveStatusOrAnnounce(ctx, gives, effect.status, by, countOn);
       if (countOn) addFrameVars(ctx, frame.frameId, { [countOn.name]: given });
       return;

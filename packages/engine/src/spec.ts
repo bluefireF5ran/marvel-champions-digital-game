@@ -3892,6 +3892,15 @@ export type EffectSpec =
        * `hood` 24070) is `<bind>.amount` equal to 0, not "no target existed". docs/phase7-wave4.md §3.60.
        */
       readonly bind?: string;
+      /**
+       * "Replace that [`replacing`] status card with a [`status`] status card": one effect, not a discard and a give.
+       * Only a target that holds a `replacing` card and has room for a `status` card is replaced (one `replacing` card
+       * discarded, then the `status` card given); any other target is left as it was. So target validity (RRG 1.8
+       * "Target", p. 43) reads the replacement as a whole: a Stalwart enemy with Tough "is not a valid target for
+       * Vapors of Valtorr's ability, as a Stalwart enemy cannot be stunned or confused" (ruling Jun 20, 2024, 215).
+       * Differs from `status`.
+       */
+      readonly replacing?: StatusName;
     }
   | {
       /**

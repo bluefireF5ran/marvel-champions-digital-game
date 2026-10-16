@@ -339,6 +339,17 @@ export const removeStatus = (
   ...(opts.count !== undefined ? { count: opts.count } : {}),
   ...(opts.bind !== undefined ? { bind: opts.bind } : {}),
 });
+/**
+ * "Replace that [`from`] status card with a [`to`] status card" (Vapors of Valtorr, `drs` 09035): one effect, so a
+ * target is replaced only if it holds a `from` card and has room for a `to` card, and is a valid target only then
+ * (`EffectSpec giveStatus.replacing`; ruling Jun 20, 2024, Ruling 215: a Stalwart enemy's tough card cannot be replaced).
+ */
+export const replaceStatus = (target: TargetRef, from: StatusName, to: StatusName): EffectSpec => ({
+  kind: "giveStatus",
+  target,
+  status: to,
+  replacing: from,
+});
 export const exhaust = (target: TargetRef): EffectSpec => ({ kind: "exhaust", target });
 export const ready = (target: TargetRef): EffectSpec => ({ kind: "ready", target });
 /** "Discard X" for a card in play. */
