@@ -4,7 +4,7 @@
 
 # Marvel Champions: Digital Edition (Unofficial Fan Game)
 
-[![Latest release](https://img.shields.io/github/v/release/quincarter/marvel-champions-digital-game?label=version&sort=semver)](https://github.com/quincarter/marvel-champions-digital-game/releases/latest)
+[![Latest release](https://img.shields.io/badge/version-v0.21.1-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.21.1)
 [![Tests and build on main](https://img.shields.io/github/actions/workflow/status/quincarter/marvel-champions-digital-game/netlify-deploy.yml?branch=main&event=push&label=tests%20%26%20build&logo=github)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/netlify-deploy.yml?query=branch%3Amain)
 [![Release](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml/badge.svg?branch=main)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml?query=branch%3Amain)
 [![Netlify Status](https://api.netlify.com/api/v1/badges/487c224e-254f-42a0-a2b3-a6192b9e70c8/deploy-status)](https://app.netlify.com/projects/marvel-champions-digital-game/deploys)
@@ -20,10 +20,15 @@ to be a genuinely playable video game driven by a deterministic rules engine.
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/latest"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/latest"><img src=".github/assets/readme/download-macos.svg" alt="Download for macOS" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/latest"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/latest"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.21.1/MarvelChampions-0.21.1-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.21.1/MarvelChampions-0.21.1-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.21.1/MarvelChampions-0.21.1-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.21.1/MarvelChampions-0.21.1-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.21.1/MarvelChampions-0.21.1-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases"><img src=".github/assets/readme/all-releases.svg" alt="View all releases" height="48"></a>
 </p>
 
 <p align="center">
@@ -37,41 +42,62 @@ to be a genuinely playable video game driven by a deterministic rules engine.
   <a href="CONTRIBUTING.md"><img src=".github/assets/readme/contributing.svg" alt="Contributing" height="48"></a>
 </p>
 
-<p align="center"><sub>Downloads open the <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/latest">latest release</a>; pick your installer from its "Which download do I need?" table. Not sure which issue type fits? Use the <a href="https://github.com/quincarter/marvel-champions-digital-game/issues/new/choose">issue chooser</a>.</sub></p>
+<p align="center"><sub>Each download button names the release it fetches and is updated by every release. For the all-users Windows <code>.msi</code>, a Linux <code>.deb</code> or <code>.rpm</code>, or an older version, see <a href="https://github.com/quincarter/marvel-champions-digital-game/releases">all releases</a>. Not sure which issue type fits? Use the <a href="https://github.com/quincarter/marvel-champions-digital-game/issues/new/choose">issue chooser</a>.</sub></p>
 
 > [!NOTE]
 > This is a fan-made, non-commercial project. _Marvel Champions: The Card Game_, card text, artwork, and characters are
 > the intellectual property of Fantasy Flight Games and Marvel.
 
+<p align="center">
+  <a href="#overview--philosophy">Overview</a> ·
+  <a href="#tech-stack">Tech stack</a> ·
+  <a href="#community">Community</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="docs/project/current-status.md">Current status</a> ·
+  <a href="docs/project/architecture.md">Architecture</a> ·
+  <a href="docs/project/downloads.md">Downloads</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
 ---
 
-## Current status
+## Overview & philosophy
 
-The game is playable today, solo or with 1–4 heroes played multi-handed on one device, from the Core Set through the
-**Civil War** box (cycle 10). The latest release is shown in the version badge above; **v0.22.0** is the next one,
-waiting in its release pull request.
+Marvel Champions is a cooperative Living Card Game (LCG) with an intricate turn structure (Hero Phase ⟷ Villain
+Phase), timing windows ("When", "Interrupt", "Response"), card-driven ability stacks, status effects, and dozens of
+interacting keywords.
 
-What you can play:
+This project is built **rules-engine-first**:
 
-- **Every hero, scenario and modular set from the Core Set through cycle 10**: the hero packs, campaign boxes and
-  scenario packs of The Rise of Red Skull, The Galaxy's Most Wanted, The Mad Titan's Shadow, Sinister Motives, Mutant
-  Genesis, NeXt Evolution, Age of Apocalypse, Agents of S.H.I.E.L.D. and Civil War (all but the Synthezoid Smackdown
-  scenario pack), each card scripted against its printed text and errata and covered by rules tests.
-- **Campaign mode for eight boxes**, from The Rise of Red Skull to Agents of S.H.I.E.L.D., with the campaign log carried
-  between scenarios, expert campaign rules, story beats and each box's own between-game choices.
-- **Civil War's custom scenario builder**: pick a leader, two main scheme stages and three or four modular sets, or let
-  the game deal a random (or random and blind) scenario.
-- **Decks**: every hero's starter deck, decks built in the in-app deck builder, and decks imported from MarvelCDB, all
-  checked against the Rules Reference's deckbuilding rules. Community decklists from MarvelCDB are on the Decks screen.
-- **Standard and expert difficulty**, a **Guided mode** with Try-it lessons for new players, **Undo** for your own
-  moves this turn, and **local save and resume**.
-- **Desktop, tablet, phone, keyboard and gamepad**: one client that runs in the browser and ships as desktop and Android
-  apps, with the card hover popover on desktop and a thumb-reach layout on phones.
+- **Deterministic state machine**: game state is serializable, reproducible from a seed and a command log, and
+  decoupled from any presentation or I/O layer.
+- **The Rules Reference is the authority**: the official _Rules Reference Guide_ (v1.8, in this repo), FFG's errata and
+  its rulings decide how the game behaves.
+- **Headless rules engine**: the engine has no DOM or rendering dependencies and can simulate and audit full games on
+  its own.
+- **Phaser as a pure view**: the client presents state and sends player commands; it never decides rules or move
+  legality.
 
-What is new in v0.22.0: the villain phase docks beside the table with your hand still in view, a Card size setting,
-the card hover popover on every screen, the first player token, Set the table's modular set pictures and Random
-button, the game's seed in the pause menu and game log, and Report an issue from any screen. The full list is in the
-release notes and [CHANGELOG.md](CHANGELOG.md).
+## Tech stack
+
+- **Language**: TypeScript, strict mode in every package
+- **Monorepo**: pnpm workspaces (Node.js >= 22)
+- **Client**: Phaser 4 + rexUI (`phaser4-rex-plugins`) + Vite; Tauri 2 (desktop) and Capacitor (Android)
+- **Testing**: Vitest unit and scenario suites, Playwright end-to-end suite
+- **Lint and format**: oxlint and oxfmt
+- **Changelog**: Changie
+
+How the packages fit together, and how to run the game locally, is in [Architecture](docs/project/architecture.md).
+
+## Community
+
+- **Bugs, feature ideas and deck requests:** open an issue from the
+  [issue chooser](https://github.com/quincarter/marvel-champions-digital-game/issues/new/choose). In the game, the bug
+  icon in the top bar (or on the Title screen) opens Report an issue, which copies the game log for your report.
+- **Rules questions:** check the [Rules Reference](mc_rulesreference_v18_compressed.pdf) and
+  [FFG's rulings](https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-7/) before filing a rules bug.
+- **Discord:** _coming soon._ <!-- TODO: replace this line with the Discord invite link once the server exists. -->
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, conventions and the release flow.
 
 ## Roadmap
 
@@ -95,132 +121,25 @@ Next up:
   game marks as coming soon.
 - **Hero AI** to fill seats with computer-controlled heroes, then **online multiplayer** (Phase 5).
 
-The detailed plan, decisions and per-wave specs are in [PLAN.md](PLAN.md) and [`docs/`](docs).
+What you can play today is in [Current status](docs/project/current-status.md). The detailed plan, decisions and per-wave specs are in [PLAN.md](PLAN.md) and [`docs/`](docs).
 
 ---
 
-## Community
+## More
 
-- **Bugs, feature ideas and deck requests:** open an issue from the
-  [issue chooser](https://github.com/quincarter/marvel-champions-digital-game/issues/new/choose). In the game, the bug
-  icon in the top bar (or on the Title screen) opens Report an issue, which copies the game log for your report.
-- **Rules questions:** check the [Rules Reference](mc_rulesreference_v18_compressed.pdf) and
-  [FFG's rulings](https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-7/) before filing a rules bug.
-- **Discord:** _coming soon._ <!-- TODO: replace this line with the Discord invite link once the server exists. -->
-- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, conventions and the release flow.
-
----
-
-## Overview & philosophy
-
-Marvel Champions is a cooperative Living Card Game (LCG) with an intricate turn structure (Hero Phase ⟷ Villain
-Phase), timing windows ("When", "Interrupt", "Response"), card-driven ability stacks, status effects, and dozens of
-interacting keywords.
-
-This project is built **rules-engine-first**:
-
-- **Deterministic state machine**: game state is serializable, reproducible from a seed and a command log, and
-  decoupled from any presentation or I/O layer.
-- **The Rules Reference is the authority**: the official _Rules Reference Guide_ (v1.8, in this repo), FFG's errata and
-  its rulings decide how the game behaves.
-- **Headless rules engine**: the engine has no DOM or rendering dependencies and can simulate and audit full games on
-  its own.
-- **Phaser as a pure view**: the client presents state and sends player commands; it never decides rules or move
-  legality.
-
-## Repository architecture
-
-This monorepo is organized with **pnpm workspaces** under `packages/`. The dependency graph is strictly
-`client → cards → engine → content`.
-
-```
-marvel-champions-digital-game/
-├── packages/
-│   ├── content/    # (@mc/content) Card data schema, normalization & MarvelCDB ingestion
-│   ├── engine/     # (@mc/engine) Headless rules engine, state machine, timing windows, legal actions
-│   ├── cards/      # (@mc/cards) Card ability DSL, card scripts, scenarios, campaigns
-│   └── client/     # (@mc/client) 2D tabletop game UI built with Phaser 4 & rexUI
-├── docs/           # Specifications, per-wave plans and rules QA reports
-├── CLAUDE.md       # Engineering conventions & specialist agent roles
-├── CONTRIBUTING.md # How to set up, test and contribute
-├── PLAN.md         # Master roadmap and phase tracking
-└── package.json    # Monorepo scripts and root dependencies
-```
-
-| Package                               | Purpose                                                                                                                                                                                                                          |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[`@mc/content`](packages/content)** | Typed card schemas, normalized card data for every ingested pack, starter decks, and the ingestion scripts that curate card text and stats from MarvelCDB. Stores artwork references rather than image bytes.                    |
-| **[`@mc/engine`](packages/engine)**   | The authoritative rules engine: game state, phase loops, interrupt/response timing, keyword resolution, the villain phase, deck legality (`validateDeck`), legal action generation (`legalActions`) and replayable command logs. |
-| **[`@mc/cards`](packages/cards)**     | The ability DSL that turns printed card text into engine `AbilityDefinition`s, one module per hero kit, aspect and encounter set, plus scenario and campaign builders.                                                           |
-| **[`@mc/client`](packages/client)**   | A 2D tabletop client in the mold of _Sentinels of the Multiverse_, built with **Phaser 4**, **rexUI** and **Vite**, running the engine in a Web Worker. Packaged for desktop with Tauri and for Android with Capacitor.          |
-
-## Tech stack
-
-- **Language**: TypeScript, strict mode in every package
-- **Monorepo**: pnpm workspaces (Node.js >= 22)
-- **Client**: Phaser 4 + rexUI (`phaser4-rex-plugins`) + Vite; Tauri 2 (desktop) and Capacitor (Android)
-- **Testing**: Vitest unit and scenario suites, Playwright end-to-end suite
-- **Lint and format**: oxlint and oxfmt
-- **Changelog**: Changie
-
-## Running it locally
-
-You need [Node.js](https://nodejs.org/) (>= 22) and [pnpm](https://pnpm.io/) (>= 11.24).
-
-```bash
-git clone https://github.com/quincarter/marvel-champions-digital-game.git
-cd marvel-champions-digital-game
-pnpm install
-pnpm dev
-```
-
-Then open [http://localhost:5173](http://localhost:5173). Tests, the e2e suite, card data ingestion and the release
-flow are covered in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Downloads
-
-Every merge of a release pull request publishes a
-[GitHub release](https://github.com/quincarter/marvel-champions-digital-game/releases/latest) with installers. Each
-release's notes end with a "Which download do I need?" table.
-
-- **Windows 11**: `-Windows-x64-Setup.exe` (per user, no admin rights) or `-Windows-x64-AllUsers.msi`.
-- **macOS**: `-macOS-AppleSilicon-arm64.dmg` or `-macOS-Intel-x64.dmg`. If the build is unsigned, macOS blocks it on
-  first launch: allow it in System Settings → Privacy & Security → Open Anyway, or run
-  `xattr -dr com.apple.quarantine "/Applications/Marvel Champions.app"`.
-- **Linux**: `.deb`, `.rpm` or `.AppImage` (x64).
-- **Android**: `-Android.apk`.
-
-The desktop and Android apps check GitHub for a newer release on launch and show an "Update available" banner on the
-Title screen when one exists. The web app always runs the latest version.
-
----
+| Page                                             | What's in it                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| [Current status](docs/project/current-status.md) | What you can play today and what the next release adds               |
+| [Architecture](docs/project/architecture.md)     | The four packages, how they depend on each other, running it locally |
+| [Downloads](docs/project/downloads.md)           | Every installer, unsigned macOS builds, the in-app update notice     |
+| [Contributing](CONTRIBUTING.md)                  | Setup, tests, CI, conventions, card data and the release flow        |
+| [PLAN.md](PLAN.md)                               | The full roadmap, decisions and per-phase detail                     |
+| [CHANGELOG.md](CHANGELOG.md)                     | Every release's changes                                              |
 
 ## License
 
-Copyright (C) 2026 Quin Carter
-
-The source code in this repository is licensed under the **GNU Affero General Public License v3.0 or later** — see
-[LICENSE](LICENSE).
-
-```text
-Marvel Champions: Digital Edition
-Copyright (C) 2026  Quin Carter
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-```
-
-The license covers this project's own code only. _Marvel Champions: The Card Game_, its card text, rules, artwork,
-characters and trademarks are the property of Fantasy Flight Games and Marvel and are **not** licensed under the AGPL;
-neither is any third-party artwork, music or other material in this repository, which remains its owners' under their
-own terms.
+Copyright (C) 2026 Quin Carter. The source code is licensed under the **GNU Affero General Public License v3.0 or
+later**; see [LICENSE](LICENSE). The license covers this project's own code only. _Marvel Champions: The Card Game_,
+its card text, rules, artwork, characters and trademarks are the property of Fantasy Flight Games and Marvel and are
+**not** licensed under the AGPL; neither is any third-party artwork, music or other material in this repository, which
+remains its owners' under their own terms.

@@ -1,7 +1,9 @@
 # Contributing
 
 Thanks for helping build Marvel Champions: Digital Edition. This guide covers setting up the repo, the checks a change
-has to pass, and the conventions the project follows. The roadmap and current status are in the [README](README.md);
+has to pass, and the conventions the project follows. The roadmap is in the [README](README.md#roadmap), what is playable in
+[Current status](docs/project/current-status.md) and how the packages fit together in
+[Architecture](docs/project/architecture.md);
 the full plan is in [PLAN.md](PLAN.md), and the engineering conventions in [CLAUDE.md](CLAUDE.md).
 
 ## Reporting issues
@@ -119,7 +121,9 @@ release:
 Asset names spell out the OS, architecture and installer kind (`MarvelChampions-<version>-Windows-x64-Setup.exe`,
 `-macOS-AppleSilicon-arm64.dmg`, `-Linux-x64.AppImage`, `-Android.apk` and so on).
 `scripts/lib/release-collector.mjs` names them for both the workflow (`scripts/stage-release-assets.mjs`) and local
-builds, and every release's notes end with the table in `.github/release-downloads.md`. A release is marked latest
+builds, and every release's notes end with the table in `.github/release-downloads.md`. The README's download buttons name
+the version they fetch and link to that release's files; the release PR updates both through the `replacements` in
+`.changie.yaml` (the README links and the version on each `.github/assets/readme/download-*.svg`). A release is marked latest
 only after every installer has been uploaded, which is what the apps' update notice
 (`packages/client/src/platform/update-check.ts`) reads.
 
