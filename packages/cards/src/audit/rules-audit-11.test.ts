@@ -51,7 +51,7 @@ function gliderTo(state: GameState, name: string): GameState {
 }
 
 describe("audit 11.1 MOVE: the glider counter cannot stay where it is when another scheme is tied for least threat", () => {
-  it.fails("glider on Upper, tied with Lower for least threat: the first player cannot keep it on Upper", () => {
+  it("glider on Upper, tied with Lower for least threat: the first player cannot keep it on Upper", () => {
     let base = startWave5Game(
       ghostSpiderScenario("venom-goblin", { seed: 11, modularSetIds: [encounterSetId("bomb_scare")] }),
     );
