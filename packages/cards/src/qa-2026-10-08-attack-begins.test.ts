@@ -167,8 +167,9 @@ describe("Tackle (05015): 'Stun an enemy. If you paid for this card using a [phy
   });
 
   // the "Every (attack) ability is an attack" fix (contributor's rules call, RRG 1.8 p. 26): an "(attack)" ability is an attack from when it begins
-  // resolving, whether or not damage is dealt; here the attack is made with no damage and no target.
-  it("not paid with [physical]: the attack is still made (begun, no target, no damage); the enemy is stunned", () => {
+  // resolving, whether or not damage is dealt. FFG ruling 197 (May 30, 2024): the enemy Tackle stuns is attacked even
+  // with no damage, so the attack begins against it and its Retaliate triggers.
+  it("not paid with [physical]: the attack is still made against the stunned enemy, which retaliates", () => {
     const minion = withMinion(rhino(), { hp: 9, retaliate: 1 });
     const given = tackle(minion.state, false);
     const hero = identityOf(given.state);
@@ -179,11 +180,12 @@ describe("Tackle (05015): 'Stun an enemy. If you paid for this card using a [phy
     expect(begun(done.events)[0]).toMatchObject({
       begun: true,
       attackerInstanceId: hero,
-      targetInstanceId: null,
+      targetInstanceId: minion.id,
       amount: 0,
     });
     expect(takenBy(done.events, minion.id)).toEqual([]);
-    expect(takenBy(done.events, hero)).toEqual([]);
+    expect(attacked(done.events)).toEqual([minion.id]);
+    expect(takenBy(done.events, hero)).toEqual([1]);
     expect(inst(done.state, minion.id).statuses.stunned).toBe(1);
   });
 
@@ -270,8 +272,8 @@ describe("Toe to Toe (10015): 'Choose an enemy. That enemy attacks you. Deal 5 d
 
 describe("Unlikely Duo (47022): 'Confuse an enemy. Deal 4 damage to a confused enemy.'", () => {
   // Before: the enemy was confused and the target chosen, then the attack began. Now: the attack begins after the
-  // enemy to confuse is chosen (an opening target choice) and before the confused card is given. Its own target is
-  // chosen after that, so the attack begins naming no enemy and takes the enemy its instruction attacks.
+  // enemy to confuse is chosen (an opening target choice) and before the confused card is given. That enemy is targeted
+  // by the ability, so it is attacked and the attack begins against it (FFG ruling 197, May 30, 2024).
   /** Unlikely Duo reprinted for this game without Team-Up (Jubilee and Wolverine), which is not what is under test. */
   const withoutTeamUp = (state: GameState): GameState => {
     const printed = state.cardPool[cardId("47022")]!;
@@ -288,7 +290,7 @@ describe("Unlikely Duo (47022): 'Confuse an enemy. Deal 4 damage to a confused e
     expect(done.accepted).toBe(true);
     const [made, ...more] = begun(done.events);
     expect(more).toEqual([]);
-    expect(made).toMatchObject({ begun: true, attackerInstanceId: hero, targetInstanceId: null });
+    expect(made).toMatchObject({ begun: true, attackerInstanceId: hero, targetInstanceId: villain });
     const [firstChoice, secondChoice] = indexes(done.events, (e) => e.type === "targetChosen");
     const confused = index(done.events, statusGiven(villain, "confused"));
     expect(firstChoice!).toBeLessThan(index(done.events, begins));
