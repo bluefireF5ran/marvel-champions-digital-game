@@ -91,9 +91,9 @@ describe("Ruling 153, Mar 22, 2024: with 'Pool, Spider-Woman's Pheromones counts
       { cardId: BASIC.id, quantity: 3 },
     ],
   });
-  it.fails("10 Leadership (plus the 2 Pheromones) and 12 'Pool cards is a legal deck", () => {
+  it("10 Leadership (plus the 2 Pheromones) and 12 'Pool cards is a legal deck", () => {
     const verdict = validateDeck(deck(10, 12), SW_POOL);
-    // Actual: Pheromones is left out of the count, so 10 vs 12 is reported as unequal (deckbuilding_requirement).
+    // Pheromones counts toward Leadership, so 10 + 2 Leadership vs 12 'Pool is equal (ruling 153, Mar 22, 2024).
     const codes = verdict.ok ? [] : verdict.problems.map((p) => p.code);
     expect(codes).toEqual([]);
   });
