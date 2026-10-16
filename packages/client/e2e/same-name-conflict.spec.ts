@@ -152,14 +152,16 @@ test.describe("Same-name hero and ally conflicts", () => {
     ]);
     expect(entries.map((e) => e.status)).toEqual(["pending", "pending"]);
     expect(await findVisibleText(page, "Keep as a resource", SHEET)).not.toHaveLength(0);
-    // Continue does nothing while a card is unanswered; the Shadowcat ally is Colossus's own card, so it has no Replace.
+    // Continue does nothing while a card is unanswered. The Shadowcat ally is Colossus's own card, but a Team-Up card
+    // naming both heroes (Shadow and Steel, `mut_gen`) may replace it with Shadowcat seated (RRG 1.8 p. 50), so it
+    // offers Replace with Team-Up too; this test keeps it.
     await clickStop(page, "continue", SHEET);
     await settle(page);
     expect((await activeScenes(page)).includes(SHEET), "the sheet stays open").toBe(true);
-    expect(await hasStop(page, "replace:0", SHEET), "a hero's own card offers no Replace").toBe(false);
+    expect(await hasStop(page, "replace:0", SHEET), "a Team-Up card can replace the hero's own card").toBe(true);
     expect(await hasStop(page, "replace:1", SHEET), "the basic Colossus ally does").toBe(true);
 
-    // Colossus's Shadowcat ally is one of his own cards: kept as a resource.
+    // Colossus's Shadowcat ally is kept as a resource.
     await clickStop(page, "keep:0", SHEET);
     await waitFor(
       async () => ((await sheet.entries(page))[0]?.status === "kept" ? true : null),
@@ -391,5 +393,53 @@ test.describe("Same-name hero and ally conflicts", () => {
     await clickStop(page, "play", "Seats");
     await waitForScene(page, "Setup");
     expect(errors).toEqual([]);
+  });
+
+  // RRG 1.8 p. 50 (Appendix I): Quicksilver's own Scarlet Witch ally may be replaced by a Team-Up card naming both
+  // heroes when Scarlet Witch is seated. `?screen=name-conflict` opens the sheet for that table over Take your seats.
+  test("Team-Up replacement: Quicksilver's Scarlet Witch ally is replaced by Order and Chaos from the sheet", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const errors = trackPageErrors(page);
+    await installWave6Helpers(page);
+    await openApp(page, "screen=name-conflict&unlock=all", { landing: SHEET });
+    await settle(page);
+    const entries = await sheet.entries(page);
+    expect(entries, "Quicksilver's ally and Scarlet Witch's ally").toHaveLength(2);
+    expect(entries[0]!.cardId).toBe("14002");
+    expect(await hasStop(page, "replace:0", SHEET), "the hero's own card offers Replace with Team-Up").toBe(true);
+    expect(await findVisibleText(page, "Replace with Team-Up", SHEET)).not.toHaveLength(0);
+    expect(await hasStop(page, "replace:1", SHEET), "Scarlet Witch's Quicksilver ally has no Team-Up card").toBe(false);
+
+    await clickStop(page, "replace:0", SHEET);
+    await waitFor(
+      async () => ((await sheet.candidates(page)).length > 0 ? true : null),
+      "the picker lists cards",
+      15000,
+    );
+    const candidates = await sheet.candidates(page);
+    expect(
+      candidates.map((c) => c.id),
+      "only the Team-Up card naming both heroes is offered",
+    ).toEqual(["14018"]);
+    expect(await sheet.selected(page)).toBe("14018");
+    await clickStop(page, "confirm", SHEET);
+    await waitFor(
+      async () => ((await sheet.entries(page))[0]?.status === "replaced" ? true : null),
+      "the ally is replaced",
+    );
+    expect(await findVisibleText(page, "Replaced with Order and Chaos", SHEET)).not.toHaveLength(0);
+    expect(errors.filter((e) => !String(e).includes("404"))).toEqual([]);
+  });
+
+  test("Team-Up replacement is not offered when the deck already holds its one Team-Up card", async ({ page }) => {
+    test.setTimeout(120_000);
+    await installWave6Helpers(page);
+    await openApp(page, "screen=name-conflict&noteam=1&unlock=all", { landing: SHEET });
+    await settle(page);
+    expect((await sheet.entries(page))[0]!.cardId).toBe("14002");
+    expect(await hasStop(page, "replace:0", SHEET)).toBe(false);
+    expect(await hasStop(page, "keep:0", SHEET)).toBe(true);
   });
 });
