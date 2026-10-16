@@ -1608,7 +1608,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "giveStatus": {
       // Whose effect placed it (`TriggerEvent statusPlaced`, docs/phase7-wave7.md §3.27).
       // A replacement is not a placement: its card is not announced as placed (`StatusGiver.replacing`; ruling May 10,
-      // 2024, Ruling 181). The replaced card is still discarded and announced as such: the ruling speaks only to placing.
+      // 2024, Ruling 181).
       const by: StatusGiver = {
         sourceInstanceId: frame.selfInstanceId,
         playerId: threatRemoverOf(ctx, frame),
@@ -1623,10 +1623,13 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         // replaced, the rest are left as they were (`replacesStatusOn`; ruling Jun 20, 2024, 215).
         const replacing = effect.replacing;
         receivers = receivers.filter((id) => replacesStatusOn(ctx.state, ctx.deps, id, replacing, effect.status));
-        announceStatusDiscarded(
-          ctx,
-          receivers.flatMap((id) => removeStatus(ctx, id, replacing, 1)),
-        );
+        // Nor is the replaced card discarded: it leaves (logged `statusRemoved` with reason `replaced`) without a
+        // `statusDiscarded` announcement, so an "after a status card is discarded" response does not answer it. Fork
+        // contributor's rules call 2026-10-16 (bluefireF5ran); FFG ruling May 10, 2024 (#181) treats replacing as its own thing.
+        for (const id of receivers) {
+          const keep = (getInstance(ctx.state, id)?.statuses[replacing] ?? 1) - 1;
+          discardStatusCards(ctx, id, replacing, "replaced", keep);
+        }
       }
       const gives = receivers.map((instanceId) => ({ instanceId, count: 1 }));
       const given = giveStatusOrAnnounce(ctx, gives, effect.status, by, countOn);
