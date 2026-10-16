@@ -270,6 +270,44 @@ import {
 export const putIntoPlayHostSlot = (id: InstanceId): string => `_putIntoPlay.host.${id}`;
 
 /**
+ * The frame binding holding the player (as their identity's instance id, as `choosePlayer` binds) chosen to control a
+ * "Play under any player's control" card a `putIntoPlay` is about to put into play (`askPutIntoPlayController` in
+ * `effects-frame.ts` asks, the effect reads it).
+ */
+export const putIntoPlayControllerSlot = (id: InstanceId): string => `_putIntoPlay.controller.${id}`;
+
+/**
+ * Whether the player putting `id` into play chooses which player controls it. RRG 1.8 "Play, Put into Play" (p. 32):
+ * "Unless otherwise stated by the 'put into play' effect, cards that are put into play must do so in a play area or
+ * state that matches the rules of playing the card"; so a card printed "Play under any player's control" (`playRestrictions
+ * .anyPlayerControl`) may enter under any player's control (FFG ruling Nov 21, 2025, 69.129: Build Support finding
+ * Boot Camp). Not when the effect states the controller (`controllerStated`), puts the card into play facedown (no
+ * text shows) or into a scenario area (nobody controls it), nor for a card already in play.
+ */
+export function putIntoPlayControlIsChosen(
+  state: GameState,
+  effect: Extract<EffectSpec, { kind: "putIntoPlay" }>,
+  id: InstanceId,
+): boolean {
+  if (effect.controllerStated === true || effect.facedown === true || effect.into) return false;
+  const card = cardOf(state, id);
+  const restrictions = card && "playRestrictions" in card ? card.playRestrictions : undefined;
+  return restrictions?.anyPlayerControl === true && !cardsInPlay(state).includes(id);
+}
+
+/** The player chosen for `id` (`putIntoPlayControllerSlot`), when they are still in the game; else null. */
+export function putIntoPlayChosenController(
+  state: GameState,
+  bindings: Frame<"effects">["bindings"],
+  id: InstanceId,
+): PlayerId | null {
+  const [identity] = bindings[putIntoPlayControllerSlot(id)] ?? [];
+  if (identity === undefined) return null;
+  const player = state.players.find((p) => p.identity.instanceId === identity && !p.eliminated);
+  return player?.playerId ?? null;
+}
+
+/**
  * RRG 1.8 "Unique Icon" (pp. 45–46), the *put into play* half of the rule, quoted:
  *
  *   "A non-villain card in an out-of-play state that matches a card in play cannot enter
@@ -2000,11 +2038,25 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         for (const id of entered) enterPlay(ctx, id, controller);
         return;
       }
+      // `controller` is the player putting the cards into play. A "Play under any player's control" card enters under
+      // the player they chose for it (`putIntoPlayControlIsChosen`; RRG 1.8 p. 32, ruling Nov 21, 2025, 69.129), so the
+      // unique rule, "Max N per player" and the host it gets are read under that player.
+      const underOf = (id: InstanceId): PlayerId =>
+        putIntoPlayChosenController(ctx.state, frame.bindings, id) ?? controller;
       const named =
         effect.facedown === true ? targets(effect.card) : admitFormOnly(ctx, targets(effect.card), controller);
-      const unmatched = admitUniqueEntry(ctx, named, controller, frame.selfInstanceId);
-      // A card put into play facedown shows no title, so it is no copy of anything ("copies … by title", p. 28).
-      const admitted = effect.facedown === true ? unmatched : admitUnderPlayerMax(ctx, unmatched, controller);
+      const admitted: InstanceId[] = [];
+      for (const under of [...new Set(named.map(underOf))]) {
+        const unmatched = admitUniqueEntry(
+          ctx,
+          named.filter((id) => underOf(id) === under),
+          under,
+          frame.selfInstanceId,
+        );
+        // A card put into play facedown shows no title, so it is no copy of anything ("copies … by title", p. 28).
+        admitted.push(...(effect.facedown === true ? unmatched : admitUnderPlayerMax(ctx, unmatched, under)));
+      }
+      admitted.sort((a, b) => named.indexOf(a) - named.indexOf(b));
       const placed: InstanceId[] = [];
       for (const id of admitted) {
         const card = cardOf(ctx.state, id);
@@ -2018,12 +2070,12 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           !cardsInPlay(ctx.state).includes(id)
         ) {
           updateInstance(ctx, id, (i) => ({ ...i, faceup: true }));
-          enterPlayOnReveal(ctx, id, controller);
+          enterPlayOnReveal(ctx, id, underOf(id));
           placed.push(id);
         } else if (card?.type === "player_side_scheme") {
           // A player's own player side scheme: the villain's play area, under `controller`'s control, with its
           // starting threat, as when it is played (docs/phase7-wave7.md §3.43).
-          playerSideSchemeEntersPlay(ctx, id, controller);
+          playerSideSchemeEntersPlay(ctx, id, underOf(id));
           placed.push(id);
         }
       }
@@ -2038,38 +2090,41 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         if (effect.facedown === true) break;
         if (placed.includes(id) || cardOf(ctx.state, id)?.type !== "upgrade" || cardsInPlay(ctx.state).includes(id))
           continue;
-        const hosts = putIntoPlayHostCandidates(ctx.state, ctx.deps, id, controller);
+        const hosts = putIntoPlayHostCandidates(ctx.state, ctx.deps, id, underOf(id));
         const [picked] = frame.bindings[putIntoPlayHostSlot(id)] ?? [];
         const host = picked !== undefined && hosts.includes(picked) ? picked : hosts[0];
         placed.push(id);
         if (host === undefined) {
-          emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId: controller, reason: "noLegalHost" });
+          emit(ctx, { type: "putIntoPlayRefused", instanceId: id, playerId: underOf(id), reason: "noLegalHost" });
           continue;
         }
-        updateInstance(ctx, id, (i) => ({ ...i, controllerId: controller, faceup: true }));
-        takeOwnership(ctx, id, controller);
+        updateInstance(ctx, id, (i) => ({ ...i, controllerId: underOf(id), faceup: true }));
+        takeOwnership(ctx, id, underOf(id));
         moveCard(ctx, id, { kind: "attachment", hostInstanceId: host });
         // RRG 1.8 p. 31: on a card another player controls, that player controls it from the moment it is attached.
-        settleUpgradeControl(ctx, id, controller);
+        settleUpgradeControl(ctx, id, underOf(id));
         attached.push(id);
       }
-      // The host answers are spent: a later step of this frame asks again.
-      if (admitted.some((id) => frame.bindings[putIntoPlayHostSlot(id)]))
+      // The host and controller answers are spent: a later step of this frame asks again.
+      const answered = (id: InstanceId): readonly string[] => [putIntoPlayHostSlot(id), putIntoPlayControllerSlot(id)];
+      const asked = targets(effect.card);
+      if (asked.some((id) => answered(id).some((slot) => frame.bindings[slot])))
         updateFrame(ctx, frame.frameId, (f) => {
           if (f.kind !== "effects") return f;
-          const spent = new Set(admitted.map((id) => putIntoPlayHostSlot(id)));
+          const spent = new Set(asked.flatMap(answered));
           return { ...f, bindings: Object.fromEntries(Object.entries(f.bindings).filter(([key]) => !spent.has(key))) };
         });
       const entering = admitted.filter((id) => !placed.includes(id));
       for (const id of entering) {
         // A minion belongs to the encounter side even while it sits in a player's area.
         const isMinion = cardOf(ctx.state, id)?.type === "minion";
-        takeOwnership(ctx, id, controller);
-        moveCard(ctx, id, { kind: "playArea", playerId: controller });
+        const under = underOf(id);
+        takeOwnership(ctx, id, under);
+        moveCard(ctx, id, { kind: "playArea", playerId: under });
         updateInstance(ctx, id, (instance) => ({
           ...instance,
-          controllerId: isMinion ? null : controller,
-          engagedWith: isMinion ? controller : instance.engagedWith,
+          controllerId: isMinion ? null : under,
+          engagedWith: isMinion ? under : instance.engagedWith,
           faceup: true,
         }));
       }
@@ -2078,7 +2133,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         .map((id) => ({
           kind: "cardEntersPlay",
           instanceId: id,
-          playerId: attached.includes(id) ? (controllerOf(ctx.state, id) ?? controller) : controller,
+          playerId: attached.includes(id) ? (controllerOf(ctx.state, id) ?? underOf(id)) : underOf(id),
         }));
       const frames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
       for (const id of entering) {

@@ -4339,6 +4339,14 @@ export type EffectSpec =
       readonly bind?: string;
       readonly facedown?: true;
       /**
+       * The text names who controls the card ("put that ally into play under your control"). Without it, a card printed
+       * "Play under any player's control" enters under a player `controller` chooses, as playing it would (RRG 1.8
+       * "Play, Put into Play", p. 32: "Unless otherwise stated by the 'put into play' effect …"; FFG ruling Nov 21,
+       * 2025, 69.129: Build Support may put Boot Camp into play under another player's control). Prompt slot
+       * `putIntoPlayController`, asked before the host question; one player in the game is no choice.
+       */
+      readonly controllerStated?: true;
+      /**
        * The card goes to an in-play scenario area instead (the mission area, MC45 p. 5; docs/phase7-wave8.md §3.33):
        * "in play but under no player's control". It is faceup there with no controller and no engaged player, and it
        * keeps its owner. `controller` is then only the player the entry is attributed to (the `cardEntersPlay` event's
