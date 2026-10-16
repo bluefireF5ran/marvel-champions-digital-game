@@ -236,9 +236,8 @@ describe("RRG 1.8 FAQ 'Mutant Protectors (#17)' (p. 63): a (defense) ability tha
  * defend against that attack" and the same for a defending ally. FFG ruling, Alex, Jul 19, 2023 (post-RRG 1.5 #49):
  * "since your hero is already defending the attack, the ally put into play with Mutant Protectors cannot defend that
  * attack. (The rules of defending are strict on this; once one character defends, only that character can defend the
- * attack unless that character leaves play before the attack finishes.)" The engine bars only another
- * PLAYER's characters (`defenseBarFor`); a second declaration by the same player replaces the defender
- * (`declareDefenderByEffect`, `resolve/enemy-activation.ts`).
+ * attack unless that character leaves play before the attack finishes.)" Fixed: `declareDefenderByEffect`
+ * (`resolve/enemy-activation.ts`) no longer replaces a defender still in play (`defendingCharacterOf`).
  */
 describe("a second character declared the defender of an attack that already has one (same player)", () => {
   const BLANK = stubTreachery({ id: "blank", boostIcons: 0 });
@@ -319,22 +318,20 @@ describe("a second character declared the defender of an attack that already has
     return settle(ordered, undefined, deps);
   }
 
-  it.fails("Mutant Protectors twice: the first ally declared stays the defender (FFG ruling Jul 19, 2023, post-RRG 1.5 #49)", () => {
+  it("Mutant Protectors twice: the first ally declared stays the defender (FFG ruling Jul 19, 2023, post-RRG 1.5 #49)", () => {
     const t = stage([CARD_A, CARD_B]);
     const [cardA, cardB] = t.rest as [InstanceId, InstanceId];
     const after = finish(t, [`${cardA}:declare-a`, `${cardB}:declare-b`]);
     const hurt = (id: InstanceId) => mustInstance(after, id).damage;
-    // Actual: ally B took the attack (the second declaration replaced the defender); ally A took nothing.
     expect(hurt(t.allyA)).toBe(4);
     expect(hurt(t.allyB)).toBe(0);
   });
 
-  it.fails("a (defense) ability makes the hero the defender, then an ally is declared: the hero stays (post-RRG 1.5 #49 item 4)", () => {
+  it("a (defense) ability makes the hero the defender, then an ally is declared: the hero stays (post-RRG 1.5 #49 item 4)", () => {
     const t = stage([GUARD_CARD, CARD_A]);
     const [guardId, cardA] = t.rest as [InstanceId, InstanceId];
     const after = finish(t, [`${guardId}:guard`, `${cardA}:declare-a`]);
     const hero = mustPlayer(after, P1).identity.instanceId;
-    // Actual: ally A is the defender and takes the 4; the hero, already defending, should have taken it.
     expect(mustInstance(after, t.allyA).damage).toBe(0);
     expect(mustInstance(after, hero).damage).toBe(4);
   });
