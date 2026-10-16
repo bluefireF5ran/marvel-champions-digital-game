@@ -30,7 +30,7 @@ import { runWave5, startWave5Game, WAVE5_DEPS } from "../wave5/testing.js";
 import { spdrScenarioWithExtras } from "../wave5/spdr/support.js";
 
 describe("audit 28: Clarity of Purpose pays a dealt-damage cost even when the damage is prevented", () => {
-  it.fails("a tough status card on the attached character does not stop Clarity generating its resource (RRG 1.8 p. 14; Jun 25, 2026 (6))", () => {
+  it("a tough status card on the attached character does not stop Clarity generating its resource (RRG 1.8 p. 14; Jun 25, 2026 (6))", () => {
     const hero = runWave5(
       startWave5Game(spdrScenarioWithExtras("rhino", { seed: 1, extraCodes: ["31029"] })),
       toHero(P1),

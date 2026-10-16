@@ -20,7 +20,7 @@ const DEFENDER = "06003";
 const SENTINEL = "32093";
 
 describe("Consequential damage when the basic attack's target leaves play (RRG 1.8 'Consequential Damage', p. 13)", () => {
-  it.fails("Iron Fist's interrupt defeats the attacked minion: the attack aborts and he takes no consequential damage", () => {
+  it("Iron Fist's interrupt defeats the attacked minion: the attack aborts and he takes no consequential damage", () => {
     const withMinion = withPatrolMinion(rhino());
     const minion = withMinion.players
       .find((p) => p.playerId === P1)!

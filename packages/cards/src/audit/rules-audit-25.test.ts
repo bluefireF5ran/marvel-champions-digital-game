@@ -23,7 +23,7 @@ const game = (): GameState =>
   );
 
 describe("Aggression Bombshell (29033): the division is not optional (ruling January 11, 2026 - Ruling 4)", () => {
-  it.fails("a basic attack with no division, while Zzzax (no Guard) is also in play, deals nothing to him", () => {
+  it("a basic attack with no division, while Zzzax (no Guard) is also in play, deals nothing to him", () => {
     const hero = playerOf(game(), P1).identity.form === "hero" ? game() : runWave5(game(), toHero(P1));
     const played = playFromHand(hero, "29033", 4);
     const villain = activeVillain(played.state).instanceId;

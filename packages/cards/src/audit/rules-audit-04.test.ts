@@ -61,7 +61,7 @@ describe("Hogwashed (30004): RRG 1.8 'Choose (Option)' (p. 12), an option with n
 });
 
 describe("Hydra Exo-Soldier (04131) as a Villainous minion's boost card: FFG ruling December 11, 2025", () => {
-  it.fails("the villain has no boost card (its own was spent), so the minion's activation is not given another", () => {
+  it("the villain has no boost card (its own was spent), so the minion's activation is not given another", () => {
     const base = mansionAttackGame({ villain: "Avalanche", modularSetIds: ["future_past"] });
     const hero = runWith(WAVE6_DEPS, base, toHero(P1));
     // Bastion (32167) is a Villainous minion. Deck: the villain's boost (Advance), Bastion's boost (Exo-Soldier), filler.

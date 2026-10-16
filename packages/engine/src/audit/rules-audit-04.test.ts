@@ -37,7 +37,7 @@ const HOUSE = stubSupport({ id: "house", cost: 0, abilities: [RULE.ref] });
 const deps: EngineDeps = depsOf(RULE);
 
 describe("a stunned hero's basic attack with no enemy that can be attacked (RRG 1.8 p. 10 'Attack (Player Ability Type)')", () => {
-  it.fails("is allowed: the hero exhausts and the stunned card is discarded (RRG 1.8 'Stun, Stunned', p. 41)", () => {
+  it("is allowed: the hero exhausts and the stunned card is discarded (RRG 1.8 'Stun, Stunned', p. 41)", () => {
     const start = newGame({
       villain: VILLAIN,
       mainScheme: SCHEME,
