@@ -108,7 +108,7 @@ const SOFT = stubVillain({ id: "soft-villain", stages: [{ hp: flat(30), atk: 0, 
 const setupDeps: EngineDeps = depsOf(SETUP_RESPONSE);
 
 describe("a player card's response during game setup (RRG 1.8 'Ability', p. 4)", () => {
-  it.fails("a Setup-keyword ally's 'After this ally enters play' response does not resolve at setup", () => {
+  it("a Setup-keyword ally's 'After this ally enters play' response does not resolve at setup", () => {
     const state = gameAtFirstTurn({
       cards: [SETUP_SCOUT, SOFT],
       deps: setupDeps,
