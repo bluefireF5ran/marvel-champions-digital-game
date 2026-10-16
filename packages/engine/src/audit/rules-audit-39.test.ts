@@ -185,7 +185,7 @@ describe("audit 39.20 a character that cannot be healed is not a valid target of
   const AIDE39 = { ...stubAlly({ id: "aide", cost: 0, atk: 1, thw: 1, hp: 6 }), name: "aide" } as AllyCard;
   const deps39 = depsOf(senatorAbility, mendAbility);
 
-  it.fails("Kelly under Protect the Senator is not offered as the target of a player card's heal (RRG p. 43; Ruling 125)", () => {
+  it("Kelly under Protect the Senator is not offered as the target of a player card's heal (RRG p. 43; Ruling 125)", () => {
     let state = gameAtFirstTurn({
       cards: [SENATOR39, MEND39, KELLY39, AIDE39],
       deps: deps39,
