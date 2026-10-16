@@ -343,7 +343,7 @@ describe("an enemy attack moved onto a minion (ruling July 25, 2025)", () => {
   const BUTTON = stubSupport({ id: "attack-me", cost: 0, abilities: [ATTACK_ME.ref] });
   const snareDeps = depsOf(SNARE_RULE, ATTACK_ME);
 
-  it.fails("a forced interrupt that makes the villain attack an engaged minion moves the attack onto that minion", () => {
+  it("a forced interrupt that makes the villain attack an engaged minion moves the attack onto that minion", () => {
     const base = gameAtFirstTurn({
       cards: [BOSS, PLOT, GRUNT, SNARE, BLANK, BUTTON],
       deps: snareDeps,
@@ -367,13 +367,18 @@ describe("an enemy attack moved onto a minion (ruling July 25, 2025)", () => {
       abilityId: ATTACK_ME.ref.id as Extract<Command, { type: "useAbility" }>["abilityId"],
       payment: [],
     };
+    let defenderOffered = false;
     const run = driveSession(startSession(placed.state), snareDeps, [command], (s) => {
       const choice = s.pendingChoice;
+      if (choice?.prompt.kind === "declareDefender") defenderOffered = true;
       return choice?.prompt.kind === "declareDefender" ? ["decline"] : defaultPick(s);
     });
     const events: readonly GameEvent[] = run.events;
     const hero1: InstanceId = mustPlayer(placed.state, P1).identity.instanceId;
     expect(events.some((e) => e.type === "attackRetargeted" && e.targetInstanceId === engaged.id)).toBe(true);
     expect(events.some((e) => e.type === "damageDealt" && e.targetInstanceId === hero1)).toBe(false);
+    expect(events.some((e) => e.type === "damageDealt" && e.targetInstanceId === engaged.id)).toBe(true);
+    // "As this is still an enemy attack activation, a player can still defend against this attack."
+    expect(defenderOffered).toBe(true);
   });
 });

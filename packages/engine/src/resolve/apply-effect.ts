@@ -1186,7 +1186,11 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const [character] = targets(effect.character).filter(
         (id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"),
       );
-      const playerId = character ? controllerOf(ctx.state, character) : null;
+      // A minion has no controller: an attack moved onto one is against the player it is engaged with (ruling
+      // July 25, 2025, 69.82 Q2: Mister Sinister attacks the engaged Hope Summers minion, and a player can defend).
+      const playerId = character
+        ? (controllerOf(ctx.state, character) ?? mustInstance(ctx.state, character).engagedWith)
+        : null;
       if (!character || !playerId) return;
       const attack = ctx.state.stack.find(
         (f): f is Frame<"event"> => f.kind === "event" && f.event.kind === "enemyAttack" && !f.cancelled,
