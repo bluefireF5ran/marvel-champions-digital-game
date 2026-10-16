@@ -1460,9 +1460,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // "Boost:" ability (`step === "ability"`, before the count step is reached — docs/phase7-wave3.md's `gmw`
       // Badoon Warlord/Badoon Lieutenant, "[star] Boost: If this activation is an attack/scheme, this card gets +2
       // boost icons for this activation": a card's own Boost ability modifying its own count has to run while its
-      // effects are still on the stack, which is before the frame's `boost.step` becomes `"count"`. `countAdjust`
-      // is carried on the same procedure/boost object either way, so setting it early is equivalent to setting it
-      // at the count step itself.
+      // effects are still on the stack, which is before the frame's `boost.step` becomes `"count"`. Its change is
+      // carried on the same procedure/boost object (`boostAbilityAdjust`) and added at the count step.
       //
       // The innermost count in progress, which is the first one found from the top of the stack: a card effect's
       // count (`countBoostIcons`, an event frame with no enemy) records the change on its own event, so a count made
@@ -1498,9 +1497,15 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         // Icons a borrowed Boost ability gains (docs/phase7-wave10.md §3.11, question 10) join this count only when
         // its `resolveSpecials` named this boost card (`borrowedBoostIcons: "joinActivation"`); by default none.
         if (borrowedFor && !borrowedFor.includes(boost.instanceId)) return;
+        // At `ability` the change comes from a "Boost" ability (step 3b), which a step 3a cancel of the card's icons
+        // does not reach (ruling May 10, 2024 #173), so it is kept apart from the count's own `countAdjust`.
+        const delta = value(effect.delta);
         setFrame(ctx, {
           ...procedure,
-          boost: { ...boost, countAdjust: (boost.countAdjust ?? 0) + value(effect.delta) },
+          boost:
+            boost.step === "ability"
+              ? { ...boost, boostAbilityAdjust: (boost.boostAbilityAdjust ?? 0) + delta }
+              : { ...boost, countAdjust: (boost.countAdjust ?? 0) + delta },
         });
       } else {
         const [card] = resolveRef(ctx.state, effect.card, context);
