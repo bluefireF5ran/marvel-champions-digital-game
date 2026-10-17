@@ -45,7 +45,7 @@ describe("Consequential damage when the basic attack's target leaves play (RRG 1
   });
 });
 
-describe("Cost arrow with a confused hero (FFG ruling April 30, 2026 (2); RRG 1.8 'Confuse' p. 12, 'Cost Arrow Icon' p. 13)", () => {
+describe("Cost arrow with a confused hero (FFG ruling April 30, 2026 (2); RRG 1.8 'Confuse' p. 13, 'Cost Arrow Icon' p. 13)", () => {
   it("Defender of the Nine Realms (06003) played while confused: the minion (cost) still comes, the confused card replaces the thwart", () => {
     const base = rhino();
     const me = identityOf(base);
@@ -68,7 +68,15 @@ describe("Cost arrow with a confused hero (FFG ruling April 30, 2026 (2); RRG 1.
   });
 });
 
-describe("'Cannot be confused' stops new status cards only (FFG ruling July 13, 2026 transcribed in Discord 8798-08774; RRG 1.8 'Confuse', p. 12)", () => {
+/*
+ * FFG ruling February 15, 2024 - Ruling 145 (post-RRG 1.5; Hall of Heroes, "Latest FFG Rulings (post-RRG 1.5)",
+ * https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/; `research/rules-audit/sources/rulings-post-rrg-1-5.md`):
+ * "If a Steady Magneto has 1 confused status card on him when Magneto's Helmet attaches to him, the confused status
+ * card remains on him unless he gains Stalwart." RRG 1.8 agrees: "Confuse, Confused" (p. 13) says only that
+ * "confused status cards cannot be placed on that character", and "Status Cards" (p. 41) lists no rule that removes a
+ * status card already held.
+ */
+describe("'Cannot be confused' stops new status cards only (FFG ruling Feb 15, 2024 #145; RRG 1.8 'Confuse', p. 13)", () => {
   it.fails("Magneto's Helmet (32147) attaching to a confused Magneto leaves the confused status card on him", () => {
     const base = runWith(WAVE6_DEPS, magnetoGame(), toHero(P1));
     const magneto = base.activeVillainId!;
