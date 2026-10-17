@@ -1,10 +1,10 @@
 /**
- * FFG ruling Sep 21, 2023 (post-RRG 1.5 #89): a player who reveals
- * another player's identity-specific obligation while that player is in a different game area (Kang Stage 2B) treats it
- * "as if the player was eliminated from the game: ignore the obligation's ability, remove it from the game, and reveal a
- * new encounter card to replace it. (Otherwise, play with the obligation as normal.)" RRG 1.8 "Obligation" (p. 30): "If
- * an obligation cannot be given to the specified player for any reason, ignore the card's ability, remove it from the
- * game, and reveal an additional encounter card."
+ * FFG ruling Sep 21, 2023 (post-RRG 1.5 #89): a player who reveals another player's identity-specific obligation while
+ * that player is in a different game area (Kang Stage 2B) treats it "as if the player was eliminated from the game:
+ * ignore the obligation's ability, remove it from the game, and reveal a new encounter card to replace it. (Otherwise,
+ * play with the obligation as normal.)" RRG 1.8 "Obligation" (p. 30): "If an obligation cannot be given to the
+ * specified player for any reason, ignore the card's ability, remove it from the game, and reveal an additional
+ * encounter card."
  * Ruling: https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/ (September 21, 2023, Ruling 89).
  */
 
