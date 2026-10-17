@@ -91,59 +91,82 @@ describe("audit 34: Shapeshifter Surprise resolves before the rest of the draw u
 });
 
 /*
- * Ruling 69.105 (September 15, 2025, Alex): "When an encounter card ability has a player choose between multiple
- * options, they must choose the option they can fully resolve; if there isn't one, they must choose what they can
- * most fully resolve (see 'Choose (Option)' in the rules reference). If Nebula is in Alter-Ego and ready with 1
- * Technique upgrade when she reveals Inferiority Complex, she must exhaust her Alter-Ego ... It would be the same if
- * she had no Technique upgrades." RRG 1.8 p. 12 "Choose (Option)" (printed text read from the PDF) says only that an
- * encounter card's choice cannot take "an option that requires one or more targets if there are no valid targets";
- * it does not contradict the ruling, which adds the "fully resolve" duty. So the ruling stands.
+ * Inferiority Complex (`nebu` 22027): "You may flip to alter-ego form. Choose: • Exhaust your alter-ego → remove
+ * this card from the game. • Choose and discard 2 Technique upgrades you control. If no upgrade was discarded this
+ * way, this card gains surge. Discard this obligation."
  *
- * The shared `obligation()` shape (`core/obligations.ts`) is a plain `chooseOne`, and the existing test
- * `wave4/nebu/nebula-obligation-nemesis.test.ts` › "with no technique upgrades to discard, the card gains surge
- * instead" picks the second option for a ready alter-ego with no Technique upgrades.
+ * RRG 1.8 "Choose (Option)" (p. 12) keeps the "cannot choose an option that cannot be at least partially resolved"
+ * test for player cards only; for an encounter card it only bars "an option that requires one or more targets if
+ * there are no valid targets". Inferiority Complex is an encounter card, so a ready alter-ego may take the discard
+ * option with fewer than 2 Technique upgrades (or none: the card itself plans for that with its surge line).
+ *
+ * Conflict noted: ruling 69.105 (September 15, 2025, post-RRG 1.6) says a player "must choose the option they can
+ * fully resolve" on an encounter card and applies it to exactly this card. It predates RRG 1.8, which narrows that
+ * test to player cards, so the engine follows p. 12 here and these tests pin that reading.
  */
-import { activeEncounterDeckId } from "@mc/engine";
-import { applyCommand } from "@mc/engine";
-import { endTurn } from "../testing/harness.js";
+import { activeEncounterDeckId, type GameState } from "@mc/engine";
+import { endTurn, instancesOf, playerOf, type Picker } from "../testing/harness.js";
 import { WAVE4_DEPS } from "../wave4/index.js";
-import { startWave4Game } from "../wave4/testing.js";
+import { playFromHand, startWave4Game } from "../wave4/testing.js";
 import { nebulaScenario } from "../wave4/nebu/support.js";
 
-describe("audit 34: Inferiority Complex offers only the option Nebula can fully resolve (ruling Sep 15, 2025, 69.105)", () => {
-  it("a ready alter-ego with no Technique upgrades is not offered the discard option", () => {
-    const state = startWave4Game(nebulaScenario("rhino", { seed: 3 }));
-    const deckId = activeEncounterDeckId(state);
-    const pile = state.encounterDecks[deckId]!;
-    const id = pile.deck.find((i) => state.instances[i]?.cardId === "22027")!;
-    const filler = pile.deck.find((i) => state.instances[i]?.cardId === "01186" && i !== id);
-    const rest = pile.deck.filter((i) => i !== id && i !== filler);
-    const staged = {
-      ...state,
-      encounterDecks: { ...state.encounterDecks, [deckId]: { ...pile, deck: [filler!, id, ...rest] } },
-    };
-    let current = runWith(WAVE4_DEPS, staged, endTurn());
-    const offered: string[] = [];
-    for (let guard = 0; guard < 20 && current.pendingChoice; guard++) {
-      const choice = current.pendingChoice;
-      offered.push(...choice.options.map((o) => o.label));
-      const r = applyCommand(
-        current,
-        {
-          type: "resolveChoice",
-          playerId: choice.playerId,
-          choiceId: choice.choiceId,
-          selectedOptionIds: [choice.options[0]!.optionId],
-        },
-        WAVE4_DEPS,
-      );
-      if (!r.ok) throw new Error(r.error.message);
-      current = r.state;
-    }
-    // The one resolvable option (exhaust) is taken without a prompt; the discard option is never offered.
-    expect(offered.some((l) => l.startsWith("Choose and discard"))).toBe(false);
-    const [obligation] = Object.keys(current.instances).filter((i) => current.instances[i]?.cardId === "22027");
-    expect(current.removedFromGame).toContain(obligation);
+/** Puts Inferiority Complex second from the top of the encounter deck, under a filler card. */
+function stageInferiorityComplex(state: GameState): GameState {
+  const deckId = activeEncounterDeckId(state);
+  const pile = state.encounterDecks[deckId]!;
+  const id = pile.deck.find((i) => state.instances[i]?.cardId === "22027")!;
+  const filler = pile.deck.find((i) => state.instances[i]?.cardId === "01186" && i !== id);
+  const rest = pile.deck.filter((i) => i !== id && i !== filler);
+  return { ...state, encounterDecks: { ...state.encounterDecks, [deckId]: { ...pile, deck: [filler!, id, ...rest] } } };
+}
+
+/** Flips to alter-ego when offered, records the obligation's options, then takes the discard option. */
+function takingDiscard(seen: string[][]): Picker {
+  return (state) => {
+    const choice = state.pendingChoice;
+    if (!choice) return [];
+    const flip = choice.options.find((o) => o.label === "Flip to alter-ego form");
+    if (flip) return [flip.optionId];
+    if (choice.options.some((o) => o.label.startsWith("Exhaust Nebula"))) seen.push(choice.options.map((o) => o.label));
+    const discard = choice.options.find((o) => o.label.startsWith("Choose and discard 2 Technique"));
+    return discard ? [discard.optionId] : firstLegal(state);
+  };
+}
+
+describe("audit 34: Inferiority Complex keeps the discard option for a ready alter-ego (RRG 1.8 p. 12, overrides ruling 69.105)", () => {
+  it("with one Technique upgrade, both options are offered and the discard option discards that upgrade", () => {
+    const hero = runWith(WAVE4_DEPS, startWave4Game(nebulaScenario("rhino", { seed: 2 })), toHero());
+    const { state: withOne, id: technique } = playFromHand(hero, "22004", 1);
+    const seen: string[][] = [];
+    const { state, events } = driveEventsPicking(
+      WAVE4_DEPS,
+      stageInferiorityComplex(withOne),
+      takingDiscard(seen),
+      endTurn(),
+    );
+    expect(seen, "the obligation's choice was reached from a ready alter-ego").toHaveLength(1);
+    expect(seen[0]!.some((l) => l.startsWith("Exhaust Nebula"))).toBe(true);
+    expect(seen[0]!.some((l) => l.startsWith("Choose and discard 2 Technique"))).toBe(true);
+    expect(playerOf(state, P1).discard).toContain(technique);
+    const [obligation] = instancesOf(state, "22027");
+    expect(state.removedFromGame).not.toContain(obligation);
+    expect(events.some((e) => e.type === "surgeTriggered")).toBe(false);
+  });
+
+  it("with no Technique upgrades, the discard option is offered and the short discard gains surge", () => {
+    const seen: string[][] = [];
+    const { state, events } = driveEventsPicking(
+      WAVE4_DEPS,
+      stageInferiorityComplex(startWave4Game(nebulaScenario("rhino", { seed: 3 }))),
+      takingDiscard(seen),
+      endTurn(),
+    );
+    expect(seen, "the obligation's choice was reached from a ready alter-ego").toHaveLength(1);
+    expect(seen[0]!.some((l) => l.startsWith("Exhaust Nebula"))).toBe(true);
+    expect(seen[0]!.some((l) => l.startsWith("Choose and discard 2 Technique"))).toBe(true);
+    const [obligation] = instancesOf(state, "22027");
+    expect(state.removedFromGame).not.toContain(obligation);
+    expect(events.some((e) => e.type === "surgeTriggered")).toBe(true);
   });
 });
 

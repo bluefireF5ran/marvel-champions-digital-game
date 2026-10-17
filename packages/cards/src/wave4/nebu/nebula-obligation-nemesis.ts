@@ -1,7 +1,6 @@
 import { trait } from "@mc/content";
 import {
   allOf,
-  anyOf,
   attacksGainKeywords,
   cards,
   chooseCards,
@@ -10,9 +9,7 @@ import {
   constant,
   defineAbilities,
   discard,
-  countOf,
   discardCardsCost,
-  exists,
   each,
   enemyAttack,
   forcedInterrupt,
@@ -28,7 +25,6 @@ import {
   query,
   self,
   surge,
-  valueAtLeast,
   valueEquals,
   varOf,
   whenRevealed,
@@ -63,12 +59,6 @@ export const NEBULA_OBLIGATION_NEMESIS = defineAbilities({
   // alternative's own effects, matching this card's own final line.
   "22027.obligation": obligation("Nebula", {
     label: "Choose and discard 2 Technique upgrades you control",
-    // Ruling 69.105 (Sep 15, 2025): choose the option you can fully resolve. A ready alter-ego can always resolve the
-    // exhaust option, so the discard option is only offered with 2+ Technique upgrades (or when she cannot exhaust).
-    when: anyOf(
-      valueAtLeast(countOf(YOUR_TECHNIQUE_UPGRADES), 2),
-      not(exists(query("alterEgo", { controller: "you", exhausted: false }))),
-    ),
     effects: [
       // `min: 2, max: 2`: RRG 1.8 "Choose (Option)" (p. 12) resolves as much of a mandatory "choose 2" as possible
       // rather than letting the player voluntarily discard fewer — the engine already caps `minSelections` to
