@@ -111,7 +111,7 @@ describe("an '(attack)' event with an 'at the end of this attack' delayed effect
   });
 });
 
-describe("Riposte vs Electrostatic Armor (FFG ruling Sep 26, 2024 #12; community 8798-04746, 8798-04960)", () => {
+describe("Riposte vs Electrostatic Armor (FFG ruling Sep 26, 2024 #12, post-RRG 1.6)", () => {
   const damageVillain = (amount: number) =>
     ({ kind: "dealDamage", target: { kind: "villain" }, amount: n(amount) }) as const;
   // Riposte: "+2 DEF ... If you take no damage, deal 3 damage to the attacker" as a delayed effect (3 here, source: this card).
@@ -186,8 +186,8 @@ describe("Riposte vs Electrostatic Armor (FFG ruling Sep 26, 2024 #12; community
 /**
  * RRG 1.8 "Leaves Play" (p. 27): "When a card leaves play, there is no memory of its previous state and it is
  * considered to be a new copy of the card." A delayed effect "At the end of the phase, discard Goliath" (Goliath 23015;
- * To Me, My X-Men! 36020 "return it to hand") is bound to the copy that was in play when it was created; community
- * 8798-04249 (Goliath, Rapid Response). The engine keeps the delayed effect on the instance id, which survives the trip.
+ * To Me, My X-Men! 36020 "return it to hand") is bound to the copy that was in play when it was created. The engine
+ * keeps the delayed effect on the instance id, which survives the trip.
  * No FFG ruling in the transcripts covers it; the RRG sentence above is the authority.
  */
 describe("a delayed 'discard this at the end of the phase' and a copy that left play and came back", () => {
@@ -266,8 +266,7 @@ describe("a delayed 'discard this at the end of the phase' and a copy that left 
  * defend against that attack" and the same for a defending ally. FFG ruling, Alex, Jul 19, 2023 (post-RRG 1.5 #49):
  * "since your hero is already defending the attack, the ally put into play with Mutant Protectors cannot defend that
  * attack. (The rules of defending are strict on this; once one character defends, only that character can defend the
- * attack unless that character leaves play before the attack finishes.)" Community 8798-03369 / 03960 / 05521 (a second
- * Mutant Protectors, Colossus after Mutant Protectors, Magik's Colossus) say the same. The engine bars only another
+ * attack unless that character leaves play before the attack finishes.)" The engine bars only another
  * PLAYER's characters (`defenseBarFor`); a second declaration by the same player replaces the defender
  * (`declareDefenderByEffect`, `resolve/enemy-activation.ts`).
  */
@@ -355,7 +354,7 @@ describe("a second character declared the defender of an attack that already has
     return settle(ordered, undefined, deps);
   }
 
-  it.fails("Mutant Protectors twice: the first ally declared stays the defender (post-RRG 1.5 #49; community 8798-03369)", () => {
+  it.fails("Mutant Protectors twice: the first ally declared stays the defender (FFG ruling Jul 19, 2023, post-RRG 1.5 #49)", () => {
     const t = stage([CARD_A, CARD_B]);
     const [cardA, cardB] = t.rest as [InstanceId, InstanceId];
     const after = finish(t, [`${cardA}:declare-a`, `${cardB}:declare-b`]);
