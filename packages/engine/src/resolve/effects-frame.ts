@@ -692,7 +692,9 @@ function executePlayFromHand(
   const via = effect.via ? resolveRef(ctx.state, effect.via, context) : [];
   const playBindings = via.length > 0 ? { [PLAYED_VIA_SLOT]: via } : {};
   // "That attack gains piercing" (`whileResolving`): lasts while the play's own frame does (§3.30's scope).
-  const grantWhileResolving = (playFrameId: FrameId | null): void => {
+  // `firstAttackOnly`: "that attack" is the played card's first attack (FFG ruling 190, May 16, 2024), so the rules
+  // end with that attack (`LastingDuration endOfPaidFor.firstAttackVia`), or with the play if it makes none.
+  const grantWhileResolving = (playFrameId: FrameId | null, played: InstanceId): void => {
     if (!playFrameId) return;
     // "It enters play exhausted" (`entersExhausted`, Med Lab; §3.57): read by the play's own enter-play step.
     if (effect.entersExhausted === true)
@@ -704,7 +706,15 @@ function executePlayFromHand(
       bindings: frame.bindings,
     };
     for (const rule of effect.whileResolving ?? [])
-      addLastingEffect(ctx, { kind: "ruleGrant", rule, scope }, { kind: "endOfPaidFor", frameId: playFrameId });
+      addLastingEffect(
+        ctx,
+        { kind: "ruleGrant", rule, scope },
+        {
+          kind: "endOfPaidFor",
+          frameId: playFrameId,
+          ...(effect.firstAttackOnly === true ? { firstAttackVia: played } : {}),
+        },
+      );
   };
   const step = frame.vars["_play.step"] ?? 0;
   const vars = Object.fromEntries(Object.entries(frame.vars).filter(([key]) => !key.startsWith("_play.")));
@@ -813,7 +823,7 @@ function executePlayFromHand(
     }
     if (!paying) {
       finish();
-      grantWhileResolving(playIgnoringCost(ctx, playerId, card, from, playBindings, chosen, timing, into));
+      grantWhileResolving(playIgnoringCost(ctx, playerId, card, from, playBindings, chosen, timing, into), card);
       return;
     }
     // A host is only a question when the upgrade names one and several are legal (RRG 1.8 "Attach To", p. 8).
@@ -893,6 +903,7 @@ function executePlayFromHand(
   // `playWithPayment` adds the destination's reduction to the effect's own, and uses it up.
   grantWhileResolving(
     playWithPayment(ctx, playerId, card, payment, attachTo, reduction, playBindings, action, from, undefined, into),
+    card,
   );
 }
 

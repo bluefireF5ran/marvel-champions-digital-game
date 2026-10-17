@@ -2383,7 +2383,25 @@ export function settlePaidForEffects(ctx: Ctx, frameId: FrameId, effectsFrameId:
       endLastingEffect(ctx, effect.id, "expired");
       continue;
     }
-    const duration: LastingDuration = { kind: "endOfPaidFor", frameId: effectsFrameId };
+    const duration: LastingDuration = { ...effect.duration, frameId: effectsFrameId };
+    ctx.state = {
+      ...ctx.state,
+      lastingEffects: ctx.state.lastingEffects.map((e) => (e.id === effect.id ? { ...e, duration } : e)),
+    };
+    emit(ctx, { type: "lastingEffectRetimed", id: effect.id, duration });
+  }
+}
+
+/**
+ * "That attack" as the first attack of a played card (`LastingDuration endOfPaidFor.firstAttackVia`; FFG ruling 190,
+ * May 16, 2024): the attack on event frame `attackFrameId`, whose source is `sourceId`, is being initiated. Every
+ * effect still waiting on the first attack of that card is retimed to `endOfEvent` on it, so it applies to this attack
+ * only and ends as the attack finishes.
+ */
+export function startFirstAttackEffects(ctx: Ctx, sourceId: InstanceId, attackFrameId: FrameId): void {
+  for (const effect of [...ctx.state.lastingEffects]) {
+    if (effect.duration.kind !== "endOfPaidFor" || effect.duration.firstAttackVia !== sourceId) continue;
+    const duration: LastingDuration = { kind: "endOfEvent", frameId: attackFrameId };
     ctx.state = {
       ...ctx.state,
       lastingEffects: ctx.state.lastingEffects.map((e) => (e.id === effect.id ? { ...e, duration } : e)),

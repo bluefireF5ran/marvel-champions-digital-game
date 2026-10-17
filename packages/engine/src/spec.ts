@@ -3628,6 +3628,15 @@ export type EffectSpec =
        */
       readonly whileResolving?: readonly RuleSpec[];
       /**
+       * "That attack" read as the **first attack** the played card makes (Wolverine's Claws with Slice and Dice; FFG
+       * ruling 190, May 16, 2024, post-RRG 1.5: "only the first attack gains piercing", and when a stun replaces the
+       * first attack "no attack is made; therefore, the second attack … does gain piercing"). With it, the
+       * `whileResolving` rules end as the first attack made with the played card as its source finishes
+       * (`LastingDuration endOfPaidFor.firstAttackVia`), or with the play if it makes none. An attack a stun replaced
+       * was never made, so the next one is the first.
+       */
+      readonly firstAttackOnly?: true;
+      /**
        * "Hero Response: After Warpath defends against an attack, play an event with a 'Hero Action' ability from your
        * hand (paying its costs)" (Warpath, `angel` 42013; owner ruling 2026-10-06, docs/phase7-wave7.md §4.1: "His
        * Response overrides normal Hero Action timing for that event"). The effect's own text instructs the play of an

@@ -48,7 +48,16 @@ export type LastingDuration =
    * popped, so as it resolves the effect is retimed to that effects frame (`lastingEffectRetimed`). It ends when that
    * frame finishes — or at once if the ability is not initiated — so a later use of the same ability is untouched.
    */
-  | { readonly kind: "endOfPaidFor"; readonly frameId: FrameId }
+  | {
+      readonly kind: "endOfPaidFor";
+      readonly frameId: FrameId;
+      /**
+       * "That attack" as the first attack of a played card (`playFromHand.firstAttackOnly`; FFG ruling 190, May 16,
+       * 2024): the first `attack` event this card is the source of, as it is initiated, retimes the effect to
+       * `endOfEvent` on that attack (`startFirstAttackEffects`), so a later attack of the same card is untouched.
+       */
+      readonly firstAttackVia?: InstanceId;
+    }
   /**
    * **No time bound at all**: "The next event you play costs 3 additional resources. Discard this obligation after
    * you play an event." (Physical Toll, `drs` pack). It ends when `playerId` finishes playing a card `cardFilter`

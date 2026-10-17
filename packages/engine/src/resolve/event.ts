@@ -20,6 +20,7 @@ import {
   readyCard,
   removeCounters,
   setForm,
+  startFirstAttackEffects,
 } from "../effects.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { ATTACK_KEYWORDS, attackKeywordsOf, hasKeyword, keywordTotal, statusActive } from "../keywords.js";
@@ -258,6 +259,10 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         );
         return;
       }
+      // "That attack" as a played card's first attack (FFG ruling 190, May 16, 2024): an attack initiated with that
+      // card as its source takes over every effect waiting on its first attack (`startFirstAttackEffects`).
+      if (frame.event.kind === "attack" && frame.event.sourceInstanceId)
+        startFirstAttackEffects(ctx, frame.event.sourceInstanceId, frame.frameId);
       emit(ctx, { type: "triggerEvent", event: frame.event, phase: "initiated" });
       setFrame(ctx, { ...frame, stage: "apply" });
       // Attachments this event's apply step takes out of play with its card get their "when this leaves play"
