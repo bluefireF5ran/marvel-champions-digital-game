@@ -61,6 +61,7 @@ import { keywordAbilityOf } from "../keyword-abilities.js";
 import { candidatesFor, hearerKey, hearersOf, stillAnswers, stillOffered } from "./triggers.js";
 import { toughEndsDamageWindow } from "./event.js";
 import { holdResponsesForReveal } from "./reveal-hold.js";
+import { holdResponsesForSentence } from "./sentence-hold.js";
 
 export function pushWindow(
   ctx: Ctx,
@@ -75,6 +76,9 @@ export function pushWindow(
   // A response window triggered while an encounter card is being revealed waits for the end of that reveal (RRG 1.8
   // "Reveal", p. 38; owner decision 2026-10-16, audit finding 18; `reveal-hold.ts`). Interrupts never wait.
   if (timing === "response" && holdResponsesForReveal(ctx, [...alsoEvents, event])) return;
+  // One raised while a sentence resolves waits for the whole sentence (FFG rulings 126, Dec 8, 2023 and 137, Jan 11,
+  // 2024; `sentence-hold.ts`). A reveal in progress, inner or outer, already holds it until later.
+  if (timing === "response" && holdResponsesForSentence(ctx, [...alsoEvents, event])) return;
   pushFrames(ctx, [
     {
       ...base(ctx),

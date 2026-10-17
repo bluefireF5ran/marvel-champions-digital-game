@@ -2965,6 +2965,28 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       });
       return;
     }
+    case "sentence": {
+      // One printed sentence: its effects in order, its responses held until all of them resolve (spec.ts `sentence`,
+      // `resolve/sentence-hold.ts`). Bindings and vars go back to this list, so a later "then" reads its outcome.
+      pushEffects(ctx, {
+        effects: effect.effects,
+        selfInstanceId: frame.selfInstanceId,
+        abilityId: frame.abilityId,
+        instruction: frame.instruction,
+        controllerId: frame.controllerId,
+        event: frame.event,
+        eventFrameId: frame.eventFrameId,
+        bindings: frame.bindings,
+        vars: frame.vars,
+        scopedPlayerId: frame.scopedPlayerId,
+        returnBindingsTo: frame.frameId,
+        byPlayer: frame.byPlayer === true,
+        ...(frame.defeatedLeaving !== undefined ? { defeatedLeaving: frame.defeatedLeaving } : {}),
+        ...(frame.defeatedLeavingSource !== undefined ? { defeatedLeavingSource: frame.defeatedLeavingSource } : {}),
+        sentence: true,
+      });
+      return;
+    }
     case "afterResolving": {
       // docs/phase7-wave7.md §3.68: written on the play, read by its `discardEvent` stage (`resolve/play-card.ts`).
       for (const id of targets(effect.card)) {

@@ -620,6 +620,17 @@ export type StackFrame =
       readonly costEffectsPending?: number;
       /** With `costEffects`: the cursor at which the effect began, once the cost has been paid (step 6). */
       readonly effectBeganAt?: number;
+      /**
+       * The frame of an `EffectSpec sentence`: one printed sentence, whose responses wait for all of it (FFG rulings
+       * 126, Dec 8, 2023 and 137, Jan 11, 2024; `resolve/sentence-hold.ts`).
+       */
+      readonly sentence?: true;
+      /**
+       * On a `sentence` frame: the response windows raised while one of its effects before the last was resolving,
+       * oldest first, each the conditions of one occurrence in the order `pushWindow` lists them (the window's own
+       * event last). Opened, in that order, once the sentence has resolved.
+       */
+      readonly heldSentenceResponses?: readonly (readonly TriggerEvent[])[];
     })
   /** RRG "Attack (Enemy Activation)" steps 1–5; step 6 is the event frame's response window. */
   | (FrameBase & {

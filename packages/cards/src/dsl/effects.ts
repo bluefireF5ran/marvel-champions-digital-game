@@ -460,6 +460,15 @@ export const ifThen = (condition: Predicate, then: EffectArg, otherwise?: Effect
  * Element)", p. 12). Plain "and"/a new sentence is not a "then": list those effects after the choice as usual.
  */
 export const andThen = (...effects: readonly EffectArg[]): EffectSpec => ({ kind: "then", effects: flatten(effects) });
+/**
+ * One printed sentence whose responses wait for all of it: "Change to Gamma energy form and deal 7 damage to an enemy"
+ * (engine `EffectSpec sentence`; FFG rulings 126, Dec 8, 2023 and 137, Jan 11, 2024). Use it only where a ruling or the
+ * printed "and" needs it: a flat list keeps the response window between its effects.
+ */
+export const sentence = (...effects: readonly EffectArg[]): EffectSpec => ({
+  kind: "sentence",
+  effects: flatten(effects),
+});
 
 export interface ChoiceOption {
   readonly label: string;

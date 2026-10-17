@@ -5080,6 +5080,21 @@ export type EffectSpec =
    * no such ally in hand it cannot be used.
    */
   | { readonly kind: "then"; readonly effects: readonly EffectSpec[] }
+  /**
+   * One printed sentence whose effects must all resolve before the responses to what they cause: "Change to Gamma
+   * energy form and deal 7 damage to an enemy" (Gamma Blast 21007). FFG ruling December 8, 2023 - Ruling 126 ("You must
+   * resolve the first sentence of Gamma Blast in full before resolving the Response on Gamma form") and January 11,
+   * 2024 - Ruling 137 ("In most cases, yes, a sentence in an ability must fully resolve before responses to that
+   * sentence can occur"); RRG 1.8 p. 4 ("resolve the ability one sentence at a time") and "'And'" (p. 7). A flat
+   * effects list cannot tell "X and Y" from "X. Y." (Mutant Protectors 32017: a response window opens between its two
+   * sentences, ruling post-RRG 1.5), so a script marks the sentence explicitly.
+   *
+   * Resolves `effects` in order in a nested frame (bindings and vars go back to the enclosing list, as `then`'s do). A
+   * response window raised while an effect before the last is resolving waits (`resolve/sentence-hold.ts`) and opens
+   * once the whole sentence has resolved; interrupts never wait. The last effect's own responses open where they
+   * always did (an attack's end-of-attack order, RRG 1.8 p. 5, is untouched), before the held ones.
+   */
+  | { readonly kind: "sentence"; readonly effects: readonly EffectSpec[] }
   /** RRG "Cancel": stops the interrupted event from resolving (its responses do not fire). */
   | { readonly kind: "cancelTriggeringEvent" }
   /**

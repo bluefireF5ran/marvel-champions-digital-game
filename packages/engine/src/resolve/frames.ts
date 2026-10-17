@@ -291,6 +291,8 @@ export function pushEffects(
      */
     readonly defeatedLeaving?: InstanceId;
     readonly defeatedLeavingSource?: CardId;
+    /** The frame of an `EffectSpec sentence` (`Frame<"effects">.sentence`, `resolve/sentence-hold.ts`). */
+    readonly sentence?: boolean;
   },
 ): void {
   if (spec.effects.length === 0) return;
@@ -317,6 +319,7 @@ export function pushEffects(
       ...(spec.instruction ? { instruction: spec.instruction } : {}),
       ...(spec.defeatedLeaving !== undefined ? { defeatedLeaving: spec.defeatedLeaving } : {}),
       ...(spec.defeatedLeavingSource !== undefined ? { defeatedLeavingSource: spec.defeatedLeavingSource } : {}),
+      ...(spec.sentence ? { sentence: true as const } : {}),
     },
   ]);
 }

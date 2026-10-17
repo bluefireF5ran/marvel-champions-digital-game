@@ -156,6 +156,7 @@ import { executeSettleReadyCardsCost } from "../ready-cards-cost.js";
 import { executeDefeatedTogether } from "./defeated-together.js";
 import { executeSearchCollection } from "./collection.js";
 import { announceAbilityResolved, labelCancels } from "./ability.js";
+import { releaseSentenceResponses } from "./sentence-hold.js";
 import { noteDeckDiscardsTaken } from "./deck-discard.js";
 import { settleDeclaredDefenderCost } from "./enemy-activation.js";
 import { executeAccuse } from "./accusation.js";
@@ -279,6 +280,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
     noteDeckDiscardsTaken(ctx, frame);
     // The ability these effects are has now resolved (RRG 1.8 "Resolve", p. 37).
     announceAbilityResolved(ctx, frame);
+    // A sentence has resolved in full: the responses it held open now (`sentence-hold.ts`).
+    releaseSentenceResponses(ctx, frame);
     return;
   }
   if (beginEffectAfterCost(ctx, frame)) return;
