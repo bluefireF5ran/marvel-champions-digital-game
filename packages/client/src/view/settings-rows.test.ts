@@ -29,6 +29,7 @@ const BASE: Settings = {
   textResolution: 1,
   largeCardText: false,
   sound: true,
+  musicShuffle: false,
   confirmBeforeEndTurn: true,
   sameNameHeroAllyConflict: true,
   villainAutoAdvance: "off",
@@ -51,6 +52,7 @@ describe("settingsRowInfoOf", () => {
       textResolution: 2,
       largeCardText: true,
       sound: false,
+      musicShuffle: true,
       confirmBeforeEndTurn: false,
       sameNameHeroAllyConflict: false,
       villainAutoAdvance: "off",
@@ -69,6 +71,7 @@ describe("settingsRowInfoOf", () => {
     expect(rows.find((r) => r.id === "sharper-text")?.on).toBe(true);
     expect(rows.find((r) => r.id === "large-card-text")?.on).toBe(true);
     expect(rows.find((r) => r.id === "sound")?.on).toBe(false);
+    expect(rows.find((r) => r.id === "music-shuffle")?.on).toBe(true);
     expect(rows.find((r) => r.id === "confirm-end-turn")?.on).toBe(false);
     expect(rows.find((r) => r.id === "same-name-conflict")?.on).toBe(false);
   });

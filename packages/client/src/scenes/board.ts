@@ -24,8 +24,9 @@
  */
 
 import Phaser from "phaser";
-import { POOL_CARDS, POOL_DEPS, POOL_SCENARIOS } from "../content/pool.js";
+import { CARDS_BY_ID, POOL_CARDS, POOL_DEPS, POOL_SCENARIOS } from "../content/pool.js";
 import type { AbilityId } from "@mc/content";
+import type { CardId } from "@mc/content";
 import { cardOf, type GameEvent, type GameState, type InstanceId, type PlayerId } from "@mc/engine";
 import type { VillainPhaseLaunchData, VillainPhaseOverlay } from "./villain-phase.js";
 import { cardArt, type CardArt } from "../art/card-art.js";
@@ -66,7 +67,8 @@ import { sameHandTags, type VillainHandTag } from "../view/villain-hand-tags.js"
 import { reviewHandleRect, showReviewHandle } from "../view/villain-review.js";
 import type { TableHold } from "../view/villain-replay.js";
 import type { SessionState } from "../store/session-store.js";
-import { SCENES } from "./keys.js";
+import { CHROME_SCENES, SCENES } from "./keys.js";
+import { tableSoundsOf, type CardSoundInfo } from "../view/sound-effects.js";
 import { HoverPreview, isMousePointer } from "../ui/card-hover-preview.js";
 import { hoverArea } from "../view/card-hover.js";
 import { sheetIsCovered } from "../view/choice-sheet-sync.js";
@@ -143,6 +145,14 @@ const HANDLE_DEPTH = 950;
 export const VILLAIN_DOCK_CHANGED = "villain-dock-changed";
 const VILLAIN_DOCK_TWEEN_MS = 280;
 
+/** A card's name and traits, for its sound (`view/sound-effects.ts`). An identity's traits sit on its faces and never count. */
+function soundInfoOfCard(cardId: CardId): CardSoundInfo | null {
+  const card = CARDS_BY_ID.get(cardId as string) as
+    | { readonly name: string; readonly traits?: readonly string[] }
+    | undefined;
+  return card ? { name: card.name, traits: card.traits ?? [] } : null;
+}
+
 export class BoardScene extends Phaser.Scene {
   /** Team-Ups present in the latest state (relevant to this game, both characters in play in any form). */
   #teamUps: readonly TeamUpPair[] = [];
@@ -172,6 +182,8 @@ export class BoardScene extends Phaser.Scene {
   /** What the last draw left behind: hit rects, focus rects, and the widgets to destroy before the next one. */
   #frame: BoardFrame = emptyFrame();
   #version = -1;
+  /** How much of the command trail the table's sounds have played; -1 until the first state, which is never played. */
+  #soundTrail = -1;
   /** The game from the previous fresh state; handed to the villain phase scene as its recap's "before". */
   #previousGame: GameState | null = null;
   /**
@@ -360,6 +372,7 @@ export class BoardScene extends Phaser.Scene {
     this.#scrollDirty = false;
     this.#revealedTargets = null;
     this.#version = -1;
+    this.#soundTrail = -1;
     this.#previousGame = null;
     this.#logAt.clear();
     this.#tabBadges.clear();
@@ -397,6 +410,7 @@ export class BoardScene extends Phaser.Scene {
           (key) =>
             key !== SCENES.board &&
             key !== SCENES.music &&
+            !CHROME_SCENES.has(key) &&
             !(key === SCENES.choice && sheetCovered) &&
             this.scene.isActive(key),
         );
@@ -634,6 +648,21 @@ export class BoardScene extends Phaser.Scene {
 
   #onState(state: SessionState): void {
     if (!state.game || state.perspectiveId === null) return;
+    // The table's sounds (`view/sound-effects.ts`): a card played, then its attack or thwart, then the end-of-turn
+    // refill. Read off the command trail, which the store appends a beat after the command's state lands, so a back out
+    // or a resumed game's past plays nothing.
+    const trail = state.commandTrail;
+    if (this.#soundTrail >= 0 && trail.length > this.#soundTrail) {
+      const game = state.game;
+      appSession().music?.playEffects(
+        tableSoundsOf(
+          trail.slice(this.#soundTrail),
+          soundInfoOfCard,
+          (command) => cardOf(game, command.cardInstanceId)?.name ?? null,
+        ),
+      );
+    }
+    this.#soundTrail = trail.length;
     this.#syncGuide(state);
 
     // Fold this command's events onto the log before the state replaces it.

@@ -32,6 +32,7 @@ const BOOLEAN_FIELDS = [
   "reducedMotion",
   "largeCardText",
   "sound",
+  "musicShuffle",
   "confirmBeforeEndTurn",
   "sameNameHeroAllyConflict",
   "holdEncounterCards",
