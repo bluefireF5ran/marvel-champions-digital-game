@@ -1407,6 +1407,19 @@ export type Predicate =
       readonly powers: readonly ("attack" | "thwart")[];
     }
   /**
+   * A `changeForm` effect aimed as `to` / `heroForm` say would change the first player `player` names right now
+   * (`changeFormTarget`): they can change form and are not already in the form it names. In a hero form, a change to
+   * hero form is possible for an identity with another hero face (FFG ruling June 8, 2023, #22: Bodyslide lets a Tiny
+   * Ant-Man change to Giant). Gates a "may change form" option on the change being possible (RRG 1.8 "Choose
+   * (Option)", p. 12).
+   */
+  | {
+      readonly kind: "canChangeForm";
+      readonly player: PlayerRef;
+      readonly to?: Form;
+      readonly heroForm?: { readonly withTrait: Trait } | { readonly named: string } | "other";
+    }
+  /**
    * The card has a status card of this type. `active`: it *is* stunned/confused by the rules, which with steady takes two
    * cards (RRG 1.8 "Steady", p. 41: "not stunned unless they have two stunned status cards") — "When a stunned or
    * confused friendly character would take any amount of damage" (Beast Mode, `hood` 24014), where Warehouse District
@@ -2837,6 +2850,8 @@ export type EffectSpec =
    * - absent with `to` absent too ("change form"), from a hero face of an identity with more than one: that player
    *   chooses among every face other than the one showing, the alter-ego face first (option id `alterEgo`, then each
    *   hero face's index).
+   * - `to: "hero"` from a hero face: the other hero face of a two-faced identity (FFG ruling June 17, 2025, #69.63:
+   *   Ready for a Fight takes a Tiny Ant-Man to Giant); unaffected with only one hero face.
    * A player already in the named form is unaffected, so no `formChanged` is announced.
    */
   | {

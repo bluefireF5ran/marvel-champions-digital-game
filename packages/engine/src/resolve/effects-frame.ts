@@ -78,9 +78,9 @@ import {
   shuffleZone,
 } from "../effects.js";
 import { EngineInvariantError } from "../errors.js";
+import { changeFormTarget } from "../form-change-target.js";
 import { groupVar, podGroupIds, type GroupId } from "../pod.js";
 import {
-  cannotChangeForm,
   formChangeCostsFor,
   formOnlyFault,
   grantedLabeledAbilities,
@@ -1317,47 +1317,14 @@ const FORM_COST_PAID = 1;
 const FORM_COST_UNPAID = 0;
 
 /**
- * Where a `changeForm` effect takes one player: a form and hero face, `null` for no change (already there, can't change,
- * or "your other hero form" with none to go to), or `"choose"` when the player must pick among several faces.
- */
-function changeFormTarget(
-  state: GameState,
-  deps: EngineDeps,
-  playerId: PlayerId,
-  effect: Extract<EffectSpec, { kind: "changeForm" }>,
-): { readonly to: "hero" | "alterEgo"; readonly heroForm: number } | "choose" | null {
-  const player = getPlayer(state, playerId);
-  if (!player || player.eliminated || cannotChangeForm(state, deps, playerId)) return null;
-  const card = cardOf(state, player.identity.instanceId);
-  const faces = card?.type === "hero_identity" ? heroFacesOf(card) : [];
-  const { form, heroFormIndex } = player.identity;
-  const unchanged = (to: "hero" | "alterEgo", heroForm: number) =>
-    form === to && (to === "alterEgo" || heroFormIndex === heroForm) ? null : { to, heroForm };
-  if (effect.heroForm === "other") {
-    if (form !== "hero" || faces.length !== 2) return null;
-    return unchanged("hero", heroFormIndex === 0 ? 1 : 0);
-  }
-  if (effect.heroForm !== undefined) {
-    // A title names one face (RRG 1.8 "Identity", p. 23): the printed title of a hero face, whichever face is showing.
-    const wanted = effect.heroForm;
-    const index = faces.findIndex((face) =>
-      "named" in wanted ? face.faceName === wanted.named : face.traits.includes(wanted.withTrait),
-    );
-    return index < 0 ? null : unchanged("hero", index);
-  }
-  if (effect.to === "alterEgo") return unchanged("alterEgo", 0);
-  if (form === "alterEgo") return faces.length > 1 ? "choose" : unchanged("hero", 0);
-  // In hero form: "change to hero form" changes nothing, and a bare "change form" goes to the alter-ego face, unless
-  // the identity has another hero face to go to as well (docs/phase7-wave7.md §3.62).
-  if (effect.to === "hero") return null;
-  return faces.length > 1 ? "choose" : unchanged("alterEgo", 0);
-}
-
-/**
  * The faces a player choosing a form may change to, as options: every hero face from alter-ego form; from a hero face,
- * the alter-ego face and each other hero face (only a bare "change form" asks there).
+ * each other hero face, and the alter-ego face first unless the change is to hero form.
  */
-function formChoiceOptions(state: GameState, playerId: PlayerId): readonly ChoiceOption[] {
+function formChoiceOptions(
+  state: GameState,
+  playerId: PlayerId,
+  to: "hero" | "alterEgo" | undefined,
+): readonly ChoiceOption[] {
   const player = getPlayer(state, playerId);
   const card = player ? cardOf(state, player.identity.instanceId) : undefined;
   if (!player || card?.type !== "hero_identity") return [];
@@ -1368,10 +1335,9 @@ function formChoiceOptions(state: GameState, playerId: PlayerId): readonly Choic
     ref,
   }));
   if (player.identity.form === "alterEgo") return heroFaces;
-  return [
-    { optionId: ALTER_EGO_OPTION, label: card.alterEgo.faceName, ref },
-    ...heroFaces.filter((_, index) => index !== player.identity.heroFormIndex),
-  ];
+  const otherHeroFaces = heroFaces.filter((_, index) => index !== player.identity.heroFormIndex);
+  if (to === "hero") return otherHeroFaces;
+  return [{ optionId: ALTER_EGO_OPTION, label: card.alterEgo.faceName, ref }, ...otherHeroFaces];
 }
 
 /**
@@ -1409,7 +1375,7 @@ function executeChangeForm(
     requestChoice(ctx, {
       playerId: next.playerId,
       prompt: { kind: "chooseOption" },
-      options: formChoiceOptions(ctx.state, next.playerId),
+      options: formChoiceOptions(ctx.state, next.playerId, effect.to),
       minSelections: 1,
       maxSelections: 1,
       frameId: frame.frameId,

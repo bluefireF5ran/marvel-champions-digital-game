@@ -108,6 +108,7 @@ import {
 import { attackCostBars } from "./attack-cost.js";
 import { canPaySpend } from "./payable.js";
 import { canUseBasicPower } from "./basic-power-uses.js";
+import { changeFormTarget } from "./form-change-target.js";
 import { uniqueEntryBlocker } from "./unique.js";
 import { threatRemovalBlocked } from "./resolve/event.js";
 import { accusationWrongGuesses, accusedWrong, isAccusationBoardMember } from "./accusation.js";
@@ -3170,6 +3171,12 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
       return (
         playerId !== undefined &&
         canPaySpend(state, context.deps ?? DEFAULT_DEPS, playerId, predicate.resources, predicate.distinctTypes ?? 0)
+      );
+    }
+    case "canChangeForm": {
+      const [playerId] = resolvePlayers(state, predicate.player, context);
+      return (
+        playerId !== undefined && changeFormTarget(state, context.deps ?? DEFAULT_DEPS, playerId, predicate) !== null
       );
     }
     case "canUseBasicPower": {
