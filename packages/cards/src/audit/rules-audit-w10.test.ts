@@ -10,7 +10,8 @@ vi.setConfig({ testTimeout: 240_000 });
 /**
  * Delta audit of the wave 10 content (the rules audit): proofs only for the clauses the
  * original audit marked N/A because the Civil War, Wonder Man and Hercules cards were not yet in the pool.
- * Order of authority: RRG 1.8 first, FFG rulings second, community answers third.
+ * Order of authority: RRG 1.8 first, then current errata, then FFG rulings (older rulings only where consistent with
+ * v1.8). Community answers are not a rules source.
  */
 
 const UNDERWORLD = "56025";
