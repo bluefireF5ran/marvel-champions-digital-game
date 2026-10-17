@@ -513,8 +513,12 @@ function energyPhysical(state: GameState, playerId: PlayerId): { state: GameStat
  * player can use the hero action to discard the card from the attached character" (also when it is attached to
  * another player's identity or ally). RRG 1.8 p. 4 (Ability): "Only the player who controls a player card with an
  * attachment that uses the word 'you' or 'your' can trigger abilities or pay costs on that attachment."
- * The engine (`actions.ts` useAbility, "only the player it is attached to can use that card") refuses every other
+ * The engine (`actions.ts` useAbility, "only the player it is attached to can use that card") refused every other
  * player for every encounter attachment on a player's card (RRG 1.8 p. 8 "Attachment", last bullet, read alone).
+ * RRG 1.8 conflicts with itself here: p. 8 has no "you"/"your" limit, p. 4 does. FFG ruling December 17, 2025, Ruling 1
+ * (https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-7/) says any player can trigger an Action on an encounter
+ * card "with the exception of certain attachments and obligations", which fits p. 4. Contributor's rules call
+ * 2026-10-16 (bluefireF5ran): follow p. 4 and the rulings (https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/).
  */
 describe("Restrained (21083): any player can use its hero action (FFG ruling July 13, 2023 - Ruling 48)", () => {
   function staged(user: PlayerId) {
