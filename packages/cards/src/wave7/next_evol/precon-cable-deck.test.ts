@@ -1071,7 +1071,7 @@ describe("Frenemies (40026): the two threat removals are simultaneous (FFG rulin
     return { ...encounterCardInVillainArea(swapped, "01108", 3), main: swapped.mainScheme.instanceId };
   }
 
-  it.fails("a crisis icon side scheme thwarted by the first removal still bars the main scheme from the second (RRG p. 43 'Target'; Ruling 127 answer 2)", () => {
+  it("a crisis icon side scheme thwarted by the first removal still bars the main scheme from the second (RRG p. 43 'Target'; Ruling 127 answer 2)", () => {
     const { state, id: crowd, main } = stage();
     const offers: string[][] = [];
     const pick: Picker = (s) => {
