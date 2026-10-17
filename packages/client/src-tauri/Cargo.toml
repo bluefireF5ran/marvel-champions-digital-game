@@ -1,6 +1,6 @@
 [package]
 name = "marvel-champions"
-version = "0.22.0"
+version = "0.23.0"
 description = "Marvel Champions: Digital Edition (desktop shell)"
 authors = ["Quin Carter"]
 license = "AGPL-3.0-or-later"
@@ -34,3 +34,11 @@ tauri = { version = "2.12.3", default-features = false, features = [
 tauri-plugin-log = "2"
 tauri-plugin-http = "2.8.2"
 tauri-plugin-opener = "2"
+
+# Exclusive fullscreen: switching the monitor's display mode (src/display_mode.rs).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+] }
