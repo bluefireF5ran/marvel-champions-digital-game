@@ -84,7 +84,13 @@ import {
 } from "@mc/content";
 import { communityDecks } from "@mc/cards";
 import { DECK_MIN_CARDS } from "@mc/engine";
-import { POOL_CARDS, POOL_DEPS, POOL_VERSION } from "../content/pool.js";
+import { POOL_CARDS, POOL_DEPS, POOL_HERO_SHELF_PACKS, POOL_VERSION, packNameOf } from "../content/pool.js";
+import { aspectLabelOf } from "../view/seat-slots.js";
+import { heroPacksOf } from "../view/hero-deck-groups.js";
+import { DeckSearchClient } from "../view/deck-search-client.js";
+import type { SearchDocument } from "../view/deck-search.js";
+import { cardSearchDocumentOf } from "../view/card-search-document.js";
+import { testedCatalog } from "../view/seatable-decks.js";
 import { cardArt } from "../art/card-art.js";
 import { artFor } from "../art/art-source.js";
 import { cardFaces } from "../art/card-face-baker.js";
@@ -107,6 +113,8 @@ import {
   communityMetaCandidates,
   communityNotesOf,
   communityOfferMatches,
+  testedEntryOf,
+  testedSearchFieldsOf,
   communityOffers,
   communityStatusText,
   communityPublishedText,
@@ -301,6 +309,20 @@ export class DecksScene extends Phaser.Scene {
   #pasteInput: McMultilineInput | null = null;
   #marvelcdbInput: McTextInput | null = null;
   #searchInput: McTextInput | null = null;
+  /** The card pool pane's own text search (name, traits, type, rules text), kept across rebuilds like `#searchInput`. */
+  #poolSearchInput: McTextInput | null = null;
+  #poolSearchText = "";
+  /** Both text searches run in a worker (view/deck-search-client.ts); each ranking is the last answer, shown until the next arrives. Null when no search is active. */
+  readonly #deckSearch = new DeckSearchClient();
+  #deckRanking: ReadonlyMap<string, number> | null = null;
+  #deckDocsVersion: string | null = null;
+  readonly #poolSearch = new DeckSearchClient();
+  #poolRanking: ReadonlyMap<string, number> | null = null;
+  #poolDocsVersion: string | null = null;
+  /** `cardSearchDocumentOf` per card id: the rules text is built once, not per selected deck. */
+  readonly #poolDocs = new Map<string, SearchDocument>();
+  /** The deck whose Delete was pressed once and awaits its confirming second press. */
+  #deleteArmedId: string | null = null;
   #filter: RosterFilter = { text: "" };
   /** Collapsed by default (2026-09-18 fidelity pass, point 2): the quick-filter chips cost nothing until asked for, so the deck list itself gets the column's room. */
   #filtersExpanded = false;
@@ -363,6 +385,14 @@ export class DecksScene extends Phaser.Scene {
     this.#importExportOpen = null;
     this.#poolAspectFilter = null;
     this.#poolSortByCost = false;
+    this.#poolSearchText = "";
+    this.#deckSearch.cancel();
+    this.#deckRanking = null;
+    this.#deckDocsVersion = null;
+    this.#poolSearch.cancel();
+    this.#poolRanking = null;
+    this.#poolDocsVersion = null;
+    this.#deleteArmedId = null;
     this.#selectedDeckId = data.focusDeckId ?? null;
     this.#activeTab = "decks";
     this.#history = null;
@@ -388,12 +418,16 @@ export class DecksScene extends Phaser.Scene {
       artOff();
       this.#hover?.destroy();
       this.#hover = null;
+      this.#deckSearch.destroy();
+      this.#poolSearch.destroy();
       this.#pasteInput?.destroy();
       this.#pasteInput = null;
       this.#marvelcdbInput?.destroy();
       this.#marvelcdbInput = null;
       this.#searchInput?.destroy();
       this.#searchInput = null;
+      this.#poolSearchInput?.destroy();
+      this.#poolSearchInput = null;
       this.#tabs?.destroy();
       this.#tabs = null;
       this.#list?.destroy();
@@ -408,7 +442,8 @@ export class DecksScene extends Phaser.Scene {
         this.scene.isActive(SCENES.inspect) ||
         (this.#pasteInput?.focused ?? false) ||
         (this.#marvelcdbInput?.focused ?? false) ||
-        (this.#searchInput?.focused ?? false),
+        (this.#searchInput?.focused ?? false) ||
+        (this.#poolSearchInput?.focused ?? false),
       onPage: (direction) =>
         this.#activeTab === "cards" ? this.#poolList?.scrollByPage(direction) : this.#list?.scrollByPage(direction),
       onHomeEnd: (edge) => {
@@ -521,8 +556,14 @@ export class DecksScene extends Phaser.Scene {
     // The surviving DOM text fields survive the sweep: every object they draw with is detached first and handed
     // back after, in the same order. The paste field is a rexUI sizer with children of its own in the display
     // list, so its root alone is not enough (`McMultilineInput.gameObjects`).
+    // The pool search belongs to the "Cards" group: wide always draws it, narrow only on that tab.
+    if (!layout.wide && this.#activeTab !== "cards") {
+      this.#poolSearchInput?.destroy();
+      this.#poolSearchInput = null;
+    }
     const kept = [
       ...(this.#pasteInput?.gameObjects ?? []),
+      ...(this.#poolSearchInput ? [this.#poolSearchInput.gameObject] : []),
       ...(this.#marvelcdbInput ? [this.#marvelcdbInput.gameObject] : []),
       ...(this.#searchInput ? [this.#searchInput.gameObject] : []),
     ];
@@ -751,7 +792,7 @@ export class DecksScene extends Phaser.Scene {
         placeholder: "search decks…",
         onChange: (value) => {
           this.#filter = { ...this.#filter, text: value };
-          this.#rebuild();
+          this.#requestDeckSearch(value);
         },
       });
     }
@@ -805,6 +846,8 @@ export class DecksScene extends Phaser.Scene {
     const listHeight = Math.max(ROW_HEIGHT, rect.y + rect.height - boxHeight - 12 - listTop);
     const listRect: Rect = { x: left, y: listTop, width: column, height: listHeight };
 
+    // The community decks are searched too (by name, author and tags), so the worker holds them with the player's own.
+    this.#syncDeckDocuments([...allOptions, ...offers.map((offer) => offer.option)]);
     const rows = this.#buildRows(allOptions, offers);
     const deckIds = rows
       .filter((r): r is Extract<DeckRow, { kind: "deck" }> => r.kind === "deck")
@@ -991,6 +1034,74 @@ export class DecksScene extends Phaser.Scene {
     return defs;
   }
 
+  /** What the deck search looks in for each deck (view/deck-search.ts): names first, then aspects, source, pack, author and tags, and a community deck's write-up last. */
+  #deckDocumentOf(option: DeckOption, heroPack: string | undefined): SearchDocument {
+    const deck = option.deck;
+    const identity = CARDS_BY_ID.get(deck.identityCardId as string);
+    const hero = identity?.type === "hero_identity" ? identity : undefined;
+    const entry = testedEntryOf(deck, testedCatalog());
+    const sourceWords =
+      deck.source.kind === "precon"
+        ? ["precon", "preconstructed"]
+        : deck.source.kind === "imported"
+          ? ["imported"]
+          : ["built", "mine"];
+    const packs = heroPack
+      ? [packNameOf(heroPack), POOL_HERO_SHELF_PACKS.find((p) => p.code === heroPack)?.cycleName]
+      : [];
+    return {
+      id: deck.id as string,
+      primary: [deck.name, option.identityName, hero?.hero.faceName, hero?.alterEgo.faceName, entry?.heroName].filter(
+        (t): t is string => typeof t === "string",
+      ),
+      secondary: [
+        ...deck.aspects.map((a) => aspectLabelOf([a])),
+        ...sourceWords,
+        ...packs.filter((t): t is string => typeof t === "string"),
+        ...testedSearchFieldsOf(deck, testedCatalog()),
+        ...(entry?.tags ?? []),
+      ],
+      notes: entry ? [entry.description] : [],
+    };
+  }
+
+  /** Hands the worker the deck list when it has changed (by id, name and aspects), and re-asks the open query. */
+  #syncDeckDocuments(allOptions: readonly DeckOption[]): void {
+    const version =
+      POOL_VERSION +
+      ":" +
+      allOptions.map((o) => `${o.deck.id as string}~${o.deck.name}~${o.deck.aspects.join(",")}`).join("|");
+    if (version === this.#deckDocsVersion) return;
+    this.#deckDocsVersion = version;
+    const heroPacks = heroPacksOf(
+      allOptions,
+      (option) => option.deck.identityCardId as string,
+      (option) => (option.deck.source.kind === "precon" ? (option.deck.source.packCode as string) : null),
+    );
+    this.#deckSearch.setDocuments(
+      allOptions.map((option) => this.#deckDocumentOf(option, heroPacks.get(option.deck.identityCardId as string))),
+      version,
+    );
+    const text = this.#filter.text;
+    // After this redraw, not inside it: the answer redraws again.
+    if (text.trim() !== "") queueMicrotask(() => this.sys.isActive() && this.#requestDeckSearch(text));
+  }
+
+  /** Asks the worker to rank the decks; the screen redraws when the newest answer arrives. An empty text clears the search at once. */
+  #requestDeckSearch(text: string): void {
+    if (text.trim() === "") {
+      this.#deckSearch.cancel();
+      this.#deckRanking = null;
+      this.#rebuild();
+      return;
+    }
+    this.#deckSearch.search(text, (ranked) => {
+      if (!this.sys.isActive()) return;
+      this.#deckRanking = new Map(ranked.map((r) => [r.id, r.score]));
+      this.#rebuild();
+    });
+  }
+
   /**
    * `allOptions` grouped into Preconstructed / Your decks (recently changed first), filtered by search + chips,
    * with the selected deck pinned into view even if the filter would otherwise hide it. A group's label rides on its own first card (`groupLabel`) rather
@@ -999,8 +1110,15 @@ export class DecksScene extends Phaser.Scene {
   #buildRows(allOptions: readonly DeckOption[], offers: readonly CommunityOffer[]): readonly DeckRow[] {
     const identityOf = (option: DeckOption): AnyCard | undefined =>
       CARDS_BY_ID.get(option.deck.identityCardId as string);
+    // The text part of the search is the worker's ranking; the chips stay here.
+    const chips: RosterFilter = { ...this.#filter, text: "" };
+    const ranking = this.#deckRanking;
+    const ranked = (option: DeckOption): boolean => ranking === null || ranking.has(option.deck.id as string);
+    const scoreOf = (option: DeckOption): number => ranking?.get(option.deck.id as string) ?? 0;
+    const byScore = <T>(items: readonly T[], optionOf: (item: T) => DeckOption): readonly T[] =>
+      ranking === null ? items : [...items].sort((a, b) => scoreOf(optionOf(b)) - scoreOf(optionOf(a)));
     const matches = (option: DeckOption): boolean =>
-      heroRosterMatches(option.deck, identityOf(option), this.#filter, option.blockedReason);
+      ranked(option) && heroRosterMatches(option.deck, identityOf(option), chips, option.blockedReason);
     const isSelected = (option: DeckOption): boolean => (option.deck.id as string) === this.#selectedDeckId;
 
     // "Community" narrows the list to the community group; a source chip (Precon, Imported, Built) narrows it to the
@@ -1008,18 +1126,22 @@ export class DecksScene extends Phaser.Scene {
     const own = this.#communityOnly ? [] : allOptions;
     const precons = own.filter((o) => o.deck.source.kind === "precon");
     const saved = own.filter((o) => o.deck.source.kind !== "precon");
-    const community = withSelectionPinned(
-      this.#filter.source ? [] : offers,
-      (offer) =>
-        communityOfferMatches(offer, {
-          text: this.#filter.text,
-          aspect: this.#filter.aspect ?? null,
-          availableOnly: this.#filter.playableOnly === true,
-        }),
-      (offer) => isSelected(offer.option),
+    const community = byScore(
+      withSelectionPinned(
+        this.#filter.source ? [] : offers,
+        (offer) =>
+          ranked(offer.option) &&
+          communityOfferMatches(offer, {
+            text: "",
+            aspect: this.#filter.aspect ?? null,
+            availableOnly: this.#filter.playableOnly === true,
+          }),
+        (offer) => isSelected(offer.option),
+      ),
+      (offer) => offer.option,
     );
-    const filteredPrecons = withSelectionPinned(precons, matches, isSelected);
-    const filteredSaved = withSelectionPinned(saved, matches, isSelected);
+    const filteredPrecons = byScore(withSelectionPinned(precons, matches, isSelected), (o) => o);
+    const filteredSaved = byScore(withSelectionPinned(saved, matches, isSelected), (o) => o);
 
     const rows: DeckRow[] = [];
     filteredPrecons.forEach((option, index) =>
@@ -1346,6 +1468,8 @@ export class DecksScene extends Phaser.Scene {
     const column = rect.width;
 
     if (!selected) {
+      this.#poolSearchInput?.destroy();
+      this.#poolSearchInput = null;
       const y = sectionHeader(this, left, rect.y, column, "Card pool");
       this.add
         .text(left, y, "Select a deck to browse its card pool.", textStyle(typeRole.body, surface.ink.hex, ink.meta))
@@ -1354,6 +1478,8 @@ export class DecksScene extends Phaser.Scene {
     }
     const identity = this.#identityOf(selected.deck);
     if (!identity) {
+      this.#poolSearchInput?.destroy();
+      this.#poolSearchInput = null;
       const y = sectionHeader(this, left, rect.y, column, "Card pool");
       this.add
         .text(
@@ -1378,9 +1504,35 @@ export class DecksScene extends Phaser.Scene {
       deckListOnly ? "DECK LIST" : "CARD POOL",
     );
 
+    // The text search, one compact row under the header (and under the chips, which wrap to their own row on a phone).
+    const poolSearchRect: Rect = { x: left, y, width: column, height: this.#row };
+    if (this.#poolSearchInput) this.#poolSearchInput.layout(poolSearchRect);
+    else {
+      this.#poolSearchInput = new McTextInput(this, {
+        rect: poolSearchRect,
+        value: this.#poolSearchText,
+        placeholder: "Search cards: name, trait, text",
+        onChange: (value) => {
+          this.#poolSearchText = value;
+          this.#requestPoolSearch(value);
+        },
+      });
+    }
+    this.#stops.set("pool-search", { rect: poolSearchRect, activate: () => this.#poolSearchInput?.focus() });
+    y += this.#row + 10;
+
+    this.#syncPoolDocuments(selected.deck, identity);
     const cards = this.#poolCards(selected.deck, identity, deckListOnly);
     if (cards.length === 0) {
-      this.add.text(left, y, "No cards match this filter.", textStyle(typeRole.body, surface.ink.hex, ink.meta));
+      const searched = this.#poolSearchText.trim();
+      this.add
+        .text(
+          left,
+          y,
+          searched ? `No cards match “${searched}”.` : "No cards match this filter.",
+          textStyle(typeRole.body, surface.ink.hex, ink.meta),
+        )
+        .setWordWrapWidth(column);
       return [];
     }
 
@@ -1552,11 +1704,52 @@ export class DecksScene extends Phaser.Scene {
     const filter: PoolFilter = this.#poolAspectFilter ? { aspect: this.#poolAspectFilter } : {};
     const browsable = browsablePool(POOL_CARDS, identity, deck.aspects, filter);
     const inDeck = new Set(deck.cards.map((entry) => entry.cardId as string));
-    const pool = deckListOnly ? browsable.filter((card) => inDeck.has(card.id as string)) : browsable;
+    const inScope = deckListOnly ? browsable.filter((card) => inDeck.has(card.id as string)) : browsable;
+    const ranking = this.#poolSearchText.trim() === "" ? null : this.#poolRanking;
+    const found = ranking ? inScope.filter((card) => ranking.has(card.id as string)) : inScope;
+    const pool = ranking
+      ? [...found].sort((a, b) => (ranking.get(b.id as string) ?? 0) - (ranking.get(a.id as string) ?? 0))
+      : found;
     if (!this.#poolSortByCost) return pool;
     const costOf = (card: AnyCard): number =>
       "cost" in card ? (card as unknown as { cost: number }).cost : Number.POSITIVE_INFINITY;
     return [...pool].sort((a, b) => costOf(a) - costOf(b) || a.name.localeCompare(b.name));
+  }
+
+  /** Hands the pool worker the selected deck's browsable cards when its hero or aspects change, and re-asks the open query. */
+  #syncPoolDocuments(deck: Deck, identity: HeroIdentityCard): void {
+    const version = `${POOL_VERSION}:${identity.id as string}:${deck.aspects.join(",")}`;
+    if (version === this.#poolDocsVersion) return;
+    this.#poolDocsVersion = version;
+    const documents = browsablePool(POOL_CARDS, identity, deck.aspects, {}).map((card) => {
+      const key = card.id as string;
+      let doc = this.#poolDocs.get(key);
+      if (!doc) {
+        doc = cardSearchDocumentOf(card, packNameOf(card.setCode as string));
+        this.#poolDocs.set(key, doc);
+      }
+      return doc;
+    });
+    this.#poolSearch.setDocuments(documents, version);
+    const text = this.#poolSearchText;
+    if (text.trim() !== "") queueMicrotask(() => this.sys.isActive() && this.#requestPoolSearch(text));
+  }
+
+  /** Asks the worker to rank the pool for the text; the grid redraws when the newest answer arrives. An empty text clears at once. */
+  #requestPoolSearch(text: string): void {
+    if (text.trim() === "") {
+      this.#poolSearch.cancel();
+      this.#poolRanking = null;
+      this.#poolListScroll.reset();
+      this.#rebuild();
+      return;
+    }
+    this.#poolSearch.search(text, (ranked) => {
+      if (!this.sys.isActive()) return;
+      this.#poolRanking = new Map(ranked.map((r) => [r.id, r.score]));
+      this.#poolListScroll.reset();
+      this.#rebuild();
+    });
   }
 
   #renderPoolRow(
@@ -1725,18 +1918,27 @@ export class DecksScene extends Phaser.Scene {
     // deck-check screen or in-place editing) — a row of small buttons, so the footer below still ends in exactly
     // Duplicate + the red Play button, as designed.
     const editable = deck.source.kind !== "precon";
+    // A pending Delete confirmation belongs to the deck it was pressed on; selecting another drops it.
+    if (this.#deleteArmedId !== null && this.#deleteArmedId !== (deck.id as string)) this.#deleteArmedId = null;
+    const armed = this.#deleteArmedId === (deck.id as string);
+    const confirmDelete = (): void => {
+      if (this.#deleteArmedId === (deck.id as string)) {
+        this.#deleteArmedId = null;
+        void this.#delete(deck.id);
+        return;
+      }
+      this.#deleteArmedId = deck.id as string;
+      this.#status = { text: `Press Confirm delete to remove “${deck.name}”. This can't be undone.`, tone: "error" };
+      this.#rebuild();
+    };
     const actionDefs: readonly { readonly id: string; readonly text: string; readonly onClick: () => void }[] = [
       { id: "check", text: "Check", onClick: () => this.#openDeckCheck(deck) },
-      ...(editable
-        ? [
-            {
-              id: "edit",
-              text: "Edit",
-              onClick: () => goToScreen(this, SCENES.deckBuilder, { deck } satisfies DeckBuilderSceneData),
-            },
-          ]
-        : []),
-      ...(editable ? [{ id: "delete", text: "Delete", onClick: () => void this.#delete(deck.id) }] : []),
+      {
+        id: "edit",
+        text: editable ? "Edit" : "Edit a copy",
+        onClick: () => goToScreen(this, SCENES.deckBuilder, { deck } satisfies DeckBuilderSceneData),
+      },
+      ...(editable ? [{ id: "delete", text: armed ? "Confirm delete" : "Delete", onClick: confirmDelete }] : []),
     ];
     const actionWidth = (column - CHIP_GAP * (actionDefs.length - 1)) / actionDefs.length;
     actionDefs.forEach((action, index) => {
@@ -2191,6 +2393,7 @@ export class DecksScene extends Phaser.Scene {
   }
 
   async #delete(id: DeckId): Promise<void> {
+    this.#status = null;
     await deckStorage().remove(id);
     this.#savedDecks = await deckStorage().list();
     this.#rebuild();

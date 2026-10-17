@@ -27,10 +27,16 @@ import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./
  * attachedInstanceIds`). A response reads the game as its triggering condition happened: the clauses of the query this
  * carries are matched against it, every other clause against the card as it now is (`resolve/triggers.ts`).
  *
- * Carried: the names and the status cards. An absent field falls back to the live card, so events stamped before a
- * field existed stay valid.
+ * Carried: the names, the status cards and what the card was (`was`). An absent field falls back to the live card, so
+ * events stamped before a field existed stay valid.
  */
 export interface TargetSnapshot {
+  /**
+   * The card this snapshot is of. An "(attack)" ability's attack begun against the first enemy an instruction names
+   * keeps that enemy's snapshot when it later names another as its target (`attack.targetInstanceId`), so the snapshot
+   * is read only for the card it was taken of. Absent on a snapshot stamped before it carried this: the event's target.
+   */
+  readonly instanceId?: InstanceId;
   /** The name it was showing (`currentName`; `TargetQuery.name`). Absent for a card with none. */
   readonly name?: string;
   /** The titles (and subtitle) naming it (`titlesNaming`; `TargetQuery.titled`). */
@@ -42,6 +48,14 @@ export interface TargetSnapshot {
    * tough card this damage is about to use is counted, and one a piercing attack discarded first is not.
    */
   readonly statuses?: StatusCounts;
+  /**
+   * What it was as the damage was dealt (`TargetQuery.categories`, `trait`, `withoutTrait`, `anyTrait`, `facedown`),
+   * the same read as `characterDefeated.asDefeated`: "After your hero attacks and defeats a minion" (Battle Fury,
+   * `thor` 06018) still finds a minion when the attack defeated a Drone, a player card facedown as a minion that is its
+   * printed self again in its owner's discard pile by the response window (issue #228). The same holds for every card
+   * that is a minion only while in play (a Controlled minion facedown, an ally a Beguiled-style attachment turns).
+   */
+  readonly was?: DefeatedSnapshot;
 }
 
 /**
@@ -2351,6 +2365,14 @@ export function hearsEncounterDeckDiscard(pattern: EventPattern): boolean {
 export const TAKEN_AWAY_SUFFIX = ".takenAway";
 
 /**
+ * The suffix of the slot that keeps, beside a set of cards "discarded this way" from a player's deck, the cards a
+ * response took away that the ability still counts (docs/phase7-wave7.md §4.1 Q32 = A, `settleDeckDiscards`):
+ * `<slot>.countedAway`. They are out of the set, so the ability's later effects ("add them to your hand") do not move
+ * them again, and their icons still count (`<slot>.*` totals, `ValueSpec totalPrintedResources` over the slot).
+ */
+export const COUNTED_AWAY_SUFFIX = ".countedAway";
+
+/**
  * The slots an ability hands to the abilities that answer its resolution (`abilityResolved.carried`,
  * docs/phase7-wave9.md §3.43 (c)): its own, each set of discarded cards whole again (`TAKEN_AWAY_SUFFIX`).
  * Undefined when it holds none.
@@ -2360,8 +2382,12 @@ export function slotsCarriedByResolved(
 ): Readonly<Record<string, readonly InstanceId[]>> | undefined {
   const carried: Record<string, readonly InstanceId[]> = {};
   for (const [slot, ids] of Object.entries(bindings)) {
-    if (slot.endsWith(TAKEN_AWAY_SUFFIX)) continue;
-    carried[slot] = [...ids, ...(bindings[`${slot}${TAKEN_AWAY_SUFFIX}`] ?? [])];
+    if (slot.endsWith(TAKEN_AWAY_SUFFIX) || slot.endsWith(COUNTED_AWAY_SUFFIX)) continue;
+    carried[slot] = [
+      ...ids,
+      ...(bindings[`${slot}${TAKEN_AWAY_SUFFIX}`] ?? []),
+      ...(bindings[`${slot}${COUNTED_AWAY_SUFFIX}`] ?? []),
+    ];
   }
   return Object.keys(carried).length > 0 ? carried : undefined;
 }
