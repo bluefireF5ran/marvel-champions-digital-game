@@ -3566,11 +3566,19 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "enemyAttack":
     case "enemyScheme":
     case "enemyActivation": {
-      if (effect.after === "currentActivation") {
+      // A Boost ability resolves during the activation it boosts (RRG 1.8 "Boost", p. 11), so an activation it
+      // initiates is always queued behind that one, as `after: "currentActivation"` is (RRG 1.8 "Activation", p. 6;
+      // ruling 214, Jun 13, 2024: I've Been Waiting For This!'s scheme waits for the boosted attack and its responses).
+      const fromBoost = frame.abilityId !== undefined && ctx.deps.abilities[frame.abilityId]?.trigger.kind === "boost";
+      if (effect.after === "currentActivation" || fromBoost) {
         const activation = currentActivationFrameId(ctx.state.stack);
-        if (activation) {
+        const activationFrame = activation ? findFrame(ctx.state, activation) : undefined;
+        const enemyActivation =
+          activationFrame?.kind === "event" &&
+          (activationFrame.event.kind === "enemyAttack" || activationFrame.event.kind === "enemyScheme");
+        if (activation && (effect.after === "currentActivation" || enemyActivation)) {
           // Queued behind the activation in progress: its end-of-event effects run after its response window, so its
-          // Retaliate and responses resolve first (ruling, Feb 28, 2026 (1) answer 2).
+          // Retaliate and responses resolve first (ruling, Feb 28, 2026 (1) answer 2; RRG 1.8 "Activation", p. 6).
           const { after, ...now } = effect;
           void after;
           const deferred: DeferredEffects = {
