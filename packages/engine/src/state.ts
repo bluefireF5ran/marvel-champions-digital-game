@@ -813,7 +813,17 @@ export type GameStep =
       readonly ended?: true;
     }
   | { readonly phase: "player"; readonly kind: "endPhaseDiscard"; readonly remainingPlayerIds: readonly PlayerId[] }
-  | { readonly phase: "player"; readonly kind: "endPhaseDraw" }
+  /**
+   * `remainingPlayerIds` / `drawn`: a refill stopped early to let a drawn card's ability resolve (RRG 1.8 "Hand Size",
+   * p. 21; ruling Aug 14, 2025, 69.94): the players still to draw, the first being the one whose refill resumes, and
+   * how many cards that player has drawn so far. Absent when the step has not started.
+   */
+  | {
+      readonly phase: "player";
+      readonly kind: "endPhaseDraw";
+      readonly remainingPlayerIds?: readonly PlayerId[];
+      readonly drawn?: number;
+    }
   /**
    * `readied`: step 4's readies are done but put something on the stack (an additional cost to ready, a "would ready"
    * interrupt; docs/phase7-wave4.md §3.19), so step 5 waits for it to resolve.
@@ -1027,6 +1037,12 @@ export interface GameState {
    * and empties the list. Absent until one first leaves a deck. docs/phase7-wave5.md §3.5.
    */
   readonly pendingEncounterFromDeck?: readonly EncounterFromDeck[];
+  /**
+   * Encounter cards drawn by a refill to hand size that stopped early to let a drawn card's ability resolve
+   * (`drawUpTo`), held back from `pendingEncounterFromDeck` until that refill finishes, so they are still dealt after
+   * the whole draw (MC27 p. 21 FAQ). Absent when no refill is paused.
+   */
+  readonly refillHeldEncounterFromDeck?: readonly EncounterFromDeck[];
   /**
    * Cards that entered a player's hand since the flow last looked, oldest first, recorded only when some ability in the
    * registry triggers on it: the flow announces each as `cardEntersHand` between frames and empties the list. Absent

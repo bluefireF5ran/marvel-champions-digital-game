@@ -152,6 +152,7 @@ export const PROBE_FIELDS: { readonly [K in keyof Required<GameState>]: "game" |
   scenarioDecks: "game",
   pendingDeckRunOuts: "game",
   pendingEncounterFromDeck: "game",
+  refillHeldEncounterFromDeck: "game",
   pendingEnteredHand: "game",
   pendingEncounterDealt: "game",
   pendingEncounterDeals: "game",

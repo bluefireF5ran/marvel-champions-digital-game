@@ -517,6 +517,9 @@ function redirectMovedThreat(ctx: Ctx, frame: Frame<"effects">, placed: number):
   });
 }
 
+/** How many of its players a paused `drawUpTo` effect has finished refilling; absent when it is not paused. */
+const REFILL_PLAYERS_DONE_VAR = "$refillPlayersDone";
+
 export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext, frame: Frame<"effects">): void {
   // Announcements pushed only when an ability listens, so a game with no listener resolves as before.
   const pushHeard = (events: readonly TriggerEvent[]): void => {
@@ -3511,8 +3514,34 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     case "drawUpTo":
       // Every printed "draw up to" reads "up to your hand size" (Split Personality, Grand Strategy, MC16's setup), so
       // it refills: a drawn obligation does not count toward it (`drawUpTo`).
-      for (const playerId of resolvePlayers(ctx.state, effect.player, context)) {
-        drawUpTo(ctx, playerId, () => value(effect.amount));
+      // A refill that stops early so a drawn card's ability can resolve (RRG 1.8 "Hand Size", p. 21; ruling Aug 14,
+      // 2025, 69.94) puts the frame back on this effect, with the players already done recorded, and the flow runs it
+      // again once what the draw put on the stack has resolved.
+      {
+        const players = resolvePlayers(ctx.state, effect.player, context);
+        const done = frame.vars[REFILL_PLAYERS_DONE_VAR];
+        if (done !== undefined) {
+          updateFrame(ctx, frame.frameId, (f) => {
+            if (f.kind !== "effects") return f;
+            const { [REFILL_PLAYERS_DONE_VAR]: _, ...vars } = f.vars;
+            return { ...f, vars };
+          });
+        }
+        for (let index = done ?? 0; index < players.length; index++) {
+          const playerId = players[index]!;
+          if (drawUpTo(ctx, playerId, () => value(effect.amount)) || ctx.state.outcome) continue;
+          updateFrame(ctx, frame.frameId, (f) =>
+            f.kind === "effects"
+              ? {
+                  ...f,
+                  cursor: frame.cursor,
+                  answer: frame.answer,
+                  vars: { ...f.vars, [REFILL_PLAYERS_DONE_VAR]: index },
+                }
+              : f,
+          );
+          return;
+        }
       }
       return;
     case "forEachPlayer": {

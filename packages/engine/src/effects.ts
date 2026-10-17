@@ -1250,12 +1250,69 @@ export function drawCards(ctx: Ctx, playerId: PlayerId, count: number): readonly
  * next card on. A drawn obligation is not in hand, so the drawing goes on past it (RRG 1.8 "Obligation", p. 30: "unless
  * they are refilling their hand to their hand size"). Every card drawn leaves deck and discard for good (a reset
  * reshuffles only the discard pile), so this stops at the latest when both are empty.
+ *
+ * Returns false when it stopped early: a drawn card's arrival put something on the stack (a drawn obligation entering
+ * play) or is heard as entering the hand (Shapeshifter Surprise's Forced Response). The caller lets that resolve and
+ * calls this again, which goes on drawing to the target (RRG 1.8 "Hand Size", p. 21, "one at a time").
  */
-export function drawUpTo(ctx: Ctx, playerId: PlayerId, target: () => number): void {
+export function drawUpTo(ctx: Ctx, playerId: PlayerId, target: () => number): boolean {
+  const recorded = ctx.state.pendingEncounterFromDeck?.length ?? 0;
   // Cards that do not count toward hand size do not fill it (docs/phase7-wave5.md §3.18).
   while (handCountTowardHandSize(ctx.state, playerId, ctx.deps) < target()) {
-    if (drawOne(ctx, playerId) === null) return;
+    const depth = ctx.state.stack.length;
+    const entered = ctx.state.pendingEnteredHand?.length ?? 0;
+    if (drawOne(ctx, playerId) === null) break;
+    // One card at a time: an ability the card's arrival triggers resolves before the next card is drawn (RRG 1.8 "Hand
+    // Size", p. 21; ruling Aug 14, 2025, 69.94). The caller runs this again once it has resolved.
+    if (ctx.state.stack.length > depth || enteredHandIsHeard(ctx, entered)) {
+      holdRefillEncounterCards(ctx, recorded);
+      return false;
+    }
   }
+  releaseRefillEncounterCards(ctx, playerId);
+  return true;
+}
+
+/** Whether a card recorded as entering a hand since `from` (`pendingEnteredHand`) has an ability that answers it. */
+function enteredHandIsHeard(ctx: Ctx, from: number): boolean {
+  return (ctx.state.pendingEnteredHand ?? [])
+    .slice(from)
+    .some((entered) => heard(ctx.state, ctx.deps, { kind: "cardEntersHand", ...entered }));
+}
+
+/**
+ * A refill stopping early holds back the encounter cards it drew (recorded from index `from` on), so the flow does not
+ * deal them while the refill waits: Mysterio's FAQ deals them after the whole draw (MC27 p. 21, "those cards are drawn
+ * simultaneously. Afterward, deal each encounter card drawn during that process").
+ */
+function holdRefillEncounterCards(ctx: Ctx, from: number): void {
+  const pending = ctx.state.pendingEncounterFromDeck ?? [];
+  const drawn = pending.slice(from);
+  if (drawn.length === 0) return;
+  const kept = pending.slice(0, from);
+  const { pendingEncounterFromDeck: _, ...rest } = ctx.state;
+  ctx.state = {
+    ...rest,
+    ...(kept.length > 0 ? { pendingEncounterFromDeck: kept } : {}),
+    refillHeldEncounterFromDeck: [...(ctx.state.refillHeldEncounterFromDeck ?? []), ...drawn],
+  };
+}
+
+/**
+ * A refill that has finished (or will not go on: its player was eliminated) hands back the encounter cards it held,
+ * ahead of any recorded since, to be dealt now.
+ */
+export function releaseRefillEncounterCards(ctx: Ctx, playerId: PlayerId): void {
+  const held = ctx.state.refillHeldEncounterFromDeck ?? [];
+  const mine = held.filter((card) => card.playerId === playerId);
+  if (mine.length === 0) return;
+  const others = held.filter((card) => card.playerId !== playerId);
+  const { refillHeldEncounterFromDeck: _, ...rest } = ctx.state;
+  ctx.state = {
+    ...rest,
+    ...(others.length > 0 ? { refillHeldEncounterFromDeck: others } : {}),
+    pendingEncounterFromDeck: [...mine, ...(ctx.state.pendingEncounterFromDeck ?? [])],
+  };
 }
 
 /**
