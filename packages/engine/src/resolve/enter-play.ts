@@ -326,7 +326,7 @@ export function checkPlayerSideSchemeLimit(ctx: Ctx, entering: InstanceId | null
  * (`checkPlayerSideSchemeLimit`). Returns true when it asked the player.
  *
  * A card that "counts as N restricted cards" (docs/phase7-wave7.md §3.82) adds N to the load compared with the limit
- * and is offered like any restricted card; discarding it frees all N (contributor's rules call (bluefireF5ran) 2026-10-16, the contributor's rules calls (bluefireF5ran),
+ * and is offered like any restricted card; discarding it frees all N (contributor's rules call 2026-10-16 (bluefireF5ran),
  * reversing upstream Q52 = B). When every card offered weighs 1, the number to discard is the load over the limit. When
  * one weighs more, the player discards one card at a time ("until they have only two in play"): one is chosen, and the
  * standing check (`checkRestrictedLimits`, between frames) asks again while they are still over.

@@ -5,8 +5,8 @@
  * additional [Weapon] upgrade that has the restricted keyword.").
  *
  * The weighted card adds its weight to the load the limit is compared with (`restrictedLoadOf`), is one of the player's
- * restricted cards (a single card), and is offered for the discard over the limit, freeing its whole weight (contributor (bluefireF5ran)
- * decision 2026-10-16 (the contributor's rules calls (bluefireF5ran)), reverses upstream Q52 = B).
+ * restricted cards (a single card), and is offered for the discard over the limit, freeing its whole weight (contributor's
+ * rules call 2026-10-16 (bluefireF5ran), reversing upstream Q52 = B).
  *
  * Sources: RRG 1.8 "Restricted" (p. 38), "Blank" (p. 10), "Permanent" (p. 32).
  */

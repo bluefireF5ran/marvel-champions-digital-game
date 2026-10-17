@@ -104,8 +104,8 @@ describe("1. Restricted is a state limit: the play resolves, then the player dis
     const withTwo = attached(attached(deadpoolGame(), KATANA).state, BAZOOKA);
     const notSwords = (s: GameState, o: readonly string[]) => [o.find((id) => codeOf(s, id as InstanceId) !== SWORDS)!];
     const run = playCard(withTwo.state, SWORDS, 3, { [DISCARD_RESTRICTED]: notSwords });
-    // Load 4 -> discard until 2, one card at a time with the Swords on offer; contributor's rules call (bluefireF5ran) 2026-10-16
-    // (the contributor's rules calls (bluefireF5ran)), reverses upstream Q52 = B.
+    // Load 4 -> discard until 2, one card at a time with the Swords on offer; contributor's rules call 2026-10-16
+    // (bluefireF5ran), reversing upstream Q52 = B.
     const offers = run.prompts.filter((p) => p.kind === DISCARD_RESTRICTED);
     expect(offers).toHaveLength(2);
     expect(offers[0]!.options.map((o) => codeOf(run.state, o as InstanceId)).sort()).toEqual(

@@ -3,7 +3,7 @@
  * support, resource, player side scheme) for a player's deck and the encounter card types for the encounter deck,
  * environment included; the encounter types are offered for a player's deck only while an encounter card is in it
  * (a Mysterio-style villain shuffled one in). RRG 1.8 "Card Types", p. 12; errata p. 66; owner call in
- * the contributor's rules calls (bluefireF5ran).
+ * the contributor's rules call (bluefireF5ran).
  */
 import { cardId } from "@mc/content";
 import { activeVillain, type GameState, type InstanceId } from "@mc/engine";

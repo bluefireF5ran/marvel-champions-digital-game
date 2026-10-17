@@ -4163,7 +4163,7 @@ export function mainSchemeASideRefs(state: GameState): readonly AbilityReference
  * card in play they control that weighs on the limit (`restrictedWeightOf` > 0), the keyword cards and a card that
  * "counts as N restricted cards" alike. What text naming "restricted cards" sees, and what is offered for the discard
  * when over the limit. The weighted card is one card here; what the limit is compared with is `restrictedLoadOf`.
- * Fork owner's decision 2026-10-16 (the contributor's rules calls (bluefireF5ran)), reversing upstream Q52 = B.
+ * Contributor's rules call 2026-10-16 (bluefireF5ran), reversing upstream Q52 = B.
  */
 export const restrictedCardsOf = (
   state: GameState,

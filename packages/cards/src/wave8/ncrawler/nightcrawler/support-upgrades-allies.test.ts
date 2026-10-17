@@ -773,8 +773,8 @@ describe("Restricted limit with Kurt's Cutlasses (counts as 2) and Prehensile Ta
   }
   const here = (s: GameState, ids: readonly InstanceId[]): boolean[] => ids.map((id) => cardsInPlay(s).includes(id));
   const held = (s: GameState): InstanceId[] => inPlayIds(s, PISTOL);
-  // The Cutlasses are one restricted card weighing 2 and are offered for the limit like Laser Swords (contributor (bluefireF5ran)
-  // decision 2026-10-16 (the contributor's rules calls (bluefireF5ran)), reverses upstream Q52 = B); these tests discard a Pistol when one is offered.
+  // The Cutlasses are one restricted card weighing 2 and are offered for the limit like Laser Swords (contributor's
+  // rules call 2026-10-16 (bluefireF5ran), reversing upstream Q52 = B); these tests discard a Pistol when one is offered.
   const keepCutlasses: Rule = (s) => {
     const c = s.pendingChoice;
     if (c?.prompt.kind !== "discardRestricted") return undefined;
