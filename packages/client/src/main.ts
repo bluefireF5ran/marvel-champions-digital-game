@@ -67,6 +67,8 @@ import { TeamUpInfoOverlay } from "./scenes/team-up-info.js";
 import { EvidenceOverlay } from "./scenes/evidence.js";
 import { PileViewOverlay } from "./scenes/pile-view.js";
 import { MusicScene } from "./audio/music-controller.js";
+import { MusicButtonScene } from "./scenes/music-button.js";
+import { MusicPlayerOverlay } from "./scenes/music-player.js";
 import { ExtrasScene } from "./scenes/extras.js";
 import { ExtrasViewerScene } from "./scenes/extras-viewer.js";
 import { ExtrasReaderScene } from "./scenes/extras-reader.js";
@@ -89,6 +91,9 @@ import { installStartupWatchdog, probeWebgl } from "./ui/startup-watchdog.js";
 import { installDesktopType, setDesktopType } from "./ui/desktop-type.js";
 import { formFactorFor } from "./view/layout.js";
 import { applyViewportFit } from "./platform/platform.js";
+import { applyDesktopWindowOnLaunch, desktopLaunchSettings, setRenderSizeHandler } from "./platform/desktop-window.js";
+import { storedSettingsOverrides } from "./settings-store.js";
+import { applyRenderSize } from "./ui/render-resolution.js";
 import { isAndroidEdge, rendererOptionsOf } from "./platform/renderer-options.js";
 
 // The one `Settings` instance for the whole app (`appSession().settings`), not a
@@ -205,10 +210,21 @@ const game = new Phaser.Game({
     PileViewOverlay,
     ExtrasViewerScene,
     MusicScene,
-    // Last, so they draw above every screen and overlay (#176): the panel, and the tab that opens it above that.
+    // Last, so they draw above every screen and overlay (#176, #191): the music player and its button, then the report
+    // panel and the tab that opens it above that.
+    MusicPlayerOverlay,
+    MusicButtonScene,
     ReportIssueOverlay,
     ReportButtonScene,
   ],
+});
+
+// The desktop app's saved window mode and resolution (Settings > Display > Window); nothing off desktop. A Steam
+// Deck or Bazzite starts in Fullscreen until the player picks a window mode of their own.
+setRenderSizeHandler((size) => applyRenderSize(game, size));
+void desktopLaunchSettings(settings, storedSettingsOverrides().displayMode !== undefined).then((launch) => {
+  if (launch !== settings) appSession().settings = launch;
+  applyDesktopWindowOnLaunch(launch);
 });
 watchStartup(game);
 

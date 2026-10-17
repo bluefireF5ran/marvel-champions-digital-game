@@ -63,12 +63,15 @@ import { startAspectTryItGame } from "../guide/start-aspect-tryit.js";
 import { startMechanicTryItGame } from "../guide/start-mechanic-tryit.js";
 import { askToResumeTutorial } from "./tutorial-resume-confirm.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
+import { hasDesktopWindow, quitToDesktop } from "../platform/desktop-window.js";
 import { SCENES } from "./keys.js";
 import type { ScenarioSelectData } from "./scenario-select.js";
 import type { SeatsData } from "./seats.js";
 import type { Deck } from "@mc/content";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { setReportSlot } from "../ui/report-slot.js";
+import { setMusicSlot } from "../ui/music-slot.js";
+import { musicSlotBeside } from "../view/music-player.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
 
 /**
@@ -170,15 +173,19 @@ export class TitleScene extends Phaser.Scene {
       continuable: this.#continuable !== null,
       update: this.#update !== null,
       civilWar: civilWar !== null,
+      quit: hasDesktopWindow(),
     });
     // The Report button's slot (#176): level with the eyebrow, at the menu column's right edge.
     const reportSize = layout.split ? 44 : 40;
-    setReportSlot(this.scene.key, {
+    const reportRect = {
       x: layout.left + layout.column - reportSize,
       y: Math.max(8, Math.round(layout.eyebrow.y + layout.eyebrow.height / 2 - reportSize / 2)),
       width: reportSize,
       height: reportSize,
-    });
+    };
+    setReportSlot(this.scene.key, reportRect);
+    // The music button's (#191), just left of it.
+    setMusicSlot(this.scene.key, musicSlotBeside(reportRect));
 
     // Ground: split desktop/tablet (ink art panel left, red rule, paper menu panel right); one ink ground on phone.
     if (layout.split) {
@@ -378,6 +385,21 @@ export class TitleScene extends Phaser.Scene {
       activate: openSettings,
     });
 
+    // The desktop app has no browser tab to close, so it offers its own way out (the owner, 2026-10-16).
+    if (layout.quit) {
+      const quit = (): void => void quitToDesktop();
+      this.#buttons.push(
+        new McButton(this, {
+          kind: menuKind,
+          label: "Quit to desktop",
+          type: typeRole.menuButton,
+          rect: layout.quit,
+          onClick: quit,
+        }),
+      );
+      this.#stops.set("quit", { rect: layout.quit, activate: quit });
+    }
+
     const coverage = cardPoolCoverageOf(POOL_CARDS, POOL_DEPS);
     this.add.text(
       layout.footer.x,
@@ -426,6 +448,7 @@ export class TitleScene extends Phaser.Scene {
       titleMenuFocusOrder({
         continuable: this.#continuable !== null,
         civilWar: civilWar !== null,
+        quit: layout.quit !== null,
         updateActions: bannerStops,
       }),
       this.#stops,

@@ -44,6 +44,7 @@ describe("SettingsStore", () => {
     ["textResolution", 1],
     ["largeCardText", true],
     ["sound", false],
+    ["musicShuffle", true],
     ["confirmBeforeEndTurn", false],
     ["sameNameHeroAllyConflict", false],
     ["villainAutoAdvance", "afterPause"],
@@ -164,6 +165,18 @@ describe("parseSettingsOverrides", () => {
   test("firstPlayerTokenMotion: only the five known styles are read", () => {
     expect(parseSettingsOverrides('{"firstPlayerTokenMotion":"spin"}')).toEqual({ firstPlayerTokenMotion: "spin" });
     expect(parseSettingsOverrides('{"firstPlayerTokenMotion":"juggle"}')).toEqual({});
+  });
+
+  test("displayMode: only the three window modes are read", () => {
+    expect(parseSettingsOverrides('{"displayMode":"borderless"}')).toEqual({ displayMode: "borderless" });
+    expect(parseSettingsOverrides('{"displayMode":"exclusive"}')).toEqual({});
+  });
+
+  test("resolution: 'default' or a width x height is read, anything else is not", () => {
+    expect(parseSettingsOverrides('{"resolution":"1920x1080"}')).toEqual({ resolution: "1920x1080" });
+    expect(parseSettingsOverrides('{"resolution":"native"}')).toEqual({ resolution: "native" });
+    expect(parseSettingsOverrides('{"resolution":"big"}')).toEqual({});
+    expect(parseSettingsOverrides('{"resolution":1920}')).toEqual({});
   });
 
   test("cardSize: only the three known values are read", () => {

@@ -143,6 +143,7 @@ import {
 import {
   decisionReached,
   decisionTitleOf,
+  outcomeEndsReplay,
   outcomeReleasable,
   seatHeadingName,
   tableHoldOf,
@@ -184,7 +185,7 @@ import { appSession } from "../session.js";
 import type { SessionState } from "../store/session-store.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { VILLAIN_DOCK_CHANGED, type BoardScene } from "./board.js";
-import { SCENES } from "./keys.js";
+import { CHROME_SCENES, SCENES } from "./keys.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { OverlayMotion, slideIn, slideOut } from "../ui/transitions.js";
 import {
@@ -395,6 +396,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
           (key) =>
             key !== SCENES.board &&
             key !== SCENES.music &&
+            !CHROME_SCENES.has(key) &&
             key !== SCENES.villainPhase &&
             key !== SCENES.choice &&
             this.scene.isActive(key),
@@ -557,8 +559,8 @@ export class VillainPhaseOverlay extends Phaser.Scene {
   }
 
   #onState(state: SessionState): void {
-    if (!state.game || (state.game.outcome && this.#review)) {
-      // No game, or a review of an earlier phase while the game ended: nothing more to show.
+    if (!state.game || (state.game.outcome && (this.#review || outcomeEndsReplay(state.game.outcome)))) {
+      // No game, a review of an earlier phase while the game ended, or a concession: nothing more to show.
       this.#close();
       return;
     }
