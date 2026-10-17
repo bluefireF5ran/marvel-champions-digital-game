@@ -9,14 +9,16 @@
  * minion, only the threat option may be offered. The engine's `chooseOne` offers every option whose `condition` holds
  * (`resolve/effects-frame.ts` `executeChooseOne`), and this script gives its damage option no `when`.
  *
- * Hydra Exo-Soldier (04131): "[star] Boost: Give the villain a tough status card and another boost card." FFG ruling of
- * December 11, 2025, as quoted by Hall of Heroes in the Discord rulings corpus (id 8798-07507; that date is before
- * `marvel-champions-rulings-post-rrg-1-7.md` begins, so the primary page is not in the repo): when a Villainous minion
- * flips it as its boost card, give the villain a tough status card, then check whether the villain already has a boost
- * card; if so give it another, if not give none. The same reasoning is official in Feb 28, 2026 Ruling 6 (Pirate Lackey:
- * "Because the villain is not activating, do not give it a boost card"), pinned in `wave6/mut_gen/qa.test.ts`. The
- * script is `04131.boost = giveTough(theVillain), modifyAttack({ extraBoostCards: 1 })`, which hands the extra card to
- * the activation in progress, here the minion's.
+ * Hydra Exo-Soldier (04131): "[star] Boost: Give the villain a tough status card and another boost card." Official
+ * source: FFG ruling February 28, 2026 - Ruling 6 (Hall of Heroes, "Latest FFG Rulings (post-RRG 1.7 & 1.8)",
+ * https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-7/; `marvel-champions-rulings-post-rrg-1-7.md`), on Pirate
+ * Lackey, a boost card that gives the villain a boost card when a Villainous minion activates: "No. Because the
+ * villain is not activating, do not give it a boost card." (pinned in `wave6/mut_gen/qa.test.ts`). The same reasoning
+ * applies to Exo-Soldier's "another boost card" when a Villainous minion flips it: the tough status card still goes to
+ * the villain, but the minion's activation is not given another boost card. A ruling on Exo-Soldier itself dated
+ * December 11, 2025 is unconfirmed (no primary source found: the only December 11, 2025 ruling in the transcripts,
+ * post-RRG 1.6 #69.132, is about other cards), so it does not drive this test. The audit found the script handing
+ * the extra card to the activation in progress, here the minion's; it now uses `extraBoostCardsForVillain()`.
  */
 import { cardId } from "@mc/content";
 import { activeEncounterDeck, type GameEvent } from "@mc/engine";
@@ -60,7 +62,7 @@ describe("Hogwashed (30004): RRG 1.8 'Choose (Option)' (p. 12), an option with n
   });
 });
 
-describe("Hydra Exo-Soldier (04131) as a Villainous minion's boost card: FFG ruling December 11, 2025", () => {
+describe("Hydra Exo-Soldier (04131) as a Villainous minion's boost card: FFG ruling Feb 28, 2026 (6), Pirate Lackey", () => {
   it("the villain has no boost card (its own was spent), so the minion's activation is not given another", () => {
     const base = mansionAttackGame({ villain: "Avalanche", modularSetIds: ["future_past"] });
     const hero = runWith(WAVE6_DEPS, base, toHero(P1));
