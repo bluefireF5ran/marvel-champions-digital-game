@@ -94,7 +94,19 @@ describe("'Cannot be confused' stops new status cards only (FFG ruling Feb 15, 2
   });
 });
 
-describe("Damage order, step 1 before step 2 (RRG 1.8 'Damage', p. 14; FFG ruling relayed in Discord 8798-02506: the RRG line putting Tough ahead of 'would deal' interrupts was an error)", () => {
+/*
+ * Conflict inside RRG 1.8 itself. "Damage" (p. 14) orders the dealing and taking of damage as "1. Abilities that
+ * trigger 'when [character] would deal/be dealt any amount of damage...' 2. Tough status cards. 3. Abilities that
+ * trigger 'when [character] would take any amount of damage...'". The Appendix IV FAQ (p. 57) says instead: "Status
+ * cards have priority over all triggered abilities, like interrupts, so the tough status card must be discarded to
+ * prevent all of the damage before any other abilities could trigger" (and "Status Cards", p. 41: "Status card
+ * abilities have timing priority over all conflicting triggered abilities"). FFG rulings July 20, 2023 - Rulings 55
+ * and 56 (post-RRG 1.5; https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/;
+ * `research/rules-audit/sources/rulings-post-rrg-1-5.md`) side with p. 14: "Interrupts that prevent damage dealt
+ * resolve before Tough is discarded". They predate v1.8, and v1.8 still prints both texts, so the conflict stays open.
+ * The engine follows p. 14 (upstream #181, audit finding 17), and this test pins that behaviour.
+ */
+describe("Damage order, step 1 before step 2 (RRG 1.8 'Damage', p. 14; conflicts with the Appendix IV FAQ, p. 57)", () => {
   // Fixed upstream in #181, audit finding 17 (wouldBeDealt: "would be dealt", then tough, then "would be taken").
   it("a 'would be dealt damage' forced interrupt (Bell Tower, Ringing) resolves before the hero's Tough status card is used", () => {
     const state = startWave5Game(
