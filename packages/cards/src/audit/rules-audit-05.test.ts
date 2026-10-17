@@ -70,7 +70,7 @@ describe("Cost arrow with a confused hero (FFG ruling April 30, 2026 (2); RRG 1.
 
 /*
  * FFG ruling February 15, 2024 - Ruling 145 (post-RRG 1.5; Hall of Heroes, "Latest FFG Rulings (post-RRG 1.5)",
- * https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/; `research/rules-audit/sources/rulings-post-rrg-1-5.md`):
+ * https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/):
  * "If a Steady Magneto has 1 confused status card on him when Magneto's Helmet attaches to him, the confused status
  * card remains on him unless he gains Stalwart." RRG 1.8 agrees: "Confuse, Confused" (p. 13) says only that
  * "confused status cards cannot be placed on that character", and "Status Cards" (p. 41) lists no rule that removes a
@@ -101,8 +101,7 @@ describe("'Cannot be confused' stops new status cards only (FFG ruling Feb 15, 2
  * cards have priority over all triggered abilities, like interrupts, so the tough status card must be discarded to
  * prevent all of the damage before any other abilities could trigger" (and "Status Cards", p. 41: "Status card
  * abilities have timing priority over all conflicting triggered abilities"). FFG rulings July 20, 2023 - Rulings 55
- * and 56 (post-RRG 1.5; https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/;
- * `research/rules-audit/sources/rulings-post-rrg-1-5.md`) side with p. 14: "Interrupts that prevent damage dealt
+ * and 56 (post-RRG 1.5; https://hallofheroeslcg.com/latest-ffg-rulings-post-rrg-1-5/) side with p. 14: "Interrupts that prevent damage dealt
  * resolve before Tough is discarded". They predate v1.8, and v1.8 still prints both texts, so the conflict stays open.
  * The engine follows p. 14 (upstream #181, audit finding 17), and this test pins that behaviour.
  */
