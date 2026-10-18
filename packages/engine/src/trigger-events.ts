@@ -1830,6 +1830,8 @@ export const TOTAL_ATK_RESULT = "totalAtk";
  * spill "is considered damage from an attack"). Beside `damage`, which counts the attacked characters' damage only
  * (the condition "attacks and damages" answers, one per damaged character: ruling January 11, 2026 (2)). Read by a
  * response to the attack as a whole ("after X attacks you, ... for each point of damage dealt by this attack").
+ * It counts damage taken, as the attack's `damage` result does, so damage a tough status card stops counts 0. The cards
+ * say "dealt": reading it as taken is an engine interpretation (no official source addresses it).
  */
 export const ATTACK_DAMAGE_RESULT = "attackDamage";
 

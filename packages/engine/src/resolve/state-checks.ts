@@ -605,8 +605,10 @@ function settleDials(ctx: Ctx): void {
  * limit on damage taken: every pass between frames lowers each character in play above its lowest cap to that cap.
  * Ruling October 10, 2025, Boarding Party blanked by Vivian and Magneto dealt damage past the cap: "once
  * Boarding Party's ability is back in effect, it will immediately affect the amount of sustained damage Magneto has,
- * possibly resulting in less damage on Magneto." RRG 1.8 "Sustained Damage" (p. 42) is the `damage` on the card. The
- * removal is a rules correction, not a heal (`damageAboveCapRemoved`). A character whose defeat is already under way
+ * possibly resulting in less damage on Magneto." RRG 1.8 "Constant Abilities" (p. 5) backs it: a constant ability
+ * "remains active while the card is in play", so the cap holds at every moment, not only when damage is taken. RRG 1.8
+ * "Sustained Damage" (p. 42) is the `damage` on the card. The removal is a rules correction, not a heal
+ * (`damageAboveCapRemoved`). A character whose defeat is already under way
  * is left alone.
  */
 function applySustainedDamageCaps(ctx: Ctx): void {
