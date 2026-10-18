@@ -280,7 +280,7 @@ export const putIntoPlayControllerSlot = (id: InstanceId): string => `_putIntoPl
  * Whether the player putting `id` into play chooses which player controls it. RRG 1.8 "Play, Put into Play" (p. 32):
  * "Unless otherwise stated by the 'put into play' effect, cards that are put into play must do so in a play area or
  * state that matches the rules of playing the card"; so a card printed "Play under any player's control" (`playRestrictions
- * .anyPlayerControl`) may enter under any player's control (FFG ruling Nov 21, 2025, 69.129: Build Support finding
+ * .anyPlayerControl`) may enter under any player's control (FFG ruling Nov 21, 2025: Build Support finding
  * Boot Camp). Not when the effect states the controller (`controllerStated`), puts the card into play facedown (no
  * text shows) or into a scenario area (nobody controls it), nor for a card already in play.
  */
@@ -2102,7 +2102,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         return;
       }
       // `controller` is the player putting the cards into play. A "Play under any player's control" card enters under
-      // the player they chose for it (`putIntoPlayControlIsChosen`; RRG 1.8 p. 32, ruling Nov 21, 2025, 69.129), so the
+      // the player they chose for it (`putIntoPlayControlIsChosen`; RRG 1.8 pp. 32-33, ruling Nov 21, 2025), so the
       // unique rule, "Max N per player" and the host it gets are read under that player.
       const underOf = (id: InstanceId): PlayerId =>
         putIntoPlayChosenController(ctx.state, frame.bindings, id) ?? controller;

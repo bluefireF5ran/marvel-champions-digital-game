@@ -3308,7 +3308,8 @@ export const replaceBoostCount = (card: TargetRef): EffectSpec => ({ kind: "repl
 /**
  * "Apply its boost icons for this activation as if it were a boost card" ("I Am Inevitable"): from a Boost ability,
  * the card is applied as a boost card turned faceup, so abilities that affect boost cards may be used on it (FFG ruling
- * Sept 5, 2024 #8, Preemptive Strike).
+ * Sept 5, 2024, post-RRG 1.6 #8, Preemptive Strike; other cards with the same wording, such as Infinite Mischief,
+ * follow it by analogy, an engine interpretation).
  */
 export const applyAsBoostCard = (card: TargetRef): EffectSpec => ({ kind: "applyAsBoostCard", card });
 /**

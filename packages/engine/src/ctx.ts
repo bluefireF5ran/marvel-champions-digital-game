@@ -484,7 +484,8 @@ export function perilBarsTrigger(
 
 /**
  * The player whose play area a card in play is in, else null: an engaged minion is in its player's (RRG 1.8 "Engage",
- * p. 17), an attachment in its host's (an identity is in its player's), anything else in the area that lists it.
+ * p. 18; "Play Area", p. 33), an attachment in its host's (an identity is in its player's), anything else in the area
+ * that lists it.
  */
 function playAreaHolderId(state: GameState, id: InstanceId, depth = 0): PlayerId | null {
   const instance = state.instances[id];

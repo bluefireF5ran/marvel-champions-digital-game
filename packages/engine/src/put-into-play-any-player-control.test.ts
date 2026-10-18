@@ -1,9 +1,10 @@
 /**
- * RRG 1.8 "Play, Put into Play" (p. 32): "Unless otherwise stated by the 'put into play' effect, cards that are put
+ * RRG 1.8 "Play, Put into Play" (pp. 32-33): "Unless otherwise stated by the 'put into play' effect, cards that are put
  * into play must do so in a play area or state that matches the rules of playing the card." FFG ruling Nov 21, 2025
- * (69.129): "because the ability does not state otherwise, you'd put the card found by Build Support into play in a
- * play area/state matching the rules of the card, which in the case of Boot Camp can include under the control of
- * another player."
+ * (Build Support / Boot Camp): "because the ability does not state otherwise, you'd put the card found by Build Support
+ * into play in a play area/state matching the rules of the card, which in the case of Boot Camp can include under the
+ * control of another player." Who chooses the controller is not stated; the player putting the card in chooses, an
+ * engine interpretation.
  *
  * So a card printed "Play under any player's control" that an effect puts into play enters under the player the one
  * putting it in chooses. Synthetic cards: a "Boot Camp" shaped support (any player's control, max 1 per player) and
@@ -102,7 +103,7 @@ function play(state: GameState, card: AnyCard, controlTo: PlayerId | null, playe
   return { state: session.state, events: events as readonly GameEvent[], asked };
 }
 
-describe("Build Support / Boot Camp (ruling Nov 21, 2025, 69.129): put into play under any player's control", () => {
+describe("Build Support / Boot Camp (ruling Nov 21, 2025): put into play under any player's control", () => {
   it("the player putting it in may put it under another player's control", () => {
     const base = start();
     const camp = campOf(base, P1);

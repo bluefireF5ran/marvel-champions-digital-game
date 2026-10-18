@@ -4349,8 +4349,9 @@ export type EffectSpec =
       /**
        * The text names who controls the card ("put that ally into play under your control"). Without it, a card printed
        * "Play under any player's control" enters under a player `controller` chooses, as playing it would (RRG 1.8
-       * "Play, Put into Play", p. 32: "Unless otherwise stated by the 'put into play' effect …"; FFG ruling Nov 21,
-       * 2025, 69.129: Build Support may put Boot Camp into play under another player's control). Prompt slot
+       * "Play, Put into Play", pp. 32-33: "Unless otherwise stated by the 'put into play' effect …"; FFG ruling Nov
+       * 21, 2025: Build Support may put Boot Camp into play under another player's control; that `controller` chooses
+       * is an engine interpretation, as the ruling does not say who chooses). Prompt slot
        * `putIntoPlayController`, asked before the host question; one player in the game is no choice.
        */
       readonly controllerStated?: true;

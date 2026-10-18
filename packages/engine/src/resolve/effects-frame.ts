@@ -511,8 +511,9 @@ function statusAheadOfDamage(ctx: Ctx, frame: Frame<"effects">, effect: EffectSp
 
 /**
  * The control question of a `putIntoPlay`: a card printed "Play under any player's control" enters play under the
- * player the one putting it in chooses, as playing it would (RRG 1.8 "Play, Put into Play", p. 32; FFG ruling Nov 21,
- * 2025, 69.129; `putIntoPlayControlIsChosen`). Asked before the host question, one card per pass, of every player
+ * player the one putting it in chooses, as playing it would (RRG 1.8 "Play, Put into Play", pp. 32-33; FFG ruling
+ * Nov 21, 2025; `putIntoPlayControlIsChosen`). The ruling does not say who chooses: the player putting it in is an
+ * engine interpretation. Asked before the host question, one card per pass, of every player
  * still in the game; one such player is no choice. The answer is kept in the frame's bindings
  * (`putIntoPlayControllerSlot`) as the chosen player's identity, as `choosePlayer` binds. Returns true while a question
  * is open or was just answered.
