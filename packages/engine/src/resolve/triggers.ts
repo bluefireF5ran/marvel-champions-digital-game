@@ -195,18 +195,19 @@ function matchesPattern(
 
 /**
  * An attack's overkill-spill condition (`overkillSpill`, `resolve/event.ts` `overkillSpillConditions`) is heard only by
- * "attacks and damages" (a `damage` or `damaged` result required, here or in an alternative): the spill is damage from
- * the attack but not an attack against that character (RRG 1.8 "Overkill", p. 31), so "after X attacks", "after X is
- * attacked" and the attack's other conditions answer the attack once.
+ * "attacks and damages" and "attacks and defeats" (a `damage`, `damaged` or `defeated` result required, here or in an
+ * alternative): the spill is damage from the attack but not an attack against that character (RRG 1.8 "Overkill",
+ * p. 31), so "after X attacks", "after X is attacked" and the attack's other conditions answer the attack once. How
+ * the pattern names the character (`selfIs` or `targetIs`) does not matter: the result it asks for decides.
  */
 function spillUnheard(pattern: EventPattern, event: TriggerEvent): boolean {
   if ((event.kind !== "attack" && event.kind !== "enemyAttack") || event.overkillSpill !== true) return false;
-  if (pattern.selfIs === "target" || pattern.selfIs === "either") return true;
-  const asksDamage = (one: EventPattern): boolean =>
+  const asksResult = (one: EventPattern): boolean =>
     (one.requireResults?.damage ?? 0) > 0 ||
     (one.requireResults?.damaged ?? 0) > 0 ||
-    (one.anyOf ?? []).some((alternative) => asksDamage(alternative));
-  return !asksDamage(pattern);
+    (one.requireResults?.defeated ?? 0) > 0 ||
+    (one.anyOf ?? []).some((alternative) => asksResult(alternative));
+  return !asksResult(pattern);
 }
 
 /** A pattern's own fields, without its `anyOf` alternatives. */

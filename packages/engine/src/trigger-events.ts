@@ -687,6 +687,8 @@ export type TriggerEventBody =
        * attack to be the parent.
        */
       readonly reportFrameId?: FrameId | null;
+      /** The attack whose overkill spill dealt the defeating damage, told this character's defeat (`spillDefeatedKey`). */
+      readonly spilledFromFrameId?: FrameId | null;
       readonly overkill?: {
         readonly amount: number;
         readonly toInstanceId: InstanceId;
@@ -1848,6 +1850,13 @@ export const EXCESS_AS_DEALT_RESULT = "excessAsDealt";
  * included, after prevention, reductions and tough. Summed if the character took damage from it more than once.
  */
 export const damageTakenKey = (instanceId: InstanceId): string => `damageTaken.${instanceId}`;
+
+/**
+ * The result key an attack records a character's defeat by its overkill spill under: the spill is damage from the
+ * attack, so "attacks and defeats" answers that character too (ruling January 11, 2026 (2), Captain Marvel: her Forced
+ * Response "triggers for both instances"; `resolve/event.ts` `overkillSpillConditions`).
+ */
+export const spillDefeatedKey = (instanceId: InstanceId): string => `spillDefeated.${instanceId}`;
 
 export type TriggerEventKind = TriggerEvent["kind"];
 

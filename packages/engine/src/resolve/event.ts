@@ -103,7 +103,13 @@ import {
   recordKeywordsIgnored,
   thwartBlockersIgnored,
 } from "./keyword-ignored.js";
-import { ATTACK_DAMAGE_RESULT, damageTakenKey, eventSubjects, EXCESS_AS_DEALT_RESULT } from "../trigger-events.js";
+import {
+  ATTACK_DAMAGE_RESULT,
+  damageTakenKey,
+  eventSubjects,
+  EXCESS_AS_DEALT_RESULT,
+  spillDefeatedKey,
+} from "../trigger-events.js";
 import type { AttackKeyword, DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
 import {
   alreadyDefeated,
@@ -666,8 +672,9 @@ const OVERKILL_DAMAGED_SLOT = "overkillDamaged";
  * (June 20, 2024): Cypher "did 'damage a confused enemy' via overkill". RRG 1.8 "Overkill" (p. 31): the spill "is
  * considered damage from an attack, but does not constitute an attack against that character", so each condition is
  * the attack with that character as its target and its damage alone as the results, heard only by an "attacks and
- * damages" pattern (`TriggerEvent attack.overkillSpill`, `resolve/triggers.ts`). A defeat by the spill is not
- * reported on it: "attacks and defeats" still answers the attacked character only.
+ * damages" or "attacks and defeats" pattern (`TriggerEvent attack.overkillSpill`, `resolve/triggers.ts`). A defeat by
+ * the spill is reported on it as `defeated` (`spillDefeatedKey`): the same ruling's Captain Marvel answer, overkill
+ * defeating an ally and an identity, "triggers for both instances".
  */
 function overkillSpillConditions(frame: Frame<"event">, event: TriggerEvent): readonly TriggerEvent[] {
   if (event.kind !== "attack" && event.kind !== "enemyAttack") return [];
@@ -677,7 +684,12 @@ function overkillSpillConditions(frame: Frame<"event">, event: TriggerEvent): re
   return spilled.flatMap((id): TriggerEvent[] => {
     const taken = frame.vars[damageTakenKey(id)] ?? 0;
     if (attacked.has(id) || taken <= 0) return [];
-    const results: Vars = { damage: taken, damaged: 1, [damageTakenKey(id)]: taken };
+    const results: Vars = {
+      damage: taken,
+      damaged: 1,
+      [damageTakenKey(id)]: taken,
+      ...(frame.vars[spillDefeatedKey(id)] ? { defeated: 1 } : {}),
+    };
     if (event.kind === "enemyAttack") return [{ ...event, targetInstanceId: id, overkillSpill: true, results }];
     // The attacked character's snapshot (`targetAsDamaged`) is not this one's: its target is read as it is now.
     const { attacked: _attacked, targetAsDamaged: _snapshot, ...single } = event;
@@ -1046,7 +1058,7 @@ function beginOneDefeat(
   // here means no interrupt replaced the defeat ("set his hit point dial to 1 instead", Captain America's Helmet).
   const player = ctx.state.players.find((seat) => seat.identity.instanceId === id);
   if (player) {
-    recordIdentityDefeat(ctx, id, event.parentFrameId, event.reportFrameId);
+    recordIdentityDefeat(ctx, id, event.parentFrameId, event.reportFrameId, event.spilledFromFrameId);
     eliminatePlayer(ctx, player.playerId);
     return true;
   }
@@ -1075,6 +1087,7 @@ function beginOneDefeat(
   if (event.reportFrameId && event.reportFrameId !== event.parentFrameId) {
     addFrameVars(ctx, event.reportFrameId, { defeated: 1 });
   }
+  addFrameVars(ctx, event.spilledFromFrameId, { [spillDefeatedKey(id)]: 1 });
   let spill: DefeatFollowUp["spill"];
   if (event.overkill && !ctx.state.outcome && getInstance(ctx.state, event.overkill.toInstanceId)) {
     emit(ctx, {
@@ -1765,6 +1778,8 @@ export function applyDamage(
     defeatedByPlayerId: sourcePlayerOf(ctx.state, event),
     sourceInstanceId: source,
     reportFrameId: frameId,
+    // An overkill spill's defeat is told to its attack (`spillDefeatedKey`), so "attacks and defeats" answers it too.
+    ...(!event.parentFrameId && event.spilledFromFrameId ? { spilledFromFrameId: event.spilledFromFrameId } : {}),
     ...(excessDealt > 0 ? { excessDamage: excessDealt } : {}),
     ...(event.consequential === true ? { consequential: true } : {}),
   });
@@ -1778,6 +1793,8 @@ export function applyDamage(
   ) {
     addFrameVars(ctx, event.parentFrameId, { defeated: 1 });
     addFrameVars(ctx, frameId, { defeated: 1 });
+    if (!event.parentFrameId)
+      addFrameVars(ctx, event.spilledFromFrameId, { [spillDefeatedKey(event.targetInstanceId)]: 1 });
   }
 }
 
