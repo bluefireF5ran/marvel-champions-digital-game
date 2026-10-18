@@ -782,7 +782,8 @@ export const distinctAspectsOf = (cardsRef: TargetRef): ValueSpec => ({ kind: "d
 export const distinctTraitsOf = (cardsRef: TargetRef): ValueSpec => ({ kind: "distinctTraits", of: cardsRef });
 /** "That damage" / "it" in an interrupt: the triggering event's amount. */
 export const eventAmount: ValueSpec = { kind: "eventAmount" };
-export const eventResult = (key: string): ValueSpec => ({ kind: "eventResult", key });
+export const eventResult = (key: string, of?: TargetRef): ValueSpec =>
+  of === undefined ? { kind: "eventResult", key } : { kind: "eventResult", key, of };
 /**
  * "[The enemy's] total ATK for that attack" (Exodus, `magneto` 49028): the enemy attack being answered, its ATK with
  * modifiers, "+N ATK for this attack" and the boost icons counted, before the defender's DEF. Read on an
@@ -1388,6 +1389,8 @@ export const eventDamageTaken = (of: TargetRef, n = 1): Predicate => ({
   of,
   amount: n,
 });
+/** The amount `eventDamageTaken` tests: "for each damage you took from the attack" → `eventDamageTakenBy(each(YOUR_IDENTITY))`. */
+export const eventDamageTakenBy = (of: TargetRef): ValueSpec => eventResult("damageTaken", of);
 /**
  * In a When Defeated / "after X is defeated" ability: the excess damage the defeat recorded, the damage past the
  * character's remaining hit points from whatever damage defeated it (docs/phase7-wave5.md §4.1 Q68). 0 when exactly

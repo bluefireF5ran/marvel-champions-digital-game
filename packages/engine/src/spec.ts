@@ -980,8 +980,12 @@ export type ValueSpec =
        */
       readonly of?: TargetRef;
     }
-  /** A result of the triggering event ("for each damage dealt by this attack" → `damage`). */
-  | { readonly kind: "eventResult"; readonly key: string }
+  /**
+   * A result of the triggering event ("for each damage dealt by this attack" → `damage`). With `of`, the result recorded
+   * for a card, `<key>.<instanceId>`, summed over the cards `of` names, as `var`'s `of` does: `damageTaken` of your
+   * identity is the damage your identity took from the attack (`damageTakenKey`, overkill spill included).
+   */
+  | { readonly kind: "eventResult"; readonly key: string; readonly of?: TargetRef }
   /**
    * The excess damage the triggering `characterDefeated` event recorded (docs/phase7-wave5.md §4.1 Q68): how far the
    * defeating damage went past the character's remaining hit points (RRG 1.8 "Excess Damage", p. 19), measured as

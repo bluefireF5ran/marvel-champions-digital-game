@@ -14,8 +14,9 @@ import {
   defineAbilities,
   discardThis,
   draw,
+  each,
   enemyAttack,
-  eventResult,
+  eventDamageTakenBy,
   eventSource,
   exhaustThis,
   forcedResponse,
@@ -35,6 +36,7 @@ import {
   varOf,
   when,
   YOUR_HERO,
+  YOUR_IDENTITY,
   you,
 } from "../../dsl/index.js";
 import { moveThreat, paidOnly, resourceForCard } from "./local.js";
@@ -76,15 +78,15 @@ export const HLK_PACK_CARDS = defineAbilities({
   ),
 
   // "You'll Pay for That!" — Hero Response (thwart): After the villain attacks you, remove 1 threat from a scheme
-  // for each damage you took from the attack (to a maximum of 5). `eventResult("damage")` reads the villain
-  // attack's own dealt-damage result (`applyDamage`'s `addFrameVars(event.parentFrameId, { damage: … })` in
-  // `packages/engine/src/resolve/event.ts`), the same key `when.villainAttacks({ damages: true })`'s
-  // `requireResults: { damage: 1 }` gates on. "Damage you took" is your identity's (RRG 1.8 "You, Your", p. 49), so
-  // `damagesYou`: an ally's damage is not counted, and an overkill spill onto your identity is its own condition.
+  // for each damage you took from the attack (to a maximum of 5). "After the villain attacks you" is the exception
+  // RRG 1.8 "You, Your" (p. 49) carves out, the attacked player, so the trigger stays `againstYou` and is offered when
+  // an ally defends too, even for 0 (nothing in 1.8 bars it). Only the count, "damage you took", is your identity's:
+  // `eventDamageTakenBy` reads the attack's per-character damage taken (`damageTakenKey`), an overkill spill onto your
+  // identity included and an ally's damage not.
   "10016.youll-pay-for-that-response": response(
-    when.villainAttacks({ damagesYou: true }),
+    when.villainAttacks({ againstYou: true }),
     { label: "thwart" },
-    removeThreatFromAScheme(scaled(eventResult("damage"), { max: 5 })),
+    removeThreatFromAScheme(scaled(eventDamageTakenBy(each(YOUR_IDENTITY)), { max: 5 })),
   ),
 
   // Martial Prowess — Play under any player's control. Max 1 per player (data). Resource: Exhaust Martial Prowess

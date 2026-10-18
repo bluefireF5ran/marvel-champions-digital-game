@@ -2801,8 +2801,13 @@ export function resolveValue(
         return resolveRef(state, value.of, context).reduce((sum, id) => sum + (perCard[`${value.name}.${id}`] ?? 0), 0);
       }
       return context.vars?.[value.name] ?? 0;
-    case "eventResult":
-      return context.event?.results?.[value.key] ?? 0;
+    case "eventResult": {
+      const results = context.event?.results ?? {};
+      if (value.of) {
+        return resolveRef(state, value.of, context).reduce((sum, id) => sum + (results[`${value.key}.${id}`] ?? 0), 0);
+      }
+      return results[value.key] ?? 0;
+    }
     case "defeatExcessDamage": {
       const defeat = context.event?.kind === "characterDefeated" ? context.event : undefined;
       if (!defeat) return 0;
