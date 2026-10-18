@@ -588,6 +588,7 @@ export class BoardScene extends Phaser.Scene {
         hitRect: (id: string) => this.#frame.hitRects.get(id as InstanceId) ?? null,
         allFocusRects: () => [...this.#frame.focusRects.entries()],
         allPileRects: () => [...this.#frame.pileRects.entries()],
+        handStrip: () => this.#frame.handStrip[0] ?? null,
         paymentView: () => this.paymentView(),
         phaseBand: () => this.#motion.debugPhaseBand(),
         phaseBandLog: () => this.#motion.debugPhaseBandLog(),
@@ -1254,7 +1255,8 @@ export class BoardScene extends Phaser.Scene {
       teamUpRoles: this.#teamUpRoles(model),
       villainHandTags: this.#villainHandTags,
       actionsHeld: this.#villainReplay !== null,
-      makeTapTarget: (rect, id, onTap, drag, onHover) => this.#makeTapTarget(rect, id, onTap, drag, onHover),
+      makeTapTarget: (rect, id, onTap, drag, onHover, clip) =>
+        this.#makeTapTarget(rect, id, onTap, drag, onHover, clip),
       inspect: (id, siblings) => this.#inspect(id, siblings),
       openPile: (name, ids) => this.#openPile(name, ids),
       inspectReference: (reference) => this.scene.launch(SCENES.inspect, { reference }),
@@ -1799,6 +1801,7 @@ export class BoardScene extends Phaser.Scene {
     onTap?: () => void,
     drag?: RowDrag,
     onHover?: (over: boolean) => void,
+    clip?: Rect,
   ): void {
     this.#frame.focusRects.set(focusKey({ kind: "card", instanceId: id }), rect);
     addTapTarget(this, rect, {
@@ -1810,6 +1813,7 @@ export class BoardScene extends Phaser.Scene {
       onDragEnd: drag?.onDragEnd,
       key: id as string,
       onHover,
+      clip,
     });
   }
 
