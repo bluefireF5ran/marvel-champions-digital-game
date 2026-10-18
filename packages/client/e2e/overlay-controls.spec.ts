@@ -110,10 +110,22 @@ async function newGame(page: Page): Promise<void> {
 async function flipRows(page: Page, phone: boolean, scene: string, keyOf: (id: string) => string): Promise<void> {
   // The phone's lower group scrolls and draws only the rows on screen; flip the ones that are there.
   let flipped = 0;
+  const size = page.viewportSize()!;
   for (const id of ["reduced-motion", "large-card-text", "confirm-end-turn", "same-name-conflict"]) {
     // A row's rect keeps its scrolled position under the phone's footer buttons; only a row clear of them is a target.
-    const rect = await stopOf(page, scene, keyOf(id));
-    if (!rect || rect.y + rect.height / 2 > page.viewportSize()!.height - 150) continue;
+    // Card size sits above the toggles on the phone's sheet, so a row just under the fold is scrolled up into view.
+    const clear = (r: Rect | null): boolean => r !== null && r.y + r.height / 2 <= size.height - 150;
+    let rect = await stopOf(page, scene, keyOf(id));
+    for (let i = 0; i < 3 && rect && !clear(rect); i++) {
+      if (phone) await touchSwipe(page, 60, size.height - 200, size.height - 330);
+      else {
+        await page.mouse.move(size.width / 2, size.height / 2);
+        await page.mouse.wheel(0, 120);
+      }
+      await settle(page, { quietMs: 150, maxMs: 600 });
+      rect = await stopOf(page, scene, keyOf(id));
+    }
+    if (!clear(rect)) continue;
     const before = await settingsJson(page);
     await pressStop(page, phone, scene, keyOf(id), async () => (await settingsJson(page)) !== before);
     await pressStop(page, phone, scene, keyOf(id), async () => (await settingsJson(page)) === before);
@@ -194,6 +206,26 @@ test.describe("Pause menu", () => {
 
     await pressStop(page, true, PAUSE, "quick:jumpLog", () => hasText(page, "Round 1 begins", PAUSE));
     await pressStop(page, true, PAUSE, "quick:jumpLog", async () => !(await hasText(page, "Round 1 begins", PAUSE)));
+  });
+
+  test("the phone's sheet sets Card size in place, and Show all settings opens the full Settings screen", async ({
+    page,
+  }, info) => {
+    test.skip(!isPhone(info), "the Quick reference rows are the phone sheet's own; wide mode's menu has Settings");
+    test.setTimeout(120_000);
+    await newGame(page);
+    await openPause(page, true);
+    const cardSize = (): Promise<string> =>
+      page.evaluate(async () => {
+        const { appSession } = (await import("/src/session.ts")) as unknown as {
+          appSession: () => { settings: { cardSize: string } };
+        };
+        return appSession().settings.cardSize;
+      });
+    await pressStop(page, true, PAUSE, "table:card-size:large", async () => (await cardSize()) === "large");
+    await pressStop(page, true, PAUSE, "quick:settings", async () =>
+      (await activeScenes(page)).includes("SettingsOverlay"),
+    );
   });
 
   test("Concede, confirmed, ends the game for the table", async ({ page }, info) => {

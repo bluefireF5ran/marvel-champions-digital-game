@@ -60,6 +60,8 @@ import {
 import { cardSizeFactor } from "../settings.js";
 import { onTap, setTapOccluders } from "../ui/tap.js";
 import { TableDrag, clampScroll, fullyInWindow, revealScroll, wheelPixels } from "../view/table-scroll.js";
+import { choiceDock } from "../view/choice-dock.js";
+import { choicePeeking } from "../view/choice-peek.js";
 import { villainDockRects, type VillainDockRects, type VillainDockRequest } from "../view/villain-dock.js";
 import { sameSeatNote, type VillainSeatNote } from "../view/villain-seat-note.js";
 import { drawCompactIdentity } from "./board/compact-identity.js";
@@ -411,7 +413,8 @@ export class BoardScene extends Phaser.Scene {
             key !== SCENES.board &&
             key !== SCENES.music &&
             !CHROME_SCENES.has(key) &&
-            !(key === SCENES.choice && sheetCovered) &&
+            // Docked in the villain phase's panel, the sheet leaves the table beside it to read (#231).
+            !(key === SCENES.choice && (sheetCovered || choiceDock() !== null || choicePeeking())) &&
             this.scene.isActive(key),
         );
         return hoverArea({
@@ -586,8 +589,10 @@ export class BoardScene extends Phaser.Scene {
       (window as unknown as { __mcBoardDebug?: unknown }).__mcBoardDebug = {
         focusRect: (key: string) => this.#frame.focusRects.get(key) ?? null,
         hitRect: (id: string) => this.#frame.hitRects.get(id as InstanceId) ?? null,
+        hoverShown: () => this.#hover?.shownKey ?? null,
         allFocusRects: () => [...this.#frame.focusRects.entries()],
         allPileRects: () => [...this.#frame.pileRects.entries()],
+        handStrip: () => this.#frame.handStrip[0] ?? null,
         paymentView: () => this.paymentView(),
         phaseBand: () => this.#motion.debugPhaseBand(),
         phaseBandLog: () => this.#motion.debugPhaseBandLog(),
@@ -1254,7 +1259,8 @@ export class BoardScene extends Phaser.Scene {
       teamUpRoles: this.#teamUpRoles(model),
       villainHandTags: this.#villainHandTags,
       actionsHeld: this.#villainReplay !== null,
-      makeTapTarget: (rect, id, onTap, drag, onHover) => this.#makeTapTarget(rect, id, onTap, drag, onHover),
+      makeTapTarget: (rect, id, onTap, drag, onHover, clip) =>
+        this.#makeTapTarget(rect, id, onTap, drag, onHover, clip),
       inspect: (id, siblings) => this.#inspect(id, siblings),
       openPile: (name, ids) => this.#openPile(name, ids),
       inspectReference: (reference) => this.scene.launch(SCENES.inspect, { reference }),
@@ -1799,6 +1805,7 @@ export class BoardScene extends Phaser.Scene {
     onTap?: () => void,
     drag?: RowDrag,
     onHover?: (over: boolean) => void,
+    clip?: Rect,
   ): void {
     this.#frame.focusRects.set(focusKey({ kind: "card", instanceId: id }), rect);
     addTapTarget(this, rect, {
@@ -1810,6 +1817,7 @@ export class BoardScene extends Phaser.Scene {
       onDragEnd: drag?.onDragEnd,
       key: id as string,
       onHover,
+      clip,
     });
   }
 
