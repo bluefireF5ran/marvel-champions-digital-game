@@ -58,10 +58,7 @@ import { unlocks } from "../progression/progression.js";
 import type { CivilWarBuilderData } from "./civil-war-builder.js";
 import { tutorialResumeDecisionFor } from "../guide/tutorial-resume.js";
 import { TUTORIAL_LESSONS } from "../guide/tutorial-lessons.js";
-import { startTutorialGame } from "../guide/start-tutorial.js";
-import { startAspectTryItGame } from "../guide/start-aspect-tryit.js";
-import { startMechanicTryItGame } from "../guide/start-mechanic-tryit.js";
-import { askToResumeTutorial } from "./tutorial-resume-confirm.js";
+import type { TutorialResumeConfirmData } from "./tutorial-resume-confirm.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { hasDesktopWindow, quitToDesktop } from "../platform/desktop-window.js";
 import { SCENES } from "./keys.js";
@@ -585,24 +582,31 @@ export class TitleScene extends Phaser.Scene {
         : "It's a short, one-lesson game — restarting it plays the same opening again. Or open this save as an " +
           "ordinary game, with the guide off.";
     const resumeLabel = decision.kind === "tutorial" ? "Resume tutorial" : "Restart Try it";
-    askToResumeTutorial(this, {
+    // Launched directly rather than through `askToResumeTutorial`, so the sheet's module stays out of the entry chunk
+    // (`scenes/scene-loader.ts` loads it on this launch).
+    if (this.scene.isActive(SCENES.tutorialResumeConfirm)) return;
+    this.scene.launch(SCENES.tutorialResumeConfirm, {
+      from: this.scene.key,
       title,
       body,
       resumeLabel,
       onResume: () => {
+        // Imported on the tap, so the lesson configs stay out of the chunk Title loads before its first frame (#226).
         void (
           decision.kind === "tutorial"
-            ? startTutorialGame({ startAtLesson: decision.lessonId })
+            ? import("../guide/start-tutorial.js").then((m) =>
+                m.startTutorialGame({ startAtLesson: decision.lessonId }),
+              )
             : decision.kind === "mechanic"
-              ? startMechanicTryItGame(decision.mechanic)
-              : startAspectTryItGame(decision.aspect)
+              ? import("../guide/start-mechanic-tryit.js").then((m) => m.startMechanicTryItGame(decision.mechanic))
+              : import("../guide/start-aspect-tryit.js").then((m) => m.startAspectTryItGame(decision.aspect))
         ).then(() => {
           if (!this.sys.isActive()) return;
           goToScreen(this, SCENES.board);
         });
       },
       onContinuePlain: () => void this.#resumePlain(save.id),
-    });
+    } satisfies TutorialResumeConfirmData);
   }
 
   async #resumePlain(gameId: string): Promise<void> {

@@ -1513,6 +1513,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         controllerId: frame.controllerId,
         bindings: frame.bindings,
         vars: frame.vars,
+        ...(effect.kind === "atEndOfAttack" ? { delayed: true as const } : {}),
       };
       updateFrame(ctx, activation, (f) => (f.kind === "event" ? { ...f, endEffects: [...f.endEffects, deferred] } : f));
       return;
