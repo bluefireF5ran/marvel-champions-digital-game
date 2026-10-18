@@ -521,7 +521,7 @@ function describe(
         text: `${card(event.targetInstanceId)} can't take more damage — ${event.amount} not taken.`,
         voice: "scenario",
       };
-    // Ruling 69.114 (Oct 10, 2025): a sustained-damage cap back in effect lowers the damage already on the card.
+    // Ruling Oct 10, 2025: a sustained-damage cap back in effect lowers the damage already on the card.
     case "damageAboveCapRemoved":
       return {
         text: `${card(event.instanceId)} can't have more than ${event.damage} damage — ${event.amount} removed.`,

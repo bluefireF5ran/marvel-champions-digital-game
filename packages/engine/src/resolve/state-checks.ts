@@ -142,7 +142,7 @@ export function checkStateTriggers(ctx: Ctx): boolean {
   if (checkSchemeTargetsFell(ctx)) return true;
   // …and an identity or villain left standing past zero has a dial that reads zero (RRG 1.8 p. 22).
   settleDials(ctx);
-  // …and a character with more sustained damage than a cap allows sheds the rest (ruling 69.114, Oct 10, 2025).
+  // …and a character with more sustained damage than a cap allows sheds the rest (ruling Oct 10, 2025).
   applySustainedDamageCaps(ctx);
   // …and the top card of a deck kept faceup is logged when the rule itself turns on or off with nothing moved (a form
   // change, a blank text box; docs/phase7-wave8.md §3.48). Card moves log theirs as they happen.
@@ -603,7 +603,7 @@ function settleDials(ctx: Ctx): void {
 /**
  * "Magneto cannot have more than 6[per_hero] sustained damage" (`RuleSpec maxSustainedDamage`) as a level, not only a
  * limit on damage taken: every pass between frames lowers each character in play above its lowest cap to that cap.
- * Ruling 69.114 (October 10, 2025), Boarding Party blanked by Vivian and Magneto dealt damage past the cap: "once
+ * Ruling October 10, 2025, Boarding Party blanked by Vivian and Magneto dealt damage past the cap: "once
  * Boarding Party's ability is back in effect, it will immediately affect the amount of sustained damage Magneto has,
  * possibly resulting in less damage on Magneto." RRG 1.8 "Sustained Damage" (p. 42) is the `damage` on the card. The
  * removal is a rules correction, not a heal (`damageAboveCapRemoved`). A character whose defeat is already under way

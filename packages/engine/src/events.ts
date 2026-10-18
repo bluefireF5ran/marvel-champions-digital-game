@@ -1161,7 +1161,7 @@ export type GameEvent =
   /**
    * A character in play had more sustained damage than a `maxSustainedDamage` cap now allows (the cap came back after a
    * blank, a [per_hero] amount fell, the card entered play over a damaged character): `amount` damage is removed,
-   * leaving `damage`, the cap. Ruling 69.114 (October 10, 2025): "once Boarding Party's ability is back in effect, it
+   * leaving `damage`, the cap. Ruling October 10, 2025: "once Boarding Party's ability is back in effect, it
    * will immediately affect the amount of sustained damage Magneto has, possibly resulting in less damage on Magneto."
    * Not a heal: no `damageHealed`, nothing a "when healed" ability answers, and "cannot be healed" does not stop it.
    */
