@@ -1,12 +1,13 @@
 /**
- * Audit fix `cannot-take-damage-target-validity`: a piercing attack keeps a target with a tough status card that
- * "cannot take damage", and removes its tough card. RRG 1.8 "Target" (p. 43): a target is valid "if any part of that
- * ability can affect that target"; "Piercing" (p. 32) discards tough cards before the attack deals damage. Ruling
- * July 11, 2025 (69.76): "Piercing Strike's alteration effect makes it so that an enemy with Tough can still be its
- * target, even if that same enemy 'cannot take damage,' resulting in the Tough status card being removed." The
- * ability half is pinned by `rules-audit-33.test.ts` › "audit 33.34"; this file pins a basic attack that gains piercing
- * and the controls without a tough card.
+ * Target validity of an attack against a Tough enemy that cannot take damage (`target-validity.ts`,
+ * `pierceForDamage`): a piercing attack keeps a target with a tough status card that "cannot take damage", and removes
+ * its tough card. RRG 1.8 "Target" (p. 43): a target is valid "if any part of that ability can affect that target";
+ * "Piercing" (p. 32) discards tough cards before the attack deals damage. Ruling July 11, 2025 (69.76): "A target that
+ * 'cannot take damage' is only an invalid target for an ability that solely deals damage to it; Piercing Strike's
+ * alteration effect makes it so that an enemy with Tough can still be its target, even if that same enemy 'cannot take
+ * damage,' resulting in the Tough status card being removed."
  */
+
 import { flat } from "@mc/content";
 import { describe, expect, it } from "vitest";
 import type { Command } from "../commands.js";
@@ -111,6 +112,27 @@ const basicAttack = (attacker: InstanceId, target: InstanceId): Command => ({
 });
 
 describe("a piercing attack on a Tough enemy that cannot take damage (RRG 1.8 pp. 32, 43; ruling Jul 11, 2025)", () => {
+  it("Piercing Strike: the Tough status card is discarded although the villain cannot take the damage (Ruling 69.76)", () => {
+    // RRG 1.8 p. 43 "Target" matches the first half of the ruling; p. 32 "Piercing" says the attack discards the tough
+    // cards before it deals damage and is silent about a target that cannot take it. The engine (`pierceForDamage`)
+    // skips piercing when the damage cannot be taken, so the tough card stays.
+    const at = table(1, []);
+    const given = giveCard(at.state, p1, STRIKE.id);
+    const result = applyCommand(
+      given.state,
+      { type: "playCard", playerId: p1, cardInstanceId: given.id, payment: [], attachToInstanceId: null },
+      deps,
+    );
+    // Expected: the event is playable (the enemy with Tough is a valid target through piercing) and, after it resolves,
+    // the villain's Tough card is gone. Actual: see the assertions.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const offered = result.state.pendingChoice?.options.map((o) => o.optionId) ?? [];
+    expect(offered).toContain(at.villain); // actual: only the minion is offered
+    const after = settle(result.state, () => [at.villain], deps);
+    expect(mustInstance(after, at.villain).statuses.tough).toBe(0);
+  });
+
   it("a basic attack that gains piercing may target it, and its tough card is discarded", () => {
     const at = table(1, [CLAWS.id]);
     const result = applyCommand(at.state, basicAttack(at.hero, at.villain), deps);

@@ -1,19 +1,9 @@
-/**
- * Rules audit chunk 35 (older FFG rulings, post-RRG 1.6), proofs that need real cards. Each `it.fails` marks a place the
- * engine does something an official source forbids, and flips to a failure when it is fixed.
- *
- * FFG ruling Nov 21, 2025 (Ruling 69.131, Alex): "If you use Beat Cop's first ability to move threat from Show of
- * Empathy, then Show of Empathy's Forced Interrupt will trigger and change the destination of the threat token, and
- * you'd place the token on a non-Elite minion instead." RRG 1.8 "Move" (p. 30) makes a move a removal from one placement
- * and a placement on the other; Show of Empathy replaces where the removed threat goes ("instead"), so the moved token
- * must not also land on Beat Cop.
- */
 import type { GameState, InstanceId } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
-import { P1, inst, moveToHand, payWith, play, use } from "../testing/harness.js";
-import { withDamage } from "../testing/staging.js";
-import { DEPS, engaged, scripted } from "../wave9/bp/aspect-basic.testing.js";
-import { bpHeroGame } from "../wave9/bp/testing.js";
+import { P1, inst, moveToHand, payWith, play, use } from "../../testing/harness.js";
+import { withDamage } from "../../testing/staging.js";
+import { DEPS, engaged, scripted } from "../../wave9/bp/aspect-basic.testing.js";
+import { bpHeroGame } from "../../wave9/bp/testing.js";
 
 vi.setConfig({ testTimeout: 120_000 });
 
@@ -21,6 +11,11 @@ const EMPATHY = "51017";
 const SHOCKER = "01103"; // minion: 3 hit points, not Elite
 const BEAT_COP = "10029";
 
+// FFG ruling Nov 21, 2025 (Ruling 69.131, Alex): "If you use Beat Cop's first ability to move threat from Show of
+// Empathy, then Show of Empathy's Forced Interrupt will trigger and change the destination of the threat token, and
+// you'd place the token on a non-Elite minion instead." RRG 1.8 "Move" (p. 30) makes a move a removal from one
+// placement and a placement on the other; Show of Empathy replaces where the removed threat goes ("instead"), so the
+// moved token must not also land on Beat Cop.
 describe("Beat Cop moving threat off Show of Empathy (FFG ruling Nov 21, 2025, 69.131)", () => {
   it.fails("the moved threat goes to a non-Elite minion instead; none lands on Beat Cop", () => {
     const hero = bpHeroGame();
