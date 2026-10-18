@@ -45,7 +45,7 @@ export function changeFormTarget(
   if (effect.to === "alterEgo") return unchanged("alterEgo", 0);
   if (form === "alterEgo") return faces.length > 1 ? "choose" : unchanged("hero", 0);
   // In hero form, "change to hero form" goes to another hero face when the identity has one, and changes nothing
-  // otherwise: a Tiny Ant-Man told to change to hero form must change to Giant (FFG ruling June 17, 2025, #69.63);
+  // otherwise: a Tiny Ant-Man told to change to hero form must change to Giant (FFG ruling June 17, 2025);
   // offered the change by Bodyslide, he may (FFG ruling June 8, 2023, #22). RRG 1.8 "Form, Change Form" (p. 21) is
   // silent on two hero faces.
   if (effect.to === "hero") {

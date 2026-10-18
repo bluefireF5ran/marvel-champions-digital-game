@@ -815,7 +815,7 @@ export type GameStep =
   | { readonly phase: "player"; readonly kind: "endPhaseDiscard"; readonly remainingPlayerIds: readonly PlayerId[] }
   /**
    * `remainingPlayerIds` / `drawn`: a refill stopped early to let a drawn card's ability resolve (RRG 1.8 "Hand Size",
-   * p. 21; ruling Aug 14, 2025, 69.94): the players still to draw, the first being the one whose refill resumes, and
+   * p. 21; ruling Aug 14, 2025): the players still to draw, the first being the one whose refill resumes, and
    * how many cards that player has drawn so far. Absent when the step has not started.
    */
   | {

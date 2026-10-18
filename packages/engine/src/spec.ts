@@ -2850,7 +2850,7 @@ export type EffectSpec =
    * - absent with `to` absent too ("change form"), from a hero face of an identity with more than one: that player
    *   chooses among every face other than the one showing, the alter-ego face first (option id `alterEgo`, then each
    *   hero face's index).
-   * - `to: "hero"` from a hero face: the other hero face of a two-faced identity (FFG ruling June 17, 2025, #69.63:
+   * - `to: "hero"` from a hero face: the other hero face of a two-faced identity (FFG ruling June 17, 2025:
    *   Ready for a Fight takes a Tiny Ant-Man to Giant); unaffected with only one hero face.
    * A player already in the named form is unaffected, so no `formChanged` is announced.
    */

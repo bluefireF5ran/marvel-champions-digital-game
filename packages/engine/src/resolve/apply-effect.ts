@@ -3537,7 +3537,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // Every printed "draw up to" reads "up to your hand size" (Split Personality, Grand Strategy, MC16's setup), so
       // it refills: a drawn obligation does not count toward it (`drawUpTo`).
       // A refill that stops early so a drawn card's ability can resolve (RRG 1.8 "Hand Size", p. 21; ruling Aug 14,
-      // 2025, 69.94) puts the frame back on this effect, with the players already done recorded, and the flow runs it
+      // 2025) puts the frame back on this effect, with the players already done recorded, and the flow runs it
       // again once what the draw put on the stack has resolved.
       {
         const players = resolvePlayers(ctx.state, effect.player, context);

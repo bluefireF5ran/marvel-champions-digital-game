@@ -1263,7 +1263,7 @@ export function drawUpTo(ctx: Ctx, playerId: PlayerId, target: () => number): bo
     const entered = ctx.state.pendingEnteredHand?.length ?? 0;
     if (drawOne(ctx, playerId) === null) break;
     // One card at a time: an ability the card's arrival triggers resolves before the next card is drawn (RRG 1.8 "Hand
-    // Size", p. 21; ruling Aug 14, 2025, 69.94). The caller runs this again once it has resolved.
+    // Size", p. 21; ruling Aug 14, 2025). The caller runs this again once it has resolved.
     if (ctx.state.stack.length > depth || enteredHandIsHeard(ctx, entered)) {
       holdRefillEncounterCards(ctx, recorded);
       return false;
