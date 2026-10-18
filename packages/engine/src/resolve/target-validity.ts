@@ -67,9 +67,13 @@
  * A replacement of a status card (`giveStatus` with `replacing`) is one effect, judged as a whole: it can affect a
  * character holding the card to replace that has room for the new one (`replacesStatusOn`). So "Replace that status
  * card with a different status card" cannot take the tough card off a Stalwart enemy, which can be neither stunned nor
- * confused (ruling Jun 20, 2024, Ruling 215: "a Stalwart enemy with Tough is not a valid target for Vapors of
- * Valtorr's ability"). A plain give or discard of a status card is not judged. An attack that also stuns its target keeps a target that cannot take its
- * damage, and so does a piercing attack on a target with a tough card (`attackPiercesTough`; ruling Jul 11, 2025).
+ * confused (ruling Jun 20, 2024, post-RRG 1.5 #215: "a Stalwart enemy with Tough is not a valid target for Vapors of
+ * Valtorr's ability"). Conflict flagged, not settled: RRG 1.8 "Target" (p. 43) makes a target valid if any part of the
+ * ability, or any one of several effects, can affect it, and reading the replacement as a discard plus a give would
+ * keep the Stalwart enemy valid (the discard works). The ruling only comes out this way if "replace" is one effect,
+ * which v1.8 does not address; the engine follows the ruling. A plain give or discard of a status card is not judged.
+ * An attack that also stuns its target keeps a target that cannot take its damage, and so does a piercing attack on a
+ * target with a tough card (`attackPiercesTough`; ruling Jul 11, 2025).
  */
 
 import type { AbilityDefinition, EngineDeps } from "../abilities.js";
@@ -207,7 +211,7 @@ const isReplaceStatus = (effect: EffectSpec): effect is ReplaceStatus =>
 /**
  * Whether a `replacing` status card on `id` can be replaced with a `status` card: `id` holds one and has room for the
  * other (`canTakeStatus`; RRG 1.8 "Status Cards", p. 41, "Stalwart", p. 40). The one check the replacement makes as it
- * resolves and target validity makes before (ruling Jun 20, 2024, Ruling 215).
+ * resolves and target validity makes before (ruling Jun 20, 2024, post-RRG 1.5 #215).
  */
 export const replacesStatusOn = (
   state: GameState,

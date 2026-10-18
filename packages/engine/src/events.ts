@@ -2093,7 +2093,7 @@ export type GameEventType = GameEvent["type"];
  * `preventedDamage`: a tough card used up by damage; `cannotHave`: stalwart, or a `cannotHaveStatus` rule, began to
  * apply (docs/phase7-wave3.md §3.7); `cost`: paid as an `AbilityCost.discardStatus` (docs/phase7-wave6.md §3.6);
  * `replaced`: replaced by another status card (`EffectSpec giveStatus.replacing`), which is not a discard, so it is only
- * logged, never announced as `statusDiscarded` (contributor's rules call (bluefireF5ran) 2026-10-16).
+ * logged, never announced as `statusDiscarded` (contributor's rules call 2026-10-16 (bluefireF5ran)).
  */
 export type StatusDiscardCause =
   | "cost"

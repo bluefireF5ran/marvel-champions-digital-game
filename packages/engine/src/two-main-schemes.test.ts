@@ -265,8 +265,7 @@ describe("§3.2 two main schemes, each belonging to a villain", () => {
 
   // MC21 p. 10 "Two Main Schemes": "Each main scheme gains threat during step 1 of the villain phase"; p. 10 "Two
   // Villains": "When either of the two villains schemes, place the threat on their matching main scheme card only";
-  // p. 11 "The Active Villain": the active villain "is the only villain who activates during step 2". Confirmed by the
-  // contributor (bluefireF5ran) (2026-10-16).
+  // p. 11 "The Active Villain": the active villain "is the only villain who activates during step 2".
   it("over two rounds both schemes get step one's threat every round, and only the active villain schemes, on its own scheme", () => {
     const start0 = start();
     expect(activeName(start0)).toBe("Corvus Glaive");

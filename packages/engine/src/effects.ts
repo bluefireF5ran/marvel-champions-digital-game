@@ -277,9 +277,9 @@ export interface StatusGiver {
   readonly playerId: PlayerId | null;
   /**
    * The card replaces another status card (`EffectSpec giveStatus.replacing`): it lands like any other, but a
-   * replacement is not a placement, so it is not announced as `statusPlaced` (ruling May 10, 2024, Ruling 181: Vapors
-   * of Valtorr replacing a status card on Mister Sinister does not trigger his "After a status card is placed" Forced
-   * Response).
+   * replacement is not a placement, so it is not announced as `statusPlaced` (ruling May 10, 2024, post-RRG 1.5 #181:
+   * Vapors of Valtorr replacing a status card on Mister Sinister does not trigger his "After a status card is placed"
+   * Forced Response; other "status placed" triggers follow it by analogy, an engine interpretation).
    */
   readonly replacing?: true;
 }
@@ -308,7 +308,7 @@ function listensForStatusPlaced(deps: EngineDeps): boolean {
  * The only place a status card is put on a card, so the only place one is recorded for its `statusPlaced` announcement
  * (docs/phase7-wave7.md §3.27; `GameState.pendingStatusPlaced`, announced between frames by `announceStatusPlaced`):
  * one per card that lands, none for a give that placed nothing, and none for a card that replaces another
- * (`StatusGiver.replacing`; ruling May 10, 2024, Ruling 181).
+ * (`StatusGiver.replacing`; ruling May 10, 2024, post-RRG 1.5 #181).
  */
 export function giveStatus(
   ctx: Ctx,

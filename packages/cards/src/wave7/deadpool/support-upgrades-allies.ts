@@ -61,7 +61,8 @@ const A_WEAPON_UPGRADE = { categories: ["upgrade"], aspects: fromAnyAspect, trai
 
 /**
  * "1 more for each acceleration token on the main scheme, to a maximum of 3" (Montage, Cable). With several main
- * schemes, the player chooses the one to count on (RRG 1.8 p. 63, Venom Goblin FAQ; Ruling 132, Dec 22, 2023).
+ * schemes, the player chooses the one to count on (RRG 1.8 p. 63, Venom Goblin FAQ; Ruling 132, Dec 22, 2023, which
+ * names Cable; Montage follows it by analogy, an engine interpretation). The engine counts the scheme with the most.
  */
 const TOKENS_TO_3 = onChosenMainScheme(min(accelerationTokensOn(theMainScheme), 3), "most");
 

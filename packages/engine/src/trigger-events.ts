@@ -234,7 +234,7 @@ export type TriggerEventBody =
       /**
        * This removal is the first half of a move (`EffectSpec moveThreat`; RRG 1.8 "Move", p. 30): the frame of the
        * move's `placeThreat`, still on the stack below it. An interrupt that places "that threat" elsewhere
-       * (`EffectSpec placeThreat.ofRemovedThreat`) takes its tokens out of that placement (ruling Nov 21, 2025, 69.131).
+       * (`EffectSpec placeThreat.ofRemovedThreat`) takes its tokens out of that placement (ruling Nov 21, 2025).
        */
       readonly movePlacementFrameId?: FrameId;
     }
@@ -953,7 +953,7 @@ export type TriggerEventBody =
       readonly status: StatusName;
       readonly sourceInstanceId: InstanceId | null;
       readonly playerId: PlayerId | null;
-      /** The card replaces another (`StatusGiver.replacing`): landed, it is not announced as `statusPlaced` (Ruling 181). */
+      /** The card replaces another (`StatusGiver.replacing`): landed, it is not announced as `statusPlaced` (post-RRG 1.5 #181). */
       readonly replacing?: true;
       readonly countOn?: { readonly frameId: FrameId; readonly name: string };
     }

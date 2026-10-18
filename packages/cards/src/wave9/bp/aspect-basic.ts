@@ -213,7 +213,7 @@ export const BP_ASPECT_BASIC: AbilityRegistry = defineAbilities({
     // With no non-Elite minion in play nothing was chosen: the threat is only removed, and nothing is checked.
     ifThen(exists(query("minion", { inSlot: "minion" })), [
       // The threat actually removed: a thwart for more than the scheme holds removes only what is there. Moved off
-      // (Beat Cop), it goes to the minion instead of the move's destination (ruling Nov 21, 2025, 69.131).
+      // (Beat Cop), it goes to the minion instead of the move's destination (ruling Nov 21, 2025).
       placeThreat(min(eventAmount, threatOn(self)), chosen("minion"), { ofRemovedThreat: true }),
       ifThen(valueAtLeast(threatOn(chosen("minion")), remainingHpOf(chosen("minion"))), [
         selectCards("redemption", encounterSetAside(query("upgrade", { name: "Redemption" }), { random: 1 })),

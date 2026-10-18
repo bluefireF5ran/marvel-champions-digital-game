@@ -131,7 +131,7 @@ describe("RRG 1.8 p. 63 / Ruling 132 (Dec 22, 2023): a player card's constant ch
   });
 });
 
-describe("Determination (22016): 'remove 1 threat from the main scheme' asks which one (RRG 1.8 p. 63; Ruling 132; MC21 p. 10)", () => {
+describe("Determination (22016): 'remove 1 threat from the main scheme' asks which one (MC27 Venom Goblin FAQ; MC21 p. 10 for Tower Defense)", () => {
   /** Spends Determination to pay for Heroic Intuition, answering the main scheme prompt with `scheme`. */
   function spendDetermination(
     start: GameState,

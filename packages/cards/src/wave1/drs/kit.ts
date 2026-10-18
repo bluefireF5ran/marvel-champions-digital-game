@@ -90,7 +90,7 @@ const milled = (bind: string, type: "physical" | "energy" | "mental") =>
  * resolves without asking), and a nested choice offers the other two as the replacement — the printed text names no
  * specific replacement, so RRG "Choose" defaults to the ability's controller deciding. Each replacement is one
  * `replaceStatus` effect, so a character whose status card cannot be replaced (a Stalwart enemy's tough card) is no
- * valid target (ruling Jun 20, 2024, Ruling 215).
+ * valid target (ruling Jun 20, 2024, post-RRG 1.5 #215).
  */
 export const DRS_KIT = defineAbilities({
   // Spell Mastery — Action: Exhaust Doctor Strange and pay the cost of the top card of the Invocation deck →

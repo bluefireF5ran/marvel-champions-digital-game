@@ -342,7 +342,8 @@ export const removeStatus = (
 /**
  * "Replace that [`from`] status card with a [`to`] status card" (Vapors of Valtorr, `drs` 09035): one effect, so a
  * target is replaced only if it holds a `from` card and has room for a `to` card, and is a valid target only then
- * (`EffectSpec giveStatus.replacing`; ruling Jun 20, 2024, Ruling 215: a Stalwart enemy's tough card cannot be replaced).
+ * (`EffectSpec giveStatus.replacing`; ruling Jun 20, 2024, post-RRG 1.5 #215: a Stalwart enemy's tough card cannot be
+ * replaced).
  */
 export const replaceStatus = (target: TargetRef, from: StatusName, to: StatusName): EffectSpec => ({
   kind: "giveStatus",

@@ -2760,7 +2760,7 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
  * targeted by such an effect (for example, 'discard the lowest-cost support you control'), that effect instead targets
  * the non-permanent card that fits its criteria." Its own set's ability can (`ofPermanentCardsSet`, the exception
  * `effects.ts` `permanentStopsLeaving` makes). A measure reading the candidate's own stat skips a candidate without
- * that stat (`hasStat`; ruling April 17, 2025, 69.42: an alter-ego is not "the character with the highest ATK").
+ * that stat (`hasStat`; ruling April 17, 2025: an alter-ego is not "the character with the highest ATK").
  */
 function rankedForSuperlative(
   state: GameState,

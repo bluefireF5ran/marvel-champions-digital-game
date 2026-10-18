@@ -805,7 +805,7 @@ export type TargetRef =
    *
    * A `measure` that reads a stat of the candidate itself (`stat` of the `slot`) ranks only candidates that have that
    * stat at all (`hasStat`): an alter-ego has no ATK, so it is not "the character with the highest ATK" (ruling
-   * April 17, 2025, 69.42).
+   * April 17, 2025).
    */
   | {
       readonly kind: "superlative";
@@ -1907,7 +1907,7 @@ export type EffectSpec =
        * "When threat is removed from this scheme, place that threat on …" (Show of Empathy, `bp` 51017): the tokens
        * placed are the ones the triggering `removeThreat` takes. When that removal is the first half of a move
        * (`TriggerEvent removeThreat.movePlacementFrameId`), the move's placement loses that many tokens: the interrupt
-       * changes the destination of the moved threat rather than adding to it (FFG ruling Nov 21, 2025, 69.131, on RRG
+       * changes the destination of the moved threat rather than adding to it (FFG ruling Nov 21, 2025, on RRG
        * 1.8 "Move", p. 30). Without a move it is a plain placement.
        */
       readonly ofRemovedThreat?: true;
@@ -3912,8 +3912,8 @@ export type EffectSpec =
        * Only a target that holds a `replacing` card and has room for a `status` card is replaced (one `replacing` card
        * discarded, then the `status` card given); any other target is left as it was. So target validity (RRG 1.8
        * "Target", p. 43) reads the replacement as a whole: a Stalwart enemy with Tough "is not a valid target for
-       * Vapors of Valtorr's ability, as a Stalwart enemy cannot be stunned or confused" (ruling Jun 20, 2024, 215).
-       * Differs from `status`.
+       * Vapors of Valtorr's ability, as a Stalwart enemy cannot be stunned or confused" (ruling Jun 20, 2024, post-RRG
+       * 1.5 #215). Differs from `status`.
        */
       readonly replacing?: StatusName;
     }

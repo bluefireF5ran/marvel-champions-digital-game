@@ -912,9 +912,10 @@ const STATS_OF_KIND: Readonly<Record<Exclude<CharacterKind, "identity">, readonl
 
 /**
  * Whether a character has a value for `stat` at all, as opposed to one the card simply does not print: an alter-ego has
- * no ATK, THW or DEF, a hero no REC, an ally no SCH. Ruling April 17, 2025 (69.42): "Since Alter-Egos do not have an
+ * no ATK, THW or DEF, a hero no REC, an ally no SCH. Ruling April 17, 2025: "Since Alter-Egos do not have an
  * ATK value, they are not valid targets for Restrained" ("the friendly character with the highest ATK"). A dash is
- * still a value, "an unmodifiable 0" (RRG 1.8 "Dash (Value)", p. 15), so a dashed stat counts as had.
+ * still a value, "an unmodifiable 0" (RRG 1.8 "Dash (Value)", p. 15), so a dashed stat counts as had. The ruling covers
+ * ATK and Restrained; the other stats and superlative hosts follow it by analogy, an engine interpretation.
  */
 export function hasStat(state: GameState, id: InstanceId, stat: "atk" | "thw" | "def" | "rec" | "sch"): boolean {
   const printed = printedProfile(state, id);

@@ -969,8 +969,10 @@ export const max = (...values: readonly [Amount, Amount, ...Amount[]]): ValueSpe
 });
 /**
  * `value` read with `theMainScheme` as the main scheme its player would choose, keeping the reading `prefer` names
- * (`most` / `least`) when several main schemes share the play area (RRG 1.8 p. 63, Venom Goblin FAQ; Ruling 132, Dec
- * 22, 2023): "1 more for each acceleration token on the main scheme" (Cable 44002) is `"most"`.
+ * (`most` / `least`) when several main schemes share the play area (RRG 1.8 p. 63, Venom Goblin FAQ; post-RRG 1.5 #132,
+ * Dec 22, 2023): "1 more for each acceleration token on the main scheme" (Cable 44002) is `"most"`. Engine
+ * interpretation: the FAQ and the ruling let the player choose at each use; the engine makes the choice best for the
+ * player instead of asking.
  */
 export const onChosenMainScheme = (value: Amount, prefer: "most" | "least"): ValueSpec => ({
   kind: "chosenMainSchemeValue",
@@ -978,8 +980,9 @@ export const onChosenMainScheme = (value: Amount, prefer: "most" | "least"): Val
   prefer,
 });
 /**
- * `condition` with `theMainScheme` as the main scheme its player would choose: true when it holds for any of them
- * (RRG 1.8 p. 63; Ruling 132, Dec 22, 2023). "While there is no threat on the main scheme" (Venom 22013).
+ * `condition` with `theMainScheme` as the main scheme its player would choose: true when it holds for any of them (RRG
+ * 1.8 p. 63; post-RRG 1.5 #132, Dec 22, 2023; the best choice for the player, an engine interpretation). "While there
+ * is no threat on the main scheme" (Venom 22013).
  */
 export const whileOnChosenMainScheme = (condition: Predicate): Predicate => ({
   kind: "onChosenMainScheme",
