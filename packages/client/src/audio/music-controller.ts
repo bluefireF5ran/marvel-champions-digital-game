@@ -30,8 +30,9 @@ import {
   villainTracksFor,
 } from "./music-catalog.js";
 import { extras } from "../progression/progression.js";
-import { earnedSongsOf, nextShuffled } from "../view/music-player.js";
+import { earnedSongsOf, musicGainOf, nextShuffled } from "../view/music-player.js";
 import { SOUND_EFFECT_VOLUME, type SoundEffect } from "../view/sound-effects.js";
+import { onMixerChange, startMixerWatch, stopMixerWatch } from "../platform/app-volume.js";
 import extrasUnlockedUrl from "./sfx/extras-unlocked.mp3?url";
 import handRefillUrl from "./sfx/hand-refill.mp3?url";
 import basicAttackUrl from "./sfx/basic-attack.mp3?url";
@@ -94,6 +95,14 @@ export interface MusicController {
   next(): void;
   /** The song playing now (or loading to play next), or null in silence. */
   nowPlaying(): Track | null;
+  /** Whether the player paused the music (#243): it stays paused, across songs and screens, until resumed. */
+  paused(): boolean;
+  /** Pauses the music where it is; a song that starts while paused waits, paused, at its start. */
+  pause(): void;
+  /** Picks the music up where it was paused. */
+  resume(): void;
+  /** Calls `listener` when the music pauses or resumes on its own (the master volume muted or unmuted). */
+  onPauseChange(listener: () => void): () => void;
   /** How far into the playing song, in seconds, for the expanded player's progress bar; null in silence. */
   progress(): { readonly seek: number; readonly duration: number } | null;
   /** Calls `listener` each time a song starts; returns the way to stop. */
@@ -115,11 +124,15 @@ export class MusicScene extends Phaser.Scene implements MusicController {
   #mode: "title" | "battle" | "outcome" | "interlude" | "finale" | "jukebox" | "shuffle" | "stopped" = "stopped";
   #targetVolume = DEFAULT_MUSIC_VOLUME;
   #shuffleOn = false;
+  #paused = false;
+  /** Paused because the computer's master volume was muted, so unmuting picks the music up again (#243). */
+  #pausedForMute = false;
   /** The shuffle's songs still to come this round. */
   #queue: Track[] = [];
   /** The current screen's own music request, made again when shuffle is turned off. */
   #ambient: (() => void) | null = null;
   readonly #listeners = new Set<(track: Track) => void>();
+  readonly #pauseListeners = new Set<() => void>();
   /** Sound effects handed to the loader already, so a second play while one loads does not queue it twice. */
   readonly #effectsQueued = new Set<SoundEffect>();
 
@@ -131,6 +144,13 @@ export class MusicScene extends Phaser.Scene implements MusicController {
     // Nothing here is drawn, and saying so matters: `McTextInput` hides its DOM field under any *visible* scene
     // running above its own, and this one runs above every screen for the whole session (`ui/widgets.ts`).
     this.sys.setVisible(false);
+    // Phaser pauses every sound while the page is out of focus; the music keeps playing behind another window, as a
+    // game's does, and the music player's Pause is the way to stop it (#243).
+    this.sound.pauseOnBlur = false;
+    // In the Windows app, muting the computer's master volume pauses the music, and unmuting resumes it unless the
+    // player paused it themselves in the meantime. The shell tells the page when it changes; nothing here polls.
+    const stopFollowing = onMixerChange(({ muted }) => this.#followMasterMute(muted));
+    this.events.once(Phaser.Scenes.Events.DESTROY, stopFollowing);
     appSession().music = this;
     this.#shuffleOn = appSession().settings.musicShuffle;
     this.syncSettings(appSession().settings);
@@ -254,10 +274,50 @@ export class MusicScene extends Phaser.Scene implements MusicController {
     return this.#targetTrack;
   }
 
+  paused(): boolean {
+    return this.#paused;
+  }
+
+  #followMasterMute(muted: boolean | null): void {
+    if (muted === null) return;
+    if (muted && !this.#paused) {
+      // Set first: a pause for the mute keeps the watcher, which is how the unmute is heard.
+      this.#pausedForMute = true;
+      this.pause();
+      for (const listener of this.#pauseListeners) listener();
+    } else if (!muted && this.#pausedForMute) {
+      this.#pausedForMute = false;
+      if (this.#paused) {
+        this.resume();
+        for (const listener of this.#pauseListeners) listener();
+      }
+    }
+  }
+
+  onPauseChange(listener: () => void): () => void {
+    this.#pauseListeners.add(listener);
+    return () => this.#pauseListeners.delete(listener);
+  }
+
+  pause(): void {
+    this.#paused = true;
+    if (this.#currentSound?.isPlaying) this.#currentSound.pause();
+    // The player paused it: nothing to watch until it plays again.
+    if (!this.#pausedForMute) stopMixerWatch();
+  }
+
+  resume(): void {
+    this.#paused = false;
+    // The player chose to play while muted: unmuting later has nothing to resume.
+    this.#pausedForMute = false;
+    if (this.#currentSound?.isPaused) this.#currentSound.resume();
+    startMixerWatch();
+  }
+
   progress(): { readonly seek: number; readonly duration: number } | null {
     // `seek` is on both of Phaser's real sound classes (Web Audio and HTML5), not on `BaseSound`.
     const sound = this.#currentSound as (Phaser.Sound.BaseSound & { readonly seek?: number }) | null;
-    if (!sound?.isPlaying) return null;
+    if (!sound?.isPlaying && !sound?.isPaused) return null;
     return { seek: sound.seek ?? 0, duration: sound.duration };
   }
 
@@ -270,7 +330,8 @@ export class MusicScene extends Phaser.Scene implements MusicController {
     if (!effect || !appSession().settings.sound) return;
     const key = `sfx:${effect}`;
     const play = (): void => {
-      const sound = this.sound.add(key, { volume: SOUND_EFFECT_VOLUME[effect] });
+      const level = musicGainOf(appSession().settings.effectsVolume, SOUND_EFFECT_VOLUME[effect]);
+      const sound = this.sound.add(key, { volume: level });
       sound.once(Phaser.Sound.Events.COMPLETE, () => sound.destroy());
       sound.play();
       // The next one comes in as this one ends, or sooner for a long one: the card, then its attack.
@@ -301,6 +362,16 @@ export class MusicScene extends Phaser.Scene implements MusicController {
 
   syncSettings(settings: Settings): void {
     this.sound.mute = !settings.sound;
+    const volume = musicGainOf(settings.musicVolume, DEFAULT_MUSIC_VOLUME);
+    if (volume !== this.#targetVolume) {
+      this.#targetVolume = volume;
+      // The slider is heard as it moves: a fade still running into the old level gives way to the new one.
+      const sound = this.#currentSound as (Phaser.Sound.BaseSound & { volume?: number }) | null;
+      if (sound && "volume" in sound) {
+        this.tweens.killTweensOf(sound);
+        sound.volume = volume;
+      }
+    }
     const was = this.#shuffleOn;
     this.#shuffleOn = settings.musicShuffle;
     if (was === this.#shuffleOn) return;
@@ -346,6 +417,7 @@ export class MusicScene extends Phaser.Scene implements MusicController {
 
   stop(fadeDurationMs = CROSSFADE_DURATION_MS): void {
     this.#mode = "stopped";
+    stopMixerWatch();
     this.#targetKey = null;
     this.#targetTrack = null;
     if (!this.#currentSound) return;
@@ -437,7 +509,10 @@ export class MusicScene extends Phaser.Scene implements MusicController {
       else newSound.play();
     });
     newSound.play();
+    if (this.#paused) newSound.pause();
     this.#currentSound = newSound;
+    // Playing: the shell watches the game's mixer volume and the master mute (and names the game in the mixer).
+    if (!this.#paused) startMixerWatch();
     for (const listener of this.#listeners) listener(track);
 
     if (duration > 0) {

@@ -31,6 +31,11 @@ import {
   guideRowDetailOf,
   nextGuidePrefsAfterRow,
   cardHoverRowInfoOf,
+  effectsVolumeRowInfoOf,
+  gameVolumeRowInfoOf,
+  musicVolumeRowInfoOf,
+  nextSettingsAfterEffectsVolume,
+  nextSettingsAfterMusicVolume,
   cardSizeRowInfoOf,
   displayModeRowInfoOf,
   nextSettingsAfterCardSize,
@@ -69,6 +74,13 @@ import {
   refreshDesktopMonitor,
   resolutionOptionsFor,
 } from "../platform/desktop-window.js";
+import {
+  followsWindowsMixer,
+  knownMixerVolume,
+  onMixerChange,
+  readMixerVolume,
+  writeMixerVolume,
+} from "../platform/app-volume.js";
 import { ink, signal, surface, typeRole } from "../tokens.js";
 import { caseOf, textStyle } from "../ui/theme.js";
 import { McButton, McTabs, addRowTapZone, fitText, label, paintOnFrame, sectionHeader } from "../ui/widgets.js";
@@ -146,6 +158,9 @@ interface SettingsItem {
 /** The tab Settings last showed, so reopening it in the same session lands where the player left off. */
 let lastTab: SettingsTabId = "gameplay";
 
+/** The narrowest tab cell that still shows "Display" and "Sound" whole (#243). */
+const SOUND_TAB_MIN_CELL = 64;
+
 export class SettingsOverlay extends Phaser.Scene {
   #buttons: McButton[] = [];
   #tabs: McTabs | null = null;
@@ -195,6 +210,20 @@ export class SettingsOverlay extends Phaser.Scene {
     });
     this.#draw();
     if (hasDesktopWindow()) void refreshDesktopMonitor().then(() => this.#redrawIfOpen());
+    // The game's volume in the Windows mixer may have moved there since: read it fresh for the Game volume row.
+    if (followsWindowsMixer()) {
+      // Read it now, then follow the shell's change events, so a change in the Windows mixer shows on the Game volume
+      // row while Settings is open. Nothing polls here.
+      let last = knownMixerVolume();
+      const show = (read: number | null): void => {
+        if (read === last) return;
+        last = read;
+        this.#redrawIfOpen();
+      };
+      void readMixerVolume().then(show);
+      const stop = onMixerChange(({ volume }) => show(volume));
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, stop);
+    }
   }
 
   #redrawIfOpen(): void {
@@ -294,6 +323,9 @@ export class SettingsOverlay extends Phaser.Scene {
     const tabs = settingsTabsOf({
       guideRowIds: guideRows.map((row) => row.id),
       cardHover: formFactorFor(width, height) === "desktop",
+      gameVolume: followsWindowsMixer(),
+      // Sound's own tab only where six fit with their names whole; a phone keeps five, Sound under Display.
+      soundTab: settingsLayout({ x: 0, y: 0, width, height }, []).tabs.width / 6 >= SOUND_TAB_MIN_CELL,
       desktopWindow: hasDesktopWindow(),
       steamDeck: onHandheldLinux(),
     });
@@ -406,6 +438,24 @@ export class SettingsOverlay extends Phaser.Scene {
       });
     };
     segmented("card-hover", cardHoverRowInfoOf(settings), CARD_HOVER_CONTROL_WIDTH, (v) => this.#setCardHover(v));
+    // The game's mixer volume shows once read (`create` reads it); 100 until then, the mixer's own default.
+    segmented("game-volume", gameVolumeRowInfoOf(knownMixerVolume() ?? 100), CARD_HOVER_CONTROL_WIDTH, (v) => {
+      writeMixerVolume(Number(v));
+      this.#draw();
+    });
+    const setVolume = (next: Settings): void => {
+      appSession().music?.syncSettings(next);
+      appSession().settings = next;
+      this.#draw();
+    };
+    segmented("music-volume", musicVolumeRowInfoOf(settings, followsWindowsMixer()), CARD_HOVER_CONTROL_WIDTH, (v) =>
+      setVolume(nextSettingsAfterMusicVolume(appSession().settings, v)),
+    );
+    segmented("effects-volume", effectsVolumeRowInfoOf(settings), CARD_HOVER_CONTROL_WIDTH, (v) => {
+      setVolume(nextSettingsAfterEffectsVolume(appSession().settings, v));
+      // A sample at the new level.
+      appSession().music?.playEffect("basic-attack");
+    });
     segmented("card-size", cardSizeRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setCardSize(v));
     segmented("token-motion", tokenMotionRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setTokenMotion(v));
     if (hasDesktopWindow()) {

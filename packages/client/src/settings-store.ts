@@ -16,6 +16,7 @@ import {
   SHARP_TEXT_RESOLUTION_CEILING,
   VILLAIN_AUTO_ADVANCE_VALUES,
   VILLAIN_BEAT_SPEED_VALUES,
+  clampMusicVolume,
   defaultSettings,
   resolutionPixelsOf,
   type Settings,
@@ -76,6 +77,12 @@ export function parseSettingsOverrides(raw: string | null): SettingsOverrides {
     (typeof drawResolution === "string" && resolutionPixelsOf(drawResolution) !== null)
   ) {
     out.resolution = drawResolution as Resolution;
+  }
+  const musicVolume = source["musicVolume"];
+  if (typeof musicVolume === "number" && Number.isFinite(musicVolume)) out.musicVolume = clampMusicVolume(musicVolume);
+  const effectsVolume = source["effectsVolume"];
+  if (typeof effectsVolume === "number" && Number.isFinite(effectsVolume)) {
+    out.effectsVolume = clampMusicVolume(effectsVolume);
   }
   const resolution = source["textResolution"];
   if (typeof resolution === "number" && Number.isFinite(resolution)) {
