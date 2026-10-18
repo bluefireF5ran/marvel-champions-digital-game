@@ -32,6 +32,32 @@ function device(reduced: boolean, ratio: number): () => Settings {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SettingsStore", () => {
+  test("power saving turns down only the settings the player never set, and puts them back after", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    vi.stubGlobal("devicePixelRatio", 2);
+    let powerSaving = false;
+    const storage = new MapStorage();
+    storage.setItem(SETTINGS_KEY, serializeSettingsOverrides({ textResolution: 2 }));
+    const store = new SettingsStore(storage, () => defaultSettings({ powerSaving }));
+    expect(store.current).toMatchObject({ reducedMotion: false, textResolution: 2 });
+    powerSaving = true;
+    // Reduced motion follows the mode; sharper text was the player's own choice, so it stays.
+    expect(store.refreshDefaults()).toMatchObject({ reducedMotion: true, textResolution: 2 });
+    expect(store.current.reducedMotion).toBe(true);
+    // Changing something else while saving does not pin reduced motion on.
+    store.set({ ...store.current, sound: false });
+    powerSaving = false;
+    expect(store.refreshDefaults()).toMatchObject({ reducedMotion: false, textResolution: 2, sound: false });
+    expect(JSON.parse(storage.getItem(SETTINGS_KEY)!)).toEqual({ version: 1, textResolution: 2, sound: false });
+  });
+
+  test("power saving's defaults: reduced motion on and text at 1x", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    vi.stubGlobal("devicePixelRatio", 3);
+    expect(defaultSettings({ powerSaving: true })).toMatchObject({ reducedMotion: true, textResolution: 1 });
+    expect(defaultSettings({ powerSaving: false })).toMatchObject({ reducedMotion: false, textResolution: 2 });
+  });
+
   test("a fresh store has the device defaults and writes nothing", () => {
     const storage = new MapStorage();
     const store = new SettingsStore(storage, device(false, 1));
@@ -45,6 +71,8 @@ describe("SettingsStore", () => {
     ["largeCardText", true],
     ["sound", false],
     ["musicShuffle", true],
+    ["musicVolume", 35],
+    ["effectsVolume", 60],
     ["confirmBeforeEndTurn", false],
     ["sameNameHeroAllyConflict", false],
     ["villainAutoAdvance", "afterPause"],
@@ -205,6 +233,16 @@ describe("parseSettingsOverrides", () => {
   test("text resolution is clamped to the sharp range", () => {
     expect(parseSettingsOverrides('{"textResolution":9}')).toEqual({ textResolution: 2 });
     expect(parseSettingsOverrides('{"textResolution":0}')).toEqual({ textResolution: 1 });
+  });
+
+  test("music volume is read as a whole percent from 0 to 100 (#243)", () => {
+    expect(parseSettingsOverrides('{"musicVolume":42.4}')).toEqual({ musicVolume: 42 });
+    expect(parseSettingsOverrides('{"musicVolume":250}')).toEqual({ musicVolume: 100 });
+    expect(parseSettingsOverrides('{"musicVolume":-3}')).toEqual({ musicVolume: 0 });
+    expect(parseSettingsOverrides('{"musicVolume":"loud"}')).toEqual({});
+    expect(defaultSettings().musicVolume).toBe(100);
+    expect(parseSettingsOverrides('{"effectsVolume":180}')).toEqual({ effectsVolume: 100 });
+    expect(defaultSettings().effectsVolume).toBe(100);
   });
 
   test("serialize then parse round trips", () => {

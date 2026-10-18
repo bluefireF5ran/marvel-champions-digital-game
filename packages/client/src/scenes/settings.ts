@@ -31,6 +31,11 @@ import {
   guideRowDetailOf,
   nextGuidePrefsAfterRow,
   cardHoverRowInfoOf,
+  effectsVolumeRowInfoOf,
+  gameVolumeRowInfoOf,
+  musicVolumeRowInfoOf,
+  nextSettingsAfterEffectsVolume,
+  nextSettingsAfterMusicVolume,
   cardSizeRowInfoOf,
   displayModeRowInfoOf,
   nextSettingsAfterCardSize,
@@ -69,6 +74,13 @@ import {
   refreshDesktopMonitor,
   resolutionOptionsFor,
 } from "../platform/desktop-window.js";
+import {
+  followsWindowsMixer,
+  knownMixerVolume,
+  onMixerChange,
+  readMixerVolume,
+  writeMixerVolume,
+} from "../platform/app-volume.js";
 import { ink, signal, surface, typeRole } from "../tokens.js";
 import { caseOf, textStyle } from "../ui/theme.js";
 import { McButton, McTabs, addRowTapZone, fitText, label, paintOnFrame, sectionHeader } from "../ui/widgets.js";
@@ -83,6 +95,9 @@ import { formFactorFor, type Rect } from "../view/layout.js";
 import { VariableListScroll } from "../view/variable-list-scroll.js";
 import { appSession } from "../session.js";
 import { guidePrefs, onGuidePrefsChange, setGuidePrefs } from "../guide/guide-store.js";
+import { canReadPowerSaving, onPowerSavingChange, powerSavingOn, powerSavingState } from "../platform/power-saving.js";
+import { powerSavingRowOf } from "../view/power-saving-notice.js";
+import { detectPlatform } from "../platform/platform.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { SCENES } from "./keys.js";
 import type { RulesSceneData } from "./rules.js";
@@ -146,6 +161,9 @@ interface SettingsItem {
 /** The tab Settings last showed, so reopening it in the same session lands where the player left off. */
 let lastTab: SettingsTabId = "gameplay";
 
+/** The narrowest tab cell that still shows "Display" and "Sound" whole (#243). */
+const SOUND_TAB_MIN_CELL = 64;
+
 export class SettingsOverlay extends Phaser.Scene {
   #buttons: McButton[] = [];
   #tabs: McTabs | null = null;
@@ -183,9 +201,12 @@ export class SettingsOverlay extends Phaser.Scene {
     // Another scene (Pause's own inline Guide group) can change the same live prefs while this overlay is open
     // behind it — redraw so this one never shows a stale level/toggle.
     const unsubscribeGuide = onGuidePrefsChange(() => this.#draw());
+    // Power saving mode turning on or off changes the Reduced motion and Sharper text rows.
+    const unsubscribePowerSaving = onPowerSavingChange(() => this.#redrawIfOpen());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", onResize, this);
       unsubscribeGuide();
+      unsubscribePowerSaving();
       for (const button of this.#buttons) button.destroy();
       this.#buttons = [];
       this.#tabs?.destroy();
@@ -195,6 +216,20 @@ export class SettingsOverlay extends Phaser.Scene {
     });
     this.#draw();
     if (hasDesktopWindow()) void refreshDesktopMonitor().then(() => this.#redrawIfOpen());
+    // The game's volume in the Windows mixer may have moved there since: read it fresh for the Game volume row.
+    if (followsWindowsMixer()) {
+      // Read it now, then follow the shell's change events, so a change in the Windows mixer shows on the Game volume
+      // row while Settings is open. Nothing polls here.
+      let last = knownMixerVolume();
+      const show = (read: number | null): void => {
+        if (read === last) return;
+        last = read;
+        this.#redrawIfOpen();
+      };
+      void readMixerVolume().then(show);
+      const stop = onMixerChange(({ volume }) => show(volume));
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, stop);
+    }
   }
 
   #redrawIfOpen(): void {
@@ -294,8 +329,13 @@ export class SettingsOverlay extends Phaser.Scene {
     const tabs = settingsTabsOf({
       guideRowIds: guideRows.map((row) => row.id),
       cardHover: formFactorFor(width, height) === "desktop",
+      gameVolume: followsWindowsMixer(),
+      // Sound's own tab only where six fit with their names whole; a phone keeps five, Sound under Display.
+      soundTab: settingsLayout({ x: 0, y: 0, width, height }, []).tabs.width / 6 >= SOUND_TAB_MIN_CELL,
       desktopWindow: hasDesktopWindow(),
       steamDeck: onHandheldLinux(),
+      powerSaving:
+        canReadPowerSaving(detectPlatform(), globalThis.navigator?.userAgent ?? "") || powerSavingState().detected,
     });
     const active = tabs.find((tab) => tab.id === lastTab) ?? tabs[0]!;
     const layout = settingsLayout(
@@ -381,7 +421,7 @@ export class SettingsOverlay extends Phaser.Scene {
    */
   #itemsOf(settings: Settings, guideRows: readonly GuideRowInfo[]): ReadonlyMap<SettingsItemId, SettingsItem> {
     const items = new Map<SettingsItemId, SettingsItem>();
-    for (const row of settingsRowInfoOf(settings)) {
+    for (const row of settingsRowInfoOf(settings, powerSavingOn())) {
       items.set(row.id, {
         spec: { kind: "toggle", id: row.id, detail: row.unavailable ?? row.detail },
         draw: (item, stops) => {
@@ -406,6 +446,24 @@ export class SettingsOverlay extends Phaser.Scene {
       });
     };
     segmented("card-hover", cardHoverRowInfoOf(settings), CARD_HOVER_CONTROL_WIDTH, (v) => this.#setCardHover(v));
+    // The game's mixer volume shows once read (`create` reads it); 100 until then, the mixer's own default.
+    segmented("game-volume", gameVolumeRowInfoOf(knownMixerVolume() ?? 100), CARD_HOVER_CONTROL_WIDTH, (v) => {
+      writeMixerVolume(Number(v));
+      this.#draw();
+    });
+    const setVolume = (next: Settings): void => {
+      appSession().music?.syncSettings(next);
+      appSession().settings = next;
+      this.#draw();
+    };
+    segmented("music-volume", musicVolumeRowInfoOf(settings, followsWindowsMixer()), CARD_HOVER_CONTROL_WIDTH, (v) =>
+      setVolume(nextSettingsAfterMusicVolume(appSession().settings, v)),
+    );
+    segmented("effects-volume", effectsVolumeRowInfoOf(settings), CARD_HOVER_CONTROL_WIDTH, (v) => {
+      setVolume(nextSettingsAfterEffectsVolume(appSession().settings, v));
+      // A sample at the new level.
+      appSession().music?.playEffect("basic-attack");
+    });
     segmented("card-size", cardSizeRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setCardSize(v));
     segmented("token-motion", tokenMotionRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setTokenMotion(v));
     if (hasDesktopWindow()) {
@@ -447,6 +505,7 @@ export class SettingsOverlay extends Phaser.Scene {
     for (const [id, row] of [
       ["villain-hold", villain.hold],
       ["villain-dock", villain.dock],
+      ["power-saving", powerSavingRowOf(settings, powerSavingState().detected)],
     ] as const) {
       items.set(id, {
         spec: { kind: "toggle", id, detail: row.detail },
@@ -637,6 +696,13 @@ export class SettingsOverlay extends Phaser.Scene {
         .setWordWrapWidth(cellWidth - 16);
       stops.set(`row:guide-level:${option.value}`, this.#bodyStop(cellRect, index, activate));
     });
+  }
+
+  /** "Lighter play in power saving": the session tells `platform/power-saving.ts`, and this redraws from its change. */
+  #togglePowerSaving(): void {
+    const settings = appSession().settings;
+    appSession().settings = { ...settings, powerSavingAdjust: !settings.powerSavingAdjust };
+    this.#draw();
   }
 
   #setVillain(id: VillainRowId, value?: VillainAutoAdvance | VillainBeatSpeed): void {
@@ -923,7 +989,7 @@ export class SettingsOverlay extends Phaser.Scene {
 
   #drawVillainToggle(
     rect: Rect,
-    id: "villain-hold" | "villain-dock",
+    id: "villain-hold" | "villain-dock" | "power-saving",
     row: { readonly title: string; readonly detail: string; readonly on: boolean },
     index: number,
     stops: Map<string, FocusStop>,
@@ -934,7 +1000,7 @@ export class SettingsOverlay extends Phaser.Scene {
       .setFontSize(10)
       .setWordWrapWidth(rect.width - 100);
     const toggleRect = controlRectOf(rect);
-    const activate = (): void => this.#setVillain(id);
+    const activate = (): void => (id === "power-saving" ? this.#togglePowerSaving() : this.#setVillain(id));
     addRowTapZone(this, rect, { onClick: activate, clip: this.#bodyClip, suppressClick: this.#bodySuppressClick });
     this.#buttons.push(
       new McButton(this, {

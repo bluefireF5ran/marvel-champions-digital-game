@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "0.24.0";
+export const ENGINE_VERSION = "0.26.0";
 
 export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId, TeamId } from "./ids.js";
 export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId, teamId } from "./ids.js";
@@ -140,6 +140,7 @@ export type { PlayCost, PlayCostContribution } from "./actions.js";
 export {
   PAID_FOR_SLOT,
   additionalPlayCostOf,
+  basicPowerCost,
   costAsDetermined,
   inPlayCostCandidates,
   minimumChosenX,

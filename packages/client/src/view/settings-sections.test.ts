@@ -14,6 +14,8 @@ describe("settingsSectionsOf", () => {
       ...guideRowIds,
       "card-size",
       "card-hover",
+      "music-volume",
+      "effects-volume",
       "token-motion",
       "villain-auto",
       "villain-hold",
@@ -58,11 +60,12 @@ describe("settingsSectionsOf", () => {
 });
 
 describe("settingsTabsOf", () => {
-  test("five tabs, left to right: Game, Cards, Display, Guide, More", () => {
+  test("six tabs, left to right: Game, Cards, Display, Sound, Guide, More", () => {
     expect(settingsTabsOf({ guideRowIds, cardHover: true }).map((tab) => tab.label)).toEqual([
       "Game",
       "Cards",
       "Display",
+      "Sound",
       "Guide",
       "More",
     ]);
@@ -74,10 +77,11 @@ describe("settingsTabsOf", () => {
     expect(onTabs).toEqual(sections);
   });
 
-  test("Villain phase sits on the Gameplay tab, and Sound on Display with the animation settings", () => {
+  test("Villain phase sits on the Gameplay tab, and Sound has a tab of its own (#243)", () => {
     const tabs = settingsTabsOf({ guideRowIds, cardHover: true });
     expect(tabs.find((t) => t.id === "gameplay")!.sections.map((s) => s.id)).toEqual(["gameplay", "villain"]);
-    expect(tabs.find((t) => t.id === "display")!.sections.map((s) => s.id)).toEqual(["motion", "sound"]);
+    expect(tabs.find((t) => t.id === "display")!.sections.map((s) => s.id)).toEqual(["motion"]);
+    expect(tabs.find((t) => t.id === "sound")!.sections.map((s) => s.id)).toEqual(["sound"]);
   });
 });
 
@@ -86,7 +90,7 @@ describe("the desktop app's Window section", () => {
     const display = settingsTabsOf({ guideRowIds, cardHover: true, desktopWindow: true }).find(
       (t) => t.id === "display",
     )!;
-    expect(display.sections.map((s) => s.id)).toEqual(["window", "motion", "sound"]);
+    expect(display.sections.map((s) => s.id)).toEqual(["window", "motion"]);
     expect(display.sections[0]!.items).toEqual(["display-mode", "resolution"]);
   });
 
@@ -97,8 +101,36 @@ describe("the desktop app's Window section", () => {
     expect(window.items).toEqual(["display-mode", "resolution", "steam-deck"]);
   });
 
+  test("the Android app leads Animation and display with Lighter play in power saving; elsewhere it is left out", () => {
+    const motion = (powerSaving: boolean) =>
+      settingsSectionsOf({ guideRowIds, cardHover: false, powerSaving }).find((s) => s.id === "motion")!.items;
+    expect(motion(true)).toEqual(["power-saving", "reduced-motion", "token-motion", "sharper-text"]);
+    expect(motion(false)).toEqual(["reduced-motion", "token-motion", "sharper-text"]);
+  });
+
   test("the web and the phone apps don't show it", () => {
     const sections = settingsSectionsOf({ guideRowIds, cardHover: true, desktopWindow: false });
     expect(sections.map((s) => s.id)).not.toContain("window");
+  });
+});
+
+describe("the volumes (#243)", () => {
+  const sound = (gameVolume = false) =>
+    settingsSectionsOf({ guideRowIds, cardHover: false, gameVolume }).find((s) => s.id === "sound")!.items;
+
+  test("Music and Effects sit in Sound between Sound and Shuffle on every platform", () => {
+    expect(sound()).toEqual(["sound", "music-volume", "effects-volume", "music-shuffle"]);
+  });
+
+  test("the Windows desktop app also has the game's mixer volume, first", () => {
+    expect(sound(true)).toEqual(["sound", "game-volume", "music-volume", "effects-volume", "music-shuffle"]);
+  });
+});
+
+describe("the Sound tab on a narrow rail (#243)", () => {
+  test("a phone keeps five tabs, with Sound headed under Display", () => {
+    const tabs = settingsTabsOf({ guideRowIds, cardHover: false, soundTab: false });
+    expect(tabs.map((tab) => tab.label)).toEqual(["Game", "Cards", "Display", "Guide", "More"]);
+    expect(tabs.find((t) => t.id === "display")!.sections.map((s) => s.id)).toEqual(["motion", "sound"]);
   });
 });

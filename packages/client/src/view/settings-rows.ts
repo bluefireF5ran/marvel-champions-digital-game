@@ -21,6 +21,7 @@ import {
   DISPLAY_MODE_VALUES,
   FIRST_PLAYER_TOKEN_MOTION_VALUES,
   SHARP_TEXT_RESOLUTION_CEILING,
+  clampMusicVolume,
   resolutionPixelsOf,
   type CardHoverScale,
   type CardSize,
@@ -32,6 +33,7 @@ import {
   type Resolution,
 } from "../settings.js";
 import { FIRST_PLAYER_TOKEN_MOTION_LABELS } from "./first-player-token-motion.js";
+import { POWER_SAVING_ROW_NOTE } from "./power-saving-notice.js";
 
 export type SettingsRowId =
   | "reduced-motion"
@@ -53,19 +55,24 @@ export interface SettingsRowInfo {
   readonly unavailable?: string;
 }
 
-export function settingsRowInfoOf(settings: Settings): readonly SettingsRowInfo[] {
+/** `powerSaving`: the device is in power saving mode (`platform/power-saving.ts`), which the two rows it turns down say. */
+export function settingsRowInfoOf(settings: Settings, powerSaving = false): readonly SettingsRowInfo[] {
+  const followsPowerSaving = (detail: string): string => (powerSaving ? `${detail} ${POWER_SAVING_ROW_NOTE}` : detail);
   return [
     {
       id: "reduced-motion",
       title: "Reduced motion",
-      detail:
+      detail: followsPowerSaving(
         "Skip travel animation and auto-advancing reveals; beats and state changes still appear, just without the motion.",
+      ),
       on: settings.reducedMotion,
     },
     {
       id: "sharper-text",
       title: "Sharper text",
-      detail: "Renders text at the screen's own pixel density. Off trades a little crispness for less texture memory.",
+      detail: followsPowerSaving(
+        "Renders text at the screen's own pixel density. Off trades a little crispness for less texture memory.",
+      ),
       on: settings.textResolution > 1,
     },
     {
@@ -374,6 +381,73 @@ export const CARD_HOVER_SCALE_LABELS: Readonly<Record<CardHoverScale, string>> =
   "3x": "3×",
   "4x": "4×",
 };
+
+// ---------------------------------------------------------------------------
+// The volumes (#243), desktop only (a phone or tablet uses the device's own volume): the game's own entry in the
+// Windows volume mixer (the Windows desktop app only), and the music's and the sound effects' levels within the game,
+// so either can sit louder than the other.
+// ---------------------------------------------------------------------------
+
+export const VOLUME_STEPS = ["0", "25", "50", "75", "100"] as const;
+export type VolumeStep = (typeof VOLUME_STEPS)[number];
+
+export interface VolumeRowInfo {
+  readonly title: string;
+  readonly detail: string;
+  readonly options: readonly { readonly value: VolumeStep; readonly label: string }[];
+  /** The step nearest the volume set (the music player's slider and the mixer set any whole percent). */
+  readonly selected: VolumeStep;
+}
+
+function volumeRowInfo(title: string, detail: string, percent: number): VolumeRowInfo {
+  const volume = clampMusicVolume(percent);
+  const selected = VOLUME_STEPS.reduce((best, step) =>
+    Math.abs(Number(step) - volume) < Math.abs(Number(best) - volume) ? step : best,
+  );
+  return {
+    title,
+    detail,
+    options: VOLUME_STEPS.map((value) => ({ value, label: value === "0" ? "Off" : `${value}%` })),
+    selected,
+  };
+}
+
+/** The game's volume in the Windows mixer, as last read (`platform/app-volume.ts`). */
+export function gameVolumeRowInfoOf(mixerPercent: number): VolumeRowInfo {
+  return volumeRowInfo(
+    "Game volume",
+    "The game's own volume in the Windows volume mixer, music and effects together. The music player's slider sets it finer.",
+    mixerPercent,
+  );
+}
+
+export function musicVolumeRowInfoOf(settings: Settings, mixer: boolean): VolumeRowInfo {
+  return volumeRowInfo(
+    "Music volume",
+    mixer
+      ? "How loud the music plays within the game, against the effects."
+      : "How loud the music plays, against the effects. On desktop the music player's slider sets it finer.",
+    settings.musicVolume,
+  );
+}
+
+export function effectsVolumeRowInfoOf(settings: Settings): VolumeRowInfo {
+  return volumeRowInfo(
+    "Effects volume",
+    "How loud the sound effects play (attacks, thwarts, cards played), against the music.",
+    settings.effectsVolume,
+  );
+}
+
+/** `settings` with the music volume set to a step; a value that is not a step changes nothing. */
+export function nextSettingsAfterMusicVolume(settings: Settings, value: VolumeStep): Settings {
+  return VOLUME_STEPS.includes(value) ? { ...settings, musicVolume: Number(value) } : settings;
+}
+
+/** `settings` with the effects volume set to a step; a value that is not a step changes nothing. */
+export function nextSettingsAfterEffectsVolume(settings: Settings, value: VolumeStep): Settings {
+  return VOLUME_STEPS.includes(value) ? { ...settings, effectsVolume: Number(value) } : settings;
+}
 
 export interface CardHoverRowInfo {
   readonly title: string;

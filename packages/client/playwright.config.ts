@@ -83,6 +83,7 @@ export default defineConfig({
       // here unchanged.
       testMatch: [
         "holdon.spec.ts",
+        "ironheart-level-up.spec.ts",
         "tips.spec.ts",
         "overlay-input-block.spec.ts",
         "settings-blocks-presses.spec.ts",
@@ -114,9 +115,11 @@ export default defineConfig({
         "villain-phase-gate.spec.ts",
         "discard-stale-pick.spec.ts",
         "villain-review-handle.spec.ts",
+        "roster-picker-drag.spec.ts",
         "villain-decision-dock.spec.ts",
         "choice-peek.spec.ts",
         "payment-table-tile-tap.spec.ts",
+        "music-volume-pause.spec.ts",
       ],
     },
   ],

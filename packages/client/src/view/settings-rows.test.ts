@@ -8,6 +8,11 @@ import {
   nextGuidePrefsAfterRow,
   nextSettingsAfterToggle,
   cardHoverRowInfoOf,
+  effectsVolumeRowInfoOf,
+  gameVolumeRowInfoOf,
+  musicVolumeRowInfoOf,
+  nextSettingsAfterEffectsVolume,
+  nextSettingsAfterMusicVolume,
   cardSizeRowInfoOf,
   nextSettingsAfterCardSize,
   nextSettingsAfterCardHover,
@@ -21,6 +26,7 @@ import {
   type GuideLevelRowInfo,
   type GuideToggleRowInfo,
 } from "./settings-rows.js";
+import { POWER_SAVING_ROW_NOTE } from "./power-saving-notice.js";
 import { defaultGuidePrefs, withLevel, type GuidePrefs } from "../guide/guide-prefs.js";
 import { defaultSettings, tableRulesOf, type Settings } from "../settings.js";
 
@@ -30,6 +36,8 @@ const BASE: Settings = {
   largeCardText: false,
   sound: true,
   musicShuffle: false,
+  musicVolume: 100,
+  effectsVolume: 100,
   confirmBeforeEndTurn: true,
   sameNameHeroAllyConflict: true,
   villainAutoAdvance: "off",
@@ -43,6 +51,7 @@ const BASE: Settings = {
   firstPlayerTokenMotion: "toss",
   displayMode: "windowed",
   resolution: "native",
+  powerSavingAdjust: true,
 };
 
 describe("settingsRowInfoOf", () => {
@@ -53,6 +62,8 @@ describe("settingsRowInfoOf", () => {
       largeCardText: true,
       sound: false,
       musicShuffle: true,
+      musicVolume: 60,
+      effectsVolume: 80,
       confirmBeforeEndTurn: false,
       sameNameHeroAllyConflict: false,
       villainAutoAdvance: "off",
@@ -66,6 +77,7 @@ describe("settingsRowInfoOf", () => {
       firstPlayerTokenMotion: "toss",
       displayMode: "windowed",
       resolution: "native",
+      powerSavingAdjust: true,
     });
     expect(rows.find((r) => r.id === "reduced-motion")?.on).toBe(true);
     expect(rows.find((r) => r.id === "sharper-text")?.on).toBe(true);
@@ -91,6 +103,16 @@ describe("settingsRowInfoOf", () => {
     const sound = rows.find((r) => r.id === "sound");
     expect(sound?.on).toBe(true);
     expect(sound?.unavailable).toBeUndefined();
+  });
+
+  test("in power saving mode, the two rows it turns down say so and the rest read as usual", () => {
+    const usual = settingsRowInfoOf(BASE);
+    const saving = settingsRowInfoOf(BASE, true);
+    for (const row of saving) {
+      const before = usual.find((r) => r.id === row.id)!.detail;
+      const followsMode = row.id === "reduced-motion" || row.id === "sharper-text";
+      expect(row.detail, row.id).toBe(followsMode ? `${before} ${POWER_SAVING_ROW_NOTE}` : before);
+    }
   });
 
   test("every row has a non-empty title and detail", () => {
@@ -350,5 +372,29 @@ describe("Window mode and Resolution (desktop app)", () => {
     const detail = resolutionRowInfoOf(settings, []).detail;
     expect(detail).toMatch(/black bars/);
     expect(detail).toMatch(/display resolution is never changed/);
+  });
+});
+
+describe("the volume rows (#243)", () => {
+  test("offers Off to 100% in quarters, selecting the step nearest the volume", () => {
+    const row = (musicVolume: number) => musicVolumeRowInfoOf({ ...defaultSettings(), musicVolume }, false);
+    expect(row(100).options.map((o) => o.label)).toEqual(["Off", "25%", "50%", "75%", "100%"]);
+    expect(row(100).selected).toBe("100");
+    expect(row(43).selected).toBe("50");
+    expect(row(0).selected).toBe("0");
+  });
+
+  test("a step sets the volume; anything else changes nothing", () => {
+    expect(nextSettingsAfterMusicVolume(defaultSettings(), "25").musicVolume).toBe(25);
+    const settings = defaultSettings();
+    expect(nextSettingsAfterMusicVolume(settings, "33" as never)).toBe(settings);
+    expect(nextSettingsAfterEffectsVolume(defaultSettings(), "75").effectsVolume).toBe(75);
+    expect(nextSettingsAfterEffectsVolume(settings, "33" as never)).toBe(settings);
+  });
+
+  test("effects and the game's mixer volume read their own values", () => {
+    expect(effectsVolumeRowInfoOf({ ...defaultSettings(), effectsVolume: 30 }).selected).toBe("25");
+    expect(gameVolumeRowInfoOf(64).selected).toBe("75");
+    expect(gameVolumeRowInfoOf(64).title).toBe("Game volume");
   });
 });
