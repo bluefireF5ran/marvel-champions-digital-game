@@ -446,7 +446,7 @@ function pushIfHeard(ctx: Ctx, event: TriggerEvent): boolean {
 
 /**
  * The apply step of `phaseEnding` (docs/phase7-wave3.md §3.2): the "at the end of the phase" delayed effects, and at the
- * villain phase's end, which is the round's, the "at the end of the round" ones too. RRG 1.8 "Delayed Effect" (p. 15):
+ * villain phase's end, which is the round's, the "at the end of the round" ones too. RRG 1.8 "Delayed Effect" (p. 16):
  * they resolve "immediately after their specified timing point [...] and before responses to that point".
  */
 export function pushPhaseEndDelayed(ctx: Ctx, phase: "player" | "villain"): void {

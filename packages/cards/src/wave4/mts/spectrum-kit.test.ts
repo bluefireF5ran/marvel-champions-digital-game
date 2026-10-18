@@ -141,9 +141,9 @@ describe("Gamma Blast / Photon Speed / Speed of Light (21007, 21008, 21010)", ()
     expect(inst(after, instancesOf(after, "21003")[0]!).faceup).toBe(true);
   });
 
-  // FFG ruling December 8, 2023 - Ruling 126: the form's response waits for the whole first sentence ("Change to Photon
-  // energy form and remove 4 threat from a scheme"), as Gamma Blast's does (`sentence`).
-  it("21008.photon-speed-action: the Photon response removes its 1 threat after the 4 (one sentence, Ruling 126)", () => {
+  // By analogy to ruling 126 (Gamma Blast), December 8, 2023: the form's response waits for the whole first sentence
+  // ("Change to Photon energy form and remove 4 threat from a scheme"), as Gamma Blast's does (`sentence`).
+  it("21008.photon-speed-action: the Photon response removes its 1 threat after the 4 (one sentence, by analogy to ruling 126)", () => {
     const start = spectrumVsRhino(9);
     const pulsar = instancesOf(start, "21004")[0]!;
     // Hero form with Pulsar up, so Photon Speed is a real change of form and the Photon response triggers.

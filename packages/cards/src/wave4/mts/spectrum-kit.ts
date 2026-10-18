@@ -118,7 +118,7 @@ export const SPECTRUM_KIT = defineAbilities({
 
   // Photon Speed (21008) — Hero Action (thwart): Change to Photon energy form and remove 4 threat from a scheme. If
   // you were already in Photon energy form, ignore crisis icon for this thwart. One `sentence`, as Gamma Blast's
-  // (Ruling 126): the Photon response waits for the 4 threat removed.
+  // (by analogy to ruling 126 (Gamma Blast)): the Photon response waits for the 4 threat removed.
   "21008.photon-speed-action": heroAction(
     { label: "thwart" },
     chooseTarget("scheme", query("scheme")),
