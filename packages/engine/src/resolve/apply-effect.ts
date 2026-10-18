@@ -1735,7 +1735,13 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       // window, and so does every card after it, so the cards land in the order the effect named them.
       const plain = effect.facedown !== true && effect.as === undefined;
       const waiting: TriggerEvent[] = [];
-      const attached = targets(effect.card)
+      // A "[type] form only" card attached from out of play enters play by it, so the form check of a put into play
+      // applies (RRG 1.8 "Play, Put into Play", p. 32; `admitFormOnly`, which passes a card already in play).
+      const cards =
+        effect.facedown === true || !context.controllerId
+          ? targets(effect.card)
+          : admitFormOnly(ctx, targets(effect.card), context.controllerId);
+      const attached = cards
         .flatMap((id) => {
           // "(Players cannot look at the reverse sides)" (docs/phase7-wave9.md §3.54): hidden before it is attached,
           // so a "would be attached" window that makes this attach wait holds a card that is already hidden.
