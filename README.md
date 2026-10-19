@@ -4,7 +4,7 @@
 
 # Marvel Champions: Digital Edition (Unofficial Fan Game)
 
-[![Latest release](https://img.shields.io/badge/version-v0.26.0-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.26.0)
+[![Latest release](https://img.shields.io/badge/version-v0.27.0-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.27.0)
 [![Tests and build on main](https://img.shields.io/github/actions/workflow/status/quincarter/marvel-champions-digital-game/netlify-deploy.yml?branch=main&event=push&label=tests%20%26%20build&logo=github)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/netlify-deploy.yml?query=branch%3Amain)
 [![Release](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml/badge.svg?branch=main)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml?query=branch%3Amain)
 [![Netlify Status](https://api.netlify.com/api/v1/badges/487c224e-254f-42a0-a2b3-a6192b9e70c8/deploy-status)](https://app.netlify.com/projects/marvel-champions-digital-game/deploys)
@@ -20,14 +20,14 @@ to be a genuinely playable video game driven by a deterministic rules engine.
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.26.0/MarvelChampions-0.26.0-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.26.0/MarvelChampions-0.26.0-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.26.0/MarvelChampions-0.26.0-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.27.0/MarvelChampions-0.27.0-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.27.0/MarvelChampions-0.27.0-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.27.0/MarvelChampions-0.27.0-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.26.0/MarvelChampions-0.26.0-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.26.0/MarvelChampions-0.26.0-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.27.0/MarvelChampions-0.27.0-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.27.0/MarvelChampions-0.27.0-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
   <a href="https://github.com/quincarter/marvel-champions-digital-game/releases"><img src=".github/assets/readme/all-releases.svg" alt="View all releases" height="48"></a>
 </p>
 
@@ -56,7 +56,8 @@ to be a genuinely playable video game driven by a deterministic rules engine.
   <a href="docs/project/current-status.md">Current status</a> ·
   <a href="docs/project/architecture.md">Architecture</a> ·
   <a href="docs/project/downloads.md">Downloads</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="#special-thanks">Special thanks</a>
 </p>
 
 ---
@@ -72,7 +73,8 @@ This project is built **rules-engine-first**:
 - **Deterministic state machine**: game state is serializable, reproducible from a seed and a command log, and
   decoupled from any presentation or I/O layer.
 - **The Rules Reference is the authority**: the official _Rules Reference Guide_ (v1.8, in this repo), FFG's errata and
-  its rulings decide how the game behaves.
+  its rulings decide how the game behaves. [Rules authority](docs/project/rules-authority.md) gives the order they
+  win in when they disagree, and links every RRG version and rulings page.
 - **Headless rules engine**: the engine has no DOM or rendering dependencies and can simulate and audit full games on
   its own.
 - **Phaser as a pure view**: the client presents state and sends player commands; it never decides rules or move
@@ -110,15 +112,19 @@ How the packages fit together, and how to run the game locally, is in [Architect
 | 4     | Client: the Phaser 4 tabletop on desktop, tablet and phone                                                    | 🟡 Playable end to end; accessibility pass and remaining design-canvas screens in progress                   |
 | 5     | Online multiplayer: 2–4 players over a network, reconnects, Epic Multiplayer for Loki                         | ⬜ Planned                                                                                                   |
 | 6     | Rules QA: ruling-by-ruling tests, replay fixtures, drift detection on new errata                              | 🟡 Ongoing: per-wave rules audits, random-deck soaks, MarvelCDB decklist games, a Rules Reference v1.8 audit |
-| 7     | Content beyond the Core Set, in release order                                                                 | 🟡 Through cycle 10 (Civil War); Fear No Evil next                                                           |
+| 7     | Content beyond the Core Set, in release order                                                                 | 🟡 Through cycle 10 (Civil War); Fear No Evil in progress                                                    |
 | 8     | Polish: onboarding, settings, audio, packaging, undo, hero AI                                                 | 🟡 Guided mode, settings, music, desktop and Android builds and undo landed; hero AI planned                 |
 | 9     | Decks: precons, MarvelCDB import, in-app deck builder                                                         | ✅ Done                                                                                                      |
 
 Next up:
 
-- **Fear No Evil (cycle 11)**: its card data is in; scripting, its six-scenario campaign and its heroes come next.
-- **Civil War leftovers**: the Synthezoid Smackdown scenario pack and competitive (team versus team) mode, which the
-  game marks as coming soon.
+- **Fear No Evil (cycle 11), in progress** in
+  [#251](https://github.com/quincarter/marvel-champions-digital-game/pull/251): the card data for the box and the
+  Jessica Jones and Luke Cage packs is in, and the heroes are being scripted. The six-scenario campaign and the
+  client come after.
+- **Civil War leftovers**: everything in the Civil War box and the Wonder Man and Hercules packs is playable. Still
+  to come are the separate Synthezoid Smackdown scenario pack (December 2025), held for its own pull request, and
+  competitive (team versus team) mode, which the game marks as coming soon.
 - **Hero AI** to fill seats with computer-controlled heroes, then **online multiplayer** (Phase 5).
 
 What you can play today is in [Current status](docs/project/current-status.md). The detailed plan, decisions and per-wave specs are in [PLAN.md](PLAN.md) and [`docs/`](docs).
@@ -127,14 +133,15 @@ What you can play today is in [Current status](docs/project/current-status.md). 
 
 ## More
 
-| Page                                             | What's in it                                                         |
-| ------------------------------------------------ | -------------------------------------------------------------------- |
-| [Current status](docs/project/current-status.md) | What you can play today and what the next release adds               |
-| [Architecture](docs/project/architecture.md)     | The four packages, how they depend on each other, running it locally |
-| [Downloads](docs/project/downloads.md)           | Every installer, unsigned macOS builds, the in-app update notice     |
-| [Contributing](CONTRIBUTING.md)                  | Setup, tests, CI, conventions, card data and the release flow        |
-| [PLAN.md](PLAN.md)                               | The full roadmap, decisions and per-phase detail                     |
-| [CHANGELOG.md](CHANGELOG.md)                     | Every release's changes                                              |
+| Page                                               | What's in it                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------- |
+| [Current status](docs/project/current-status.md)   | What you can play today and what the next release adds               |
+| [Architecture](docs/project/architecture.md)       | The four packages, how they depend on each other, running it locally |
+| [Downloads](docs/project/downloads.md)             | Every installer, unsigned macOS builds, the in-app update notice     |
+| [Contributing](CONTRIBUTING.md)                    | Setup, tests, CI, conventions, card data and the release flow        |
+| [PLAN.md](PLAN.md)                                 | The full roadmap, decisions and per-phase detail                     |
+| [Rules authority](docs/project/rules-authority.md) | Which rules source wins a conflict, and every RRG and rulings page   |
+| [CHANGELOG.md](CHANGELOG.md)                       | Every release's changes                                              |
 
 ## License
 
@@ -143,3 +150,31 @@ later**; see [LICENSE](LICENSE). The license covers this project's own code only
 its card text, rules, artwork, characters and trademarks are the property of Fantasy Flight Games and Marvel and are
 **not** licensed under the AGPL; neither is any third-party artwork, music or other material in this repository, which
 remains its owners' under their own terms.
+
+## Special thanks
+
+The game gets better every time someone plays it and tells us what broke. These lists refresh with every release
+(`scripts/release-credits.mjs`), and each release's notes thank the people behind its fixes.
+
+### The Watchers
+
+They see everything. Reporters and feature requesters with at least two issues that got fixed or built, most first.
+
+<!-- credits:reporters:start -->
+<table>
+<tr><td align="center"><a href="https://github.com/PermaKarma"><img src="https://github.com/PermaKarma.png?size=128" width="64" height="64" alt="PermaKarma"><br><sub><b>PermaKarma</b></sub></a></td><td align="center"><a href="https://github.com/dwballance"><img src="https://github.com/dwballance.png?size=128" width="64" height="64" alt="dwballance"><br><sub><b>dwballance</b></sub></a></td><td align="center"><a href="https://github.com/Joelstrd"><img src="https://github.com/Joelstrd.png?size=128" width="64" height="64" alt="Joelstrd"><br><sub><b>Joelstrd</b></sub></a></td><td align="center"><a href="https://github.com/zackburnley"><img src="https://github.com/zackburnley.png?size=128" width="64" height="64" alt="Zack Burnley"><br><sub><b>Zack Burnley</b></sub></a></td></tr>
+</table>
+<!-- credits:reporters:end -->
+
+### Earth's Mightiest Committers
+
+Everyone whose code is in the game.
+
+<!-- credits:contributors:start -->
+<table>
+<tr><td align="center"><a href="https://github.com/quincarter"><img src="https://github.com/quincarter.png?size=128" width="64" height="64" alt="Quin Carter"><br><sub><b>Quin Carter</b></sub></a></td><td align="center"><a href="https://github.com/bluefireF5ran"><img src="https://github.com/bluefireF5ran.png?size=128" width="64" height="64" alt="Francisco Merchán Cordero"><br><sub><b>Francisco Merchán Cordero</b></sub></a></td></tr>
+</table>
+<!-- credits:contributors:end -->
+
+Reported something on Discord or through the in-game bug button and want to be listed? Add yourself to
+[`.github/credits.json`](.github/credits.json) or ask in an issue.
