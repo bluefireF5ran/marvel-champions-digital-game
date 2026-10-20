@@ -150,6 +150,26 @@ describe("Bulldozer's Helmet (07049) with overkill spilling past a defending all
     const milled = attack.filter((e) => e.type === "cardMoved" && e.from.kind === "deck" && e.to.kind === "discard");
     expect(milled).toHaveLength(total);
   });
+
+  it("counts damage a tough status card stops: it was dealt, not taken", () => {
+    // RRG 1.8 "Damage" (p. 14): when the damage taken is modified "(such as by damage being prevented), the amount of
+    // damage dealt is not modified"; "Tough" (p. 44) prevents it (ruling January 17, 2026 (3)).
+    let state = withActive(spiderManVsBreakout(), bulldozerId(spiderManVsBreakout()));
+    state = patchInstance(state, clearTheRoadId(state), { threat: 8 });
+    const bulldozer = bulldozerId(state);
+    state = runTwc(forceAttachToVillain(state, findInstance(state, "07049"), bulldozer), toHero());
+    const identity = identityOf(state, P1);
+    state = patchInstance(state, identity, { statuses: { ...inst(state, identity).statuses, tough: 1 } });
+    const pick = (s: GameState): readonly string[] =>
+      s.pendingChoice!.prompt.kind === "declareDefender" ? ["decline"] : firstLegal(s);
+    const { events } = driveEventsPicking(TWC_DEPS, state, pick, endTurn(P1));
+    const attack = firstAttackOf(events);
+    const stopped = attack.filter((e) => e.type === "damagePrevented" && e.reason === "tough");
+    expect(stopped).toHaveLength(1);
+    expect(attack.some((e) => e.type === "damageDealt")).toBe(false);
+    const milled = attack.filter((e) => e.type === "cardMoved" && e.from.kind === "deck" && e.to.kind === "discard");
+    expect(milled).toHaveLength(stopped[0]!.type === "damagePrevented" ? stopped[0]!.amount : -1);
+  });
 });
 
 describe("Ramming Speed (07051)", () => {

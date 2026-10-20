@@ -1825,13 +1825,15 @@ export type TriggerEvent = TriggerEventBody & {
 export const TOTAL_ATK_RESULT = "totalAtk";
 
 /**
- * The result key an attack records "the damage dealt by this attack" under: every point of damage the attacked
- * characters took from it plus every point its overkill spilled onto another character (RRG 1.8 "Overkill", p. 31: the
- * spill "is considered damage from an attack"). Beside `damage`, which counts the attacked characters' damage only
- * (the condition "attacks and damages" answers, one per damaged character: ruling January 11, 2026 (2)). Read by a
- * response to the attack as a whole ("after X attacks you, ... for each point of damage dealt by this attack").
- * It counts damage taken, as the attack's `damage` result does, so damage a tough status card stops counts 0. The cards
- * say "dealt": reading it as taken is an engine interpretation (no official source addresses it).
+ * The result key an attack records "the damage dealt by this attack" under: every point of damage it dealt to the
+ * attacked characters plus every point its overkill spilled onto another character (RRG 1.8 "Overkill", p. 31: the
+ * spill "is considered damage from an attack"). Beside `damage`, which counts the attacked characters' damage taken
+ * only (the condition "attacks and damages" answers, one per damaged character: ruling January 11, 2026 (2)). Read by
+ * a response to the attack as a whole ("after X attacks you, ... for each point of damage dealt by this attack").
+ * It counts damage dealt, before anything that changes the damage taken: RRG 1.8 "Damage" (p. 14), "the amount of damage
+ * dealt is not modified" when the damage taken is (such as by damage being prevented), and a tough status card
+ * prevents it ("Tough", p. 44; ruling January 17, 2026 (3): prevention stops "damage taken, not dealt"). Damage the
+ * defender's DEF covers is never dealt and is not counted.
  */
 export const ATTACK_DAMAGE_RESULT = "attackDamage";
 
