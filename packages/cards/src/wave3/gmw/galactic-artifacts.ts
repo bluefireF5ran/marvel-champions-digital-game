@@ -40,9 +40,10 @@ import {
  * Action (and Obedience Potion's stat penalty, The Poison's Forced Interrupt) needs scripting here.
  *
  * **"Any player can do this" (Obedience Potion 16123, The Poison 16125) is `triggerableBy: eachPlayer`.** The errata
- * (RRG 1.8 p. 66, "Changed reminder text to rules text") makes it rules text, which replaces the attachment rule of
- * RRG 1.8 p. 8 ("Only the player who controls the card to which that attachment is attached can trigger abilities or
- * pay costs on that attachment"), as `triggerableBy` replaces it in `useAbility`. The triggering player pays the cost,
+ * (RRG 1.8 p. 66, "Changed reminder text to rules text") makes it card text, which takes precedence over the
+ * attachment rule of RRG 1.8 p. 8 ("Only the player who controls the card to which that attachment is attached can
+ * trigger abilities or pay costs on that attachment") by the Golden Rules (p. 4), as `triggerableBy` replaces it in
+ * `useAbility`. The triggering player pays the cost,
  * so "Take 1 damage" is taken by that player's identity (`damageSelf`). Cloak of Hercules/The Beyonder's
  * Blazer/Vandarian Power Stone (16122/16124/16126) attach to an enemy, which no player controls, so any player may
  * already use them.
