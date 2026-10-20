@@ -33,6 +33,7 @@ import {
   self,
   stun,
   thwartAScheme,
+  valueAtLeast,
   varOf,
   when,
   YOUR_HERO,
@@ -79,13 +80,15 @@ export const HLK_PACK_CARDS = defineAbilities({
 
   // "You'll Pay for That!" — Hero Response (thwart): After the villain attacks you, remove 1 threat from a scheme
   // for each damage you took from the attack (to a maximum of 5). "After the villain attacks you" is the exception
-  // RRG 1.8 "You, Your" (p. 49) carves out, the attacked player, so the trigger stays `againstYou` and is offered when
-  // an ally defends too, even for 0 (nothing in 1.8 bars it). Only the count, "damage you took", is your identity's:
-  // `eventDamageTakenBy` reads the attack's per-character damage taken (`damageTakenKey`), an overkill spill onto your
-  // identity included and an ally's damage not.
+  // RRG 1.8 "You, Your" (p. 49) carves out, the attacked player, so the trigger stays `againstYou`. Only the count,
+  // "damage you took", is your identity's: `eventDamageTakenBy` reads the attack's per-character damage taken
+  // (`damageTakenKey`), an overkill spill onto your identity included and an ally's damage not. When your identity
+  // took no damage (an ally defended and took it all), removing 0 threat affects no scheme, so the card has no valid
+  // target and can't be played: RRG 1.8 "Target" (p. 43; its 0-value exception covers only an activation or basic
+  // power), "Event" (p. 18).
   "10016.youll-pay-for-that-response": response(
     when.villainAttacks({ againstYou: true }),
-    { label: "thwart" },
+    { label: "thwart", while: valueAtLeast(eventDamageTakenBy(each(YOUR_IDENTITY)), 1) },
     removeThreatFromAScheme(scaled(eventDamageTakenBy(each(YOUR_IDENTITY)), { max: 5 })),
   ),
 
