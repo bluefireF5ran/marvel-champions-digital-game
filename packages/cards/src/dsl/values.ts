@@ -806,9 +806,10 @@ export const attackTotalAtk: ValueSpec = eventResult(TOTAL_ATK_RESULT);
 export const attackExcessAsDealt: ValueSpec = eventResult(EXCESS_AS_DEALT_RESULT);
 /**
  * "Each point of damage dealt by this attack", read on a response to the attack as a whole ("after X attacks [you]"):
- * the damage the attacked characters took plus what its overkill spilled (RRG 1.8 "Overkill", p. 31: "considered
- * damage from an attack"). `eventResult("damage")` is the attacked characters' damage alone, the per-character amount
- * an "attacks and damages" condition reads (ruling January 11, 2026 (2)).
+ * the damage it dealt to the attacked characters plus what its overkill spilled (RRG 1.8 "Overkill", p. 31: "considered
+ * damage from an attack"), damage a tough status card or a prevention stopped included (dealt, not taken: RRG 1.8
+ * "Damage", p. 14). `eventResult("damage")` is the attacked characters' damage taken alone, the per-character amount an
+ * "attacks and damages" condition reads (ruling January 11, 2026 (2)).
  */
 export const attackDamageDealt: ValueSpec = eventResult(ATTACK_DAMAGE_RESULT);
 export const handSizeOf = (player: PlayerRef = you, printed = false): ValueSpec =>

@@ -267,9 +267,10 @@ describe("Hulk pack aggression cards, from She-Hulk (Aggression)'s own deck", ()
     expect(inst(after, after.mainScheme.instanceId).threat).toBe(threatBefore - Math.min(damageTaken, 5));
   });
 
-  // "After the villain attacks you" is the RRG 1.8 p. 49 ("You, Your") exception, the attacked player, so the response
-  // is offered when an ally defends; "for each damage you took" counts your identity's damage only, here 0.
-  it("10016.youll-pay-for-that-response: offered when an ally defends, and removes no threat for the ally's damage", () => {
+  // "After the villain attacks you" is the RRG 1.8 p. 49 ("You, Your") exception, the attacked player, but "for each
+  // damage you took" counts your identity's damage only. With an ally taking it all that is 0, and removing 0 threat
+  // affects no scheme: no valid target (RRG 1.8 "Target", p. 43), so the card is not offered.
+  it("10016.youll-pay-for-that-response: not offered when an ally defends and takes all the damage", () => {
     const { state: opened, id: pay4 } = openHandFor("10016", SHE_HULK, { extraDeck: ["10011", "10015"] });
     const given = moveToHand(opened, P1, "10011", "10015");
     const [brawn, toeToToe] = given.ids as readonly [InstanceId, InstanceId];
@@ -286,13 +287,18 @@ describe("Hulk pack aggression cards, from She-Hulk (Aggression)'s own deck", ()
       (s) => s.pendingChoice?.prompt.kind === "declareDefender",
       PLAYABLE_DEPS,
     );
+    const threatBefore = inst(atDefend, atDefend.mainScheme.instanceId).threat;
+    const offered: string[] = [];
+    const pick: Picker = (st) => {
+      const choice = st.pendingChoice;
+      if (choice?.prompt.kind === "chooseTriggers") offered.push(...choice.options.map((o) => o.optionId));
+      return firstLegal(st);
+    };
     const defended = answer(atDefend, [brawn], PLAYABLE_DEPS);
     expect(inst(defended, identity).damage).toBe(inst(staged, identity).damage);
-    const threatBefore = inst(defended, defended.mainScheme.instanceId).threat;
-    const triggered = answer(defended, [`${pay4}:10016.youll-pay-for-that-response`], PLAYABLE_DEPS);
-    const paid = answer(triggered, [`hand:${cost.ids[1]!}`], PLAYABLE_DEPS);
-    const after = settle(paid, firstLegal, undefined, PLAYABLE_DEPS);
-    expect(playerOf(after, P1).discard).toContain(pay4);
+    const after = settle(defended, pick, undefined, PLAYABLE_DEPS);
+    expect(offered.some((id) => id.includes("10016.youll-pay-for-that-response"))).toBe(false);
+    expect(playerOf(after, P1).hand).toContain(pay4);
     expect(inst(after, after.mainScheme.instanceId).threat).toBe(threatBefore);
   });
 
