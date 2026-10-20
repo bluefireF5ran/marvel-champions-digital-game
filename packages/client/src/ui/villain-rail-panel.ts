@@ -8,8 +8,10 @@
 import type Phaser from "phaser";
 import type { GameState, InstanceId, PlayerId } from "@mc/engine";
 import { cardOf } from "@mc/engine";
-import { artFor, type ArtSource } from "../art/art-source.js";
+import { artFor, CARD_BACKS, type ArtSource } from "../art/art-source.js";
 import { cardArt, drawArt } from "../art/card-art.js";
+import { flipLabel } from "../view/villain-phase-reveal.js";
+import { drawFlipCard } from "./flip-card.js";
 import { POOL_DEPS } from "../content/pool.js";
 import type { FocusStop } from "../scenes/focus-route.js";
 import type { VillainAutoAdvance } from "../settings.js";
@@ -48,6 +50,17 @@ export type RailBody =
       readonly instanceId: InstanceId;
       /** "BOOST 1 · DEALT TO YOU". */
       readonly footnote: string;
+      /**
+       * A card the player was dealt facedown (#287): its back where the face goes and no name or rules yet, waiting on
+       * Flip Encounter Card (`elapsedMs` null) or turning over (`elapsedMs` since the press).
+       */
+      readonly flip?: {
+        readonly elapsedMs: number | null;
+        /** How long the turn takes, from `settings.flipEncounterSpeed`. */
+        readonly durationMs: number;
+        /** The same player's cards still facedown behind this one, in deal order (the next to flip is up front). */
+        readonly waiting: number;
+      };
     }
   | {
       readonly kind: "happening";
@@ -115,6 +128,8 @@ export interface RailPanelArgs {
   readonly log: readonly { readonly step: number | string; readonly text: string }[];
   /** Next card, while the reveal is held on an encounter card ("Hold encounter cards"); null otherwise. */
   readonly onNext: (() => void) | null;
+  /** Flip Encounter Card, while the reveal waits on a facedown card (#287); null otherwise. */
+  readonly onFlip?: (() => void) | null;
   readonly autoAdvance: VillainAutoAdvance;
   readonly buttons: McButton[];
   readonly onSkip: () => void;
@@ -122,6 +137,21 @@ export interface RailPanelArgs {
   readonly onToggle: () => void;
   readonly onInspect: (instanceId: InstanceId) => void;
 }
+
+/**
+ * The last "happening now" drawn with both a breakdown and boost cards, and the body it was drawn in: kept for the e2e
+ * specs (#285), since the beat can be gone again before a spec reads the screen.
+ */
+export const happeningDebug: {
+  boosted: {
+    readonly text: string;
+    readonly breakdown: Rect;
+    /** True when the breakdown was cut short of its last line. */
+    readonly cut: boolean;
+    readonly boosts: readonly Rect[];
+    readonly body: Rect;
+  } | null;
+} = { boosted: null };
 
 export function drawVillainRailPanel(scene: Phaser.Scene, args: RailPanelArgs): Map<string, FocusStop> {
   const { layout } = args;
@@ -424,6 +454,20 @@ function drawReveal(
 ): void {
   if (layout.body.height <= 0) return;
   const model = inspectModel(args.game, body.instanceId, null, args.viewerId, POOL_DEPS);
+  if (body.flip) {
+    // Facedown: the back, and no hover or inspect until it is turned (they would show the face).
+    drawFlipCard(
+      scene,
+      layout.bodyArt,
+      CARD_BACKS.encounter,
+      model.art,
+      model.name,
+      body.flip.elapsedMs,
+      body.flip.durationMs,
+    );
+    drawFacedownText(scene, layout, args, body, stops);
+    return;
+  }
   drawCard(scene, layout.bodyArt, args.game, body.instanceId, args.onInspect, `reveal:${body.instanceId}`, model.art);
   const { x, y, width, height } = layout.bodyText;
   const name = scene.add
@@ -475,6 +519,75 @@ function drawReveal(
   }
 }
 
+/** The text beside a facedown encounter card: what it is, whose it is, and the Flip Encounter Card button. */
+function drawFacedownText(
+  scene: Phaser.Scene,
+  layout: VillainRailLayout,
+  args: RailPanelArgs,
+  body: Extract<RailBody, { kind: "reveal" }>,
+  stops: Map<string, FocusStop>,
+): void {
+  const { x, y, width, height } = layout.bodyText;
+  const name = scene.add
+    .text(x, y, "ENCOUNTER CARD", textStyle({ ...typeRole.barTitle, size: 34 }, surface.paper.hex))
+    .setOrigin(0, 0);
+  fitText(name, width, 34);
+  tag(scene, x, y + name.height + 6, "Facedown", true, surface.paper.hex);
+  const waiting = body.flip?.waiting ?? 0;
+  if (waiting > 0) {
+    // The cards still to come as a short row of backs, the front card being the one above (RRG p. 47: dealt order).
+    const backHeight = Math.min(44, Math.max(24, height - name.height - 130));
+    const backWidth = Math.round(backHeight * (63 / 88));
+    const rowY = y + name.height + 40;
+    const shown = Math.min(waiting, 4, Math.max(1, Math.floor((width - 90) / (backWidth * 0.6))));
+    const backKey = cardArt(scene).request(scene, CARD_BACKS.encounter);
+    for (let i = shown - 1; i >= 0; i--) {
+      const rect: Rect = { x: x + i * backWidth * 0.6, y: rowY, width: backWidth, height: backHeight };
+      if (!drawArt(scene, backKey, rect, { fit: "cover" })) {
+        scene.add.graphics().fillStyle(signal.spent.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
+      }
+      scene.add
+        .graphics()
+        .lineStyle(border.detail, surface.paper.hex, 1)
+        .strokeRect(rect.x, rect.y, rect.width, rect.height);
+    }
+    label(
+      scene,
+      x + (shown - 1) * backWidth * 0.6 + backWidth + 8,
+      rowY + backHeight / 2 - 6,
+      `+${waiting} WAITING`,
+      { ...typeRole.label, size: 11 },
+      surface.paper.hex,
+      ink.secondary,
+    );
+  }
+  const flip = args.onFlip;
+  const flipHeight = flip ? hit.target : 0;
+  label(
+    scene,
+    x,
+    y + height - 18 - (flip ? flipHeight + 8 : 0),
+    body.footnote,
+    { ...typeRole.label, size: 10 },
+    surface.paper.hex,
+    ink.label,
+  );
+  if (flip && body.flip?.elapsedMs === null) {
+    const rect: Rect = { x, y: y + height - flipHeight, width: Math.min(width, 240), height: flipHeight };
+    args.buttons.push(
+      new McButton(scene, {
+        kind: "primary",
+        label: flipLabel,
+        type: typeRole.label,
+        rect,
+        tint: { fill: signal.caution.hex, ink: surface.ink.hex },
+        onClick: flip,
+      }),
+    );
+    stops.set("flip", { rect, activate: flip });
+  }
+}
+
 function drawHappening(
   scene: Phaser.Scene,
   layout: VillainRailLayout,
@@ -497,8 +610,9 @@ function drawHappening(
     .text(x, y + 18, body.headline.toUpperCase(), textStyle({ ...typeRole.barTitle, size: 30 }, surface.paper.hex))
     .setOrigin(0, 0);
   // The breakdown goes under the headline, so it is measured first: the headline takes up to three lines of what the
-  // breakdown (all its lines) and the boost card leave, never fewer than two, and shrinks before it is clipped. The
-  // target ends the sentence and must not be what is cut, and the destination ends the breakdown.
+  // breakdown (all its lines) and the boost card leave, two where that is all the room holds, and one (shrinking
+  // first) where even two would push the boost card onto the breakdown (#285). The target ends the sentence and must
+  // not be what is cut, and the damage total ends the breakdown.
   const detail = body.text
     ? scene.add
         .text(x, y, body.text, textStyle({ ...typeRole.body, size: 14 }, surface.paper.hex, ink.secondary))
@@ -511,13 +625,16 @@ function drawHappening(
   const faceup = body.boosts ?? [];
   const boostRow = body.boostLine ? (faceup.length > 0 ? BOOST_THUMB_HEIGHT + 6 : 40) : 0;
   const spare = height - 18 - 6 - (detail ? detailLines * lineHeight + 8 : 0) - boostRow;
-  fitWrapped(headline, width, Math.max(2, Math.min(3, Math.floor(spare / 34))), 30);
+  fitWrapped(headline, width, Math.max(1, Math.min(3, Math.floor(spare / 34))), 30);
   let cursor = headline.y + headline.height + 6;
+  let detailShown = detailLines;
   if (detail) {
     detail.setY(cursor);
+    // Whatever the breakdown is cut to, the boost row starts under what it shows, never on it (#285).
     const room = y + height - cursor - boostRow;
-    detail.setMaxLines(Math.max(1, Math.floor(room / lineHeight)));
-    cursor += Math.min(detail.height, room) + 8;
+    detailShown = Math.max(1, Math.floor(room / lineHeight));
+    detail.setMaxLines(detailShown);
+    cursor += detail.height + 8;
   }
   if (body.boostLine && cursor + 30 <= y + height) {
     const landscape = (id: InstanceId): boolean => {
@@ -541,6 +658,15 @@ function drawHappening(
       }
       textX = thumbs.textX;
       textMid = cursor + thumbs.height / 2;
+      if (detail) {
+        happeningDebug.boosted = {
+          text: body.text,
+          breakdown: { x: detail.x, y: detail.y, width: detail.width, height: detail.height },
+          cut: detailShown < detailLines,
+          boosts: thumbs.cards.map((card) => card.rect),
+          body: layout.body,
+        };
+      }
     } else {
       const box: Rect = { x, y: cursor, width: 26, height: 34 };
       const g = scene.add.graphics();
