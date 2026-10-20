@@ -9,12 +9,16 @@ import { cardOf, type GameState, type InstanceId } from "@mc/engine";
 import { CARD_BACKS, artFor } from "../art/art-source.js";
 import { cardArt, drawArt } from "../art/card-art.js";
 import type { FocusStop } from "../scenes/focus-route.js";
-import { accent, border, ink, signal, surface, typeRole } from "../tokens.js";
+import { SCENES } from "../scenes/keys.js";
+import { noteHoverCard, type HoverHpPreview } from "./card-hover-preview.js";
+import { bindHoldTarget } from "./hold-target.js";
+import { accent, border, ink, signal, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { faceOf } from "../view/board-model.js";
 import type { DefendChoiceView, DefendOptionView } from "../view/defend-choice.js";
 import { defendMiddleLayout } from "../view/defend-choice-layout.js";
 import type { Rect } from "../view/layout.js";
 import { villainDefendOptionParts, type VillainDefendLayout } from "../view/villain-defend-layout.js";
+import { onTap } from "./tap.js";
 import { textStyle } from "./theme.js";
 import { McButton, fitText, label, paintPanel } from "./widgets.js";
 
@@ -47,9 +51,6 @@ export const defendEyebrowOf = (eyebrow: string): string => eyebrow.replace(/\s+
 
 /** "2–5 damage" as the cards set it: "2–5 DMG". */
 export const defendDamageOf = (headline: string): string => headline.replace(/\s*damage$/i, " DMG").toUpperCase();
-
-/** "5–8 of 10 HP" as the cards set it: "5–8 OF 10 HP LEFT". */
-export const defendHpLeftOf = (hpAfter: string): string => `${hpAfter.toUpperCase()} LEFT`;
 
 export function drawVillainDefendPanel(scene: Phaser.Scene, args: DefendPanelArgs): Map<string, FocusStop> {
   const { layout, view, game } = args;
@@ -115,7 +116,13 @@ export function drawVillainDefendPanel(scene: Phaser.Scene, args: DefendPanelArg
       .zone(slot.x, slot.y, slot.width, slot.height)
       .setOrigin(0, 0)
       .setInteractive({ useHandCursor: true });
-    zone.on("pointerup", () => args.onSelect(option.optionId));
+    // A tap, not any release (#227): a swipe that lifts over an option must not pick it.
+    onTap(zone, () => args.onSelect(option.optionId), `villain-defend:${option.optionId}`);
+    // Over the option's own zone: the picture hovers on desktop, and a tap on it still picks the option.
+    const picture = villainDefendOptionParts(slot, layout.orientation).picture;
+    // Its popover previews the health this option leaves the character, as the villain's plate previews an attack.
+    const hp = option.hpNow && option.hpAfterRange ? { ...option.hpNow, ...option.hpAfterRange } : undefined;
+    if (picture) readableScan(scene, option.pictureInstanceId, picture, () => args.onSelect(option.optionId), hp);
     stops.set(`option:${option.optionId}`, { rect: slot, activate: () => args.onSelect(option.optionId) });
   });
 
@@ -162,6 +169,35 @@ function drawScan(scene: Phaser.Scene, game: GameState, instanceId: InstanceId, 
   scene.add.graphics().fillStyle(surface.ink.hex, 0.85).fillRect(rect.x, rect.y, rect.width, rect.height);
 }
 
+/**
+ * A card picture's own press target, so the desktop hover popover opens on it (it only opens over a card that is its
+ * own tap target) and a hold or right-click reads it in Inspect, as on the full defend sheet. A tap does `tap`, or
+ * opens Inspect too.
+ */
+function readableScan(
+  scene: Phaser.Scene,
+  instanceId: InstanceId,
+  rect: Rect,
+  tap?: () => void,
+  hp?: HoverHpPreview,
+): void {
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const zone = scene.add
+    .zone(rect.x, rect.y, rect.width, rect.height)
+    .setOrigin(0, 0)
+    .setInteractive({ useHandCursor: true });
+  const inspect = (): void => {
+    scene.scene.launch(SCENES.inspect, { instanceId });
+    scene.scene.bringToTop(SCENES.inspect);
+  };
+  bindHoldTarget(scene, zone, {
+    key: `defend-scan:${instanceId}:${Math.round(rect.x)}`,
+    onTap: tap ?? inspect,
+    onInspect: inspect,
+  });
+  noteHoverCard(scene, instanceId, rect, hp);
+}
+
 /** The attacker, BASE ATK and an arrow, the defender, the facedown boost, and the note (the sheet's "incoming attack"). */
 function drawMatchup(scene: Phaser.Scene, layout: VillainDefendLayout, view: DefendChoiceView, game: GameState): void {
   const parts = layout.matchupParts;
@@ -170,6 +206,12 @@ function drawMatchup(scene: Phaser.Scene, layout: VillainDefendLayout, view: Def
   paintPanel(g, layout.matchup, "card", "rest");
   drawScan(scene, game, summary.attackerInstanceId, parts.attacker);
   drawScan(scene, game, summary.targetInstanceId, parts.target);
+  for (const [id, rect] of [
+    [summary.attackerInstanceId, parts.attacker],
+    [summary.targetInstanceId, parts.target],
+  ] as const) {
+    readableScan(scene, id, rect);
+  }
   g.lineStyle(3, accent.heroRed.hex, 1).strokeRect(
     parts.target.x - 2,
     parts.target.y - 2,
@@ -265,6 +307,20 @@ function drawMatchup(scene: Phaser.Scene, layout: VillainDefendLayout, view: Def
   }
 }
 
+/** Whether `words` fit `width` at `role`'s size, measured on a throwaway label. */
+function fitsAt(scene: Phaser.Scene, words: string, width: number, role: TypeSpec): boolean {
+  const probe = label(scene, 0, 0, words, role, surface.ink.hex, 1);
+  const fits = probe.width <= width;
+  probe.destroy();
+  return fits;
+}
+
+/** The option's HP line in full where it fits the card, else as the table writes HP ("3/4 HP → 0–1 LEFT"). */
+function hpLineFitting(scene: Phaser.Scene, option: DefendOptionView, width: number, role: TypeSpec): string {
+  const full = (option.hpLine ?? "").toUpperCase();
+  return fitsAt(scene, full, width, role) || !option.hpLineShort ? full : option.hpLineShort.toUpperCase();
+}
+
 /** One defender card: picture, title, what it exhausts, the damage range and what is left. Selected rings red with a check. */
 function drawOption(
   scene: Phaser.Scene,
@@ -314,7 +370,7 @@ function drawOption(
   fitText(damage, text.width, small ? 24 : 34);
   y += damage.height + 2;
   const hpLines = [
-    ...(option.hpAfter ? [defendHpLeftOf(option.hpAfter)] : []),
+    ...(option.hpLine ? [hpLineFitting(scene, option, text.width, { ...typeRole.label, size: small ? 9 : 10 })] : []),
     ...(option.defeatAt !== null ? [`DEFEATED AT ${option.defeatAt}+`] : []),
   ];
   for (const line of hpLines) {
@@ -372,10 +428,10 @@ function drawDenseOption(scene: Phaser.Scene, text: Rect, option: DefendOptionVi
     )
     .setWordWrapWidth(text.width)
     .setMaxLines(1);
-  const hp = [
-    ...(option.hpAfter ? [defendHpLeftOf(option.hpAfter)] : []),
-    ...(option.defeatAt !== null ? [`DEFEATED AT ${option.defeatAt}+`] : []),
-  ].join(" · ");
+  const defeat = option.defeatAt !== null ? [`DEFEATED AT ${option.defeatAt}+`] : [];
+  const full = [...(option.hpLine ? [option.hpLine.toUpperCase()] : []), ...defeat].join(" · ");
+  const short = [...(option.hpLineShort ? [option.hpLineShort.toUpperCase()] : []), ...defeat].join(" · ");
+  const hp = fitsAt(scene, full, text.width, { ...typeRole.label, size: 9 }) ? full : short;
   if (hp) {
     const hpText = label(
       scene,
