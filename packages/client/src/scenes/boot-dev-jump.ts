@@ -241,6 +241,10 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     const tab = params.get("tab");
     return { key: SCENES.extras, data: tab ? { tab: tab as ExtrasTab } : {} };
   }
+  // `?screen=trophies`: the Trophy Room; seed saves into IndexedDB first to see earned rows.
+  if (screen === "trophies") return { key: SCENES.trophyRoom, data: {} };
+  // `?screen=credits`: Art & Credits.
+  if (screen === "credits") return { key: SCENES.credits, data: {} };
   // `?screen=extras-reader&book=book:rrg`: one rulebook in the Extras reader.
   if (screen === "extras-reader")
     return { key: SCENES.extrasReader, data: { bookId: params.get("book") ?? "book:rrg" } };
@@ -345,6 +349,13 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     const { store } = appSession();
     const at = params.get("at");
     if (!gameRunning(store)) await startGodOfLiesGame(store, at === "swap" || at === "ready" ? at : "start");
+    return { key: SCENES.board, data: {} };
+  }
+
+  // `&fixture=sense`: Daredevil (with his Sense deck) and Echo, two seats, for the side-deck and Team-Up blurb layout.
+  if (screen === "board" && params.get("fixture") === "sense") {
+    const { startDevSenseGame } = await import("../store/dev-sense-game.js");
+    await startDevSenseGame();
     return { key: SCENES.board, data: {} };
   }
 
@@ -491,6 +502,13 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     const record = await fixtures.seedHiddenEvidenceFixture(campaignService(), params.get("revealed") === "1");
     if (params.get("view") === "briefing") return { key: SCENES.campaignBriefing, data: { runId: record.id } };
     return { key: SCENES.campaignDossier, data: { runId: record.id } };
+  }
+
+  // `?screen=fne-briefing`: Fear No Evil (Daredevil and Echo), fresh, on the Briefing's first-playthrough question.
+  if (screen === "fne-briefing" && import.meta.env.DEV) {
+    const fixtures = await import("../campaign/dev-fixtures.js");
+    const record = await fixtures.seedFneFresh(campaignService());
+    return { key: SCENES.campaignBriefing, data: { runId: record.id } };
   }
 
   // `?screen=campaign-market[&units=N]`: The Galaxy's Most Wanted (Groot and Rocket) after issue #1, on the Market

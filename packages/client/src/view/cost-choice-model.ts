@@ -105,6 +105,7 @@ export function describeCost(
   } | null = null,
 ): string {
   const parts: string[] = [];
+  if (cost.changeForm) parts.push(`change to ${cost.changeForm === "hero" ? "hero" : "alter-ego"} form`);
   if (cost.exhaustIdentity) parts.push("exhaust your hero");
   else if (cost.exhaustSelf) parts.push("exhaust this card");
   const everyone = eachPlayerPhrase(cost.eachPlayer);
@@ -122,7 +123,12 @@ export function describeCost(
   if (cost.resourcesX) parts.push(`spend up to ${cost.resourcesX.max ?? "X"} resources of any type`);
   if (cost.spendCounters) {
     const { amount, counterType, upTo } = cost.spendCounters;
-    parts.push(`remove ${upTo ? "up to " : ""}${amount} ${counterType} counter${amount === 1 ? "" : "s"}`);
+    // An amount read from the board (a value spec, 61009) is said as X rather than printed as an object.
+    parts.push(
+      typeof amount === "number"
+        ? `remove ${upTo ? "up to " : ""}${amount} ${counterType} counter${amount === 1 ? "" : "s"}`
+        : `remove X ${counterType} counters`,
+    );
   }
   if (cost.dealEncounterCards) parts.push(`deal yourself ${cost.dealEncounterCards} facedown encounter card`);
   if (cost.discardFromDeck !== undefined) {
@@ -131,6 +137,7 @@ export function describeCost(
   if (cost.damageSelf) parts.push(`take ${cost.damageSelf} damage`);
   if (cost.healIdentity) parts.push(`heal ${cost.healIdentity} damage from your identity`);
   if (cost.healCharacter) parts.push(`heal ${cost.healCharacter.amount} damage from a character you choose`);
+  if (cost.discardSelf) parts.push("discard this card");
   return parts.length > 0 ? parts.join(", ") : "pay this cost";
 }
 

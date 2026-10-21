@@ -31,6 +31,7 @@ import {
 } from "@mc/engine";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { abilityShortLabelOf } from "./ability-label.js";
+import { facedownRoleName, facedownUntilLater } from "./facedown-history.js";
 import { foeWord } from "./foe-words.js";
 import { cardName, faceUpName, formWords, optionLabelOf, playerName, seatName } from "./names.js";
 
@@ -228,6 +229,12 @@ function swappedOutName(state: GameState, id: InstanceId, event: GameEvent, burs
   return null;
 }
 
+/** A facedown card's role, for a line about it before a later event in the command took it out of play (#291). */
+function hiddenThenName(id: InstanceId, burst: Burst | undefined): string | null {
+  const role = burst ? facedownUntilLater(burst.events, burst.at, id) : null;
+  return role ? facedownRoleName(role) : null;
+}
+
 /** The command's whole event list and where `event` sits in it: a few lines read the events around them. */
 export interface Burst {
   readonly events: readonly GameEvent[];
@@ -249,7 +256,7 @@ function describe(
   /** "Your deck" vs "Spider-Man's deck": "you" possessive isn't "you's". */
   const possessive = (id: PlayerId): string => (id === viewer ? "Your" : `${who(id)}'s`);
   const card = (id: Parameters<typeof cardName>[1]): string =>
-    faceNames?.get(id) ?? swappedOutName(state, id, event, burst) ?? cardName(state, id);
+    faceNames?.get(id) ?? hiddenThenName(id, burst) ?? swappedOutName(state, id, event, burst) ?? cardName(state, id);
 
   switch (event.type) {
     case "roundStarted":
@@ -521,6 +528,15 @@ function describe(
         text: `${card(event.targetInstanceId)} can't take more damage — ${event.amount} not taken.`,
         voice: "scenario",
       };
+    // An interrupt lowered the damage dealt (Metal Bracer; ruling August 26, 2026 - Ruling 2), not a prevention.
+    case "damageReduced":
+      return { text: `Damage to ${card(event.targetInstanceId)} reduced by ${event.amount}.`, voice: "player" };
+    // docs/phase7-wave11-scenarios.md §S3.5: "cannot be dealt damage", so none was dealt (not a prevention).
+    case "damageNotDealt":
+      return {
+        text: `${card(event.targetInstanceId)} can't be dealt damage — ${event.amount} not dealt.`,
+        voice: "scenario",
+      };
     // Ruling Oct 10, 2025: a sustained-damage cap back in effect lowers the damage already on the card.
     case "damageAboveCapRemoved":
       return {
@@ -694,6 +710,13 @@ function describe(
         text: `Boost: ${event.boostIcons} icon${event.boostIcons === 1 ? "" : "s"} for ${card(event.enemyInstanceId)}.`,
         voice: "villain",
       };
+    // docs/phase7-wave11-scenarios.md §S3.7: a villainous ally or hero turns up its boost card as its basic power
+    // resolves; the icons go to the stat powering that use.
+    case "characterBoostCardFlipped":
+      return {
+        text: `Villainous: ${card(event.characterInstanceId)} turns up ${card(event.instanceId)}, ${event.boostIcons} boost icon${event.boostIcons === 1 ? "" : "s"} to ${event.stat.toUpperCase()}.`,
+        voice: "scenario",
+      };
     // A player card (Attacrobatics, Target Acquired) cancelling all or part of a just-flipped boost card
     // (RRG 1.8 "Boost", p. 11) — worded so the villain-phase breakdown can show it beside the boost card itself.
     case "boostCancelled":
@@ -843,6 +866,13 @@ function describe(
         text: `${card(event.instanceId)} flips${event.hitPointsReset ? ", hit points reset," : ""} to side ${event.to}.`,
         voice: "villain",
       };
+    // docs/phase7-wave11-scenarios.md §S3.4: the face a villain is put into play on (Disturbed Psyche's Setup). Not a
+    // flip, so it reads as where the villain starts.
+    case "villainSideSet":
+      return {
+        text: `${card(event.instanceId)} starts on side ${event.to}${event.random ? " (drawn at random)" : ""}.`,
+        voice: "villain",
+      };
     // A card the first player controls followed the token to a new seat (the Milano, docs/phase7-wave3.md §3.13) —
     // otherwise silent, since nothing about the card's own state changes, only who may use its ability. The
     // engine's own `reason` is always "firstPlayer" today, so the line states that plainly rather than branching
@@ -866,6 +896,12 @@ function describe(
         (index) => stages[index]?.name ?? `stage ${stages[index]?.stageNumber ?? index + 1}`,
       );
       return { text: `Main scheme stages for this game: ${names.join(", then ")}.`, voice: "scenario" };
+    }
+    // docs/phase7-wave11-scenarios.md §S3.1: a main scheme per player, each in its play area.
+    case "mainSchemesChosen": {
+      const picks = event.picks.map((pick) => `${who(pick.playerId)}: ${card(pick.schemeInstanceId)}`);
+      const random = event.picks.some((pick) => pick.random) ? " (drawn at random)" : "";
+      return { text: `Main schemes for this game${random}: ${picks.join("; ")}.`, voice: "scenario" };
     }
     // docs/phase7-wave10.md §3.19 (MC56 p. 20): a permanent attachment (Cap's Shield) whose holder left play moves on.
     case "permanentAttachmentRehosted":
@@ -917,6 +953,9 @@ function describe(
         text: `${card(event.instanceId)} gains surge.`,
         voice: "villain",
       };
+    // Run Them to Ground (`jj` 61020): the round ends with no villain phase (hero-pack spec H3.7).
+    case "villainPhaseSkipped":
+      return { text: `The villain phase is skipped this round.`, voice: "villain" };
     case "accelerationTokenAdded":
       return {
         text: `Acceleration: ${event.total} token${event.total === 1 ? "" : "s"} on the main scheme.`,
@@ -1092,6 +1131,18 @@ function describe(
         voice: "player",
       };
     }
+    // docs/phase7-wave11-scenarios.md §S3.15: a card put into play on its other face ("Failed side faceup", MC60 p. 9
+    // step 12). Not a flip, so it reads as the face the card starts on.
+    case "cardEnteredOnOtherFace": {
+      const pooled = cardOf(state, event.instanceId);
+      const face = pooled && "flipSide" in pooled ? pooled.flipSide : undefined;
+      // The face's first trait is its printed side name on the campaign environments (COMPLETED / FAILED, MC60 205-209).
+      const named = face && "traits" in face ? face.traits[0] : undefined;
+      return {
+        text: `${card(event.instanceId)} enters play ${named ? `${named.toUpperCase()} side` : "on its other side"} faceup.`,
+        voice: "scenario",
+      };
+    }
     // A counter put on or taken off a card by an ability (Phoenix Force's power counters, a Uses card's tokens).
     case "counterAdded":
     case "counterRemoved": {
@@ -1135,6 +1186,15 @@ function describe(
       };
     case "swapRefused":
       return { text: `The swap can't happen: ${swapRefusedReason(event.reason)}.`, voice: "player" };
+    // docs/phase7-wave11-scenarios.md §S3.2 (Change of Venue): a main scheme swapped with a set-aside one.
+    case "mainSchemeSwapped": {
+      const owner = event.playArea === viewer ? "your" : event.playArea === null ? "" : `${who(event.playArea)}'s`;
+      const where = event.playArea === null ? "" : ` in ${owner} play area`;
+      return {
+        text: `${card(event.incoming)} replaces ${card(event.outgoing)}${where}; ${card(event.outgoing)} is set aside.`,
+        voice: "scenario",
+      };
+    }
 
     // docs/phase7-wave8.md §3.63: an additional cost to change form (Spectrum-style "2 resources of the same type").
     // The cards that print it are not named: they are in the form-change prompt's header and in Inspect.

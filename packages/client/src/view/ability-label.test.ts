@@ -83,6 +83,22 @@ describe("abilityLabelOf", () => {
     expect(label).toBe(`${faceUpName(state, identityId)} — exhaust, remove 1 snoop counter`);
   });
 
+  test("describes a change-form cost (Entrapment 61024)", () => {
+    // "Alter-Ego Response (attack): After the villain schemes, change to hero form and discard this card → …"
+    const id = abilityId("61024.entrapment-response");
+    const deps = {
+      abilities: {
+        [id]: {
+          trigger: { kind: "response", forced: false, form: "alterEgo", on: { on: "enemyScheme" } },
+          cost: { changeForm: "hero", discardSelf: true },
+          effects: [],
+        },
+      },
+    } as unknown as typeof CORE_DEPS;
+    const label = abilityLabelOf(state, identityId, id, deps);
+    expect(label).toBe(`${faceUpName(state, identityId)} — change to hero form, discard this card`);
+  });
+
   test("describes a resources-plus-discard cost (Tenacity)", () => {
     // "Action: Spend 1 [physical] resource and discard Tenacity → ready your hero."
     const label = abilityLabelOf(state, identityId, abilityId("01093.tenacity-action"), CORE_DEPS);
@@ -159,6 +175,30 @@ describe("abilityLabelOf", () => {
     };
     const label = abilityShortLabelOf(state, identityId, abilityId("test.damage-computed"), deps);
     expect(label).toBe("exhaust, take damage");
+    expect(label).not.toMatch(/object/i);
+  });
+
+  // 4K Digital Camcorder (61009): "Remove X evidence counters …, where X is equal to 2 less than that minion's
+  // remaining hit points": a counter amount read from the board, a value spec (hero-pack spec H3.5).
+  test("a counter amount read from the board reads as X, never as [object Object] (4K Digital Camcorder shape)", () => {
+    const deps = {
+      abilities: {
+        "test.counters-read": {
+          trigger: { kind: "action" },
+          cost: {
+            exhaustSelf: true,
+            chooseTarget: { slot: "minion", query: { categories: ["minion"] } },
+            spendCounters: {
+              counterType: "evidence",
+              amount: { kind: "remainingHp", of: { kind: "slot", slot: "minion" } },
+            },
+          },
+          effects: [],
+        } as unknown as AbilityDefinition,
+      },
+    };
+    const label = abilityShortLabelOf(state, identityId, abilityId("test.counters-read"), deps);
+    expect(label).toBe("exhaust, choose a card, remove X evidence counters");
     expect(label).not.toMatch(/object/i);
   });
 

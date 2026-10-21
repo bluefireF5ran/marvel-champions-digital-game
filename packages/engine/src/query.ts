@@ -1,5 +1,6 @@
 import type {
   AbilityReference,
+  AllyCard,
   AlterEgoFace,
   AnyCard,
   CardId,
@@ -18,6 +19,7 @@ import { EngineInvariantError } from "./errors.js";
 import type { EncounterDeckId, InstanceId, PlayerId } from "./ids.js";
 import { baseOverride, statBonus } from "./modifiers.js";
 import { podOf, type SharedPodState } from "./pod.js";
+import { statUsedInPlaceOf } from "./rules.js";
 import { perPlayerCount } from "./team.js";
 import { EMPTY_POOL, printedResources, type ResourcePool } from "./resources.js";
 import type { SchemeValueName } from "./spec.js";
@@ -192,6 +194,24 @@ export function mustCardOf(state: GameState, id: InstanceId): AnyCard {
 export const hasStarIcon = (state: GameState, id: InstanceId): boolean => {
   const card = cardOf(state, id);
   return card !== undefined && "starIcon" in card && card.starIcon === true;
+};
+
+/**
+ * Does this card print a "Boost" ability? "If the discarded card has a 'Boost' ability" (Sidewinder 62033;
+ * docs/phase7-wave11-hero-packs.md H3.21). RRG 1.8 "Boost, Boost Icon" (p. 11): "If the boost field has a star icon, it
+ * indicates that the card has a 'Boost' ability". So this is the printed star, less the cards whose star stands for a
+ * Boost another card grants (`boostGrantedBy`: Purple Man's set, whose villain stages say "each **boost card** from the
+ * Purple Man encounter set gains '[star] Boost: …'"). Those print no Boost of their own, and a card being read in a
+ * discard pile or a deck is not a boost card, so the grant does not reach it either. Engine interpretation (no FFG
+ * ruling names it): "has a Boost ability" means printed text; a script after the star itself reads `starIcon`.
+ *
+ * A printed fact read from `@mc/content`, never from the ability registry, for the reason `hasStarIcon` gives: what has
+ * been scripted must not change what a card prints. Wherever the card is (RRG 1.8 "Printed", p. 35).
+ */
+export const printsBoostAbility = (state: GameState, id: InstanceId): boolean => {
+  const card = cardOf(state, id);
+  if (card === undefined || !("starIcon" in card) || card.starIcon !== true) return false;
+  return !("boostGrantedBy" in card) || (card.boostGrantedBy ?? []).length === 0;
 };
 
 /** A hero face with its traits: the identity's `hero`, or one of its `additionalHeroForms`. */
@@ -384,6 +404,30 @@ export function separateDeckOf(state: GameState, playerId: PlayerId, name: strin
   return piles;
 }
 
+/**
+ * Whether `zone` is a separate deck whose order never changes after setup (`SeparateDeckState.fixedOrder`;
+ * docs/phase7-wave11.md §3.1, MC60 p. 26: "you cannot change the order"). Its shuffles keep the order
+ * (`shuffleSeparateDeck`).
+ */
+export function isFixedOrderDeck(state: GameState, zone: ZoneId): boolean {
+  return zone.kind === "separateDeck" && getPlayer(state, zone.playerId)?.separateDecks[zone.name]?.fixedOrder === true;
+}
+
+/**
+ * Whether `viewerId` may look through `ownerId`'s separate deck `name`, every card in order
+ * (`SeparateDeckState.ownerMayLookThrough`; docs/phase7-wave11.md §3.1, MC60 p. 26: "you can look through it at any
+ * time"). "You" is the deck's owner: no other player, so the client and a networked redaction show anyone else only
+ * what any deck shows (its count, and its top card when `topCardFaceup`). False for an unknown player or deck.
+ */
+export function mayLookThroughSeparateDeck(
+  state: GameState,
+  viewerId: PlayerId,
+  ownerId: PlayerId,
+  name: string,
+): boolean {
+  return viewerId === ownerId && getPlayer(state, ownerId)?.separateDecks[name]?.ownerMayLookThrough === true;
+}
+
 /** The identity's printed definition of that separate deck (`HeroIdentityCard.separateDecks`), if it has one. */
 export function separateDeckDefinition(state: GameState, playerId: PlayerId, name: string) {
   const player = getPlayer(state, playerId);
@@ -540,12 +584,31 @@ export function discardZoneFor(state: GameState, id: InstanceId): ZoneId {
   // (docs/phase7-wave6.md §4.1 Q54): the encounter discard pile, as for any other encounter card.
   if (instance?.home.kind === "scenarioDeck" && state.scenarioDecks[instance.home.name]?.discardPile === "own")
     return { kind: "scenarioDiscard", name: instance.home.name };
+  const byTrait = instance && instance.home.kind !== "player" ? traitRoutedDiscard(state, id) : undefined;
+  if (byTrait !== undefined) return { kind: "scenarioDiscard", name: byTrait };
   if (instance && instance.home.kind !== "player")
     return { kind: "encounterDiscard", deckId: homeEncounterDeckId(state, id) };
   // A player card whose owner is unknown cannot exist; keep encounter routing as the safe default.
   return instance?.ownerId
     ? { kind: "discard", playerId: instance.ownerId }
     : { kind: "encounterDiscard", deckId: activeEncounterDeckId(state) };
+}
+
+/**
+ * The scenario deck whose discard pile takes `id` by its trait (`ScenarioDeckState.discardByTrait`), if any. MC65
+ * pp. 12-13: "Whenever a card with the TRAP! trait would be discarded, place that card into [...] the trap discard
+ * pile", and a card without it goes "in the encounter discard pile, even if it was previously drawn from the trap
+ * deck". The trait is read from the face showing as printed (a card being discarded is leaving play, so no gained
+ * trait is read). Engine reading (authority level 5, CLAUDE.md): the insert does not say whether a trait gained or
+ * lost in play counts.
+ */
+function traitRoutedDiscard(state: GameState, id: InstanceId): string | undefined {
+  const card = cardOf(state, id);
+  if (!card) return undefined;
+  const traits: readonly string[] = encounterFace(state, id)?.traits ?? ("traits" in card ? card.traits : []);
+  for (const [name, piles] of Object.entries(state.scenarioDecks))
+    if (piles.discardByTrait !== undefined && traits.includes(piles.discardByTrait)) return name;
+  return undefined;
 }
 
 /**
@@ -796,6 +859,19 @@ export function mainSchemeStagePosition(state: GameState, scheme: MainSchemeStat
   return (at >= 0 ? at : scheme.stageIndex) + 1;
 }
 
+/**
+ * Whether the card's own printed text box is gone because it is facedown as something else or treated as another card
+ * type "with a blank text box" (docs/phase7-wave4.md §3.9, §3.29). A card its own constant treats as an ally keeps
+ * its text (`TreatedAsAlly.keepsText`, Black Cat; docs/phase7-wave11-scenarios.md §S3.8).
+ */
+export function textGoneByTreatment(state: GameState, id: InstanceId): boolean {
+  const instance = state.instances[id];
+  if (!instance) return false;
+  if (instance.facedownAs) return true;
+  const treated = instance.treatedAs;
+  return treated !== undefined && treated !== null && !(treated.kind === "ally" && treated.keepsText === true);
+}
+
 /** A minion in play: a minion card, or a card facedown as a minion (a facedown Drone). */
 export function isMinion(state: GameState, id: InstanceId): boolean {
   const instance = state.instances[id];
@@ -835,13 +911,37 @@ function modifiedStat(
   stat: "atk" | "thw" | "def" | "rec" | "sch",
 ): number {
   if ((printed.missing as readonly string[]).includes(stat)) return 0;
+  // "Use your DEF in place of your THW and ATK. (Ignore any modifiers to your THW and ATK.)" (docs/phase7-wave11.md
+  // §3.10, ruling June 25, 2026 - Ruling 3): the other stat as it stands, this stat's own base and modifiers unread.
+  const inPlace = statUsedInPlaceOf(state, deps, id, stat);
+  if (inPlace !== undefined) return modifiedStatPlain(state, deps, id, printed, inPlace);
+  return modifiedStatPlain(state, deps, id, printed, stat);
+}
+
+/**
+ * `modifiedStat` without the `statInPlaceOf` swap: the stat's own base and modifiers. A replaced stat printed as a dash
+ * stays 0 (the check in `modifiedStat` runs first): engine interpretation, from RRG 1.8 "Dash (Value)" (p. 15), "treated
+ * as an unmodifiable 0", since no ruling says whether "use X in place of" overrides a dash. No hero prints one.
+ */
+function modifiedStatPlain(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  printed: CharacterProfile,
+  stat: "atk" | "thw" | "def" | "rec" | "sch",
+): number {
+  if ((printed.missing as readonly string[]).includes(stat)) return 0;
   // "Attached minion's SCH is equal to its THW" (docs/phase7-wave7.md §3.44, §4.1 Q27): the ally's THW as it stands, so
   // its base THW with the THW modifiers still applying to the card, where `printedProfile` gave the printed value.
   const treated = stat === "sch" ? getInstance(state, id)?.treatedAs : undefined;
+  // "SCH is equal to its base THW" (docs/phase7-wave11-scenarios.md §S3.9): its base THW (RRG 1.8 "Base Value", p. 10),
+  // with no THW modifier.
   const value =
     treated?.kind === "minion" && treated.schFromThw === "current"
       ? Math.max(0, (baseOverride(state, deps, id, "thw") ?? printed.sch) + statBonus(state, deps, id, "thw"))
-      : printed[stat];
+      : treated?.kind === "minion" && treated.schFromThw === "base"
+        ? Math.max(0, baseOverride(state, deps, id, "thw") ?? printed.sch)
+        : printed[stat];
   return Math.max(0, (baseOverride(state, deps, id, stat) ?? value) + statBonus(state, deps, id, stat));
 }
 
@@ -908,6 +1008,23 @@ const statValue = (value: PrintedStat): number => (typeof value === "number" ? v
 const dashes = (stats: Readonly<Record<"atk" | "thw" | "sch", PrintedStat | undefined>>): ("atk" | "thw" | "sch")[] =>
   (["atk", "thw", "sch"] as const).filter((stat) => stats[stat] === null);
 
+/**
+ * The printed THW, ATK and hit points of the face an ally shows: a flipped double-sided ally reads its other face's
+ * where that face prints its own (`CardFlipSide.thw` / `atk` / `hp`; Typhoid Mary 60210a THW 2 / ATK 1 flips to
+ * Bloody Mary 60210b THW 1 / ATK 2), since the new face's characteristics apply (RRG 1.8 "Flip", p. 20).
+ */
+export function showingAllyStats(
+  card: AllyCard,
+  flipped: boolean,
+): { readonly thw: PrintedStat; readonly atk: PrintedStat; readonly hp: number } {
+  const face = flipped ? card.flipSide : undefined;
+  return {
+    thw: face?.thw !== undefined ? face.thw : card.thw,
+    atk: face?.atk !== undefined ? face.atk : card.atk,
+    hp: face?.hp ?? card.hp,
+  };
+}
+
 export function printedProfile(state: GameState, id: InstanceId): CharacterProfile | undefined {
   const instance = getInstance(state, id);
   if (!instance) return undefined;
@@ -919,17 +1036,18 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
   }
   // An ally treated as a minion: its printed ATK and hit points; "SCH is equal to its printed THW" (§3.9 of wave 4).
   if (instance.treatedAs?.kind === "minion" && card.type === "ally") {
+    const ally = showingAllyStats(card, instance.flipped === true);
     // Either reading starts from the printed THW; `characterProfile` adds the THW modifiers for `"current"`.
-    const sch = instance.treatedAs.schFromThw ? card.thw : 0;
+    const sch = instance.treatedAs.schFromThw ? ally.thw : 0;
     return {
       kind: "minion",
-      missing: dashes({ atk: card.atk, thw: 0, sch }),
-      atk: statValue(card.atk),
+      missing: dashes({ atk: ally.atk, thw: 0, sch }),
+      atk: statValue(ally.atk),
       thw: 0,
       def: 0,
       rec: 0,
       sch: statValue(sch),
-      maxHp: card.hp,
+      maxHp: ally.hp,
     };
   }
   // A hero treated as a minion (docs/phase7-wave9.md §3.30; MC50 p. 22: "SCH equal to its THW value, and hit points
@@ -980,15 +1098,16 @@ export function printedProfile(state: GameState, id: InstanceId): CharacterProfi
       : { kind: "identity", missing: [], atk: 0, thw: 0, def: 0, rec: up.face.rec, sch: 0, maxHp: card.hp };
   }
   if (card.type === "ally") {
+    const ally = showingAllyStats(card, instance.flipped === true);
     return {
       kind: "ally",
-      missing: dashes({ atk: card.atk, thw: card.thw, sch: 0 }),
-      atk: statValue(card.atk),
-      thw: statValue(card.thw),
+      missing: dashes({ atk: ally.atk, thw: ally.thw, sch: 0 }),
+      atk: statValue(ally.atk),
+      thw: statValue(ally.thw),
       def: 0,
       rec: 0,
       sch: 0,
-      maxHp: card.hp,
+      maxHp: ally.hp,
     };
   }
   if (card.type === "minion") {
@@ -1279,6 +1398,19 @@ export const titleShowing = currentName;
  */
 export const turnInProgress = (state: GameState): boolean =>
   state.step.phase === "player" && state.step.kind === "turn";
+
+/**
+ * Owner question Q104 (docs/phase7-wave11-hero-packs.md H3.9), answered B by the owner on 2026-10-18 (to be asked of
+ * FFG): an "until the end of the player phase" effect made outside a player phase. `"nextPlayerPhase"` (A): it is made
+ * and lasts through the next player phase. `"notCreated"` (B, built): RRG 1.8 "Lasting Effects" (p. 26), "can only be initiated during that time period", read
+ * strictly, so it is not made at all. The end-of-player-phase steps count as outside under B: the step is already the
+ * villain phase's (`finishPlayerPhase`).
+ */
+const END_OF_PLAYER_PHASE_OUTSIDE_IT: "nextPlayerPhase" | "notCreated" = "notCreated";
+
+/** Whether an `endOfPlayerPhase` lasting effect can be initiated now (`END_OF_PLAYER_PHASE_OUTSIDE_IT`). */
+export const endOfPlayerPhaseCanStart = (state: GameState): boolean =>
+  (END_OF_PLAYER_PHASE_OUTSIDE_IT as string) === "nextPlayerPhase" || state.step.phase === "player";
 
 /**
  * Whether a "Standard Mode Only" / "Expert Mode Only" card shows its back face in this mode (RRG 1.8 "Double-Sided

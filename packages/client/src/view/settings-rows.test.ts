@@ -50,10 +50,14 @@ const BASE: Settings = {
   cardSize: "standard",
   hoverHeroCard: true,
   hoverVillainCard: true,
+  ultronDroneArt: true,
   firstPlayerTokenMotion: "toss",
   displayMode: "windowed",
   resolution: "native",
   powerSavingAdjust: true,
+  achievementPopupTime: "5s",
+  achievementPopupPlace: "middle",
+  achievementPopupSize: "medium",
 };
 
 describe("settingsRowInfoOf", () => {
@@ -78,10 +82,14 @@ describe("settingsRowInfoOf", () => {
       cardSize: "standard",
       hoverHeroCard: true,
       hoverVillainCard: true,
+      ultronDroneArt: true,
       firstPlayerTokenMotion: "toss",
       displayMode: "windowed",
       resolution: "native",
       powerSavingAdjust: true,
+      achievementPopupTime: "5s",
+      achievementPopupPlace: "middle",
+      achievementPopupSize: "medium",
     });
     expect(rows.find((r) => r.id === "reduced-motion")?.on).toBe(true);
     expect(rows.find((r) => r.id === "sharper-text")?.on).toBe(true);

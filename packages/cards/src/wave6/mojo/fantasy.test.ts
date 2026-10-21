@@ -11,6 +11,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { cardId } from "@mc/content";
 import { WAVE6_DEPS } from "../index.js";
+import { WSP_PACK_CARDS } from "../../wave2/wsp/pack-cards.js";
 import {
   firstLegal,
   identityOf,
@@ -31,6 +32,7 @@ import {
 } from "../../testing/harness.js";
 import { driveEventsPicking, encounterCardInVillainArea, moveToDiscard } from "../../testing/staging.js";
 import { engageMinion } from "../mut_gen/project-wideawake-testing.js";
+import { minionEngaged } from "../../testing/wave10-engine-qa-bench.js";
 import { chosen, encounterCards, revealCard, selectCards, whenRevealed } from "../../dsl/index.js";
 import { FANTASY_ABILITIES } from "./fantasy.js";
 import { fantasyGame, inEncounterPiles, inPlay, withHand } from "./fantasy-testing.js";
@@ -394,6 +396,81 @@ describe("Fetch Quest (39045)", () => {
     const { offered, pick } = searching({});
     defeat(state, id, pick);
     for (const player of ["p1", "p2"]) expect(offered.find((o) => o.player === player)!.cards).toContain(HAYMAKER);
+  });
+
+  it("a searched upgrade that attaches to a minion (Spider-Tracer 01007): its host is asked, then the deck is shuffled", () => {
+    // docs/phase7-wave11.md §3.2 broadened the ignore-cost play to an upgrade naming its host (RRG 1.8 "Attach To",
+    // p. 8); the search's shuffle still comes once the played card has resolved (RRG 1.8 "Search", p. 39).
+    const { state: base, id } = quest();
+    const first = minionEngaged(putOnTopOfDeck(base, P2, "01007").state, "01101");
+    const second = minionEngaged(first.state, "01101");
+    const state = second.state;
+    const tracer = playerOf(state, P2).deck[0]!;
+    const hostsOffered: string[][] = [];
+    const pick: Picker = (s) => {
+      const choice = s.pendingChoice;
+      if (choice?.prompt.kind === "chooseCards" && choice.prompt.slot === "playFromHand") {
+        const hit = choice.playerId === "p2" ? choice.options.find((o) => o.optionId === tracer) : undefined;
+        return hit ? [hit.optionId] : [];
+      }
+      if (choice?.prompt.kind === "chooseTarget" && choice.prompt.slot === "playFromHandHost") {
+        hostsOffered.push(choice.options.map((o) => o.optionId));
+        return [second.id];
+      }
+      return firstLegal(s);
+    };
+    const { state: after, events } = defeat(state, id, pick);
+    expect(hostsOffered).toEqual([[first.id, second.id]]);
+    expect(inst(after, second.id).attachments).toContain(tracer);
+    const played = events.findIndex((e) => e.type === "cardPlayed" && e.instanceId === tracer);
+    expect(played).toBeGreaterThanOrEqual(0);
+    const shuffled = events.findIndex(
+      (e, at) => at > played && e.type === "deckShuffled" && e.zone.kind === "deck" && e.zone.playerId === P2,
+    );
+    expect(shuffled).toBeGreaterThan(played);
+  });
+
+  it("a searched Ironheart (13018) does not answer 'after you play Ironheart from your hand' (RRG 1.8 FAQ p. 64)", () => {
+    // The play is from the deck and Fetch Quest does not say "as if it were in your hand", so it is not a play from the
+    // hand (FAQ "Magik (#30A)": only such a card "is considered to have been played from her hand").
+    const withIronheart: EngineDeps = { abilities: { ...deps.abilities, ...WSP_PACK_CARDS } };
+    const { state: base, id } = quest();
+    const ironheart = playerOf(base, P1).deck[0]!;
+    const state = patchInstance(base, ironheart, { cardId: cardId("13018") });
+    const pick: Picker = (s) => {
+      const choice = s.pendingChoice;
+      if (choice?.prompt.kind === "chooseCards" && choice.prompt.slot === "playFromHand") {
+        return choice.playerId === "p1" && choice.options.some((o) => o.optionId === ironheart) ? [ironheart] : [];
+      }
+      // Every response offered is taken, so a from-hand response that wrongly heard the play would resolve.
+      if (choice?.prompt.kind === "chooseTriggers") return choice.options.map((o) => o.optionId);
+      return firstLegal(s);
+    };
+    const thwart = (using: EngineDeps) =>
+      driveEventsPicking(using, state, pick, {
+        type: "basicThwart",
+        playerId: P1,
+        thwarterInstanceId: identityOf(state, P1),
+        schemeInstanceId: id,
+      });
+    const responded = (events: readonly GameEvent[]) =>
+      events.filter((e) => e.type === "abilityResolved" && String(e.abilityId) === "13018.ironheart-response");
+    const { state: after, events } = thwart(withIronheart);
+    expect(playerOf(after, P1).playArea).toContain(ironheart);
+    expect(of(events, "cardPlayed").find((e) => e.instanceId === ironheart)).toMatchObject({ from: "deck" });
+    expect(responded(events)).toEqual([]);
+    // Control: the same response without "from your hand" answers the play.
+    const printed = withIronheart.abilities["13018.ironheart-response"]!;
+    const anyPlay: EngineDeps = {
+      abilities: {
+        ...withIronheart.abilities,
+        "13018.ironheart-response": {
+          ...printed,
+          trigger: { kind: "response", forced: false, on: { on: "cardPlayed", selfIs: "target" } },
+        },
+      },
+    };
+    expect(responded(thwart(anyPlay).events)).toHaveLength(1);
   });
 
   it("[star] Boost: put this card into play (it starts with its threat)", () => {

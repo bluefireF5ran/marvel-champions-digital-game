@@ -32,7 +32,7 @@
 
 import { DEFAULT_DEPS, type EngineDeps } from "./abilities.js";
 import type { InstanceId, FrameId, PlayerId } from "./ids.js";
-import { attackKeywordsOf, hasKeyword, keywordTotal } from "./keywords.js";
+import { attackKeywordsOf, keywordTotal } from "./keywords.js";
 import { boostIconsFor } from "./modifiers.js";
 import {
   activeVillain,
@@ -47,7 +47,15 @@ import {
   mustInstance,
 } from "./query.js";
 import { defendsWithoutExhausting } from "./rules.js";
-import { cardsInPlay, characterIgnores, controllerOf, printedAbilityRefs } from "./select.js";
+import { villainousFriendlyCharacter } from "./resolve/villainous.js";
+import {
+  cardsInPlay,
+  categoriesOf,
+  characterIgnores,
+  controllerOf,
+  gainedBoostAbilities,
+  printedAbilityRefs,
+} from "./select.js";
 import type { StackFrame, Vars } from "./stack.js";
 import type { GameState } from "./state.js";
 
@@ -186,13 +194,23 @@ export interface DefendOptionPreview {
   readonly baseAtk: number;
   readonly defenseReduction: number;
   readonly boost: BoostBound;
+  /**
+   * A villainous hero's basic defense (docs/phase7-wave11-scenarios.md §S3.7): the one boost card of its own that this
+   * defense will be given and turn up, its icons added to its DEF (RRG 1.8 "Villainous", p. 47). Bounded over the same
+   * unseen pool. With it the bands run over the enemy's icons less these, so a band's `boostFrom`/`boostTo` can go
+   * below 0. Absent for any other option.
+   */
+  readonly ownBoost?: BoostBound;
   readonly bands: readonly DefendBand[];
 }
 
 const hasBoostAbility = (state: GameState, deps: EngineDeps, id: InstanceId): boolean => {
   const card = cardOf(state, id);
   if (!card) return false;
-  return printedAbilityRefs(card).some((ref) => deps.abilities[ref.id]?.trigger.kind === "boost");
+  if (printedAbilityRefs(card).some((ref) => deps.abilities[ref.id]?.trigger.kind === "boost")) return true;
+  // A Boost it would gain as a boost card ("Each boost card from the Purple Man encounter set gains …", §S3.6 of
+  // docs/phase7-wave11-scenarios.md), read as if it were one: the pool's cards are in a deck or still facedown.
+  return gainedBoostAbilities(state, deps, id, { asBoostCard: true }).length > 0;
 };
 
 /**
@@ -253,6 +271,15 @@ function boundOf(
     scope,
   };
 }
+
+/** The defender's own villainous boost card: one card off the same unseen pool, no per-card bonus. */
+const ownCardBound = (
+  state: GameState,
+  deps: EngineDeps,
+  enemyId: InstanceId,
+  scope: BoostScope,
+  youId: PlayerId,
+): BoostBound => boundOf(state, deps, enemyId, 1, scope, 0, youId);
 
 interface Outcome {
   readonly damageDealt: number;
@@ -412,7 +439,14 @@ export function defendPreview(
     return bound;
   };
   const overkill = attackHasOverkill(state, deps, frame);
-  const ranged = hasKeyword(state, frame.enemyInstanceId, "ranged", deps);
+  // Read per option as the attack's damage step reads it, against that option's attacked character: a grant ("it
+  // gains ranged"), a loss by the attacker ("his attacks lose ranged", wave 11 §S7 E19) and a loss against the
+  // character ("attacks against them lose ranged", wave 10 §3.18) all count.
+  const vars = activationVarsOf(state, frame.eventFrameId);
+  const rangedAgainst = (targetInstanceId: InstanceId): boolean =>
+    attackKeywordsOf(state, deps, { attackerInstanceId: frame.enemyInstanceId, vars, targetInstanceId }).includes(
+      "ranged",
+    );
 
   return choice.options.map((option) => {
     const defenderInstanceId =
@@ -428,8 +462,17 @@ export function defendPreview(
     const defended = withTargetPlayer(state, frame, targetPlayerId);
     const planned = plannedAttackDamage(defended, deps, frame, { boostIcons: 0, defenderInstanceId, basicDefense });
 
+    const ranged = rangedAgainst(targetInstanceId);
+    // A villainous hero defending is given a boost card of its own, turned up after the enemy's (`startDefenderBoost`),
+    // whose icons add to its DEF: they come off the enemy's icons here.
+    const ownBoost =
+      defenderInstanceId !== null &&
+      categoriesOf(state, defenderInstanceId).includes("hero") &&
+      villainousFriendlyCharacter(state, deps, defenderInstanceId)
+        ? ownCardBound(state, deps, frame.enemyInstanceId, scope, targetPlayerId)
+        : null;
     const bands: DefendBand[] = [];
-    for (let icons = boost.min; icons <= boost.max; icons++) {
+    for (let icons = boost.min - (ownBoost?.max ?? 0); icons <= boost.max - (ownBoost?.min ?? 0); icons++) {
       const outcome = outcomeAt(defended, deps, frame, shape, icons, overkill, ranged);
       const last = bands[bands.length - 1];
       if (last && sameOutcome(last, outcome)) bands[bands.length - 1] = { ...last, boostTo: icons };
@@ -448,6 +491,7 @@ export function defendPreview(
       baseAtk: planned?.baseAtk ?? 0,
       defenseReduction: planned?.defenseReduction ?? 0,
       boost,
+      ...(ownBoost ? { ownBoost } : {}),
       bands,
     };
   });

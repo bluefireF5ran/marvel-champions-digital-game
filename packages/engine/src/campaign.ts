@@ -84,10 +84,16 @@ export type CampaignGraph =
       readonly kind: "choice";
       readonly nodes: readonly CampaignNode[];
       readonly beforeChoice: readonly CampaignInstruction[];
+      /** Gates every unresolved node but the `finale`, which `available` never offers (see `finale`). */
       readonly available: CampaignPredicate;
       /**
        * A node that becomes mandatory once `when` holds and nothing else is available. MC60 p. 9 step 4: "If each
        * scenario is either Completed or Failed, the players must choose the Kingpin scenario".
+       *
+       * The finale is never one of the `available` nodes (`CampaignChoiceSource` `nodes` `"available"`, the next-node
+       * choice): step 4's "choose any scenario to play that has not been Completed or Failed" is over the other
+       * scenarios, and the finale is reached only through `when`. It is still `"unresolved"` until it is played to a
+       * win, so a draw over the unresolved nodes leaves it out by its own filter (MC60's `excludingTitles`).
        */
       readonly finale?: { readonly nodeId: string; readonly when: CampaignPredicate };
       /**
@@ -149,8 +155,19 @@ export interface CampaignNode {
 }
 
 export type CampaignScenarioRef =
+  /**
+   * The node plays one scenario record. MC60 p. 9 steps 5-6 ("Determine the villain … Gather your chosen main scheme,
+   * your chosen villain, and their corresponding encounter sets") is a `fixed` node too: the main scheme is the
+   * scenario and the villain one of its `Scenario.villainOptions`, which `composition`'s `composeVillain` names
+   * and the caller passes to the scenario builder (`CampaignGameStart.villain`; docs/phase7-wave11-scenarios.md §S3.3).
+   */
   | { readonly kind: "fixed"; readonly scenarioId: ScenarioId }
-  /** MC60 p. 9 steps 5-6: the villain (and so the encounter sets) is picked between games by `composition`. */
+  /**
+   * A game with no scenario record, built from `composition` alone (`CampaignGameStart.villain` and
+   * `encounterSets`). No box uses it: a fixed record already names the main scheme and sets, and MC60's villain
+   * follows from the option (above). Kept for a campaign whose game no record describes; only the engine's synthetic
+   * campaign fixture (`testing/campaign.ts`) builds one.
+   */
   | { readonly kind: "composed" };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -583,7 +600,15 @@ export type CampaignValue =
    * `divide`, which this type is otherwise deliberately without (see the file header) — needed the moment a
    * between-games write is itself a quotient rather than a sum/difference/min/max of whole values.
    */
-  | { readonly kind: "divide"; readonly of: CampaignValue; readonly by: number; readonly round: "down" | "up" };
+  | { readonly kind: "divide"; readonly of: CampaignValue; readonly by: number; readonly round: "down" | "up" }
+  /**
+   * The progression marks a node holds (`CampaignPosition.progress`, MC60 p. 9 step 3: "marking the first unmarked box
+   * to the right of that scenario"), 0 for a node never progressed. A game never reads the position, so a definition
+   * copies this into a log field (a `working` number) that the in-game setup reads through `ValueSpec` `campaignLog`,
+   * and the copy is traced like any other write: MC60 p. 13, "Place 1 threat … for each check mark in the campaign
+   * log beside 'Protection Racket.'" Naming a node the graph does not hold is an `EngineInvariantError`.
+   */
+  | { readonly kind: "nodeProgress"; readonly node: string };
 
 export type CampaignPredicate =
   | { readonly kind: "fieldAtLeast"; readonly field: string; readonly amount: number; readonly seat?: "self" }
@@ -670,7 +695,23 @@ export type CampaignOp =
    * campaign, even if players retry the scenario wherein that card was removed." Applies to every seat and to the
    * encounter side, and survives a retry — hence it is not restored by `LossPolicy.retryBaseline`.
    */
-  | { readonly kind: "removeFromCampaign"; readonly cards: readonly CampaignValue[] }
+  | {
+      readonly kind: "removeFromCampaign";
+      readonly cards: readonly CampaignValue[];
+      /**
+       * Remove every copy of each named card, not only the card id named. MC60 p. 9 step 8: "Each player searches
+       * their deck for each card whose title is recorded in the 'Allies/Supports Removed from the Campaign' section …
+       * and removes those cards", so a reprint or another pack's printing of a recorded ally goes too. A copy shares
+       * title **and** subtitle (RRG 1.8 "Copy", p. 13): Spider-Man (Miles Morales) recorded leaves Spider-Man (Peter
+       * Parker) in the deck. Matched over the cards that can be in a player deck (RRG 1.8 "Player Deck", p. 33): the
+       * search is of the decks, so a hero identity or an encounter card sharing the title is untouched. A named id
+       * with no card in the pool is removed by that id alone. Each printing is one front-face removal, so
+       * `withoutRemovedCards`, the choice sources and `validateDeck` need nothing new. A deck this leaves below its
+       * minimum is the deck editor's existing `deck_size` check (step 8: "must add cards to their deck"). Absent: by
+       * card id, as before.
+       */
+      readonly byTitle?: true;
+    }
   /** MC10 p. 12 ("replace their 'Basic' Condition upgrade with its 'Improved' side"); MC27 p. 22's Enhanced side. */
   | { readonly kind: "setGrantFace"; readonly card: CampaignValue; readonly face: string }
   // --- choices and randomness --------------------------------------------------------------------------------
@@ -864,8 +905,13 @@ export type CampaignChoiceSource =
   | { readonly kind: "collection"; readonly filter: CollectionFilter }
   /** Options of a `choice` or `strikeList` field (MC45 p. 5's available missions). */
   | { readonly kind: "fieldOptions"; readonly field: string; readonly unstruckOnly?: true }
-  /** MC60 p. 9 steps 2 and 4: the unresolved scenarios, or the ones the players may currently choose. */
-  | { readonly kind: "nodes"; readonly filter: "unresolved" | "available" }
+  /**
+   * MC60 p. 9 steps 2 and 4: the unresolved scenarios, or the ones the players may currently choose (never the
+   * graph's `finale`). `"completed"`: the nodes marked Completed, for MC60 p. 23's expert DEFEAT, "If there is at
+   * least one environment on its Completed side, choose and flip one to its Failed side" (`markNode as: "failed"`).
+   * Graph order in every case.
+   */
+  | { readonly kind: "nodes"; readonly filter: "unresolved" | "available" | "completed" }
   /** MC27 p. 22's "Planning Ahead": "Each player chooses one card from their deck". */
   | { readonly kind: "ownDeck"; readonly filter?: CollectionFilter }
   /**
@@ -944,8 +990,15 @@ export interface LossPolicy {
    * instructions wrote. MC40 p. 7 depends on it: "When the players replay a scenario after losing, they must choose
    * the same player side scheme for that scenario and defeat it in order to earn its reward, **even if they
    * defeated it during a game they lost**." A per-box value, never an engine default (design Q6).
+   *
+   * `"keepLog"` restores nothing: the log stays as the lost attempt left it (its between-games writes and draws, the
+   * RNG included), then the game's writes and the `defeat` instructions go on top. A `choice` graph then goes back to
+   * its choice (`beforeChoice` runs again, and the players pick from what is available); a `linear` graph replays the
+   * node. MC60 p. 8: a lost scenario "does not automatically cause it to fail and it may be able to be attempted
+   * again", and every underling DEFEAT block ends "Go to 'Campaign Setup' on page 9", whose steps 1 to 3 draw anew and
+   * whose step 5a reads the villain already recorded (rules expert, 2026-10-19; docs/phase7-wave11-scenarios.md E30).
    */
-  readonly retryBaseline: "nodeStart";
+  readonly retryBaseline: "nodeStart" | "keepLog";
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1198,7 +1251,7 @@ export interface CampaignAttempt {
   readonly steps: readonly CampaignStepTrace[];
   /** What the game is handed (design §7.1). Frozen here so a resumed campaign hands the identical value twice. */
   readonly input: CampaignGameInput;
-  /** `composeVillain` (MC60 p. 9 step 5). Null for a node whose scenario is `fixed`. */
+  /** `composeVillain` (MC60 p. 9 step 5). Null when the node's composition names no villain. */
   readonly composedVillain: string | null;
   /** `composeEncounterSets` (MC60 p. 9 step 6), in the order the ops named them, split by `into`. */
   readonly composedEncounterSets: { readonly deck: readonly string[]; readonly setAside: readonly string[] };

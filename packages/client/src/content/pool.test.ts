@@ -29,10 +29,15 @@ import {
   WAVE10_SCENARIOS,
   WAVE10_ENCOUNTER_SETS,
   WAVE10_STARTER_DECKS,
+  FNE_STARTER_DECKS,
+  FNE_SCENARIOS,
+  JJ_STARTER_DECKS,
+  LUKE_CAGE_STARTER_DECKS,
   MUT_GEN_SCENARIOS,
   MOJO_SCENARIOS,
   poolVersionOf,
 } from "@mc/content";
+import { UNSCRIPTED_ENCOUNTER_SET_IDS } from "@mc/cards";
 import { createGame } from "@mc/engine";
 import {
   POOL_CARDS,
@@ -58,7 +63,7 @@ describe("POOL_CARDS", () => {
 });
 
 describe("POOL_SCENARIOS", () => {
-  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five and Trickster Takeover's Enchantress and God of Lies, then Civil War's four leaders, in that order", () => {
+  test("is Core's three scenarios, wave 1's three, cycle 1's six, cycle 2's five, cycle 3's six, cycle 4's five, then Mutant Genesis' five, MojoMania's three and NeXt Evolution's five, then Age of Apocalypse's five and Agents of S.H.I.E.L.D.'s five and Trickster Takeover's Enchantress and God of Lies, then Civil War's four leaders and Synthezoid Smackdown's two, in that order", () => {
     expect(POOL_SCENARIOS.map((s) => s.id)).toEqual(
       [
         ...CORE_SCENARIOS,
@@ -73,6 +78,7 @@ describe("POOL_SCENARIOS", () => {
         ...WAVE8_SCENARIOS,
         ...WAVE9_SCENARIOS,
         ...WAVE10_SCENARIOS,
+        ...FNE_SCENARIOS,
       ].map((s) => s.id),
     );
     expect(POOL_SCENARIOS.length).toBe(
@@ -83,7 +89,8 @@ describe("POOL_SCENARIOS", () => {
         WAVE7_SCENARIOS.length +
         WAVE8_SCENARIOS.length +
         7 +
-        WAVE10_SCENARIOS.length,
+        WAVE10_SCENARIOS.length +
+        FNE_SCENARIOS.length,
     );
   });
 });
@@ -103,6 +110,9 @@ describe("POOL_STARTER_DECKS", () => {
         ...WAVE8_STARTER_DECKS,
         ...WAVE9_STARTER_DECKS,
         ...WAVE10_STARTER_DECKS,
+        ...FNE_STARTER_DECKS,
+        ...JJ_STARTER_DECKS,
+        ...LUKE_CAGE_STARTER_DECKS,
       ].map((d) => d.id),
     );
     expect(POOL_STARTER_DECKS.length).toBe(
@@ -113,7 +123,10 @@ describe("POOL_STARTER_DECKS", () => {
         WAVE7_STARTER_DECKS.length +
         WAVE8_STARTER_DECKS.length +
         WAVE9_STARTER_DECKS.length +
-        WAVE10_STARTER_DECKS.length,
+        WAVE10_STARTER_DECKS.length +
+        FNE_STARTER_DECKS.length +
+        JJ_STARTER_DECKS.length +
+        LUKE_CAGE_STARTER_DECKS.length,
     );
     expect(WAVE10_STARTER_DECKS.map((d) => d.id)).toEqual([
       "tigra-aggression",
@@ -145,12 +158,33 @@ describe("packNameOf", () => {
     expect(packNameOf("nope")).toBe("nope");
   });
 
-  test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 to cycle 10 pack (Civil War), with no duplicate codes", () => {
-    expect(POOL_PACKS.length).toBe(59);
-    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(59);
+  test("POOL_PACKS covers Core and every wave 1, cycle 1, cycle 2, cycle 3 and cycle 4 (shipped-so-far) cycle 6 to cycle 10 pack (Civil War, Synthezoid Smackdown), with no duplicate codes", () => {
+    expect(POOL_PACKS.length).toBe(63);
+    expect(new Set(POOL_PACKS.map((p) => p.code as string)).size).toBe(63);
     expect(packNameOf("cw")).toBe("Civil War");
+    expect(packNameOf("synthezoid")).toBe("Synthezoid Smackdown");
     expect(packNameOf("wonder_man")).toBe("Wonder Man");
     expect(packNameOf("hercules")).toBe("Hercules");
+    expect(packNameOf("jj")).toBe("Jessica Jones");
+    expect(packNameOf("luke_cage")).toBe("Luke Cage");
+  });
+});
+
+describe("Fear No Evil scenarios", () => {
+  test("every scenario builds and starts against every villain it offers", () => {
+    for (const scenario of FNE_SCENARIOS) {
+      const villains = scenario.villainOptions?.options.map((o) => o.villainSetId as string) ?? [undefined];
+      for (const villainSetId of villains) {
+        const config = buildScenario(scenario.id as string, {
+          difficulty: "standard",
+          players: [{ starterDeckId: "fne-daredevil-justice" }],
+          seed: 1,
+          ...(villainSetId ? { villainSetId } : {}),
+          ...(scenario.mainSchemeChoice ? { mainSchemePicks: [scenario.mainSchemeChoice.cardIds[0] as string] } : {}),
+        });
+        expect(createGame(config, POOL_DEPS).ok, `${scenario.id} vs ${villainSetId}`).toBe(true);
+      }
+    }
   });
 });
 
@@ -255,7 +289,8 @@ describe("buildScenario", () => {
 describe("the Civil War box in the pool", () => {
   test("every wave 10 set is in the pool's encounter sets, with both hero packs' nemesis sets and All Versus All", () => {
     const ids = new Set(POOL_ENCOUNTER_SETS.map((set) => set.id as string));
-    for (const set of WAVE10_ENCOUNTER_SETS) expect(ids.has(set.id as string), set.id as string).toBe(true);
+    for (const set of WAVE10_ENCOUNTER_SETS.filter((s) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(s.id as string)))
+      expect(ids.has(set.id as string), set.id as string).toBe(true);
   });
 
   test("the Wonder Man pack is in the pool as a hero with his precon: shelved in the Civil War cycle", () => {
@@ -282,8 +317,13 @@ describe("the Civil War box in the pool", () => {
 
   test("its four leaders are scenarios of the pack Civil War, and the two precons start a game at one", async () => {
     expect(POOL_SCENARIOS.filter((s) => s.packCode === "cw").map((s) => s.id)).toEqual(
-      WAVE10_SCENARIOS.map((s) => s.id),
+      WAVE10_SCENARIOS.filter((s) => s.packCode === "cw").map((s) => s.id),
     );
+    // Synthezoid Smackdown's two leaders follow them on the shelf (docs/phase7-synthezoid.md §4.3; pool-synthezoid.test.ts).
+    expect(POOL_SCENARIOS.filter((s) => s.packCode === "synthezoid").map((s) => s.id)).toEqual([
+      "registration-she-hulk",
+      "resistance-vision",
+    ]);
     for (const starterDeckId of ["tigra-aggression", "hulkling-protection"]) {
       const config = buildScenario("registration-iron-man", {
         seed: 1,

@@ -23,6 +23,7 @@ import {
   WAVE8_STARTER_DECKS,
   WAVE9_STARTER_DECKS,
   WAVE10_STARTER_DECKS,
+  WAVE11_STARTER_DECKS,
   type DeckContents,
   type HeroIdentityCard,
   type StarterDeck,
@@ -43,6 +44,7 @@ const PRECONS: readonly StarterDeck[] = [
   ...WAVE8_STARTER_DECKS,
   ...WAVE9_STARTER_DECKS,
   ...WAVE10_STARTER_DECKS,
+  ...WAVE11_STARTER_DECKS,
 ];
 
 /**
@@ -73,6 +75,12 @@ const UNSCRIPTED_WAVE9_PACKS: ReadonlySet<string> = new Set();
  */
 const UNSCRIPTED_WAVE10_PACKS: ReadonlySet<string> = new Set();
 
+/**
+ * Wave 11 packs in the pool whose kits are not scripted yet (docs/phase7-wave11.md, docs/phase7-wave11-hero-packs.md):
+ * all three. Each pack's precon task removes its code here once its kit is scripted and its precon can be seated.
+ */
+const UNSCRIPTED_WAVE11_PACKS: ReadonlySet<string> = new Set();
+
 /** Every pack whose precons are legal but cannot be seated yet. */
 const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
   ...UNSCRIPTED_WAVE6_PACKS,
@@ -80,6 +88,7 @@ const UNSCRIPTED_PACKS: ReadonlySet<string> = new Set([
   ...UNSCRIPTED_WAVE8_PACKS,
   ...UNSCRIPTED_WAVE9_PACKS,
   ...UNSCRIPTED_WAVE10_PACKS,
+  ...UNSCRIPTED_WAVE11_PACKS,
 ]);
 
 /** Precon cards left unscripted on purpose (wave9/custom-decks.test.ts `KNOWN_GAPS`). None. */

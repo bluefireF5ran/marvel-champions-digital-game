@@ -32,8 +32,10 @@ import {
   eventResult,
   exhaustCardsCost,
   exhaustYourHero,
+  firstPlayer,
   flipCard,
   forEachPlayer,
+  forEachPlayerInChosenOrder,
   forcedResponse,
   gainsKeyword,
   gets,
@@ -102,9 +104,10 @@ export const STRYFE: AbilityRegistry = defineAbilities({
   "40163.stryfe-constant": stryfeAttack(),
   "40164.stryfe-constant": stryfeAttack(),
   // II — When Revealed: Each player discards cards from the top of the encounter deck until a PSIONIC attachment is
-  // discarded and reveals that card (in player order; the deck resets if it runs out, as any discard-until does).
+  // discarded and reveals that card (the first player picks the order, RRG 1.8 p. 17; the deck resets if it runs out,
+  // as any discard-until does).
   "40164.when-revealed": whenRevealed(
-    forEachPlayer(
+    forEachPlayerInChosenOrder(
       eachPlayer,
       discardEncounterUntil(query("attachment", { trait: PSIONIC }), "found"),
       revealCard(chosen("found"), thatPlayer),
@@ -235,8 +238,10 @@ export const STRYFE: AbilityRegistry = defineAbilities({
 
   // Cerebral Erasure (40175) — Acceleration (data). When Revealed: Return an upgrade or support you control to its
   // owner's hand. When Defeated: the player who defeated this scheme does the same with theirs.
+  // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+  // (RRG 1.8 "First Player", p. 19).
   "40175.when-revealed": whenRevealed(
-    chooseTarget("returned", YOUR_UPGRADES_AND_SUPPORTS),
+    chooseTarget("returned", YOUR_UPGRADES_AND_SUPPORTS, { chooser: firstPlayer }),
     moveCards(cards(chosen("returned")), "hand"),
   ),
   "40175.when-defeated": whenDefeated(
@@ -284,7 +289,7 @@ export const STRYFE: AbilityRegistry = defineAbilities({
   // against you. [star] Boost: If you have at least 3 cards in your hand that share a type, place 3 threat on the main
   // scheme.
   "40179.when-revealed": whenRevealed(
-    chooseTarget("returned", YOUR_UPGRADES_AND_SUPPORTS),
+    chooseTarget("returned", YOUR_UPGRADES_AND_SUPPORTS, { chooser: firstPlayer }),
     moveCards(cards(chosen("returned")), "hand"),
     enemyActivates(each(THE_VILLAIN), { against: you }),
   ),

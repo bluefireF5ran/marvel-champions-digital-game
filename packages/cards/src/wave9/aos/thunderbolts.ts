@@ -221,7 +221,7 @@ export const THUNDERBOLTS: AbilityRegistry = defineAbilities({
     flipCard(self),
   ),
   "50131b.thunderbolt-backup-forced-interrupt": forcedInterrupt(
-    on.phaseEnding("villain"),
+    on.roundEnding(),
     bindTargets("tied", superlative("highest", each(THUNDERBOLT_MINIONS), damageOn(chosen("candidate")))),
     chooseTarget("most", { inSlot: "tied" }, { chooser: firstPlayer }),
     engage(HELD_HERE_OTHER_THAN_MOST, engagedPlayerOf(chosen("most"))),
@@ -283,7 +283,9 @@ export const THUNDERBOLTS: AbilityRegistry = defineAbilities({
         damageOn(chosen("candidate")),
       ),
     ),
-    chooseTarget("minion", { inSlot: "least" }),
+    // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+    // (RRG 1.8 "First Player", p. 19).
+    chooseTarget("minion", { inSlot: "least" }, { chooser: firstPlayer }),
     engage(chosen("minion"), you),
     enemyActivates(chosen("minion"), { against: you, bind: "activated" }),
     ifThen(not(made("activated")), enemyActivates(named(CITIZEN_V), { against: you })),

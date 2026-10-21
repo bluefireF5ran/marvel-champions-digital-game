@@ -19,7 +19,7 @@ import {
   eventTarget,
   exists,
   firstPlayer,
-  forEachPlayer,
+  forEachPlayerInChosenOrder,
   forcedInterrupt,
   forcedResponse,
   gainsKeyword,
@@ -67,7 +67,7 @@ const sentinelIntoPlayFor = (player: Parameters<typeof putIntoPlay>[1]): EffectA
 ];
 /** "Each player discards cards from the encounter deck until they discard a [Sentinel] minion, then puts it into play
  * engaged with them." */
-const eachPlayerSentinel = () => forEachPlayer(eachPlayer, ...sentinelIntoPlayFor(thatPlayer));
+const eachPlayerSentinel = () => forEachPlayerInChosenOrder(eachPlayer, ...sentinelIntoPlayFor(thatPlayer));
 
 /**
  * "[star] Forced Interrupt: When Master Mold schemes against you, discard cards from the encounter deck until a
@@ -137,7 +137,12 @@ export const MASTER_MOLD_ABILITIES = defineAbilities({
     gainsKeyword({ name: "retaliate", value: 1 }, HOST_MINION),
   ),
   // [star] Boost: Attach to a Sentinel minion.
-  "32115.boost": boost(chooseTarget("host", SENTINEL_MINION), attachCard(self, chosen("host"))),
+  // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+  // (RRG 1.8 "First Player", p. 19).
+  "32115.boost": boost(
+    chooseTarget("host", SENTINEL_MINION, { chooser: firstPlayer }),
+    attachCard(self, chosen("host")),
+  ),
 
   // Stun Beam (32116) — Attach to a Sentinel minion without Stun Beam attached (data). Otherwise, this card gains surge.
   "32116.stun-beam-constant": whenRevealed(ifThen(not(isAttached(self)), surge())),

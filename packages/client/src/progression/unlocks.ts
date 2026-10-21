@@ -235,6 +235,18 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
       { scenarioId: "resistance-captain-america", identityCardId: "59001a" }, // Hercules
     ],
   },
+  {
+    // Civil War ships no campaign, so the gate stays Agents of S.H.I.E.L.D.'s (the last campaign before it). Daredevil
+    // and Echo are MC60's own cast. Jessica Jones (MC61) and Luke Cage (MC62) open with the same gate (owner, 2026-10-20:
+    // the Fear No Evil heroes unlock when the Agents of S.H.I.E.L.D. campaign is won).
+    // Gate confirmed by the owner: A, the Agents of S.H.I.E.L.D. win, like Civil War.
+    cycleId: "cycle11",
+    name: "Fear No Evil",
+    gate: { kind: "campaignWin", campaignId: "aos", hint: "Complete the Agents of S.H.I.E.L.D. campaign" },
+    campaignId: "fne",
+    starterHeroIds: ["60001a", "60037a", "61001a", "62001a"], // Daredevil, Echo, Jessica Jones, Luke Cage
+    heroRewards: [],
+  },
 ];
 
 /** What the player has done, read from storage by `progressOf`. */
@@ -450,6 +462,11 @@ export interface UnlocksInput {
   readonly prefs: UnlockPrefs;
   /** `?unlock=all`: everything open for this page load, never saved and never charged. */
   readonly devUnlockAll?: boolean;
+  /**
+   * Points the earned achievements add to what was earned by play (owner, 2026-10-20: A). Read from the save history by
+   * `progression/progression.ts`; absent in the pure tests, where only firsts and campaigns count.
+   */
+  readonly achievementPoints?: number;
 }
 
 /** One answer to "may the player pick this?", for every screen that asks. */
@@ -457,6 +474,8 @@ export class Unlocks {
   readonly progress: UnlockProgress;
   readonly prefs: UnlockPrefs;
   readonly devUnlockAll: boolean;
+  /** Champion points the earned achievements give, on top of the firsts and campaigns `progress` holds. */
+  readonly achievementPoints: number;
   readonly #waves: ReadonlyMap<string, WaveStatus>;
   readonly #won: ReadonlySet<string>;
 
@@ -464,6 +483,7 @@ export class Unlocks {
     this.progress = input.progress;
     this.prefs = input.prefs;
     this.devUnlockAll = input.devUnlockAll ?? false;
+    this.achievementPoints = input.achievementPoints ?? 0;
     const won = new Set(input.progress.wonScenarioIds);
     this.#won = won;
     const completed = new Set(input.progress.wonCampaignIds);
@@ -604,7 +624,8 @@ export class Unlocks {
       p.wonScenarioIds.length * POINTS.firstWin +
       p.wonExpertScenarioIds.length * POINTS.firstExpertWin +
       p.wonCampaignIds.length * POINTS.campaign +
-      p.wonExpertCampaignIds.length * POINTS.expertCampaign;
+      p.wonExpertCampaignIds.length * POINTS.expertCampaign +
+      this.achievementPoints;
     const spent = this.prefs.charges.reduce((sum, charge) => sum + charge.points, 0);
     return { earned, spent, total: earned - spent };
   }
@@ -623,6 +644,7 @@ export class Unlocks {
         label: `Expert Campaign: ${campaignNameOf(id)}`,
         points: POINTS.expertCampaign,
       })),
+      ...(this.achievementPoints > 0 ? [{ label: "Achievements", points: this.achievementPoints }] : []),
     ];
   }
 

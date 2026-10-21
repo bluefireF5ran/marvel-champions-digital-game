@@ -87,6 +87,11 @@ export interface Settings {
   /** The hover popover over a villain card. Defaults on. */
   readonly hoverVillainCard: boolean;
   /**
+   * Ultron's facedown Drones drawn with Hall of Heroes' Drone card art, once earned (Settings ▸ More ▸ Earned items,
+   * `progression/earned-items.ts`; issue #291). Defaults on: earning it is what turns it on.
+   */
+  readonly ultronDroneArt: boolean;
+  /**
    * How the first player token travels to a new first player, on the Set the table screen and around the table
    * (`view/first-player-token-motion.ts`). Defaults to a toss (the owner, 2026-10-16). Reduced motion places it instead.
    */
@@ -108,7 +113,36 @@ export interface Settings {
    * a 30 fps cap. Off plays as usual whatever the device says (the owner, 2026-10-18). Defaults on.
    */
   readonly powerSavingAdjust: boolean;
+  /**
+   * How long the "Achievement unlocked" popup stays up (`scenes/achievement-toast.ts`), or "off" for none. Defaults to
+   * 5 s (the owner, 2026-10-20).
+   */
+  readonly achievementPopupTime: AchievementPopupTime;
+  /** Where the "Achievement unlocked" popup shows. Defaults to the title bar (the owner, 2026-10-20: keep it out of the way). */
+  readonly achievementPopupPlace: AchievementPopupPlace;
+  /** How large the "Achievement unlocked" popup is drawn. Defaults to small (the owner, 2026-10-20). Its opened list keeps one size. */
+  readonly achievementPopupSize: AchievementPopupSize;
 }
+
+export type AchievementPopupTime = "off" | "3s" | "5s" | "8s" | "10s";
+export const ACHIEVEMENT_POPUP_TIME_VALUES: readonly AchievementPopupTime[] = ["off", "3s", "5s", "8s", "10s"];
+
+/** Milliseconds an achievement popup holds for a `achievementPopupTime`; 0 for "off". */
+export function achievementPopupHoldMs(time: AchievementPopupTime): number {
+  return time === "off" ? 0 : Number.parseInt(time, 10) * 1000;
+}
+
+/** "titleBar" sits in the screens' top bar strip; the rest are centered across the screen at that height. */
+export type AchievementPopupPlace = "titleBar" | "top" | "middle" | "bottom";
+export type AchievementPopupSize = "small" | "medium" | "large";
+export const ACHIEVEMENT_POPUP_SIZE_VALUES: readonly AchievementPopupSize[] = ["small", "medium", "large"];
+
+/** The scale an `achievementPopupSize` draws the popup at: medium is the size it was designed at. */
+export function achievementPopupScale(size: AchievementPopupSize): number {
+  return size === "small" ? 0.8 : size === "large" ? 1.3 : 1;
+}
+
+export const ACHIEVEMENT_POPUP_PLACE_VALUES: readonly AchievementPopupPlace[] = ["titleBar", "top", "middle", "bottom"];
 
 export type DisplayMode = "windowed" | "borderless" | "fullscreen";
 export const DISPLAY_MODE_VALUES: readonly DisplayMode[] = ["windowed", "borderless", "fullscreen"];
@@ -261,9 +295,13 @@ export function defaultSettings(device: DeviceConditions = {}): Settings {
     cardSize: "standard",
     hoverHeroCard: true,
     hoverVillainCard: true,
+    ultronDroneArt: true,
     firstPlayerTokenMotion: "toss",
     displayMode: "windowed",
     resolution: "native",
     powerSavingAdjust: true,
+    achievementPopupTime: "5s",
+    achievementPopupPlace: "titleBar",
+    achievementPopupSize: "small",
   };
 }

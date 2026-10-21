@@ -4,7 +4,7 @@ import type { AbilityId } from "@mc/content";
 import { type Ctx, emit, moveCard, popFrame, pushFrames, setFrame, updateInstance } from "../ctx.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { discardZoneFor, locateCard, mustCardOf, mustInstance, mustPlayer, scenarioPlayAreaOf } from "../query.js";
-import { cardsInPlay, controllerOf, printedAbilityRefs } from "../select.js";
+import { cardsInPlay, controllerOf, PLAYED_VIA_SLOT, printedAbilityRefs } from "../select.js";
 import {
   PAID_CARDS_SLOT,
   paymentVarsIn,
@@ -14,7 +14,7 @@ import {
   type Vars,
 } from "../stack.js";
 import type { TriggerEvent } from "../trigger-events.js";
-import { additionalPlayCostOf } from "../actions.js";
+import { additionalPlayCostOf, type PlayOrigin } from "../actions.js";
 import {
   endUntilCardPlayedEffects,
   expireCardResolutionEffects,
@@ -29,6 +29,12 @@ import { enterPlay, playerSideSchemeEntersPlay, schemeEntryThreat } from "./ente
 import { placeInScenarioPlayArea } from "./game-areas.js";
 import { abilityFrame, announce, base, pushEffects, type Frame, pushEvent } from "./frames.js";
 import { heard } from "./triggers.js";
+
+/** The play's origin as its trigger events carry it (`TriggerEvent cardPlayed.from` / `countsAsFrom`). */
+const playedFromOf = (frame: Frame<"playCard">): Pick<PlayOrigin, "from" | "countsAsFrom"> => ({
+  from: frame.playedFrom?.from ?? "hand",
+  ...(frame.playedFrom?.countsAsFrom ? { countsAsFrom: frame.playedFrom.countsAsFrom } : {}),
+});
 
 export function pushPlayCardFrame(
   ctx: Ctx,
@@ -49,6 +55,8 @@ export function pushPlayCardFrame(
   controllerId: PlayerId = playerId,
   /** `playCard.into`: the in-play scenario area the card is played into (docs/phase7-wave8.md §3.34). */
   intoScenarioPlayArea?: string,
+  /** Where the card was played from (`PlayOrigin`, `playOriginOf`); absent, from the hand. */
+  playedFrom: PlayOrigin = { from: "hand" },
 ): void {
   pushFrames(ctx, [
     {
@@ -58,6 +66,7 @@ export function pushPlayCardFrame(
       playerId,
       controllerId,
       ...(intoScenarioPlayArea !== undefined ? { intoScenarioPlayArea } : {}),
+      playedFrom,
       attachToInstanceId,
       stage: "enterPlay",
       triggeredAbilityId: triggered?.triggeredAbilityId ?? null,
@@ -80,13 +89,57 @@ function entersExhausted(ctx: Ctx, frame: Frame<"playCard">): void {
   if (frame.entersExhausted === true) placeExhausted(ctx, frame.instanceId);
 }
 
+/** The play's interrupt window (`cardBeingPlayed`), opened only when something listens for it. */
+function openBeingPlayedWindow(ctx: Ctx, frame: Frame<"playCard">): void {
+  const paidCards = frame.bindings[PAID_CARDS_SLOT];
+  const beingPlayed: TriggerEvent = {
+    kind: "cardBeingPlayed",
+    instanceId: frame.instanceId,
+    playerId: frame.playerId,
+    ...playedFromOf(frame),
+    ...(paidCards && paidCards.length > 0 ? { paidCards } : {}),
+  };
+  if (heard(ctx.state, ctx.deps, beingPlayed)) pushEvent(ctx, beingPlayed);
+}
+
 export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
   const card = mustCardOf(ctx.state, frame.instanceId);
   if (frame.undeclaredWilds) return declareWildTypes(ctx, frame, frame.playerId, frame.undeclaredWilds);
   switch (frame.stage) {
     case "enterPlay": {
-      setFrame(ctx, { ...frame, stage: "effects" });
+      // RRG 1.8 "Initiating Abilities" (p. 24): through step 6 the card is faceup on the table, not in play; it enters
+      // play at step 7, and an interrupt to its play resolves "just before that triggering condition becomes true".
+      // So a non-event's play interrupt window ("When you play a card, cancel its effects and discard it",
+      // Spellcasting 57063) opens here, before it enters play; an event's opens in `effects`, before its abilities.
       updateInstance(ctx, frame.instanceId, (i) => ({ ...i, controllerId: frame.controllerId, faceup: true }));
+      if (card.type === "event") {
+        setFrame(ctx, { ...frame, stage: "effects" });
+        return;
+      }
+      // A frame saved at this stage before the window moved ahead of entering play takes this path too: same order.
+      setFrame(ctx, { ...frame, stage: "beingPlayed" });
+      openBeingPlayedWindow(ctx, frame);
+      return;
+    }
+    case "beingPlayed": {
+      setFrame(ctx, { ...frame, stage: "discardEvent" });
+      // Its play cancelled (RRG 1.8 "Cancel", p. 11: "Only the effects are prevented from initiating"), the card never
+      // enters play: no "enters play" windows, no attaching, no leaves-play on the way out. It goes from the table to
+      // its owner's discard pile (unless the cancel already put it somewhere), its owner's to control again. A card
+      // the window moved off the table (its player defeated, `defeat.ts` sweeping their resolving cards) does not
+      // enter play either: there is no card left to put there, as `discardEvent` reads it for an event.
+      // RRG 1.8 "Cancel" p. 11, "Limit" p. 27, "Max" p. 28: a card whose play is cancelled is still considered played
+      // (cardPlayed fires), but it never enters play, so its enters-play responses do not trigger ("Abilities dependent
+      // on the canceled effect cannot trigger").
+      const onTable = locateCard(ctx.state, frame.instanceId)?.kind === "resolving";
+      if (frame.effectsCancelled || !onTable) {
+        if (onTable) moveCard(ctx, frame.instanceId, discardZoneFor(ctx.state, frame.instanceId), "top");
+        const ownerId = mustInstance(ctx.state, frame.instanceId).ownerId;
+        if (ownerId && mustInstance(ctx.state, frame.instanceId).controllerId !== ownerId) {
+          updateInstance(ctx, frame.instanceId, (i) => ({ ...i, controllerId: ownerId }));
+        }
+        return;
+      }
       // "As an additional cost to play this upgrade, …" (`additionalCostToPlay`, box-heroes B3.1): already paid.
       const additional = additionalPlayCostOf(ctx.state, ctx.deps, frame.instanceId);
       let hostless = false;
@@ -182,22 +235,16 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
       // resolve, so a modifier can apply to every instance of damage the event deals (RRG 1.8 "Event", p. 19). It
       // is also where a cancel lands ("When you play an event, cancel its effects and discard it", Counterspell),
       // so the card's own ability frames are pushed in the *next* stage, after this window has resolved — pushing
-      // them first would queue them past anything the interrupt could do (RRG 1.8 "Cancel", p. 13: "Only the
+      // them first would queue them past anything the interrupt could do (RRG 1.8 "Cancel", p. 11: "Only the
       // effects are prevented from initiating, and do not resolve").
+      // A non-event reaches this stage only from a frame saved before its window moved ahead of entering play.
       setFrame(ctx, { ...frame, stage: card.type === "event" ? "abilities" : "discardEvent" });
-      const paidCards = frame.bindings[PAID_CARDS_SLOT];
-      const beingPlayed: TriggerEvent = {
-        kind: "cardBeingPlayed",
-        instanceId: frame.instanceId,
-        playerId: frame.playerId,
-        ...(paidCards && paidCards.length > 0 ? { paidCards } : {}),
-      };
-      if (heard(ctx.state, ctx.deps, beingPlayed)) pushEvent(ctx, beingPlayed);
+      openBeingPlayedWindow(ctx, frame);
       return;
     }
     case "abilities": {
       setFrame(ctx, { ...frame, stage: "discardEvent" });
-      // RRG 1.8 "Cancel" (p. 13): "If the effects of an event card are canceled, the card is still considered
+      // RRG 1.8 "Cancel" (p. 11): "If the effects of an event card are canceled, the card is still considered
       // played, and it is discarded." So only the ability frames are skipped — `discardEvent` still runs and still
       // announces `cardPlayed`, and the cost paid in `commitPlay` stands.
       if (frame.effectsCancelled) {
@@ -273,12 +320,17 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
       // you play Spectrum, tuck 1 card used to pay for her under her".
       const payment = paymentVarsIn(frame.vars);
       const paidCards = frame.bindings[PAID_CARDS_SLOT];
+      // The card that played this one (`PLAYED_VIA_SLOT`), so an "after you play" ability can tell how it was played
+      // once the play frame is gone (`EventPattern.playedVia`, docs/phase7-wave11.md §3.9).
+      const via = frame.bindings[PLAYED_VIA_SLOT]?.[0];
       announce(ctx, {
         kind: "cardPlayed",
         instanceId: frame.instanceId,
         playerId: frame.playerId,
+        ...playedFromOf(frame),
         ...(Object.keys(payment).length > 0 ? { payment } : {}),
         ...(paidCards && paidCards.length > 0 ? { paidCards } : {}),
+        ...(via !== undefined ? { via } : {}),
       });
       return;
     }

@@ -9,6 +9,7 @@ import { storyFor, type CampaignStory } from "../campaign/story.js";
 import type { CampaignRecord } from "../engine/campaign-storage.js";
 import type { PipState } from "../ui/campaign-chrome.js";
 import { ladderFieldOf, walletFieldsOf } from "./campaign-dossier-model.js";
+import { currentNodeIdOf, issueNumberOfRecord } from "./campaign-issue-pick.js";
 import { FIELD_SHORT_LABEL, lostAtLineOf } from "./campaign-run-model.js";
 
 export interface CoverModel {
@@ -76,7 +77,7 @@ export function coverModelOf(input: CoverModelInput): CoverModel {
   const definition = input.definition;
 
   const linearNodes = definition?.graph.kind === "linear" ? definition.graph.nodes : null;
-  const total = linearNodes?.length ?? 5;
+  const total = linearNodes?.length ?? definition?.graph.nodes.length ?? 5;
   const finalScenarioId =
     (linearNodes?.at(-1)?.scenario.kind === "fixed"
       ? (linearNodes!.at(-1)!.scenario as { scenarioId: string }).scenarioId
@@ -111,6 +112,23 @@ export function coverModelOf(input: CoverModelInput): CoverModel {
       finished = record.status;
       if (record.status === "won") pips = linearNodes.map(() => "done");
     }
+  } else if (record && definition?.graph.kind === "choice") {
+    // A `choice` graph (Fear No Evil) names no next node until the briefing has drawn and the group has picked, so
+    // an active run is never "over": the issue is the next one to settle, and the briefing is where it is picked.
+    const settled = Object.keys(record.position.resolved).length;
+    if (record.status === "active") {
+      issueNumber = Math.min(issueNumberOfRecord(definition, record), total);
+      const nodeId = currentNodeIdOf(record);
+      const issueStory = nodeId ? (story?.issues.find((i) => i.nodeId === nodeId) ?? null) : null;
+      nextIssueTitle = issueStory?.title ?? null;
+      nextIssueVillain = issueStory?.villain ?? null;
+      pips = Array.from({ length: total }, (_, i): PipState =>
+        i < settled ? "done" : i === settled ? "current" : "empty",
+      );
+    } else {
+      finished = record.status;
+      if (record.status === "won") pips = pips.map(() => "done");
+    }
   } else if (record) {
     finished = record.status === "active" ? null : record.status;
   }
@@ -125,7 +143,12 @@ export function coverModelOf(input: CoverModelInput): CoverModel {
     name: input.name,
     blurb:
       story?.blurb ??
-      (linearNodes ? `${capitalize(ISSUE_WORDS[total] ?? String(total))} issues, played in order.` : ""),
+      (linearNodes
+        ? `${capitalize(ISSUE_WORDS[total] ?? String(total))} issues, played in order.`
+        : definition
+          ? // A choice graph (Fear No Evil) deals its issues from the box rather than in a fixed order.
+            `${capitalize(ISSUE_WORDS[total] ?? String(total))} issues, dealt and played as the campaign unfolds.`
+          : ""),
     tagline: story?.tagline ?? `A story in ${ISSUE_WORDS[total] ?? total} issues`,
     villainScenarioId: finalScenarioId,
     hasRun: record !== null,

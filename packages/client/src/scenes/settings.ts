@@ -45,9 +45,16 @@ import {
   nextSettingsAfterCardHover,
   nextSettingsAfterTokenMotion,
   tokenMotionRowInfoOf,
+  achievementPopupPlaceRowInfoOf,
+  achievementPopupSizeRowInfoOf,
+  nextSettingsAfterAchievementPopupSize,
+  achievementPopupTimeRowInfoOf,
+  nextSettingsAfterAchievementPopupPlace,
+  nextSettingsAfterAchievementPopupTime,
   nextSettingsAfterToggle,
   nextSettingsAfterVillainRow,
   settingsRowInfoOf,
+  earnedItemRowInfoOf,
   villainRowInfoOf,
   type GuideRowInfo,
   type SettingsRowInfo,
@@ -101,10 +108,11 @@ import { powerSavingRowOf } from "../view/power-saving-notice.js";
 import { detectPlatform } from "../platform/platform.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { SCENES } from "./keys.js";
+import type { AchievementToastScene } from "./achievement-toast.js";
 import type { RulesSceneData } from "./rules.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { OverlayMotion } from "../ui/transitions.js";
-import { unlocks } from "../progression/progression.js";
+import { applyEarnedItems, earnedItems, unlocks } from "../progression/progression.js";
 import { unlocksSummaryOf } from "../view/unlocks-model.js";
 import { SAVE_DATA_ROW_DETAIL, SAVE_DATA_ROW_TITLE } from "../view/save-data-model.js";
 
@@ -129,6 +137,9 @@ type GuideNonLevelRow = Extract<GuideRowInfo, { kind: "action" | "toggle" }>;
 const SPEED_CONTROL_WIDTH = 204;
 const CARD_HOVER_CONTROL_WIDTH = 280;
 const CARD_SIZE_CONTROL_WIDTH = 520;
+const POPUP_TIME_CONTROL_WIDTH = 320;
+const POPUP_PLACE_CONTROL_WIDTH = 400;
+const POPUP_SIZE_CONTROL_WIDTH = 300;
 /** Room for each mode's label with padding either side (the owner, 2026-10-16). */
 const DISPLAY_MODE_CONTROL_WIDTH = 480;
 /** Resolution is a dropdown and an Apply button: up to seventeen sizes is too many segments. */
@@ -298,6 +309,7 @@ export class SettingsOverlay extends Phaser.Scene {
     if (row.id === "sharper-text") setTextResolution(next.textResolution);
     if (row.id === "sound" || row.id === "music-shuffle") appSession().music?.syncSettings(next);
     appSession().settings = next;
+    applyEarnedItems();
     this.#draw();
   }
 
@@ -422,7 +434,10 @@ export class SettingsOverlay extends Phaser.Scene {
    */
   #itemsOf(settings: Settings, guideRows: readonly GuideRowInfo[]): ReadonlyMap<SettingsItemId, SettingsItem> {
     const items = new Map<SettingsItemId, SettingsItem>();
-    for (const row of settingsRowInfoOf(settings, powerSavingOn())) {
+    for (const row of [
+      ...settingsRowInfoOf(settings, powerSavingOn()),
+      ...earnedItemRowInfoOf(settings, earnedItems()),
+    ]) {
       items.set(row.id, {
         spec: { kind: "toggle", id: row.id, detail: row.unavailable ?? row.detail },
         draw: (item, stops) => {
@@ -467,6 +482,21 @@ export class SettingsOverlay extends Phaser.Scene {
     });
     segmented("card-size", cardSizeRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setCardSize(v));
     segmented("token-motion", tokenMotionRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setTokenMotion(v));
+    // The achievement popup: picking a time or a position shows a sample there (`scenes/achievement-toast.ts`).
+    const setPopup = (next: Settings): void => {
+      appSession().settings = next;
+      this.#draw();
+      (this.scene.get(SCENES.achievementToast) as AchievementToastScene | null)?.preview();
+    };
+    segmented("achievement-popup-time", achievementPopupTimeRowInfoOf(settings), POPUP_TIME_CONTROL_WIDTH, (v) =>
+      setPopup(nextSettingsAfterAchievementPopupTime(appSession().settings, v)),
+    );
+    segmented("achievement-popup-place", achievementPopupPlaceRowInfoOf(settings), POPUP_PLACE_CONTROL_WIDTH, (v) =>
+      setPopup(nextSettingsAfterAchievementPopupPlace(appSession().settings, v)),
+    );
+    segmented("achievement-popup-size", achievementPopupSizeRowInfoOf(settings), POPUP_SIZE_CONTROL_WIDTH, (v) =>
+      setPopup(nextSettingsAfterAchievementPopupSize(appSession().settings, v)),
+    );
     if (hasDesktopWindow()) {
       const monitor = desktopMonitor();
       const sizes = monitor === null ? [] : resolutionOptionsFor(monitor, settings.displayMode);

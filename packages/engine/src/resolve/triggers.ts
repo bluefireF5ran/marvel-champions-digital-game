@@ -3,9 +3,9 @@
 import type { EngineDeps, EventPattern } from "../abilities.js";
 import {
   attachmentsPlayableBy,
-  deckTopCostReduction,
-  deckTopPlayableBy,
-  deckTopPlayOf,
+  asIfInHandCostReduction,
+  asIfInHandPlayableBy,
+  asIfInHandPlayOf,
   playsOwnCardFromHand,
   ownCardPlayFault,
   defaultHandDiscardPicks,
@@ -25,7 +25,7 @@ import { candidateDefenseBar, type DefenseBar } from "../defense-claim.js";
 import { addPools, EMPTY_POOL, requirementTotal, satisfies, satisfiesPrinted } from "../resources.js";
 import type { AbilityId } from "@mc/content";
 import type { InstanceId, PlayerId } from "../ids.js";
-import { cardOf, deckDiscardStillThere, getPlayer, playerOrder } from "../query.js";
+import { cardOf, deckDiscardStillThere, getInstance, getPlayer, playerOrder } from "../query.js";
 import {
   activeAbilityRefs,
   activeRules,
@@ -50,10 +50,12 @@ import type { LastingEffect } from "../lasting.js";
 import { STATUS_NAMES, type Form, type GameState } from "../state.js";
 import { carriedByEvent, eventSubjects, hearsEncounterDeckDiscard, type TriggerEvent } from "../trigger-events.js";
 import { limitReached } from "./ability.js";
+import { removalBlockedOf } from "./event.js";
 import { resourcesChoiceOf, type AbilityDefinition } from "../abilities.js";
 import { chosenSizePayments } from "../payable.js";
 import { cannotEnterPlay, cannotPlayCard, revealCannotBeCanceled, triggeredAbilityForbidden } from "../rules.js";
 import { abilityLacksValidTarget } from "./target-validity.js";
+import { interruptBarredByUnpreventable } from "./unpreventable.js";
 import { KEYWORD_ABILITIES } from "../keyword-abilities.js";
 import { attackKeywordsOf, hasKeyword } from "../keywords.js";
 import { enteredPlaySince } from "../entered-since.js";
@@ -65,8 +67,12 @@ import { enteredPlaySince } from "../entered-since.js";
  * canceled.", `revealCannotBeCanceled`) it has no valid target, so it can't be initiated (RRG 1.8 "Initiating
  * Abilities", p. 24, step 2) and no cost is paid. Read from the ability's own top-level effects, where every printed
  * reveal cancel sits.
+ *
+ * Likewise an optional interrupt that could only reduce or prevent unpreventable damage has nothing it can do, so it is
+ * not offered (docs/phase7-wave11-hero-packs.md §H3.3, an engine interpretation; Q103: `unpreventable.ts`).
  */
 function cancelHasNoTarget(state: GameState, deps: EngineDeps, definition: AbilityDefinition, event: TriggerEvent) {
+  if (interruptBarredByUnpreventable(definition, event)) return true;
   if (event.kind === "boostCardTurnedFaceup") return boostAbilityCancelGone(state, definition, event.boostInstanceId);
   if (event.kind !== "encounterCardRevealing") return false;
   const cancels = definition.effects.some((e) => e.kind === "cancelWhenRevealed" || e.kind === "cancelRevealedCard");
@@ -84,9 +90,14 @@ function boostAbilityCancelGone(state: GameState, definition: AbilityDefinition,
   if (definition.effects.length === 0 || !definition.effects.every((e) => e.kind === "cancelBoostAbility"))
     return false;
   const procedure = state.stack.find(
-    (f) => (f.kind === "enemyAttack" || f.kind === "enemyScheme") && f.boost?.instanceId === boostId,
+    (f) =>
+      (f.kind === "enemyAttack" || f.kind === "enemyScheme" || f.kind === "characterBoost") &&
+      f.boost?.instanceId === boostId,
   );
-  const boost = procedure?.kind === "enemyAttack" || procedure?.kind === "enemyScheme" ? procedure.boost : null;
+  const boost =
+    procedure?.kind === "enemyAttack" || procedure?.kind === "enemyScheme" || procedure?.kind === "characterBoost"
+      ? procedure.boost
+      : null;
   return !boost || boost.step !== "window" || boost.abilityCancelled || boost.ignored === true;
 }
 
@@ -134,8 +145,8 @@ function costPayable(
     event,
   );
   if (isPriceFault(plan)) return false;
-  // Played from the top of the deck (`playableTopOfDeck`), the permission's reduction applies, as `playWindowEvent`
-  // prices it.
+  // Played as if from hand from the top of the deck or a tuck (`playableTopOfDeck`, `playableAsIfInHand`), the
+  // permission's reduction applies, as `playWindowEvent` prices it.
   const requirement = fromHand
     ? playRequirement(
         state,
@@ -145,7 +156,7 @@ function costPayable(
         deps,
         null,
         0,
-        deckTopCostReduction(state, deps, playerId, id),
+        asIfInHandCostReduction(state, deps, playerId, id),
       )
     : plan.requirement;
   const chosenSize = fromHand ? null : resourcesChoiceOf(plan.cost ?? cost);
@@ -229,6 +240,9 @@ function matchesOwnFields(
   // The same attack resolved against another player doesn't re-trigger the attacker's own "when it attacks".
   if (event.kind === "enemyAttack" && event.additionalResolution && event.enemyInstanceId === selfId) return false;
   if (event.kind === "attack" && event.additionalResolution && event.attackerInstanceId === selfId) return false;
+  // A pending removal is read only as an interrupt window opens: once it has resolved, the scheme's threat is what the
+  // removal left, which says nothing about whether it was the last (docs/phase7-wave11.md §3.4).
+  if (pattern.removesLastThreat && timing !== "interrupt") return false;
   const subjects = eventSubjects(event);
   if (pattern.selfIs === "source" && !subjects.sources.includes(selfId)) return false;
   if (pattern.selfIs === "target" && !subjects.targets.includes(selfId)) return false;
@@ -306,6 +320,12 @@ function matchesRest(
     deps,
     // Watching is a read: a pattern sees a card in a closed scenario area (docs/phase7-wave8.md §4.1 Q18 = A).
     reaches: "all",
+    // "After a character in this play area is attacked" when the attack defeated the minion engaged with that player:
+    // whom it was engaged with as it was attacked (`characterAttacked.targetEngagedWith`), read by the engagement
+    // clauses at any depth of the query (inside `anyOf` too) only once the target has left play.
+    ...(event.kind === "characterAttacked" && event.targetEngagedWith !== undefined
+      ? { lastKnown: { [event.targetInstanceId]: { engagedWith: event.targetEngagedWith } } }
+      : {}),
   };
   if (pattern.targetIs) {
     const query: TargetQuery = pattern.targetIs;
@@ -439,6 +459,17 @@ function matchesRest(
       if (typeof value !== "number" || value > amount) return false;
     }
   }
+  // "When you remove the last threat from attached scheme" (docs/phase7-wave11.md §3.4): the pending removal will
+  // empty the scheme, read before it applies (an interrupt window only: `matchesOwnFields`).
+  if (pattern.removesLastThreat) {
+    if (event.kind !== "removeThreat") return false;
+    const threat = getInstance(state, event.schemeInstanceId)?.threat ?? 0;
+    if (threat <= 0 || event.amount < threat) return false;
+    if (removalBlockedOf(state, deps, event) !== null) return false;
+  }
+  // "When … would remove threat": a removal that will be stopped removes none (`EventPattern.removalWillApply`).
+  if (pattern.removalWillApply && event.kind === "removeThreat" && removalBlockedOf(state, deps, event) !== null)
+    return false;
   if (pattern.eventIs) {
     const carried = event as unknown as Readonly<Record<string, unknown>>;
     for (const [key, expected] of Object.entries(pattern.eventIs)) {
@@ -447,6 +478,20 @@ function matchesRest(
         typeof expected === "string" ? carried[key] === expected : expected.includes(carried[key] as string);
       if (!matches) return false;
     }
+  }
+  // "You cannot trigger Echo's 'Watch and Learn' ability for that event" (docs/phase7-wave11.md §3.9).
+  if (pattern.playedVia) {
+    const query: TargetQuery = pattern.playedVia;
+    if (event.kind !== "cardPlayed" || event.via === undefined) return false;
+    if (!matchesQuery(state, event.via, query, context)) return false;
+  }
+  // "After you play [this card] from your hand" (`playedFromHand`; RRG 1.8 FAQ "Magik (#30A)", p. 64).
+  if (pattern.playedFromHand) {
+    if (event.kind !== "cardPlayed" && event.kind !== "cardBeingPlayed") return false;
+    if ((event.from ?? "hand") !== "hand" && event.countsAsFrom !== "hand") return false;
+  }
+  if (pattern.notPlayedVia && event.kind === "cardPlayed" && event.via !== undefined) {
+    if (matchesQuery(state, event.via, pattern.notPlayedVia, context)) return false;
   }
   if (pattern.targetHadAttachment) {
     if (event.kind !== "characterDefeated") return false;
@@ -713,6 +758,8 @@ function gatherCandidates(
   if (timing === "response" && event.kind === "countersPlaced" && event.imminent !== undefined) return [];
   // And an encounter card about to be dealt ("after a player is dealt" answers `encounterCardDealt`; wave 9 §3.45).
   if (timing === "response" && event.kind === "encounterCardBeingDealt") return [];
+  // And a boost card about to be given ("after … is given" answers `boostCardGiven`; wave 11 scenarios E23).
+  if (timing === "response" && event.kind === "boostCardBeingGiven") return [];
   if (nothingToAnswer(event, timing)) return [];
   // A card discarded from a deck that a response has since moved leaves nothing to act on: no other ability answers
   // its discard (docs/phase7-wave7.md §3.55).
@@ -1054,10 +1101,11 @@ function inHandCandidates(
   for (const player of playerOrder(state)) {
     const attached = new Set(attachmentsPlayableBy(state, deps, player.playerId));
     // "You may play the top card of your deck as if it was in your hand" (`playableTopOfDeck`, docs/phase7-wave8.md
-    // §3.49): offered as an event in hand is, and for an in-hand ability that plays its own card (`playsOwnCardFromHand`).
-    // Nothing else of the card works from there: it is in the deck.
-    const deckTop = new Set(deckTopPlayableBy(state, deps, player.playerId));
-    for (const id of [...player.hand, ...attached, ...deckTop]) {
+    // §3.49), "You may play the upgrade tucked here as if it were in your hand" (`playableAsIfInHand`,
+    // docs/phase7-wave11.md §3.8): offered as an event in hand is, and for an in-hand ability that plays its own card
+    // (`playsOwnCardFromHand`). Nothing else of the card works from there: it is in the deck or the tuck.
+    const asIfInHand = new Set(asIfInHandPlayableBy(state, deps, player.playerId));
+    for (const id of [...player.hand, ...attached, ...asIfInHand]) {
       const card = cardOf(state, id);
       if (!card) continue;
       // "While Pip the Troll is in your hand, he gains 'Interrupt: …'" (`activeIn: "hand"`, docs/phase7-wave4.md §3.13):
@@ -1072,7 +1120,7 @@ function inHandCandidates(
         for (const ref of "abilities" in card ? card.abilities : []) {
           const definition = deps.abilities[ref.id];
           if (!definition || definition.activeIn !== "hand") continue;
-          if (deckTop.has(id) && !playsOwnCardFromHand(definition)) continue;
+          if (asIfInHand.has(id) && !playsOwnCardFromHand(definition)) continue;
           const trigger = definition.trigger;
           if (trigger.kind !== timing || trigger.forced !== forced) continue;
           // "Other players cannot resolve player card abilities during your turn": one used from a hand included.
@@ -1162,7 +1210,7 @@ export function hearersOf(
   for (const player of playerOrder(state)) {
     const elsewhere = [
       ...attachmentsPlayableBy(state, deps, player.playerId),
-      ...deckTopPlayableBy(state, deps, player.playerId),
+      ...asIfInHandPlayableBy(state, deps, player.playerId),
     ];
     for (const id of [...player.hand, ...elsewhere]) {
       const card = cardOf(state, id);
@@ -1270,7 +1318,7 @@ export function stillOffered(
     if (
       !player.hand.includes(id) &&
       !attachmentsPlayableBy(state, deps, controllerId).includes(id) &&
-      !deckTopPlayOf(state, deps, controllerId, id)
+      !asIfInHandPlayOf(state, deps, controllerId, id)
     )
       return false;
     if (playRestrictionFault(state, deps, controllerId, card, id)) return false;
@@ -1283,8 +1331,8 @@ export function stillOffered(
     if (triggeredAbilityForbidden(state, deps, id, trigger, controllerId, noTriggers)) return false;
   } else if (definition.activeIn === "hand") {
     if (!controllerId) return false;
-    const fromDeckTop = playsOwnCardFromHand(definition) && deckTopPlayOf(state, deps, controllerId, id) !== null;
-    if (!getPlayer(state, controllerId)?.hand.includes(id) && !fromDeckTop) return false;
+    const asIfInHandPlay = playsOwnCardFromHand(definition) && asIfInHandPlayOf(state, deps, controllerId, id) !== null;
+    if (!getPlayer(state, controllerId)?.hand.includes(id) && !asIfInHandPlay) return false;
     if (triggeredAbilityForbidden(state, deps, id, trigger, controllerId)) return false;
     if (ownCardPlayFault(state, deps, controllerId, id, definition, event) !== null) return false;
   } else if (!answersFromOutOfPlay(event, id)) {

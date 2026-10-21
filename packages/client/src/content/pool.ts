@@ -159,6 +159,8 @@ import {
   TT_PACK,
   CW_CYCLE,
   CW_PACK,
+  SYNTHEZOID_CYCLE,
+  SYNTHEZOID_PACK,
   WONDER_MAN_CYCLE,
   WONDER_MAN_PACK,
   HERCULES_CYCLE,
@@ -169,6 +171,17 @@ import {
   WAVE10_ENCOUNTER_SETS,
   WAVE10_SCENARIOS,
   WAVE10_STARTER_DECKS,
+  FNE_CYCLE,
+  FNE_PACK,
+  FNE_STARTER_DECKS,
+  FNE_SCENARIOS,
+  JJ_CYCLE,
+  JJ_PACK,
+  JJ_STARTER_DECKS,
+  LUKE_CAGE_CYCLE,
+  LUKE_CAGE_PACK,
+  LUKE_CAGE_STARTER_DECKS,
+  WAVE11_ENCOUNTER_SETS,
   poolVersionOf,
   type AnyCard,
   type Cycle,
@@ -202,6 +215,8 @@ export const POOL_ENCOUNTER_SETS: readonly EncounterSet[] = [
   ...WAVE9_ENCOUNTER_SETS.filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string)),
   // Cycle 10: Civil War's sixteen modular sets, four leaders' sets and difficulty sets, both hero packs' nemesis sets and All Versus All.
   ...WAVE10_ENCOUNTER_SETS.filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string)),
+  // Cycle 11: Fear No Evil's, Jessica Jones' and Luke Cage's sets (Shadowland's stay gated, `playable/unscripted.ts`).
+  ...WAVE11_ENCOUNTER_SETS.filter((set) => !UNSCRIPTED_ENCOUNTER_SET_IDS.has(set.id as string)),
 ];
 
 /**
@@ -245,6 +260,8 @@ export const POOL_SCENARIOS: readonly Scenario[] = [
   ...PLAYABLE_SCENARIO_RECORDS.filter((scenario) => WAVE9_SCENARIOS.some((s) => s.id === scenario.id)),
   // Civil War's four, one per leader (Iron Man, Captain Marvel, Captain America, Spider-Woman), as the playable pool has them.
   ...PLAYABLE_SCENARIO_RECORDS.filter((scenario) => WAVE10_SCENARIOS.some((s) => s.id === scenario.id)),
+  // Fear No Evil's six (Art Museum Heist, The Getaway, Protection Racket, The Raft Breakout, Stop the Presses, Kingpin): the five underling scenarios are played against a villain picked at setup (`Scenario.villainOptions`). `@mc/cards` builds them from the record (`wave11Scenario`) before `PLAYABLE_SCENARIO_RECORDS` lists them, so they come from the content record here.
+  ...FNE_SCENARIOS,
 ];
 
 /** Every starter deck, Core's six precons first, then the six wave 1 hero packs', then cycle 1's six, then cycle 2's six (Groot, Rocket Raccoon, Star-Lord, Gamora, Drax, Venom), then cycle 3's six (Spectrum, Adam Warlock, Nebula, War Machine, Vision, Valkyrie). */
@@ -262,6 +279,10 @@ export const POOL_STARTER_DECKS: readonly StarterDeck[] = [
   ...WAVE9_STARTER_DECKS,
   // Tigra, Hulkling, Wonder Man and Hercules.
   ...WAVE10_STARTER_DECKS,
+  // Daredevil and Echo (Fear No Evil's cast), then Jessica Jones and Luke Cage (their lists are stand-ins, not printed lists: `provenance.verified` is false).
+  ...FNE_STARTER_DECKS,
+  ...JJ_STARTER_DECKS,
+  ...LUKE_CAGE_STARTER_DECKS,
 ];
 
 /**
@@ -338,8 +359,12 @@ export const POOL_PACKS: readonly Pack[] = [
   WINTER_PACK,
   TT_PACK,
   CW_PACK,
+  SYNTHEZOID_PACK,
   WONDER_MAN_PACK,
   HERCULES_PACK,
+  FNE_PACK,
+  JJ_PACK,
+  LUKE_CAGE_PACK,
 ];
 
 /** A pack's own display name ("The Wrecking Crew") by its code ("twc"), falling back to the code itself if the pool ever names one this list doesn't have. */
@@ -410,8 +435,12 @@ const POOL_PACK_CYCLES: readonly (readonly [Pack, Cycle])[] = [
   [WINTER_PACK, WINTER_CYCLE],
   [TT_PACK, TT_CYCLE],
   [CW_PACK, CW_CYCLE],
+  [SYNTHEZOID_PACK, SYNTHEZOID_CYCLE],
   [WONDER_MAN_PACK, WONDER_MAN_CYCLE],
   [HERCULES_PACK, HERCULES_CYCLE],
+  [FNE_PACK, FNE_CYCLE],
+  [JJ_PACK, JJ_CYCLE],
+  [LUKE_CAGE_PACK, LUKE_CAGE_CYCLE],
 ];
 
 /**

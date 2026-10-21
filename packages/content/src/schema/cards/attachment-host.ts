@@ -77,6 +77,11 @@ import type { KeywordName } from "../keywords.js";
  *   43012) — the one *temporal* qualifier in the pool, listing the card titles whose attacks count. The engine
  *   records each attack this turn with the attacker's title at the time (docs/phase7-wave2.md §11.3, §14).
  *
+ * Wave 11 kind (docs/phase7-wave11-hero-packs.md H3.11):
+ * - `anyCard`: "Attach to a card." (Mitigated Threat 61040): any card in play other than the attachment itself, player
+ *   or encounter side, whatever its type. RRG 1.8 "Attach To" (p. 8) names no type, controller or icon. A facedown
+ *   card is out of play and no host.
+ *
  * A kind the engine cannot resolve yields no legal host, so the attachment is discarded. Card data that uses
  * a kind the engine does not resolve yet must not be marked playable (docs/phase7-wave1.md §3.1).
  */
@@ -107,7 +112,8 @@ export type AttachmentHost =
   | { readonly kind: "anyOf"; readonly hosts: readonly [AttachmentHost, AttachmentHost, ...AttachmentHost[]] }
   | { readonly kind: "leader"; readonly of: "enemy" | "yours" }
   | { readonly kind: "nonActiveVillain" }
-  | { readonly kind: "encounterCard" };
+  | { readonly kind: "encounterCard" }
+  | { readonly kind: "anyCard" };
 
 export type AttachmentHostKind = AttachmentHost["kind"];
 
@@ -134,6 +140,7 @@ export const ATTACHMENT_HOST_KINDS: readonly AttachmentHostKind[] = [
   "leader",
   "nonActiveVillain",
   "encounterCard",
+  "anyCard",
 ];
 
 /**
@@ -178,6 +185,10 @@ export type HostClassification = (typeof HOST_CLASSIFICATIONS)[number];
  * - `trait`: "an X-MEN ally" (printed or gained traits, RRG 1.8 "Gains").
  * - `withoutTrait`: "a non-ELITE minion", "without the Aerial trait".
  * - `withoutAttachmentNamed`: "without another Goblin Glider attached", "without a copy of Gene Therapy attached".
+ * - `withoutAttachmentTrait` (wave 11): "the enemy with the highest ATK without a Vehicle attachment" (Fear No Evil's Drive
+ *   set, `fne` 60186 to 60188): no attachment on the candidate has this trait, so one qualifier covers three differently
+ *   named cards, where `withoutAttachmentNamed` names a single card. The attachment's traits are read printed or
+ *   gained (`attachment-hosts.ts`).
  * - `keyword` / `withoutKeyword` (wave 2): "a non-permanent side scheme" is `withoutKeyword: "permanent"`. A keyword
  *   counts whether printed or gained (RRG 1.8 "Gains").
  * - `titleContains`: "a character with 'Spider' in its title" — a case-sensitive substring of the title the card is
@@ -199,6 +210,7 @@ export interface HostQualifiers {
   readonly trait?: Trait;
   readonly withoutTrait?: Trait;
   readonly withoutAttachmentNamed?: string;
+  readonly withoutAttachmentTrait?: Trait;
   readonly keyword?: KeywordName;
   readonly withoutKeyword?: KeywordName;
   readonly titleContains?: string;
