@@ -28,6 +28,9 @@ import { SettingsStore, storedSettingsOverrides } from "./settings-store.js";
 import { emptyLog, type LogState } from "./view/log-lines.js";
 import type { MusicController } from "./audio/music-controller.js";
 import { onPowerSavingChange, powerSavingOn, setPowerSavingIgnored } from "./platform/power-saving.js";
+import { drawsAtScreenDensity, screenEnvironment } from "./platform/screen-density.js";
+import { knownHardware, onHardwareChange } from "./platform/device-hardware.js";
+import { recommendedScreenOf } from "./platform/device-tier.js";
 
 export interface AppSession {
   readonly host: EngineHost;
@@ -107,8 +110,17 @@ export function appSession(): AppSession {
     // Power saving mode changes the defaults (reduced motion, 1x text) of every setting the player never set, unless the
     // player turned "Lighter play in power saving" off.
     setPowerSavingIgnored(storedSettingsOverrides().powerSavingAdjust === false);
-    const settingsStore = new SettingsStore(undefined, () => defaultSettings({ powerSaving: powerSavingOn() }));
+    // Render resolution and Frame rate start from what this device's hardware is recommended.
+    const env = screenEnvironment();
+    const density = drawsAtScreenDensity(env.search);
+    const settingsStore = new SettingsStore(undefined, () =>
+      defaultSettings({
+        powerSaving: powerSavingOn(),
+        ...(density ? { screen: recommendedScreenOf(knownHardware()) } : {}),
+      }),
+    );
     onPowerSavingChange(() => settingsStore.refreshDefaults());
+    onHardwareChange(() => settingsStore.refreshDefaults());
     session = {
       host,
       store: new SessionStore(host),
