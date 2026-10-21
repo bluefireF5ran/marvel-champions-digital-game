@@ -819,17 +819,20 @@ export function declareDefenderByLabeledEffect(
 export function declareDefenderByEffect(ctx: Ctx, defenderId: InstanceId, exhaust: boolean): boolean {
   const defenderPlayer = controllerOf(ctx.state, defenderId);
   if (!defenderPlayer) return false;
-  // "While a player is defending, other players cannot defend against that same attack" (p. 14): no character of
-  // another player's is declared, and it is not exhausted for a declaration that does not happen.
+  // "Exhaust it and declare it the defender" (Mutant Protectors, 32017): effects joined by "and" are resolved as far as
+  // each can be (RRG 1.8 "And", p. 7), so the character is exhausted even when the declaration below cannot happen.
+  // FFG ruling Jul 19, 2023 (post-RRG 1.5 #49, item 4): Mutant Protectors can still be played after Powerful Punch;
+  // its ally just cannot defend.
+  if (exhaust) exhaustCard(ctx, defenderId);
+  // "While a player is defending, other players cannot defend against that same attack" (RRG 1.8 "Defend, Defense",
+  // p. 15): no character of another player's is declared.
   if (defenseBarFor(ctx.state, defenderPlayer) !== null) return false;
   // "While a hero [an ally] is defending against an attack, other friendly characters cannot defend against that
-  // attack" (p. 15). FFG ruling Jul 19, 2023 (post-RRG 1.5 #49): "once one character defends, only that character can
-  // defend the attack unless that character leaves play before the attack finishes." A second declaration does not
-  // replace the defender, and its character is not exhausted for it.
+  // attack" (p. 15). #49: "once one character defends, only that character can defend the attack unless that
+  // character leaves play before the attack finishes." A second declaration does not replace the defender.
   const defending = defendingCharacterOf(ctx.state);
   if (defending !== null && defending !== defenderId) return false;
   const basic = cardOf(ctx.state, defenderId)?.type === "hero_identity";
-  if (exhaust) exhaustCard(ctx, defenderId);
   const procedure = ctx.state.stack.find((f): f is Frame<"enemyAttack"> => f.kind === "enemyAttack" && !f.versusEnemy);
   // The log's `defenderDeclared`, as the Declare Defender step logs its own (RRG 1.8 "Defend, Defense", p. 15: an
   // ability's declaration makes the character the defender just as the step's does), marked `byEffect`.
