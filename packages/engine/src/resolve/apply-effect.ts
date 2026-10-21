@@ -476,7 +476,8 @@ export function threatRemoverOf(ctx: Ctx, frame: Frame<"effects">): PlayerId | n
  * "Place that threat on …" answering a removal that is the first half of a move (`placeThreat.ofRemovedThreat`): the
  * tokens it places are the moved ones, so the move's pending placement loses them, and a placement left with none is
  * cancelled (it never happens: no "after threat is placed" window). FFG ruling Nov 21, 2025 (Beat Cop moving
- * threat off Show of Empathy): the interrupt "change[s] the destination of the threat token". RRG 1.8 "Move" (p. 30).
+ * threat off Show of Empathy, docs/rulings/post-rrg-1-6/16-november-2025.md): the interrupt "will trigger and change
+ * the destination of the threat token". RRG 1.8 "Move" (p. 30).
  */
 function redirectMovedThreat(ctx: Ctx, frame: Frame<"effects">, placed: number): void {
   const removal = frame.event;
@@ -1277,7 +1278,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         (id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("character"),
       );
       // A minion has no controller: an attack moved onto one is against the player it is engaged with (ruling
-      // July 25, 2025, answer 2: Mister Sinister attacks the engaged Hope Summers minion, and a player can defend;
+      // July 25, 2025, answer 2, docs/rulings/post-rrg-1-6/12-july-2025.md: Mister Sinister attacks the engaged Hope
+      // Summers minion, and a player can defend;
       // extended to any engaged minion, an engine interpretation).
       const playerId = character
         ? (controllerOf(ctx.state, character) ?? mustInstance(ctx.state, character).engagedWith)
@@ -2934,8 +2936,10 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const [from] = targets(effect.from).filter((id) => schemesInPlay.includes(id));
       const destinations = targets(effect.to).filter((id) => schemesInPlay.includes(id));
       // A move places a fixed number of tokens on one card and cannot be split: when "the main scheme" is both of
-      // Tower Defense's, the threat goes to just the one with Focused Defense (ruling Oct 10, 2025, on Manipulated
-      // M.U.S.I.C.; applied to every move with several candidate schemes, an engine interpretation).
+      // Tower Defense's, the threat goes to just the one with Focused Defense (ruling Oct 10, 2025, answer 2, on
+      // Manipulated M.U.S.I.C., docs/rulings/post-rrg-1-6/15-october-2025.md; applied to every move with several
+      // candidate schemes, an engine interpretation). A player card's "the main scheme" is already the scheme its
+      // controller chose by now, so this only decides encounter cards' moves (MC21 p. 10).
       const focused = destinations.length > 1 ? focusedMainSchemeId(ctx.state, ctx.deps) : null;
       const to = focused && destinations.includes(focused) ? focused : destinations[0];
       const available = from ? mustInstance(ctx.state, from).threat : 0;
