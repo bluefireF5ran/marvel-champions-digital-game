@@ -12,6 +12,7 @@ import {
   dealIndirectDamage,
   discard,
   each,
+  anyIn,
   exists,
   firstPlayer,
   forcedInterrupt,
@@ -171,7 +172,7 @@ export const MARAUDERS: AbilityRegistry = defineAbilities({
     chooseOne(
       option(
         "Discard the highest-cost card you control",
-        { when: exists(YOUR_COSTED_CARDS) },
+        { when: anyIn(highestCost("all", true)) },
         bindTargets("highest", highestCost("all", true)),
         chooseTarget("pick", { inSlot: "highest" }, { chooser: firstPlayer }),
         discard(chosen("pick")),
@@ -184,7 +185,7 @@ export const MARAUDERS: AbilityRegistry = defineAbilities({
     chooseOne(
       option(
         "Discard each card you control with the highest cost",
-        { when: exists(YOUR_COSTED_CARDS) },
+        { when: anyIn(highestCost("all", true)) },
         bindTargets("highest", highestCost("all", true)),
         discard(chosen("highest")),
       ),

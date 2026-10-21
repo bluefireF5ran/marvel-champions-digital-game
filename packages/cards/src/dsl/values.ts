@@ -1160,6 +1160,11 @@ export const inAdditionalForm = (formType: string, name?: string, player: Player
 });
 export const isAlterEgo = (player: PlayerRef = you): Predicate => inForm("alterEgo", player);
 export const exists = (q: TargetQuery): Predicate => ({ kind: "exists", query: q });
+/**
+ * True when `ref` names at least one card right now. With a superlative marked `leavesPlay`, "If you cannot" reads the
+ * same pool the removal does, so a player whose only matching cards are permanent "cannot" (RRG 1.8 "Permanent", p. 32).
+ */
+export const anyIn = (ref: TargetRef): Predicate => valueAtLeast(refCount(ref), 1);
 /** "If Bomb Scare is in play" (exact printed name). */
 export const inPlay = (name: string): Predicate => exists({ name });
 export const not = (of: Predicate): Predicate => ({ kind: "not", of });
