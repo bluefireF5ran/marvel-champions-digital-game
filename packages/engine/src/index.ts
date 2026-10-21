@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "0.32.0";
+export const ENGINE_VERSION = "0.32.1";
 
 export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId, TeamId } from "./ids.js";
 export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId, teamId } from "./ids.js";
@@ -143,6 +143,7 @@ export {
   PAID_FOR_SLOT,
   additionalPlayCostOf,
   basicPowerCost,
+  basicPowerDivisionTotal,
   costAsDetermined,
   inPlayCostCandidates,
   minimumChosenX,
@@ -268,8 +269,10 @@ export {
   cannotLeavePlay,
   cardAbilitiesCannotRemove,
   resourceIconsInPlay,
+  canDivideBasicPower,
   cannotBeDealtDamage,
   cannotTakeDamage,
+  evenlyDividesBasicPower,
   playDestinationsOf,
   countSchemeIcons,
   damageTakenAfterConstants,
