@@ -16,7 +16,7 @@ import {
   discard,
   discardEncounterUntil,
   each,
-  exists,
+  anyIn,
   firstPlayer,
   forcedInterrupt,
   gainsKeyword,
@@ -120,7 +120,7 @@ export const MUTANT_SLAYERS: AbilityRegistry = defineAbilities({
     chooseOne(
       option(
         "Discard the highest-cost card you control",
-        { when: exists(YOUR_COSTED_CARDS) },
+        { when: anyIn(highestCost) },
         bindTargets("highest", highestCost),
         chooseTarget("pick", { inSlot: "highest" }, { chooser: firstPlayer }),
         discard(chosen("pick")),

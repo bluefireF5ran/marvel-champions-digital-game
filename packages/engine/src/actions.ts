@@ -3891,7 +3891,8 @@ function eligibleForInPlayPick(
   // "The highest-cost upgrade you control" (`InPlayCostPick.superlative`): only the cards tied for it. A cost that
   // makes the card leave play ranks only the cards it can remove: RRG 1.8 "Permanent" (p. 32), "If a permanent card
   // would be targeted by such an effect … that effect instead targets the non-permanent card that fits its criteria"
-  // (Arm Cannon, 27147, an encounter card's "Discard the highest-cost upgrade you control").
+  // (Arm Cannon, 27147, an encounter card's "Discard the highest-cost upgrade you control"). p. 32 speaks of effects;
+  // applying it to costs is an engine interpretation.
   const superlative = pick.superlative;
   if (!superlative || eligible.length === 0) return eligible;
   const sourceCardId = getInstance(state, sourceId)?.cardId;
