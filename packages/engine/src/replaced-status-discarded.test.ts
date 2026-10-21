@@ -1,10 +1,9 @@
 /**
- * Replacing a status card (`giveStatus.replacing`, DSL `replaceStatus`, Vapors of Valtorr) does not discard the
- * replaced card: no `statusDiscarded` announcement, so an "after a tough status card is discarded" response (Colossus's
- * Iron Will, `mut_gen` 32004) does not answer it. The replaced card still leaves, logged `statusRemoved` with reason
- * `replaced`. Contributor's rules call 2026-10-16 (bluefireF5ran), by analogy to FFG ruling May 10, 2024 (post-RRG
- * 1.5 #181), which says a replacement is not a placement but does not cover discarding. A plain discard of the same
- * card is still announced.
+ * Replacing a status card (`giveStatus.replacing`, DSL `replaceStatus`, Vapors of Valtorr) discards the replaced card
+ * and announces it (docs/phase7-wave6.md §3.5: `statusDiscarded` "from every path that discards one"), so an "after a
+ * tough status card is discarded" response (Colossus's Iron Will, `mut_gen` 32004) answers it. The RRG uses "remove"
+ * and "discard" for the same thing (RRG 1.8 "Tough", p. 44; "Stunned", p. 41); FFG ruling May 10, 2024 (post-RRG 1.5
+ * #181) says a replacement is not a placement, and nothing more.
  */
 
 import { describe, expect, it } from "vitest";
@@ -87,25 +86,19 @@ const heard = (state: GameState): number => {
 const announced = (events: readonly GameEvent[]): number =>
   events.filter((e) => e.type === "triggerEvent" && e.event.kind === "statusDiscarded").length;
 
-describe("replacing a status card is not discarding it (contributor's rules call 2026-10-16 (bluefireF5ran))", () => {
-  it("the replaced tough card leaves unannounced, so Iron Will does not answer", () => {
+describe("replacing a status card discards the replaced one (docs/phase7-wave6.md §3.5)", () => {
+  it("the replaced tough card is discarded and announced, so Iron Will answers", () => {
     const tough = play(start(), TOUGHEN.card.id).state;
     expect(mustInstance(tough, heroId(tough)).statuses.tough).toBe(1); // setup check
     const result = play(tough, REPLACE.card.id);
     const after = mustInstance(result.state, heroId(result.state));
     expect(after.statuses.tough).toBe(0);
     expect(after.statuses.stunned).toBe(1);
-    expect(result.events).toContainEqual({
-      type: "statusRemoved",
-      instanceId: heroId(result.state),
-      status: "tough",
-      reason: "replaced",
-    });
-    expect(announced(result.events)).toBe(0);
-    expect(heard(result.state)).toBe(0);
+    expect(announced(result.events)).toBe(1);
+    expect(heard(result.state)).toBe(1);
   });
 
-  it("a plain discard of the same card is still announced and answered", () => {
+  it("a plain discard of the same card is announced and answered the same way", () => {
     const tough = play(start(), TOUGHEN.card.id).state;
     const result = play(tough, STRIP.card.id);
     expect(mustInstance(result.state, heroId(result.state)).statuses.tough).toBe(0);

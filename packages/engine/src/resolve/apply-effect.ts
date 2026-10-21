@@ -1724,14 +1724,12 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         // replaced, the rest are left as they were (`replacesStatusOn`; ruling Jun 20, 2024, post-RRG 1.5 #215).
         const replacing = effect.replacing;
         receivers = receivers.filter((id) => replacesStatusOn(ctx.state, ctx.deps, id, replacing, effect.status));
-        // Nor is the replaced card discarded: it leaves (logged `statusRemoved` with reason `replaced`) without a
-        // `statusDiscarded` announcement, so an "after a status card is discarded" response does not answer it.
-        // Contributor's rules call 2026-10-16 (bluefireF5ran), by analogy to FFG ruling May 10, 2024 (post-RRG 1.5
-        // #181), which covers placing but not discarding.
-        for (const id of receivers) {
-          const keep = (getInstance(ctx.state, id)?.statuses[replacing] ?? 1) - 1;
-          discardStatusCards(ctx, id, replacing, "replaced", keep);
-        }
+        // The replaced card is discarded and announced as such (docs/phase7-wave6.md §3.5): the RRG uses "remove" and
+        // "discard" for the same thing (RRG 1.8 "Tough", p. 44; "Stunned", p. 41), and #181 speaks only to placing.
+        announceStatusDiscarded(
+          ctx,
+          receivers.flatMap((id) => removeStatus(ctx, id, replacing, 1)),
+        );
       }
       const gives = receivers.map((instanceId) => ({ instanceId, count: 1 }));
       // A card that is not given (no room, or replaced in its window) marks this frame's pre-"then" text unresolved.
