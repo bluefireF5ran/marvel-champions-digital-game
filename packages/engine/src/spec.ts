@@ -981,8 +981,12 @@ export type ValueSpec =
        */
       readonly of?: TargetRef;
     }
-  /** A result of the triggering event ("for each damage dealt by this attack" → `damage`). */
-  | { readonly kind: "eventResult"; readonly key: string }
+  /**
+   * A result of the triggering event ("for each damage dealt by this attack" → `damage`). With `of`, the result recorded
+   * for a card, `<key>.<instanceId>`, summed over the cards `of` names, as `var`'s `of` does: `damageTaken` of your
+   * identity is the damage your identity took from the attack (`damageTakenKey`, overkill spill included).
+   */
+  | { readonly kind: "eventResult"; readonly key: string; readonly of?: TargetRef }
   /**
    * The excess damage the triggering `characterDefeated` event recorded (docs/phase7-wave5.md §4.1 Q68): how far the
    * defeating damage went past the character's remaining hit points (RRG 1.8 "Excess Damage", p. 19), measured as
@@ -4428,7 +4432,11 @@ export type EffectSpec =
    * A constant `accelerationTokenDestination` rule may redirect it before it lands (docs/phase7-wave2.md §10.3).
    */
   | { readonly kind: "addAccelerationToken"; readonly target?: TargetRef; readonly count?: ValueSpec }
-  | { readonly kind: "removeAccelerationToken" }
+  /**
+   * "Remove an acceleration token from play": one from each card `target` names. Tokens on a main scheme cannot be
+   * removed from play (RRG 1.8 "Acceleration Token", p. 5), so a main scheme target, or no target, does nothing.
+   */
+  | { readonly kind: "removeAccelerationToken"; readonly target?: TargetRef }
   /**
    * "During the Resolve Mulligans step of game setup, each player may take 1 additional mulligan" (MC27 p. 22
    * reputation node 5, as errata'd by RRG 1.8 p. 67; docs/phase7-wave5.md §3.27): adds `amount` to every player's
