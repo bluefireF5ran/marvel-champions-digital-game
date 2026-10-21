@@ -68,10 +68,11 @@
  * character holding the card to replace that has room for the new one (`replacesStatusOn`). So "Replace that status
  * card with a different status card" cannot take the tough card off a Stalwart enemy, which can be neither stunned nor
  * confused (ruling Jun 20, 2024, post-RRG 1.5 #215: "a Stalwart enemy with Tough is not a valid target for Vapors of
- * Valtorr's ability"). Conflict flagged, not settled: RRG 1.8 "Target" (p. 43) makes a target valid if any part of the
- * ability, or any one of several effects, can affect it, and reading the replacement as a discard plus a give would
- * keep the Stalwart enemy valid (the discard works). The ruling only comes out this way if "replace" is one effect,
- * which v1.8 does not address; the engine follows the ruling. A plain give or discard of a status card is not judged.
+ * Valtorr's ability"). #215 is FFG's reading of the "Target" bullets (RRG 1.8 p. 43: valid "if any part of that ability
+ * can affect that target"; with multiple effects, "if at least one of those effects can"), which are word for word the
+ * same in RRG v1.6, under which it was answered: "replace" is one effect, not a discard plus a give. Older rulings read
+ * it the same way (docs/rulings/rrg-1-0-to-1-4/17-doctor-strange.md, 18-ronan-kree-fanatic-modular-set.md). So the
+ * authority order settles it (docs/phase7-wave6.md §4.0). A plain give or discard of a status card is not judged.
  * An attack that also stuns its target keeps a target that cannot take its damage, and so does a piercing attack on a
  * target with a tough card (`attackPiercesTough`; ruling Jul 11, 2025).
  */
