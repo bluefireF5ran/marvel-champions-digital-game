@@ -116,8 +116,8 @@ function hostMeasure(state: GameState, id: InstanceId, measure: SuperlativeHost[
 
 /**
  * Whether a card has a value for this measure at all (a villain with no printed activation order has none, an alter-ego
- * no ATK: ruling April 17, 2025, so Restrained attaches to nothing when only an alter-ego is in play; the other
- * measures follow it by analogy, an engine interpretation).
+ * no ATK: ruling April 17, 2025, so Restrained attaches to nothing when only an alter-ego is in play; `hasStat` judges
+ * only an identity's face).
  */
 function hasMeasure(state: GameState, id: InstanceId, measure: SuperlativeHost["measure"]): boolean {
   const card = cardOf(state, id);

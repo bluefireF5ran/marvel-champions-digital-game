@@ -1003,24 +1003,18 @@ export function baseStat(
   return Math.max(0, baseOverride(state, deps, id, stat) ?? printed[stat]);
 }
 
-/** The stats each kind of character has at all (an identity's depend on its face; see `hasStat`). */
-const STATS_OF_KIND: Readonly<Record<Exclude<CharacterKind, "identity">, readonly string[]>> = {
-  ally: ["atk", "thw"],
-  minion: ["atk", "sch"],
-  villain: ["atk", "sch"],
-};
-
 /**
- * Whether a character has a value for `stat` at all, as opposed to one the card simply does not print: an alter-ego has
- * no ATK, THW or DEF, a hero no REC, an ally no SCH. Ruling April 17, 2025: "Since Alter-Egos do not have an
- * ATK value, they are not valid targets for Restrained" ("the friendly character with the highest ATK"). A dash is
- * still a value, "an unmodifiable 0" (RRG 1.8 "Dash (Value)", p. 15), so a dashed stat counts as had. The ruling covers
- * ATK and Restrained; the other stats and superlative hosts follow it by analogy, an engine interpretation.
+ * Whether a character has a value for `stat` at all, as opposed to one the card simply does not print: an alter-ego
+ * has no ATK, THW or DEF, a hero no REC. Ruling April 17, 2025 (docs/rulings/post-rrg-1-6/09-april-2025.md): "Since
+ * Alter-Egos do not have an ATK value, they are not valid targets for Restrained" ("the friendly character with the
+ * highest ATK"). Only an identity's face is judged; every other character has every stat, a dash being "an unmodifiable
+ * 0" (RRG 1.8 "Dash (Value)", p. 15, whose example ranks allies by SCH). The ruling names ATK; the identity's other
+ * missing stats follow it, an engine interpretation.
  */
 export function hasStat(state: GameState, id: InstanceId, stat: "atk" | "thw" | "def" | "rec" | "sch"): boolean {
   const printed = printedProfile(state, id);
   if (!printed) return false;
-  if (printed.kind !== "identity") return STATS_OF_KIND[printed.kind].includes(stat);
+  if (printed.kind !== "identity") return true;
   const player = state.players.find((p) => p.identity.instanceId === id);
   if (!player) return false;
   return identityFace(state, player).form === "hero"
