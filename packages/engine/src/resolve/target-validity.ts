@@ -17,7 +17,7 @@
  * - **"up to" divisions** (`divisionCanAffect`), through the same per-effect checks.
  *
  * The resolution-time check stays as the backstop: a target can become invalid between the choice and the effect
- * (a patrol minion engaging in between, the analogue of ruling Apr 30, 2026 (2)), and `threatRemovalBlocked` then
+ * (a patrol minion engaging in between, the analogue of ruling Apr 30, 2026 (5)), and `threatRemovalBlocked` then
  * stops the removal as it applies.
  *
  * A move of threat is judged by its source (`canMoveThreatFrom`, `moveThreatLacksSource`): RRG 1.8 "Move" (p. 30), "If
@@ -93,7 +93,9 @@ import {
   cannotBeHealed,
   cannotFlip,
   cannotLeavePlay,
+  cannotBeDealtDamage,
   cannotTakeDamage,
+  type DamageAttackInfo,
   iconsInPlay,
   lostAttackKeywords,
   patrolledBy,
@@ -265,7 +267,8 @@ export const attackPiercesTough = (
   keywords: readonly AttackKeyword[],
 ): boolean =>
   keywords.includes("piercing") &&
-  !lostAttackKeywords(state, deps, id).includes("piercing") &&
+  // `keywords` come from `attackKeywordsOf`, which already left out what the attacker's attacks lose.
+  !lostAttackKeywords(state, deps, id, null).includes("piercing") &&
   statusActive(state, id, "tough", deps);
 
 /** The character an `attack` effect attacks with: its `attacker`, else the controller's identity (`apply-effect.ts`). */
@@ -303,14 +306,19 @@ function attackCanDamage(
     viaInstanceId: via,
     basic: false,
     ...(effect.keywords ? { keywords: effect.keywords } : {}),
+    targetInstanceId: id,
   });
-  // Piercing that would discard the target's tough card affects it whether or not it can take the damage.
-  if (attackPiercesTough(state, deps, id, has)) return true;
-  return !cannotTakeDamage(state, deps, id, [attacker, via], {
+  const attack: DamageAttackInfo = {
     attackerInstanceId: attacker,
     cardInstanceId: via,
     keywords: effect.overkill === true && !has.includes("overkill") ? [...has, "overkill"] : has,
-  });
+  };
+  // Piercing that would discard the target's tough card affects it whether or not it can take the damage, but only
+  // if the damage is dealt at all: "cannot be dealt damage" leaves piercing nothing to act on (RRG 1.8 "Piercing",
+  // p. 32; docs/phase7-wave11-scenarios.md §S3.5).
+  if (attackPiercesTough(state, deps, id, has) && !cannotBeDealtDamage(state, deps, id, [attacker, via], attack))
+    return true;
+  return !cannotTakeDamage(state, deps, id, [attacker, via], attack);
 }
 
 /**
@@ -1177,7 +1185,7 @@ function moveThreatLacksSource(
 type ThwartVerdict = "valid" | "invalid" | "unknown";
 
 /** The effect lists nested in this effect that resolve as part of the same resolution of the ability. */
-function nestedEffects(effect: EffectSpec): readonly (readonly EffectSpec[])[] {
+export function nestedEffects(effect: EffectSpec): readonly (readonly EffectSpec[])[] {
   switch (effect.kind) {
     case "if":
       return [effect.then, effect.otherwise ?? []];
@@ -1197,7 +1205,7 @@ function nestedEffects(effect: EffectSpec): readonly (readonly EffectSpec[])[] {
 }
 
 /** Every effect of the ability, the ones inside its branches, options and post-"then" text included. */
-function flattenEffects(effects: readonly EffectSpec[]): readonly EffectSpec[] {
+export function flattenEffects(effects: readonly EffectSpec[]): readonly EffectSpec[] {
   return effects.flatMap((effect) => [effect, ...nestedEffects(effect).flatMap(flattenEffects)]);
 }
 
@@ -1267,7 +1275,8 @@ function thwartNamesNoValidScheme(
       }
       // "This activation removes threat instead of placing it": the scheme the villain's scheme would place it on.
       if (effect.removesThreat && context.event?.kind === "enemyScheme") {
-        verdicts.push(among([schemeActivationDestination(state, deps, context.event.enemyInstanceId)]));
+        const { enemyInstanceId, playerId: against } = context.event;
+        verdicts.push(among([schemeActivationDestination(state, deps, enemyInstanceId, against)]));
       }
       // "Reduce the amount of threat placed on the scheme by 1" (Emergency): a thwart of that scheme that removes no
       // threat (owner decision, 2026-10-03), so only what forbids thwarting it makes it invalid: an engaged patrol
@@ -1275,7 +1284,7 @@ function thwartNamesNoValidScheme(
       // A value that cannot be read yet is taken as a reduction.
       if (effect.threatBonus && context.event?.kind === "enemyScheme" && context.controllerId !== null) {
         const reduces = readsBindings(effect.threatBonus) || resolveValue(state, effect.threatBonus, context, deps) < 0;
-        const scheme = schemeActivationDestination(state, deps, context.event.enemyInstanceId);
+        const scheme = schemeActivationDestination(state, deps, context.event.enemyInstanceId, context.event.playerId);
         const thwart = {
           thwarterInstanceId: getPlayer(state, context.controllerId)?.identity.instanceId ?? null,
           playerId: context.controllerId,
@@ -1303,7 +1312,7 @@ function holdsAttackInstruction(value: unknown): boolean {
  * `thwartNamesNoValidScheme`). Official text it rests on, RRG 1.8 "Target": "A target that cannot be attacked is not a
  * valid target for an attack-labeled ability" (p. 43), "the villain" is a target, and an ability that requires targets
  * "can only be initiated if it has at least one valid target" (p. 42); "Guard" (p. 21): "that player cannot use cards
- * they control to attack a villain without this keyword"; ruling Apr 30, 2026 (2): "If a minion with Guard engages
+ * they control to attack a villain without this keyword"; ruling Apr 30, 2026 (5): "If a minion with Guard engages
  * during Step 5, you cannot initiate an attack effect against the villain in Step 6." What the owner decided beyond
  * that text: the ability's other instructions, which have a target of their own (the boost card whose icons "Hero
  * Interrupt (attack): … cancel the boost icons on that card. Deal 1 damage to the villain for each boost icon canceled

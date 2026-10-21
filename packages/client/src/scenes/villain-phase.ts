@@ -138,8 +138,10 @@ import {
   encounterHoldAt,
   flipGateAt,
   flipLabel,
+  flipTurningAt,
   revealOf,
   stepCaptionOf,
+  type FlipInProgress,
   type Reveal,
   type RevealedStep,
 } from "../view/villain-phase-reveal.js";
@@ -151,7 +153,13 @@ import {
   seatHeadingName,
   tableHoldOf,
 } from "../view/villain-replay.js";
-import { activationHeadline, breakdownLineOf, breakdownOf, type Breakdown } from "../view/villain-breakdown.js";
+import {
+  activationHeadline,
+  activationHiddenFace,
+  breakdownLineOf,
+  breakdownOf,
+  type Breakdown,
+} from "../view/villain-breakdown.js";
 import { activeVillainWording } from "../view/villain-active-change.js";
 import { decisionNoticeOf, soleAnswerOf } from "../view/villain-decision-notice.js";
 import { villainPhaseLayout } from "../view/villain-phase-layout.js";
@@ -331,7 +339,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
   /** Facedown encounter cards the player has flipped (`#flipGate`, #287). */
   #flipped = new Set<string>();
   /** The flip in progress: its card and when it began, so a redraw mid-turn recreates the card where it had got to. */
-  #flip: { readonly card: string; readonly startedAt: number } | null = null;
+  #flip: FlipInProgress | null = null;
   #flipTimer: Phaser.Time.TimerEvent | null = null;
   /** Where this draw docked the open decision's sheet (#231), published to the sheet once the draw is done. */
   #decisionDock: Rect | null = null;
@@ -1084,8 +1092,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
 
   /** The card turning over right now (the 500 ms after Flip Encounter Card), or null. */
   #flipTurning(): string | null {
-    const flip = this.#flip;
-    return flip && this.time.now - flip.startedAt < this.#flipMs() ? flip.card : null;
+    return flipTurningAt(this.#flip, this.time.now, this.#flipMs());
   }
 
   /** How long the turn takes: 0 under "Off" (the press still stops on each card). */
@@ -1098,13 +1105,15 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     const card = this.#flipGate();
     if (card === null) return;
     this.#flipped.add(card);
-    this.#flip = { card, startedAt: this.time.now };
+    this.#flip = { card, startedAt: this.time.now, settled: false };
     this.#flipTimer?.remove();
     this.#flipTimer = null;
     // The card's name and rules stay hidden through the turn; this puts the ordinary reveal in their place.
     if (this.#flipMs() > 0) {
       this.#flipTimer = this.time.delayedCall(this.#flipMs() + 20, () => {
         this.#flipTimer = null;
+        // The turn is over now, even if the scene clock says a few ms are left (`flipTurningAt`, #315).
+        if (this.#flip?.card === card) this.#flip = { ...this.#flip, settled: true };
         this.#syncTiming();
         this.#draw();
       });
@@ -1203,7 +1212,13 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     // The table keeps the round and step the rail is on while the engine's run is ahead of it, and has no End turn or
     // Undo until the phase closes (`BoardScene.setVillainReplay`).
     if (!this.#review) {
-      this.#boardScene()?.setVillainReplay({ hold: tableHoldOf(this.#walkthrough, this.#revealed) });
+      this.#boardScene()?.setVillainReplay({
+        hold: tableHoldOf(
+          this.#walkthrough,
+          this.#revealed,
+          (this.#flipGate() ?? this.#flipTurning()) as InstanceId | null,
+        ),
+      });
     }
     // `inspectModel` wants a real seat; every render past setup has one, and
     // the rare moment it doesn't (no perspective assigned yet) falls back to
@@ -2877,12 +2892,14 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     }
     const breakdown = breakdownLineOf(activation, game);
     const defender = defenderLineOf(game, activation);
+    const hiddenFace = activationHiddenFace(activation);
     // While a window on one boost card is open, that card: the one being counted (Chaos Control, Scarlet Witch's Crest;
     // issue #172) or the one being turned up (Preemptive Strike; issue #253).
     const counted = paused ? (this.#shownPause()?.countedBoost ?? null) : null;
     return {
       kind: "happening",
       enemyInstanceId: activation.enemyInstanceId,
+      ...(hiddenFace ? { enemyFace: hiddenFace } : {}),
       headline: activationHeadline(activation, game, viewer),
       text: [breakdown ?? (paused ? "" : (reveal.current?.text ?? "")), defender ?? ""].filter(Boolean).join(" "),
       boostLine: activationBoostLineOf(activation, counted, game),

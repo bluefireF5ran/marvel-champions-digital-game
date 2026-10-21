@@ -27,6 +27,7 @@ import {
   isPlayerCardType,
   isSeatlessIdentity,
   locateCard,
+  mainSchemeStateOf,
   mainSchemeStates,
   mustCard,
   mustCardOf,
@@ -36,7 +37,9 @@ import {
   mustVillain,
   isOwnedEncounterCard,
   playerCardOwnerOf,
+  villainOf,
 } from "./query.js";
+import { hasPerPlayerMainSchemes } from "./per-player-main-schemes.js";
 import type { GameEvent, StatusDiscardCause } from "./events.js";
 import {
   type EncounterDealSource,
@@ -45,6 +48,7 @@ import {
   type LeaveCauseSide,
   type LeavePatch,
   type LeaveRequest,
+  type ReplaceableLeave,
   type TriggerEvent,
   type TuckHostKind,
 } from "./trigger-events.js";
@@ -83,6 +87,8 @@ import {
   type EffectContext,
 } from "./select.js";
 import { hasCandidates, heard } from "./resolve/triggers.js";
+import { landedInSeparateDeck, separateDeckWithHost } from "./resolve/leave-to-separate-deck.js";
+import { tuckLeavingCard } from "./resolve/tuck.js";
 import type { CardDestination, DefeatPlacement, StatusName } from "./spec.js";
 import type { DeckDiscard, GameOutcome, GameState, MainSchemeState, TuckedDiscard, ZoneId } from "./state.js";
 import type { AttachmentBound, LastingDuration, LastingEffect, LastingEffectBody } from "./lasting.js";
@@ -692,6 +698,23 @@ export function flipVillain(ctx: Ctx, id: InstanceId, to: VillainSideLetter): vo
 }
 
 /**
+ * Puts a villain on face `to` as the face it entered play on (`EffectSpec setVillainSide`,
+ * docs/phase7-wave11-scenarios.md §S3.4). Not a flip, so nothing is revealed and no `cardFlipped` is raised; the face's
+ * toughness gives a tough status card as entering play would (RRG 1.8 "Toughness", p. 45). Logged as `villainSideSet`
+ * even when `to` is already up, so the log shows the draw.
+ *
+ * Known gap (engine call): a tough status card the previous face's toughness gave at setup step 10 is kept when the new
+ * face has no toughness, although the villain is taken as having entered on the new face. No card reaches it yet
+ * (Typhoid Mary's starting face, Bloody Mary, has no toughness on either stage).
+ */
+export function setVillainSide(ctx: Ctx, id: InstanceId, to: VillainSideLetter, random: boolean): void {
+  const villain = mustVillain(ctx.state, id);
+  ctx.state = { ...ctx.state, villains: ctx.state.villains.map((v) => (v.instanceId === id ? { ...v, side: to } : v)) };
+  emit(ctx, { type: "villainSideSet", instanceId: id, from: villain.side, to, random });
+  if (villain.side !== to) applyToughness(ctx, id);
+}
+
+/**
  * Moves the active counter (The Wrecking Crew insert, "The Active Villain"). Only an undefeated villain can hold it.
  * `reason` says why it moved in the log: an ability, or the rule that replaces a defeated active villain.
  */
@@ -750,7 +773,11 @@ export function updateMainSchemeState(
 export function addAccelerationToken(ctx: Ctx, requested?: InstanceId): void {
   // "When an acceleration token would be placed on 'the main scheme,' place it on the scheme with the glider counter"
   // (MC27 p. 17; FAQ, RRG 1.8 p. 62, for a player card's too; docs/phase7-wave5.md §3.3).
-  const target = requested ?? gliderMainSchemeId(ctx.state, ctx.deps) ?? ctx.state.mainScheme.instanceId;
+  const target =
+    perPlayerTokenHolder(ctx, requested) ??
+    requested ??
+    gliderMainSchemeId(ctx.state, ctx.deps) ??
+    ctx.state.mainScheme.instanceId;
   const redirected = accelerationTokenRedirect(ctx.state, ctx.deps, target);
   const to = redirected ?? target;
   if (redirected !== null) emit(ctx, { type: "accelerationTokenRedirected", from: target, to });
@@ -770,18 +797,48 @@ export function addAccelerationToken(ctx: Ctx, requested?: InstanceId): void {
   if (heard(ctx.state, ctx.deps, placed)) pushEvent(ctx, placed);
 }
 
+/**
+ * With a main scheme per player, a token headed for "the main scheme" (the default, or any main scheme named) goes
+ * near the villain instead, as the active villain's `acceleration` counter (MC60 p. 13: "When an acceleration token
+ * would be placed on the main scheme, such as when the encounter deck is reset, place that acceleration token near the
+ * villain"; docs/phase7-wave11-scenarios.md §S3.1). Null in any other game, or with no villain in play.
+ */
+function perPlayerTokenHolder(ctx: Ctx, requested: InstanceId | undefined): InstanceId | null {
+  if (!hasPerPlayerMainSchemes(ctx.state)) return null;
+  if (requested !== undefined && mainSchemeStateOf(ctx.state, requested) === undefined) return null;
+  const villain = villainOf(ctx.state, ctx.state.activeVillainId);
+  return villain && !villain.defeated ? villain.instanceId : null;
+}
+
 /** The counter an acceleration token is on a card that is not a main scheme (docs/phase7-wave5.md §3.4). */
 export const ACCELERATION_COUNTER = "acceleration";
 
 /**
- * "Remove an acceleration token from play": takes one from `from`'s `acceleration` counter. RRG 1.8 "Acceleration
- * Token" (p. 5): "Acceleration tokens on the main scheme cannot be removed from play", so a main scheme stage (any of
- * them) keeps its tokens and nothing happens.
+ * Removes one acceleration token from `from`, a card in play holding one: a main scheme stage's
+ * `MainSchemeState.accelerationTokens` (the central stage, one beside it, or a separate game area's), or any other
+ * card's `acceleration` counter. `from` absent is the central main scheme. Nothing when the card holds none or is out
+ * of play.
+ *
+ * RRG 1.8 "Acceleration Token" (p. 5): "Acceleration tokens on the main scheme cannot be removed from play." Only a card
+ * ability that says to remove one overrides that, by the Golden Rules (p. 4: card text takes precedence over the rules
+ * reference) and "Cannot" (p. 11) read with them. Which token is the effect's choice: a card's "remove an acceleration
+ * token from play" binds the holder with `chooseTarget` over `{ hasAccelerationToken: true }` first (docs/phase7-wave11.md
+ * §8.2 task 13). The main scheme's count is logged as `accelerationTokenAdded` with the lowered total (as the
+ * encounter-deck reset logs it raised), with `schemeInstanceId` off the central stage; a counter as `counterRemoved`.
  */
-export function removeAccelerationToken(ctx: Ctx, from: InstanceId): void {
-  if (mainSchemeStates(ctx.state).some((scheme) => scheme.instanceId === from)) return;
-  if (!cardsInPlay(ctx.state).includes(from)) return;
-  removeCounters(ctx, from, ACCELERATION_COUNTER, 1);
+export function removeAccelerationToken(ctx: Ctx, from?: InstanceId): void {
+  const id = from ?? ctx.state.mainScheme.instanceId;
+  const scheme = mainSchemeStates(ctx.state).find((candidate) => candidate.instanceId === id);
+  if (scheme) {
+    if (scheme.accelerationTokens <= 0) return;
+    const total = scheme.accelerationTokens - 1;
+    updateMainSchemeState(ctx, id, (state) => ({ ...state, accelerationTokens: total }));
+    const central = id === ctx.state.mainScheme.instanceId;
+    emit(ctx, { type: "accelerationTokenAdded", total, ...(central ? {} : { schemeInstanceId: id }) });
+    return;
+  }
+  if (!cardsInPlay(ctx.state).includes(id)) return;
+  removeCounters(ctx, id, ACCELERATION_COUNTER, 1);
 }
 
 const LISTENS_FOR_ENCOUNTER_DEALT = new WeakMap<EngineDeps, boolean>();
@@ -802,6 +859,17 @@ function listensForEncounterDealt(deps: EngineDeps): boolean {
   });
   LISTENS_FOR_ENCOUNTER_DEALT.set(deps, listens);
   return listens;
+}
+
+/**
+ * Marks `id`, just dealt to a player as a facedown encounter card, as "first dealt to the player": revealed later it
+ * counts as revealed from the encounter deck (`CardInstance.dealtFromEncounterDeck`), whatever it was dealt from. Owner
+ * answer Q35 A, 2026-10-20; ruling September 14, 2026 - Ruling 1 ("first dealt to the player"); the Adam Warlock ruling
+ * (docs/rulings/rrg-1-0-to-1-4/36-adam-warlock.md; owner dates it June 2, 2022). Called by every deal, not by a reveal
+ * that parks a card.
+ */
+export function markDealtFromEncounterDeck(ctx: Ctx, id: InstanceId): void {
+  updateInstance(ctx, id, (i) => (i.dealtFromEncounterDeck === true ? i : { ...i, dealtFromEncounterDeck: true }));
 }
 
 /**
@@ -853,7 +921,10 @@ export function dealEncounterCardTo(
   updateInstance(ctx, id, (i) => ({ ...i, faceup: false }));
   const logged = source !== null ? encounterCardDealtEvent(playerId, id, source) : undefined;
   moveCard(ctx, id, { kind: "dealtEncounter", playerId }, "bottom", logged);
-  if (source !== null) recordEncounterCardDealt(ctx, playerId, id, source);
+  if (source !== null) {
+    markDealtFromEncounterDeck(ctx, id);
+    recordEncounterCardDealt(ctx, playerId, id, source);
+  }
   return id;
 }
 
@@ -1398,6 +1469,16 @@ export function discardWithLeavingHost(ctx: Ctx, id: InstanceId): void {
 }
 
 /**
+ * A host's attachments in the order its move takes them: as attached, except that those an interrupt sent to a separate
+ * deck (`withHost.toSeparateDeck`, docs/phase7-wave11.md §3.3) come in the order their replacements resolved, after the
+ * rest, so that each goes to the bottom of the deck after the one resolved before it. A copy either way.
+ */
+export function inLeavingOrder(state: GameState, ids: readonly InstanceId[]): readonly InstanceId[] {
+  const rank = (id: InstanceId) => separateDeckWithHost(state, id)?.order ?? -1;
+  return [...ids].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
  * Whether this card's own leaving of play, still on the stack, was cancelled by an interrupt: RRG 1.8 "Cancel" (p. 11)
  * — "the canceled effect is not considered to have occurred" — so a host's move or change that would take it along
  * (`leavePlayAtOnce`, `leaveNow`'s attachment loop) leaves it in play (docs/phase7-wave5.md §4.1 Q53). A cancelled
@@ -1435,18 +1516,37 @@ export function defeatFromPlay(ctx: Ctx, id: InstanceId, placement?: DefeatPlace
   // it is in play; with it gone the defeated card is discarded as normal.
   const givenTo = typeof placement === "object" && "boostCardOf" in placement ? placement.boostCardOf : undefined;
   const holder = givenTo !== undefined && givenTo !== id && cardsInPlay(ctx.state).includes(givenTo) ? givenTo : null;
-  const insteadTo = typeof placement === "object" && "boostCardOf" in placement ? undefined : placement;
+  // "Tuck this card under …" from its own When Defeated (docs/phase7-wave11-scenarios.md §S3.10): under that card
+  // while it is in play; with it gone the defeated card is discarded as normal. Victory X wins over the tuck, as over
+  // every defeat destination: an engine reading (authority step 5), RRG 1.8 "Victory X" (p. 46) does not settle it.
+  const tuckHost = typeof placement === "object" && "tuckedUnder" in placement ? placement.tuckedUnder : undefined;
+  const under =
+    !victory && tuckHost !== undefined && tuckHost !== id && cardsInPlay(ctx.state).includes(tuckHost)
+      ? tuckHost
+      : null;
+  const insteadTo =
+    typeof placement === "object" && ("boostCardOf" in placement || "tuckedUnder" in placement) ? undefined : placement;
   const going: ZoneId["kind"] = victory
     ? "victoryDisplay"
     : holder !== null
       ? "boost"
-      : insteadTo !== undefined
-        ? destinationZoneKind(insteadTo)
-        : leaveDestinationKind(ctx.state, ctx.deps, id, discardZoneFor(ctx.state, id).kind, true);
+      : under !== null
+        ? "tucked"
+        : insteadTo !== undefined
+          ? destinationZoneKind(insteadTo)
+          : leaveDestinationKind(ctx.state, ctx.deps, id, discardZoneFor(ctx.state, id).kind, true);
   const source = sourceCardId !== undefined ? { sourceCardId } : {};
-  const instead = placement !== undefined ? { insteadTo: placement } : {};
-  const request: LeaveRequest = { kind: "defeat", ...instead, ...source };
+  const instead = placement !== undefined && tuckHost === undefined ? { insteadTo: placement } : {};
+  const defeat: ReplaceableLeave = { kind: "defeat", ...instead, ...source };
+  // The tuck takes the defeat's place as a leaving sent under a card does (`LeaveRequest tuck`, RRG 1.8 "Tuck",
+  // p. 45): its apply step tucks the card, or makes the defeat it replaced when the host has gone.
+  const request: LeaveRequest = under !== null ? { kind: "tuck", hostInstanceId: under, replaced: defeat } : defeat;
   if (waitsForLeaveInterrupts(ctx, id, request, going)) return;
+  if (request.kind === "tuck") {
+    // Permanent, Victory X attachments and a full host are read there (`tuckLeavingCard`).
+    if (!tuckLeavingCard(ctx, id, request)) discardFromPlay(ctx, id, sourceCardId);
+    return;
+  }
   // A permanent card this defeat cannot move keeps its Victory X attachments with it.
   if (permanentStopsLeaving(ctx.state, ctx.deps, id, sourceCardId)) {
     emit(ctx, { type: "leavePlayBlocked", instanceId: id, reason: "permanent" });
@@ -1635,10 +1735,25 @@ const requestCauseSide = (state: GameState, request: LeaveRequest): LeaveCauseSi
 
 /**
  * The request that says what made a card leave: itself, or for one an interrupt sent under a card (`LeaveRequest
- * tuck`, docs/phase7-wave9.md §3.20) the move that was replaced, whose source card and cost are still the cause.
+ * tuck`, docs/phase7-wave9.md §3.20) or to a separate deck (`LeaveRequest separateDeck`, docs/phase7-wave11.md §3.3)
+ * the move that was replaced, whose source card and cost are still the cause.
  */
-export const leaveMadeBy = (request: LeaveRequest): Exclude<LeaveRequest, { readonly kind: "tuck" }> =>
-  request.kind === "tuck" ? request.replaced : request;
+export const leaveMadeBy = (
+  request: LeaveRequest,
+): Exclude<LeaveRequest, { readonly kind: "tuck" | "separateDeck" }> =>
+  request.kind === "tuck" || request.kind === "separateDeck" ? request.replaced : request;
+
+/**
+ * Whether a "would … instead" replacement sent a waiting leaving elsewhere: to a separate deck (`separateDeck`,
+ * `withHost.toSeparateDeck`; docs/phase7-wave11.md §3.3). RRG 1.8 "Replacement Effect" (p. 37): the replaced effect
+ * "is no longer considered imminent and no further interrupts or responses to that effect can be triggered";
+ * "'Would'" (p. 48): "no further interrupts to the original trigger may be used" (`stillImminent`, `applyLeavingPlay`).
+ * Not a tuck (`LeaveRequest tuck`): "When an ally leaves play, tuck it under here" (Abduct Superhumans 50081) has no
+ * "would" and no "instead", so it is not a replacement effect, and the ally's own leaving keeps its interrupts and
+ * responses (docs/phase7-wave9.md §3.20).
+ */
+export const leaveReplaced = (request: LeaveRequest): boolean =>
+  request.kind === "separateDeck" || (request.kind === "withHost" && request.toSeparateDeck !== undefined);
 
 /** What a leaving card is, read while it is still in play (`TriggerEvent cardLeavesPlay`, docs/phase7-wave5.md §3.13). */
 function leavingSnapshot(state: GameState, deps: EngineDeps, id: InstanceId) {
@@ -2055,6 +2170,15 @@ function leaveNow(
   withHost = false,
   by?: LeaveCauseSide,
 ): void {
+  // An attachment an interrupt sent to the bottom of its owner's separate deck as its host leaves
+  // (docs/phase7-wave11.md §3.3): the host's move puts it there instead, not as a discard.
+  const toDeck = withHost ? separateDeckWithHost(ctx.state, id) : undefined;
+  if (toDeck !== undefined && !(requested.kind === "separateDeck" && requested.name === toDeck.name)) {
+    const deck = { kind: "separateDeck", playerId: toDeck.playerId, name: toDeck.name } as const;
+    leaveNow(ctx, id, deck, "bottom", false, true, by);
+    landedInSeparateDeck(ctx, id, toDeck);
+    return;
+  }
   // A facedown attachment is out of play (RRG 1.8 "In Play and Out of Play", p. 23), so it does not leave play: it goes
   // where it is sent as a tucked card does, faceup into a discard pile, with no discard "from play", nothing to hear it
   // and no in-play state to clear. `relocateCard` makes it itself again as it comes off its host.
@@ -2094,7 +2218,12 @@ function leaveNow(
   // Raccoon (#29A)", p. 61), so it is logged as one.
   const redirect = discarded && to === requested ? discardRedirectArea(ctx.state, ctx.deps, id) : null;
   if (discarded && to === requested)
-    emit(ctx, { type: "cardDiscardedFromPlay", instanceId: id, cardId: shownCardId(ctx.state, id) });
+    emit(ctx, {
+      type: "cardDiscardedFromPlay",
+      instanceId: id,
+      cardId: shownCardId(ctx.state, id),
+      ...(instance.facedownAs ? { facedownAs: instance.facedownAs } : {}),
+    });
   if (redirect !== null) to = { kind: "scenarioArea", name: redirect.area };
   // Its consequential-scoped damage-taken rules still apply to a pending consequential damage (wave 6 §4.1 Q50).
   keepLingeringConsequentialRules(ctx, id);
@@ -2102,7 +2231,7 @@ function leaveNow(
   // one, discarded with it below, is then not what takes it out of play (`syncTreatedAs`).
   const foe = instance.treatedAs !== undefined && instance.treatedAs !== null && isSeatlessIdentity(ctx.state, id);
   if (foe) (ctx.leavingHosts ??= []).push(id);
-  for (const attachment of [...instance.attachments]) discardWithLeavingHost(ctx, attachment);
+  for (const attachment of inLeavingOrder(ctx.state, instance.attachments)) discardWithLeavingHost(ctx, attachment);
   if (foe) ctx.leavingHosts?.pop();
   // RRG "Tuck": when a card leaves play, each card tucked under it is discarded.
   for (const tuckedId of [...instance.tucked]) {
@@ -2117,7 +2246,10 @@ function leaveNow(
   const dealtTo = to.kind === "dealtEncounter" ? encounterCardDealtEvent(to.playerId, id, "ability") : undefined;
   moveCard(ctx, id, to, redirect !== null ? "bottom" : position, dealtTo);
   // A card in play dealt to a player as a facedown encounter card (`dealAsEncounterCards`): heard as any other deal.
-  if (to.kind === "dealtEncounter") recordEncounterCardDealt(ctx, to.playerId, id, "ability");
+  if (to.kind === "dealtEncounter") {
+    markDealtFromEncounterDeck(ctx, id);
+    recordEncounterCardDealt(ctx, to.playerId, id, "ability");
+  }
   const ownedEncounter = isOwnedEncounterCard(ctx.state, id);
   // A card that re-enters play is a new instance of it: "this phase" starts over (docs/phase7-wave6.md §3.4).
   updateInstance(ctx, id, ({ damageTakenThisPhase: _tally, ...i }) => ({
@@ -2219,7 +2351,7 @@ export function addLastingEffect(
 export function endLastingEffect(
   ctx: Ctx,
   id: string,
-  reason: "expired" | "consumed" | "sourceLeftPlay" | "fired" | "detached",
+  reason: "expired" | "consumed" | "sourceLeftPlay" | "fired" | "detached" | "targetLeftPlay",
 ): void {
   if (!ctx.state.lastingEffects.some((effect) => effect.id === id)) return;
   ctx.state = { ...ctx.state, lastingEffects: ctx.state.lastingEffects.filter((effect) => effect.id !== id) };
@@ -2227,7 +2359,10 @@ export function endLastingEffect(
 }
 
 /** Removes every lasting effect whose duration ends at this boundary (delayed effects are fired by the caller). */
-export function expireLastingEffects(ctx: Ctx, boundary: "endOfPhase" | "endOfRound" | "endOfTurn"): void {
+export function expireLastingEffects(
+  ctx: Ctx,
+  boundary: "endOfPhase" | "endOfRound" | "endOfTurn" | "endOfPlayerPhase",
+): void {
   for (const effect of [...ctx.state.lastingEffects]) {
     // "Its next basic thwart or attack action this phase" (`nextBasicPower`, §3.39) still waiting ends with the phase.
     const ends =

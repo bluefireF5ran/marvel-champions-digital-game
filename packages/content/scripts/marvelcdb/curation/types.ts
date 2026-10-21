@@ -94,6 +94,13 @@ export interface Correction {
    */
   readonly startingThreatPerPlayer?: boolean;
   /**
+   * A side scheme's printed starting threat where MarvelCDB sends `base_threat: null` (wave 11, `synthezoid` 57039a and
+   * 57081a Choosing Sides, the reprints of `cw` 56128a and 56206a, whose records carry 4; the scan of the Civil War
+   * copy prints "4" with the per player icon). Replaces `base_threat`; whether it is per player stays raw's
+   * `base_threat_fixed` unless `startingThreatPerPlayer` says otherwise. Side schemes only; never errata.
+   */
+  readonly startingThreat?: number;
+  /**
    * An evidence card's printed icon and color, read from its scan (wave 9, `aos` 50185 to 50193; MarvelCDB does not
    * record either). `icon` is the slug the combination grid is crossed off by (`EvidenceCard.evidenceIcon`).
    * Evidence cards only; never errata.
@@ -112,6 +119,15 @@ export interface Correction {
    * never errata.
    */
   readonly infiniteHp?: true;
+  /**
+   * Codes of the card(s) whose text gives this card its Boost ability, for an encounter-side card that prints a
+   * boost-area star without a Boost of its own (wave 11, Purple Man: the villain stages 60097 to 60099 say "Each boost
+   * card from the Purple Man encounter set gains: [star] Boost: ..."). RRG 1.8 "Boost, Boost Icon" (p. 11): the star
+   * is a printed fact of the card. Emits `starIcon: true` and `boostGrantedBy`, and replaces the check that the text
+   * carries a Boost ability with a check that it does not (a card with its own Boost needs no grant). Requires
+   * MarvelCDB's `boost_star: true`.
+   */
+  readonly boostGrantedBy?: readonly string[];
   /** MarvelCDB fields with no printed counterpart on this card type — ignored, with the reason recorded. */
   readonly ignoreFields?: readonly string[];
   /**
@@ -211,6 +227,14 @@ export interface Correction {
    * to read (`MinionCard.nemesisMinion`; wave 10, `cw` 56055 Super Skrull). Minions only. Never applied to text.
    */
   readonly nemesisMinion?: boolean;
+  /**
+   * A printed sentence that is a label other cards refer to, not a keyword, although its shape reads as one (wave 11,
+   * `synthezoid` 57046a/b Dense and Intangible: "Mass form." names "Vision's mass form attachment" for 57040 and 57042;
+   * the parser reads every "X form." line as the identity `form` keyword, RRG 1.8 "Form, Change Form", p. 21). The
+   * sentence is skipped by the keyword scan and stays in the printed text, so no keyword is emitted for it. Each entry
+   * must occur as a whole sentence of the card's text, or ingestion fails. Never applied to text.
+   */
+  readonly labelSentences?: readonly string[];
 }
 
 /**
@@ -446,6 +470,37 @@ export interface ScenarioCuration {
   readonly expertVillains?: { readonly villainCardCode: string; readonly setAsideVillainCardCodes: readonly string[] };
   /** Absent = `"finalVillainStage"`. See `Scenario.victory`. */
   readonly victory?: "finalVillainStage" | "cardAbility";
+  /**
+   * `Scenario.villainOptions` (docs/phase7-wave11-scenarios.md §S1.2): the villain sets the scenario may be played
+   * against, `villainSetCode` (the default) among them. Each option's villain card is the set's villain
+   * (`villainIdBySet`). Every option inherits this record's `villainStages`; only the default option inherits its
+   * `victory` (`villainOptionDetails` says otherwise for any other). Absent: the villain is not a choice.
+   */
+  readonly villainOptionSetCodes?: readonly string[];
+  /**
+   * Per option set code, what differs from this record's own villain fields (MC60 p. 5: Typhoid Mary is stage A in
+   * standard and B in expert, and Disturbed Psyche wins the game). Only for codes in `villainOptionSetCodes`. An option
+   * with no entry takes the record's `villainStages` and, unless it is the default, no `victory`.
+   */
+  readonly villainOptionDetails?: Readonly<
+    Record<
+      string,
+      {
+        readonly villainStages?: {
+          readonly standard: readonly [number, number];
+          readonly expert: readonly [number, number];
+        };
+        readonly victory?: "finalVillainStage" | "cardAbility";
+      }
+    >
+  >;
+  /**
+   * `Scenario.mainSchemeChoice` (docs/phase7-wave11-scenarios.md §S3.1): the MarvelCDB codes of the main scheme cards
+   * the players deal themselves one each from (Protection Racket's five, MC60 p. 13). The first is
+   * `Scenario.mainSchemeCardId`'s card; every code must be a main scheme card of the pack (see
+   * `PackCuration.separateMainSchemeCards`). Absent: one main scheme.
+   */
+  readonly perPlayerMainSchemeCodes?: readonly string[];
   /** See `Scenario.separateGameAreas` (wave 2 — Kang). Absent = the scenario has none. */
   readonly separateGameAreas?: SeparateGameAreas;
   /** See `Scenario.separateDecks` (wave 2 — Crossbones' Experimental Weapons deck, Red Skull's side-scheme deck). */
@@ -469,6 +524,8 @@ export interface ScenarioCuration {
   }[];
   /** See `Scenario.startingVillain` (wave 4, docs/phase7-wave4.md §1.11 — Loki; wave 7 §1.21 — On the Run). */
   readonly startingVillain?: "random" | "bySetup";
+  /** See `Scenario.randomVillainName` (wave 7, docs/phase7-wave7.md §1.21: "The Marauders"). */
+  readonly randomVillainName?: string;
   /** See `Scenario.victoryCondition` (wave 4, docs/phase7-wave4.md §1.11 — Loki). */
   readonly victoryCondition?: {
     readonly standard: number;
@@ -496,6 +553,10 @@ export interface SeparateDeckCuration {
   readonly discardPile?: "own" | "none";
   readonly whenEmpty?: "reshuffleDiscardWithoutPenalty" | "stayEmpty";
   readonly cardFamily?: "player" | "encounter";
+  /** `IdentitySeparateDeck.fixedOrder` (wave 11, docs/phase7-wave11.md section 1.1: Daredevil's Sense deck). */
+  readonly fixedOrder?: true;
+  /** `IdentitySeparateDeck.ownerMayLookThrough` (wave 11, same section). */
+  readonly ownerMayLookThrough?: true;
 }
 
 /**
@@ -592,6 +653,11 @@ export interface PackCuration {
   /** Prefix for exported constants: "CORE" → CORE_CARDS, CORE_PACK, … */
   readonly exportPrefix: string;
   readonly corrections: readonly Correction[];
+  /**
+   * The pack is not on MarvelCDB at all (Shadowland): there is no raw cache, `addedRecords` is the whole pack, and
+   * ingestion starts from an empty record list instead of reading or fetching `raw/marvelcdb/<pack>.json`.
+   */
+  readonly scanOnly?: true;
   /** Card faces MarvelCDB lacks (see `AddedRecord`). Absent = none. */
   readonly addedRecords?: readonly AddedRecord[];
   /** Wrong MarvelCDB face links (see `LinkOverride`). Absent = none. */
@@ -657,6 +723,21 @@ export interface PackCuration {
    * into one two-stage villain.
    */
   readonly separateVillainVersions?: readonly string[];
+  /**
+   * Main scheme sets (`card_set_code`) whose numbered A/B pairs are each a card of their own instead of the stages of
+   * one card: Fear No Evil's Protection Racket prints five stage 1 schemes that share one 1A text, and a game deals
+   * one to each player (MC60 p. 13; docs/phase7-wave11-scenarios.md section S1.4 item 3). The set's
+   * `mainSchemeIdBySet` entry is its first card.
+   */
+  readonly separateMainSchemeCards?: readonly string[];
+  /**
+   * Main scheme sets (`card_set_code`) whose stages keep `MainSchemeStage.printedCardId` (the B face's code) although
+   * their stage numbers are unique. By default only a card with several stages of one number carries the key (Civil
+   * War's four stage 1s); Synthezoid Smackdown's `synthezoid_registration` and `synthezoid_resistance` hold one stage 1
+   * and one stage 2 each, yet a scenario names them by B face code and its stages join the side's other cards'
+   * (docs/phase7-synthezoid.md section 1.5, M1). Absent = none.
+   */
+  readonly keepStagePrintedCardIds?: readonly string[];
   /**
    * Villain sets whose MarvelCDB top-level record of each double-sided stage is the printed side A (MojoMania's
    * Spiral: 39012a ESCAPED is the face she starts on, its hidden linked record 39012b CORNERED is side B). The default

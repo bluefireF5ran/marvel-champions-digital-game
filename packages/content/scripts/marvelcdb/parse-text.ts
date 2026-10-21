@@ -177,6 +177,11 @@ export interface ParseOptions {
    * with the structural id `<code>.when-revealed`; the card text is unchanged.
    */
   readonly preambleWhenRevealed?: string;
+  /**
+   * Non-obligation: sentences that are labels, not keywords (`Correction.labelSentences`; "Mass form." on Dense and
+   * Intangible, `synthezoid` 57046a/b). Skipped by the keyword scan; the card text is unchanged.
+   */
+  readonly labelSentences?: readonly string[];
 }
 
 const TRIGGER = String.raw`(?:(?:Hero |Alter-Ego )?(?:Forced )?(?:Action|Resource|Response|Interrupt)(?: \((?:Hero|Alter-Ego)\))?|Mission Response|Special|Setup|Boost|Preparation|When Revealed\/Defeated|When Revealed/Defeated|When Revealed(?: \((?:Hero|Alter-Ego)\))?|When Defeated|When Completed|Contents)`;
@@ -543,6 +548,8 @@ function parseAttach(
     // docs/phase7-wave2.md §7.2: "Attach to an encounter card in play." (Coordinated Effort 58032) — any card in
     // play on the encounter side, whatever its type, as opposed to a specific category.
     "an encounter card in play": { kind: "encounterCard" },
+    // docs/phase7-wave11-hero-packs.md H3.11: "Attach to a card." (Mitigated Threat 61040), any card in play.
+    "a card": { kind: "anyCard" },
   };
   // Case-insensitive on the phrase itself (MarvelCDB is inconsistent — "Attach to the Villain." in `trors`);
   // proper names below stay case-sensitive.
@@ -748,10 +755,18 @@ function parseAttach(
   let supRest = target;
   let supWithoutAttachmentNamed: string | undefined;
   let supWithoutTrait: string | undefined;
+  let supWithoutAttachmentTrait: string | undefined;
+  // "the enemy with the highest ATK without a [[Vehicle]] attachment" (Fear No Evil, Drive set `fne` 60186 to 60188):
+  // an attachment named by trait (`HostQualifiers.withoutAttachmentTrait`), not by title. A single capitalized word
+  // is the trait; the title form ("without Stun Beam attached") is the branch below.
+  const traitAttachmentSuffix = /^(.*?)\s+(?:and\s+)?without an? ([A-Z][A-Za-z-]*) attachment$/.exec(supRest);
   const namedSuffix = /^(.*?)\s+(?:and\s+)?without (?:a copy of |another copy of |another )?(.+?) attached$/i.exec(
     supRest,
   );
-  if (namedSuffix) {
+  if (traitAttachmentSuffix) {
+    supRest = traitAttachmentSuffix[1] as string;
+    supWithoutAttachmentTrait = traitAttachmentSuffix[2] as string;
+  } else if (namedSuffix) {
     supRest = namedSuffix[1] as string;
     supWithoutAttachmentNamed = (namedSuffix[2] as string).trim();
   } else {
@@ -776,7 +791,10 @@ function parseAttach(
     const order: "highest" | "lowest" = orderWord === "highest" || orderWord === "most" ? "highest" : "lowest";
     const descriptor = (supCore[4] as string).trim().toLowerCase();
     const measure: HostMeasure | undefined =
-      descriptor === "printed hit points"
+      // "base hit points" (Tombstone, `fne` 60195/60196): RRG 1.8 "Base Value" (p. 10), the value before modifiers,
+      // "in most cases ... also the printed value"; for a minion's hit points that is the printed value.
+      // Caveat: right for host rules, not for an effect that sets a base value (it would change "base", not "printed").
+      descriptor === "printed hit points" || descriptor === "base hit points"
         ? "printedHp"
         : descriptor === "hit points" || descriptor === "remaining hit points"
           ? "remainingHp"
@@ -813,6 +831,9 @@ function parseAttach(
           ...(supTrait ? { trait: supTrait.toUpperCase() as Trait } : {}),
           ...(supWithoutTrait ? { withoutTrait: supWithoutTrait.toUpperCase() as Trait } : {}),
           ...(supWithoutAttachmentNamed ? { withoutAttachmentNamed: supWithoutAttachmentNamed } : {}),
+          ...(supWithoutAttachmentTrait
+            ? { withoutAttachmentTrait: supWithoutAttachmentTrait.toUpperCase() as Trait }
+            : {}),
         },
       };
     }
@@ -949,9 +970,11 @@ const STAGE_LOSS_REMINDER = /^If this (?:stage|scheme) is completed, the players
 // order — Extract Captives `aos` 50089b ("If this stage is completed or there are no Rescued Captive allies in
 // play, the players lose the game."), Mutant Massacre `next_evol` 40078b (same shape), and The Grand Collection
 // `gmw` 16073b ("If there are at least 5[per_hero] cards in The Collection or if this stage is completed, the
-// players lose the game." — the other clause leads). Only the "completed" half is the reminder; the other half
-// is real scripted behavior and is left in the card text (a `constant` ability ref).
-const STAGE_LOSS_COMPOUND_HALF = /\bif this (?:stage|scheme) is completed\b/i;
+// players lose the game." — the other clause leads), and Stop the Presses! `fne` 60151b ("If a Daily Bugle support
+// leaves play or this stage is completed, the players lose the game." — the other clause leads, with no second "if").
+// Only the "completed" half is the reminder; the other half is real scripted behavior and is left in the card text (a
+// `constant` ability ref).
+const STAGE_LOSS_COMPOUND_HALF = /\b(?:if|or) this (?:stage|scheme) is completed\b/i;
 const STAGE_LOSS_COMPOUND_TAIL = /the players lose the game\.?$/i;
 
 export function parseCardText(text: string, options: ParseOptions): ParsedText {
@@ -1092,6 +1115,7 @@ export function parseCardText(text: string, options: ParseOptions): ParsedText {
   }
 
   let preambleWhenRevealedFound = 0;
+  const labelSentencesFound = new Set<string>();
   for (const line of lines) {
     const headers = findHeaders(line);
     const preamble = line.slice(0, headers[0]?.index ?? line.length).trim();
@@ -1158,6 +1182,11 @@ export function parseCardText(text: string, options: ParseOptions): ParsedText {
           sentenceIndex++; // consume the fallback sentence too
           continue;
         }
+      }
+      if (options.labelSentences?.includes(sentence)) {
+        flushConstant();
+        labelSentencesFound.add(sentence);
+        continue;
       }
       const keyword = parseKeyword(sentence);
       if (keyword) {
@@ -1387,6 +1416,10 @@ export function parseCardText(text: string, options: ParseOptions): ParsedText {
         }
       }
     });
+  }
+  for (const label of options.labelSentences ?? []) {
+    if (!labelSentencesFound.has(label))
+      unclassified.push(`label sentence "${label}" not found as a sentence of the text`);
   }
   if (options.preambleWhenRevealed !== undefined && preambleWhenRevealedFound !== 1) {
     unclassified.push(

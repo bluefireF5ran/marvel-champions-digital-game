@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { GMW_CAMPAIGN_DEFINITION, MOJO_CAMPAIGN_DEFINITION, TRORS_CAMPAIGN_DEFINITION } from "@mc/cards";
+import {
+  campaignDefinitionOf,
+  GMW_CAMPAIGN_DEFINITION,
+  MOJO_CAMPAIGN_DEFINITION,
+  TRORS_CAMPAIGN_DEFINITION,
+} from "@mc/cards";
 import { cardId } from "@mc/content";
 import { CAMPAIGN_LOG_SCHEMA, createRng } from "@mc/engine";
 import type { CampaignRecord } from "../engine/campaign-storage.js";
@@ -176,5 +181,101 @@ describe("coverModelOf for MojoMania", () => {
     expect(model.blurb).toBe(storyFor("mojo")!.blurb);
     expect(model.villainScenarioId).toBe("mojo");
     expect(model.pips).toEqual(["empty", "empty", "empty"]);
+  });
+
+  test("a choice graph (Fear No Evil) counts its six nodes and has no fixed-order pips or next issue", () => {
+    const definition = campaignDefinitionOf("fne")!;
+    const model = coverModelOf({
+      campaignId: "fne",
+      boxCode: "MC60",
+      name: "Fear No Evil",
+      record: null,
+      definition,
+      expertUnlocked: false,
+    });
+    expect(definition.graph.kind).toBe("choice");
+    expect(model.totalIssues).toBe(6);
+    expect(model.pips).toEqual(Array.from({ length: 6 }, () => "empty"));
+    expect(model.blurb).toBe(storyFor("fne")!.blurb);
+    expect(model.blurb.length).toBeGreaterThanOrEqual(40);
+  });
+
+  test("a choice graph with no story still gets a blurb that says the issues are dealt, not ordered", () => {
+    const model = coverModelOf({
+      campaignId: "no-story",
+      boxCode: "MC99",
+      name: "Unwritten",
+      record: null,
+      definition: campaignDefinitionOf("fne")!,
+      expertUnlocked: false,
+    });
+    expect(model.blurb).toBe("Six issues, dealt and played as the campaign unfolds.");
+    expect(model.totalIssues).toBe(6);
+  });
+});
+
+describe("coverModelOf on a choice graph (Fear No Evil)", () => {
+  const FNE = campaignDefinitionOf("fne")!;
+  const fneRecord = (overrides: Partial<CampaignRecord> = {}): CampaignRecord =>
+    record({
+      campaignId: FNE.campaignId,
+      name: "Fear No Evil",
+      box: "MC60",
+      position: { nextNodeId: null, resolved: {}, progress: {} },
+      ...overrides,
+    });
+  const cover = (r: CampaignRecord) =>
+    coverModelOf({
+      campaignId: "fne",
+      boxCode: "MC60",
+      name: "Fear No Evil",
+      record: r,
+      definition: FNE,
+      expertUnlocked: false,
+    });
+
+  test("a fresh run (Campaign Setup still pending) offers issue #1, never 'Campaign over'", () => {
+    const model = cover(fneRecord());
+    expect(model.finished).toBeNull();
+    expect(model.issueNumber).toBe(1);
+    expect(model.canReadIssue).toBe(true);
+    expect(model.totalIssues).toBe(6);
+    expect(model.pips).toEqual(["current", "empty", "empty", "empty", "empty", "empty"]);
+    expect(model.villainScenarioId).toBe("kingpin");
+  });
+
+  test("with a scenario composed (setup answered), the cover bills that issue", () => {
+    const model = cover(fneRecord({ attempt: { nodeId: "the-getaway" } } as unknown as Partial<CampaignRecord>));
+    expect(model.canReadIssue).toBe(true);
+    expect(model.issueNumber).toBe(1);
+    expect(model.nextIssueTitle).toBe("The Getaway");
+  });
+
+  test("after one scenario win, issue #2 is next and one pip is done", () => {
+    const model = cover(
+      fneRecord({ position: { nextNodeId: null, resolved: { "the-getaway": "completed" }, progress: {} } }),
+    );
+    expect(model.issueNumber).toBe(2);
+    expect(model.canReadIssue).toBe(true);
+    expect(model.pips).toEqual(["done", "current", "empty", "empty", "empty", "empty"]);
+  });
+
+  test("after a loss with keepLog (nothing resolved, the log kept) the run is still active at the same issue", () => {
+    const model = cover(
+      fneRecord({
+        attempt: { nodeId: "the-getaway" },
+        history: [{ nodeId: "the-getaway", outcome: "lost" }],
+      } as unknown as Partial<CampaignRecord>),
+    );
+    expect(model.finished).toBeNull();
+    expect(model.canReadIssue).toBe(true);
+    expect(model.issueNumber).toBe(1);
+  });
+
+  test("a won or lost campaign is finished, not continuable", () => {
+    expect(cover(fneRecord({ status: "won" })).finished).toBe("won");
+    const lost = cover(fneRecord({ status: "lost" }));
+    expect(lost.finished).toBe("lost");
+    expect(lost.canReadIssue).toBe(false);
   });
 });

@@ -134,6 +134,9 @@ describe("describeCost: discardFromDeck", () => {
 
   test("a plain number renders as a number", () => {
     expect(describeCost({ discardFromDeck: 2 })).toBe("discard the top 2 cards of your deck");
+    // Entrapment 61024: "change to hero form and discard this card →".
+    expect(describeCost({ changeForm: "hero", discardSelf: true })).toBe("change to hero form, discard this card");
+    expect(describeCost({ changeForm: "alterEgo" })).toBe("change to alter-ego form");
     expect(describeCost({ discardFromDeck: 1 })).toBe("discard the top 1 card of your deck");
   });
 
@@ -148,6 +151,14 @@ describe("describeCost: discardFromDeck", () => {
     });
     expect(ifElseThreeInAlterEgo).toBe("discard the top 2 (3 in alter-ego) cards of your deck");
     expect(ifElseThreeInAlterEgo).not.toContain("[object Object]");
+  });
+
+  test("a counter amount read from the board (4K Digital Camcorder, jj 61009) reads as X, never '[object Object]'", () => {
+    const camcorderLike = describeCost({
+      spendCounters: { counterType: "evidence", amount: { kind: "remainingHp", of: { kind: "slot", slot: "minion" } } },
+    });
+    expect(camcorderLike).toBe("remove X evidence counters");
+    expect(describeCost({ spendCounters: { counterType: "evidence", amount: 2 } })).toBe("remove 2 evidence counters");
   });
 
   test("eventAmount (Shield Spell, mts 21061) has no event to size itself from here, and reads as a phrase, never '[object Object]'", () => {

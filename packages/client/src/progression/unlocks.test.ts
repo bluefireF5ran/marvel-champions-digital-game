@@ -78,6 +78,7 @@ describe("the unlock path", () => {
       "next_evol",
       "aoa",
       "aos",
+      "fne",
     ]);
   });
 
@@ -376,5 +377,23 @@ describe("scenarios by hand", () => {
       { label: "First Expert win: Rhino", points: 50 },
     ]);
     expect(make().pointsSources()).toEqual([]);
+  });
+
+  it("adds achievement points to what is earned, and spending still subtracts", () => {
+    const progress = { ...NO_PROGRESS, wonScenarioIds: ["rhino"] };
+    const u = new Unlocks({ progress, prefs: DEFAULT_UNLOCK_PREFS, achievementPoints: 75 });
+    expect(u.points()).toEqual({ earned: POINTS.firstWin + 75, spent: 0, total: POINTS.firstWin + 75 });
+    expect(u.pointsSources()).toContainEqual({ label: "Achievements", points: 75 });
+    const spent = new Unlocks({
+      progress,
+      prefs: { ...DEFAULT_UNLOCK_PREFS, charges: [{ id: "scenario:x", points: 40 }] },
+      achievementPoints: 75,
+    });
+    expect(spent.points()).toEqual({ earned: POINTS.firstWin + 75, spent: 40, total: POINTS.firstWin + 35 });
+    expect(
+      make(progress)
+        .pointsSources()
+        .some((s) => s.label === "Achievements"),
+    ).toBe(false);
   });
 });

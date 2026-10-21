@@ -4,7 +4,7 @@
  * be attached to that" (`TargetQuery.canAttachTo`) all get one answer.
  */
 
-import type { AttachmentHost } from "@mc/content";
+import type { AttachmentHost, AttachmentHostCategory, SuperlativeHostPool } from "@mc/content";
 import { DEFAULT_DEPS, type EngineDeps } from "./abilities.js";
 import type { InstanceId, PlayerId } from "./ids.js";
 import { hasKeyword } from "./keywords.js";
@@ -35,7 +35,8 @@ import {
   traitsOf,
   villainAliasOf,
 } from "./select.js";
-import type { TargetQuery } from "./spec.js";
+import type { AttachCategory, TargetQuery } from "./spec.js";
+import { hasPerPlayerMainSchemes, mainSchemesFor } from "./per-player-main-schemes.js";
 import type { GameState } from "./state.js";
 
 const HOST_QUERIES: Partial<Record<AttachmentHost["kind"], TargetQuery>> = {
@@ -146,6 +147,14 @@ function passesQualifiers(
   if (host.withoutTrait && traitsOf(state, id, deps).includes(host.withoutTrait)) return false;
   const barred = host.withoutAttachmentNamed;
   if (barred !== undefined && mustInstance(state, id).attachments.some((a) => currentName(state, a) === barred))
+    return false;
+  // "without a Vehicle attachment" (docs/phase7-wave11-scenarios.md §S7 E17): no card attached to it has the trait,
+  // printed or gained (RRG 1.8 "Gains"), whatever its title, so a Motorcycle bars a Sports Car.
+  const barredTrait = host.withoutAttachmentTrait;
+  if (
+    barredTrait !== undefined &&
+    mustInstance(state, id).attachments.some((a) => traitsOf(state, a, deps).includes(barredTrait))
+  )
     return false;
   // "a non-permanent side scheme" (docs/phase7-wave2.md §6.5): printed or gained keywords.
   if (host.keyword !== undefined && !hasKeyword(state, id, host.keyword, deps)) return false;
@@ -267,30 +276,58 @@ export function attachHostCandidates(
  * Whether a printed "attach to" allows a card of this category, read from the host text alone with no card in play
  * consulted (`TargetQuery.canAttachToCategory`, docs/phase7-wave8.md §3.59; owner decision §4.1 Q30 = A: "eligibility
  * comes from the upgrade's own attach text; no ally host needs to be in play, and the board state is not evaluated").
+ * Widened to minions and side schemes in wave 11 (docs/phase7-wave11.md §3.11, Contingency Planning `fne` 60030).
  *
- * For "ally": a host that is an ally (`ally`, a `qualified` or `superlative` host over allies), or a wider pool an
- * ally belongs to (`anyCharacter`, `friendlyCharacter`, a `qualified` or `superlative` host over characters or
- * friendly characters). A qualifier is not weighed (a trait, a classification, "you control"): it narrows which ally,
- * not whether an ally. A host of several parts (`anyOf`, `ifAble`) allows what any part allows. A host that names a
- * card (`namedCard`) or an encounter-side card does not, whatever that card happens to be.
+ * A host allows the category when it is that kind of card or a wider pool that kind belongs to:
+ * - "ally": `ally`, `anyCharacter`, `friendlyCharacter`, `qualified` / `superlative` over allies, characters or
+ *   friendly characters.
+ * - "minion": `minion`, `minionWithHighestPrintedHp`, `enemy` (a minion is an enemy, RRG 1.8 "Enemy"),
+ *   `anyCharacter`, `encounterCard` (a minion is an encounter card), `qualified` over minions, enemies or characters,
+ *   `superlative` among minions or enemies.
+ * - "sideScheme": `sideScheme`, `scheme`, `villainSideScheme`, `encounterCard`, `qualified` over side schemes.
+ * - Any category: `anyCard` ("Attach to a card.", RRG 1.8 "Attach To", p. 8, names no type).
+ *
+ * A qualifier is not weighed (a trait, a classification, "you control", a measure): it narrows which card, not whether
+ * one of the category. A host of several parts (`anyOf`, `ifAble`) allows what any part allows. A host that names a
+ * card (`namedCard`, `namedVillain`) does not, whatever that card happens to be. A list of categories is "any of them".
  */
-export function hostAllowsCategory(host: AttachmentHost, category: "ally"): boolean {
+export function hostAllowsCategory(
+  host: AttachmentHost,
+  category: AttachCategory | readonly AttachCategory[],
+): boolean {
+  if (typeof category !== "string") return category.some((one) => hostAllowsCategory(host, one));
   switch (host.kind) {
-    case "ally":
-    case "anyCharacter":
-    case "friendlyCharacter":
+    case "anyCard":
       return true;
-    case "qualified":
-      return host.category === category || host.category === "character" || host.category === "friendlyCharacter";
-    case "superlative":
-      return host.among === category || host.among === "friendlyCharacter";
     case "anyOf":
       return host.hosts.some((part) => hostAllowsCategory(part, category));
     case "ifAble":
       return hostAllowsCategory(host.preferred, category) || hostAllowsCategory(host.otherwise, category);
     default:
-      return false;
+      return HOST_KINDS_ALLOWING[category].has(host.kind) || qualifiedAllows(host, category);
   }
+}
+
+/** The plain host kinds that allow each category (`hostAllowsCategory`). */
+const HOST_KINDS_ALLOWING: Readonly<Record<AttachCategory, ReadonlySet<AttachmentHost["kind"]>>> = {
+  ally: new Set(["ally", "anyCharacter", "friendlyCharacter"]),
+  minion: new Set(["minion", "minionWithHighestPrintedHp", "enemy", "anyCharacter", "encounterCard"]),
+  sideScheme: new Set(["sideScheme", "scheme", "villainSideScheme", "encounterCard"]),
+};
+
+/** The `qualified` categories and `superlative` pools that allow each category (`hostAllowsCategory`). */
+const NARROWED_POOLS_ALLOWING: Readonly<
+  Record<AttachCategory, readonly (AttachmentHostCategory | SuperlativeHostPool)[]>
+> = {
+  ally: ["ally", "character", "friendlyCharacter"],
+  minion: ["minion", "enemy", "character"],
+  sideScheme: ["sideScheme"],
+};
+
+function qualifiedAllows(host: AttachmentHost, category: AttachCategory): boolean {
+  if (host.kind === "qualified") return NARROWED_POOLS_ALLOWING[category].includes(host.category);
+  if (host.kind === "superlative") return NARROWED_POOLS_ALLOWING[category].includes(host.among);
+  return false;
 }
 
 function rawHostCandidates(state: GameState, host: AttachmentHost, context: EffectContext): readonly InstanceId[] {
@@ -306,6 +343,9 @@ function rawHostCandidates(state: GameState, host: AttachmentHost, context: Effe
         .filter((villain) => currentName(state, villain.instanceId) === host.name)
         .map((villain) => villain.instanceId);
     case "mainScheme": {
+      // A main scheme per player: the one in the play area of the card's player, every one for a card in no play
+      // area (MC60 p. 13; docs/phase7-wave11-scenarios.md §S3.1).
+      if (hasPerPlayerMainSchemes(state)) return mainSchemesFor(state, context);
       // The main scheme of the revealing player's area when the players are split (docs/phase7-wave2.md §3.1).
       const scheme = mainSchemeFor(state, contextArea(state, context));
       return scheme ? [scheme.instanceId] : [];
@@ -395,6 +435,11 @@ function rawHostCandidates(state: GameState, host: AttachmentHost, context: Effe
       // whatever its type. RRG 1.8 "Encounter Card" (p. 18); an encounter card has no controller, which is the same
       // test `isFriendly` inverts.
       return selectTargets(state, {}, context).filter((id) => !isFriendly(state, id));
+    case "anyCard":
+      // "Attach to a card." (docs/phase7-wave11-hero-packs.md H3.11): RRG 1.8 "Attach To" (p. 8) names no type,
+      // controller or icon, so every faceup card in play of either side — identity, villain, scheme, environment,
+      // upgrade, attachment — other than the attaching card itself. A facedown card is out of play and no host.
+      return selectTargets(state, {}, context).filter((id) => id !== context.selfInstanceId);
     case "nonActiveVillain":
       // "Attach to the villain who is not the active villain." (Direct Assault): several are a first-player choice.
       return undefeatedVillains(state)

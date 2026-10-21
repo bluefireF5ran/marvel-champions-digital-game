@@ -1,7 +1,7 @@
 import type { CardText, PrintedStat, ResourceIconCounts, Trait } from "../common.js";
 import type { KeywordInstance } from "../keywords.js";
 import type { AbilityReference } from "../abilities.js";
-import type { EncounterSetId, ImageRef } from "../ids.js";
+import type { CardId, EncounterSetId, ImageRef } from "../ids.js";
 import type { BaseCard } from "./base.js";
 import type { SchemeIcon } from "./schemes.js";
 import type { AttachmentHost, AttachmentHostChooser, PrintedStatModifiers } from "./attachment-host.js";
@@ -47,6 +47,25 @@ export interface CardFlipSide {
   readonly resourceIcons?: ResourceIconCounts;
   /** This face's "Standard Mode Only." / "Expert Mode Only." (see `ModeOnly`). */
   readonly modeOnly?: ModeOnly;
+  /**
+   * This face's own printed THW / ATK / hit points, for a double-sided ally whose faces print different ones
+   * (`AllyCard.thw` / `atk` / `hp` are the front's): Typhoid Mary (THW 2, ATK 1) flips to Bloody Mary (THW 1, ATK 2),
+   * `fne` 60210a/b. RRG 1.8 "Flip" (p. 20): the new face's characteristics apply. Only a stat the face changes is
+   * present, and it differs from the front's; an absent one reads the front's. Allies only (an ally prints no DEF):
+   * a minion flip side's printed values are not modeled here; an attachment's are `statModifiers`.
+   */
+  readonly thw?: PrintedStat;
+  readonly atk?: PrintedStat;
+  readonly hp?: number;
+  /**
+   * This face's own printed stat boxes, for a double-sided attachment whose faces print different ones
+   * (`AttachmentCard.statModifiers` is the front's): Dense (+1 ATK) flips to Intangible (+1 SCH), `synthezoid`
+   * 57046a/b. RRG 1.8 "Flip" (p. 20): the new face's characteristics apply. Present only when the face differs from
+   * the front, and then it replaces the front's whole set (a stat box this face does not print is not inherited);
+   * `{}` is a face that prints no stat box behind a front that does. Absent: the face prints the front's.
+   * Attachments only.
+   */
+  readonly statModifiers?: PrintedStatModifiers;
 }
 
 /**
@@ -76,6 +95,12 @@ interface EncounterCardCommon extends BaseCard {
    * token and a `Boost:` ability (validated against every pack's MarvelCDB `boost_star` field, 703/703 agreement).
    */
   readonly starIcon?: boolean;
+  /**
+   * The card(s) whose text gives this card the Boost its star stands for, when the card has no Boost ability of its
+   * own (Purple Man's set: the villain stages 60097 to 60099 give every boost card of the set a Boost). Only with
+   * `starIcon: true`; each id must name a card in the pool.
+   */
+  readonly boostGrantedBy?: readonly CardId[];
   readonly traits: readonly Trait[];
   readonly keywords: readonly KeywordInstance[];
   readonly text: CardText;

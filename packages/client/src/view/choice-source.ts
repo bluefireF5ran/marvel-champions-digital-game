@@ -130,6 +130,8 @@ export function choiceSourceOf(state: GameState, choice: PendingChoice): ChoiceS
       return { instanceId: frame.enemyInstanceId, abilityId: null };
     case "reveal":
       return { instanceId: frame.instanceId, abilityId: null };
+    case "characterBoost":
+      return { instanceId: frame.characterInstanceId, abilityId: null };
     case "playCard":
       return { instanceId: frame.instanceId, abilityId: frame.triggeredAbilityId };
     case "event":
@@ -470,6 +472,8 @@ export function promptTitleOf(
     orderTriggers: "Order these effects",
     // A revealed minion with both Quickstrike and Teamwork: the first player picks which resolves first.
     orderKeywords: "Choose which keyword resolves first",
+    // Incite, printed When Revealed and surge share a timing (FFG ruling, Sep 22, 2026): the first player orders them.
+    orderWhenRevealed: "Order the When Revealed abilities",
     chooseTriggers: "Trigger an ability?",
     chooseTarget: "Choose a target",
     chooseAttachmentTarget: "Choose a host",
@@ -546,6 +550,13 @@ function pickedFromDeck(state: GameState, choice: PendingChoice): string | null 
   if (choice.prompt.kind !== "chooseCards" || choice.options.length === 0) return null;
   let found: string | null = null;
   for (const option of choice.options) {
+    // A hidden-hand pick (`facedown: true`): the options name an owner, never a card.
+    if (option.ref.kind === "facedownCard") {
+      const here = `${seatFormName(state, option.ref.ownerId)}'s hand`;
+      if (found !== null && found !== here) return null;
+      found = here;
+      continue;
+    }
     if (option.ref.kind !== "card") return null;
     const zone = locateCard(state, option.ref.instanceId);
     let here: string | null = null;

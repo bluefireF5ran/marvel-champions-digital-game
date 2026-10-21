@@ -34,7 +34,7 @@ import { fileURLToPath } from "node:url";
 import type { RawCard } from "./marvelcdb/raw-types.ts";
 import { normalizePack, type NormalizedPack } from "./marvelcdb/normalize.ts";
 import { withLocalArt } from "./marvelcdb/normalize/art.ts";
-import { localArtCodes } from "./marvelcdb/local-art.ts";
+import { localArtCodes, seedLocalArtByCode } from "./marvelcdb/local-art.ts";
 import { emitModule, type ModuleSpec } from "./marvelcdb/emit.ts";
 import { CORE_CURATION } from "./marvelcdb/curation/core.ts";
 import { GOB_CURATION } from "./marvelcdb/curation/gob.ts";
@@ -94,7 +94,12 @@ import { SM_CURATION } from "./marvelcdb/curation/sm.ts";
 import { GMW_CURATION } from "./marvelcdb/curation/gmw.ts";
 import { MTS_CURATION } from "./marvelcdb/curation/mts.ts";
 import { CW_CURATION } from "./marvelcdb/curation/cw.ts";
+import { SYNTHEZOID_CURATION } from "./marvelcdb/curation/synthezoid.ts";
 import { HERCULES_CURATION } from "./marvelcdb/curation/hercules.ts";
+import { FNE_CURATION } from "./marvelcdb/curation/fne.ts";
+import { JJ_CURATION } from "./marvelcdb/curation/jj.ts";
+import { LUKE_CAGE_CURATION } from "./marvelcdb/curation/luke_cage.ts";
+import { SHADOWLAND_CURATION } from "./marvelcdb/curation/shadowland.ts";
 import { bareCuration } from "./marvelcdb/curation/empty.ts";
 import type { PackCuration } from "./marvelcdb/curation/types.ts";
 
@@ -161,10 +166,12 @@ const REGISTERED_CURATIONS: Readonly<Record<string, PackCuration>> = {
   gmw: GMW_CURATION,
   mts: MTS_CURATION,
   cw: CW_CURATION,
+  synthezoid: SYNTHEZOID_CURATION,
   hercules: HERCULES_CURATION,
-  // fne: curated (survey.ts), but NOT registered here — it has at least one card
-  // still blocked on a real parser/schema gap (docs/phase7-wave2-data.md's "Schema requests for
-  // game-rules-architect" / parser-gap log).
+  fne: FNE_CURATION,
+  jj: JJ_CURATION,
+  luke_cage: LUKE_CAGE_CURATION,
+  shadowland: SHADOWLAND_CURATION,
 };
 
 interface RawCache {
@@ -213,8 +220,24 @@ async function parseArgs(argv: readonly string[]): Promise<Args> {
   return { packs, offline, dryRun, allowBare };
 }
 
-async function loadRaw(pack: string, offline: boolean): Promise<RawCache> {
+async function loadRaw(pack: string, offline: boolean, scanOnly: boolean): Promise<RawCache> {
   const cachePath = join(PKG_ROOT, "raw", "marvelcdb", `${pack}.json`);
+  // A pack MarvelCDB does not carry at all (Shadowland, docs/phase7-shadowland.md section 0): every record is an
+  // `addedRecord` transcribed from scans, so there is no cache to read or to fetch, and an empty stub would count as a
+  // MarvelCDB pack in the card catalog.
+  if (
+    scanOnly &&
+    !(await access(cachePath).then(
+      () => true,
+      () => false,
+    ))
+  )
+    return {
+      source: `no MarvelCDB pack "${pack}": every record is an addedRecord transcribed from scans (curation/${pack}.ts)`,
+      fetchedAt: "n/a",
+      pack,
+      cards: [],
+    };
   if (offline) return JSON.parse(await readFile(cachePath, "utf8")) as RawCache;
   const source = `https://marvelcdb.com/api/public/cards/${pack}`;
   const res = await fetch(source, { headers: { accept: "application/json" } });
@@ -239,7 +262,9 @@ function modules(n: NormalizedPack, curation: PackCuration, cache: RawCache): Re
   const schema = "../../schema/index.js";
   const header = [
     "GENERATED FILE — do not edit by hand.",
-    `Source: MarvelCDB public API ${cache.source} (fetched ${cache.fetchedAt}; raw cache: packages/content/raw/marvelcdb/${cache.pack}.json).`,
+    curation.scanOnly
+      ? `Source: Hall of Heroes preview scans, hand-transcribed as addedRecords (${cache.source}; export: packages/content/raw/hallofheroes/${cache.pack}.json).`
+      : `Source: MarvelCDB public API ${cache.source} (fetched ${cache.fetchedAt}; raw cache: packages/content/raw/marvelcdb/${cache.pack}.json).`,
     `Hand corrections / curated data: packages/content/scripts/marvelcdb/curation/${curation.packCode}.ts`,
     `Regenerate: pnpm --filter @mc/content ingest -- --pack ${curation.packCode} [--offline]`,
   ];
@@ -348,11 +373,18 @@ async function ingestOne(pack: string, args: Args): Promise<{ ok: boolean; summa
         `or pass --dry-run to survey it, or --allow-bare to emit with a zero-correction placeholder curation`,
     );
   }
-  const cache = await loadRaw(pack, args.offline);
+  const cache = await loadRaw(pack, args.offline, registered?.scanOnly === true);
   const curation = registered ?? bareCuration(pack, cache.cards[0]);
   let normalized: NormalizedPack;
   try {
-    normalized = normalizePack(withLocalArt(cache.cards, await localArtCodes()), curation);
+    const localCodes = await localArtCodes();
+    seedLocalArtByCode(localCodes);
+    // Faces transcribed from scans (`addedRecords`) get their local scan the same way MarvelCDB's records do.
+    const added = curation.addedRecords?.map((a) => ({ ...a, record: withLocalArt([a.record], localCodes)[0]! }));
+    normalized = normalizePack(
+      withLocalArt(cache.cards, localCodes),
+      added ? { ...curation, addedRecords: added } : curation,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (args.dryRun) return { ok: false, summary: `${pack}: FAILED\n${message}` };

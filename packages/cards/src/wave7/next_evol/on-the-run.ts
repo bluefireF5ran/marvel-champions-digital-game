@@ -7,6 +7,7 @@ import {
   andThen,
   attacksGainKeywords,
   attachCard,
+  firstPlayer,
   isStunned,
   canTakeStatus,
   chooseCards,
@@ -35,7 +36,7 @@ import {
   exhaust,
   exists,
   flipCard,
-  forEachPlayer,
+  forEachPlayerInChosenOrder,
   forcedInterrupt,
   forcedResponse,
   gainsIcon,
@@ -137,14 +138,14 @@ export const ON_THE_RUN: AbilityRegistry = defineAbilities({
   // When Revealed: Each player searches the encounter deck for a MARAUDER minion and puts it into play engaged with
   // them. (Shuffle.) "If this stage is completed, the players lose the game" is `MainSchemeStage.completionLoses`.
   "40103b.when-revealed": whenRevealed(
-    forEachPlayer(eachPlayer, searchForMarauder(["deck"], thatPlayer)),
+    forEachPlayerInChosenOrder(eachPlayer, searchForMarauder(["deck"], thatPlayer)),
     shuffleEncounterDeck(),
   ),
 
   // Escaping with Hope 2A — When Revealed: Each player searches the encounter deck and discard pile for a MARAUDER
   // minion and puts that minion into play engaged with them. (Shuffle.) Give each MARAUDER enemy a tough status card.
   "40104a.when-revealed": whenRevealed(
-    forEachPlayer(eachPlayer, searchForMarauder(["deck", "discard"], thatPlayer)),
+    forEachPlayerInChosenOrder(eachPlayer, searchForMarauder(["deck", "discard"], thatPlayer)),
     shuffleEncounterDeck(),
     giveTough(each(MARAUDER_ENEMIES)),
   ),
@@ -258,21 +259,26 @@ export const ON_THE_RUN: AbilityRegistry = defineAbilities({
   // Dizzying Deeds (40110) — When Revealed: Exhaust a character you control. If the following enemies are in play:
   // Arclight — Stun a character you control. Riptide — Take 3 indirect damage. Vertigo — Confuse a character you control.
   "40110.when-revealed": whenRevealed(
-    ifThen(exists(READY_CHARACTER), [chooseTarget("tired", READY_CHARACTER), exhaust(chosen("tired"))]),
+    // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+    // (RRG 1.8 "First Player", p. 19).
+    ifThen(exists(READY_CHARACTER), [
+      chooseTarget("tired", READY_CHARACTER, { chooser: firstPlayer }),
+      exhaust(chosen("tired")),
+    ]),
     ifThen(allOf(exists(query("enemy", { name: "Arclight" })), exists(CAN_BE_STUNNED)), [
-      chooseTarget("stunned", CAN_BE_STUNNED),
+      chooseTarget("stunned", CAN_BE_STUNNED, { chooser: firstPlayer }),
       stun(chosen("stunned")),
     ]),
     ifThen(exists(query("enemy", { name: "Riptide" })), dealIndirectDamage(you, 3)),
     ifThen(allOf(exists(query("enemy", { name: "Vertigo" })), exists(CAN_BE_CONFUSED)), [
-      chooseTarget("confused", CAN_BE_CONFUSED),
+      chooseTarget("confused", CAN_BE_CONFUSED, { chooser: firstPlayer }),
       confuse(chosen("confused")),
     ]),
   ),
 
   // Tag Team (40111) — When Revealed: Choose: • Each MARAUDER minion engaged with you activates against you. • Discard 7
   // cards from the top of the encounter deck. Put the topmost MARAUDER minion in the encounter discard pile into play
-  // engaged with you. The first option is offered only if a Marauder minion is engaged with you (Q8 = A).
+  // engaged with you. The first option needs a Marauder minion engaged with you as its target (RRG 1.8 p. 12).
   "40111.when-revealed": whenRevealed(
     chooseOne(
       option(

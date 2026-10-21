@@ -14,7 +14,7 @@
  *   own music again. With shuffle on (#191) the shuffle carries on from it instead.
  */
 import Phaser from "phaser";
-import { accent, ink, surface, typeRole } from "../tokens.js";
+import { accent, hit, ink, surface, typeRole } from "../tokens.js";
 import { bangers, campaignFrame, drawPicture, drawTopBar } from "../ui/campaign-chrome.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { cssOf, textStyle } from "../ui/theme.js";
@@ -192,8 +192,48 @@ export class ExtrasScene extends Phaser.Scene {
     if (bar.back) this.#buttons.push(bar.back);
     if (bar.backRect) stops.set("back", { rect: bar.backRect, activate: () => this.#back() });
 
+    // The Trophy Room and Art & Credits doors: beside the tabs on a wide screen, on a row of their own above them on
+    // a phone.
+    const doorWidth = 150;
+    const trophyWidth = doorWidth * 2 + 8;
+    const rowGap = 8;
+    const trophyRect: Rect = phone
+      ? { x: gutter, y: bar.height + 10, width: (width - gutter * 2 - rowGap) / 2, height: hit.target }
+      : { x: width - gutter - doorWidth, y: bar.height + 12, width: doorWidth, height: TAB_HEIGHT };
+    const creditsRect: Rect = phone
+      ? { ...trophyRect, x: trophyRect.x + trophyRect.width + rowGap }
+      : { ...trophyRect, x: trophyRect.x - doorWidth - rowGap };
+    const openTrophies = (): void => {
+      this.scale.off("resize", this.#draw, this);
+      goToScreen(this, SCENES.trophyRoom);
+    };
+    const openCredits = (): void => {
+      this.scale.off("resize", this.#draw, this);
+      goToScreen(this, SCENES.credits);
+    };
+    this.#buttons.push(
+      new McButton(this, {
+        kind: "secondary",
+        label: "Trophy Room ▸",
+        type: typeRole.label,
+        rect: trophyRect,
+        onClick: openTrophies,
+      }),
+      new McButton(this, {
+        kind: "secondary",
+        label: "Credits ▸",
+        type: typeRole.label,
+        rect: creditsRect,
+        onClick: openCredits,
+      }),
+    );
+    stops.set("trophies", { rect: trophyRect, activate: openTrophies });
+    stops.set("credits", { rect: creditsRect, activate: openCredits });
+
     const tabs = extrasTabsOf(current);
-    const tabRect: Rect = { x: gutter, y: bar.height + 12, width: width - gutter * 2, height: TAB_HEIGHT };
+    const tabRect: Rect = phone
+      ? { x: gutter, y: trophyRect.y + trophyRect.height + 8, width: width - gutter * 2, height: TAB_HEIGHT }
+      : { x: gutter, y: bar.height + 12, width: width - gutter * 2 - trophyWidth - 12, height: TAB_HEIGHT };
     this.#tabs = new McTabs(this, {
       rect: tabRect,
       tabs: tabs.map((tab) => ({ id: tab.id, label: phone ? tab.name : tab.label })),
@@ -256,7 +296,13 @@ export class ExtrasScene extends Phaser.Scene {
     });
     this.#list = list;
 
-    const order = [...(bar.backRect ? ["back"] : []), ...EXTRAS_TABS.map((tab) => `tab:${tab.id}`), ...playerStops];
+    const order = [
+      ...(bar.backRect ? ["back"] : []),
+      "trophies",
+      "credits",
+      ...EXTRAS_TABS.map((tab) => `tab:${tab.id}`),
+      ...playerStops,
+    ];
     tiles.forEach((tile, index) => {
       const rowIndex = Math.floor(index / grid.columns);
       order.push(`tile:${tile.id}`);

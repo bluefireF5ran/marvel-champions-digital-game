@@ -11,6 +11,7 @@ import type {
   StatName,
   StatusName,
   TargetCategory,
+  ValueSpec,
 } from "./spec.js";
 import { PAID_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
 import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./state.js";
@@ -75,6 +76,12 @@ export interface DefeatedSnapshot {
   readonly facedown: boolean;
 }
 
+/**
+ * Where a played card was played from (`TriggerEvent cardPlayed.from`, `PlayOrigin` in `actions.ts`): its owner's hand,
+ * the top of the deck or a tuck under an as-if-in-hand permission, or a zone an effect played it from.
+ */
+export type PlayedFrom = "hand" | "deckTop" | "tucked" | "separateDeck" | "deck" | "setAside";
+
 export type TriggerEventBody =
   | {
       readonly kind: "dealDamage";
@@ -116,6 +123,13 @@ export type TriggerEventBody =
       readonly overkill?: boolean;
       /** "This damage ignores tough status cards" (Lightning Strike, errata RRG 1.8 p. 65): taken through a tough status card, which stays. */
       readonly ignoreTough?: boolean;
+      /**
+       * "Unpreventable damage" (docs/phase7-wave11-hero-packs.md §H3.3, `EffectSpec dealDamage.unpreventable`): taken
+       * through a tough status card, which stays, and past every reduction and prevention; increases and "cannot"
+       * rules (caps, "cannot take damage") still apply.
+       * A redirect of it ("deal that damage to X instead", `sourceFromEvent`) keeps it unpreventable (Q103 at A).
+       */
+      readonly unpreventable?: true;
       /**
        * This attack has piercing even if its attacker lacks the keyword ("this attack gains piercing"): the attacked
        * character's tough status cards are discarded before damage (RRG 1.8 "Piercing", p. 32). Stamped when the
@@ -401,6 +415,8 @@ export type TriggerEventBody =
       readonly additionalResolution?: boolean;
       /** "That attack does not get a boost card" (Escaped Convict, I See You): step 1 deals nothing. */
       readonly noBoost?: boolean;
+      /** `EffectSpec enemyAttack.statBonusTiming`: the `atkBonus` read once this attack's interrupts have resolved. */
+      readonly deferredBonus?: DeferredActivationBonus;
       /** As on `attack`: a condition derived for a character this attack's overkill damaged. */
       readonly overkillSpill?: true;
     }
@@ -437,6 +453,8 @@ export type TriggerEventBody =
       readonly divert?: SchemeThreatDivert;
       /** `EffectSpec enemyScheme.wouldPlaceThreat`, resolved at this activation's place-threat step. */
       readonly wouldPlaceThreat?: SchemeWouldPlaceThreat;
+      /** `EffectSpec enemyScheme.statBonusTiming`: the `schBonus` read once this scheme's interrupts have resolved. */
+      readonly deferredBonus?: DeferredActivationBonus;
     }
   /**
    * An enemy was given a facedown boost card (docs/phase7-wave9.md §3.44): "Hero Response (defense): After an
@@ -465,17 +483,59 @@ export type TriggerEventBody =
       readonly playerId: PlayerId | null;
     }
   /**
+   * A facedown boost card is about to be given to a card: "Interrupt: When an enemy would be given a facedown boost
+   * card, remove 1[per_hero] support counters from here instead." (Public Support 60163b, `fne`;
+   * docs/phase7-wave11-scenarios.md E23). RRG 1.8 "Boost, Boost Icon" (p. 11); "'Would'" (p. 48); "Replacement
+   * Effect" (p. 37): a replaced give "is no longer considered imminent", so no card is given and no `boostCardGiven`
+   * follows it.
+   *
+   * One event per card, before it is given: `enemyInstanceId` is the card to hold it (the event's source, as for
+   * `boostCardGiven`), `activation` / `playerId` the activation of that enemy in progress and the player it is
+   * against (null when it is not activating). `outsideActivation`: a card ability gives it (`EffectSpec
+   * giveBoostCard`), not the activation (its step 1, or an additional boost card an effect adds to it). `named`: a
+   * chosen card (`giveBoostCard.card`), the event's target, not yet moved; absent, the card is whatever is on top of
+   * the encounter deck when the event applies.
+   *
+   * Interrupt only: the give is this event's apply step (`applyBoostCardBeingGiven`), which gives as before, so
+   * `boostCardGiven` still follows a give that was not replaced. Cancelled or replaced (`cancelTriggeringEvent`,
+   * `replaceTriggeringEvent`), nothing is given: the deck's top card stays on top and a named card stays where it was.
+   * An activation's own card still counts as one of its boost cards for the give step, so "1 additional boost card"
+   * is not given in its place.
+   * A replaced give does not leave the giving effect's text before a "then" unresolved, as a replaced named deal
+   * (`encounterCardBeingDealt`) does: no printed card yet gives a boost card before a "then" (engine reading,
+   * authority step 5).
+   *
+   * Pushed only when an ability could react (`boostAwaitingInterrupt`, `heard`); otherwise the card is given at once,
+   * with the log, state and replay of a game that has no such ability. **Not** heard (engine reading, authority step
+   * 5): a boost card given as a cost (`AbilityCost.giveBoostCards`; all costs are paid at once, RRG 1.8 "Cost", p. 13),
+   * a defeated card given to the enemy leader as its own boost card (`defeatFromPlay`), and the boost card of a
+   * villainous character's basic power.
+   */
+  | {
+      readonly kind: "boostCardBeingGiven";
+      readonly enemyInstanceId: InstanceId;
+      readonly activation: "attack" | "scheme" | null;
+      readonly playerId: PlayerId | null;
+      readonly outsideActivation?: true;
+      readonly named?: { readonly instanceId: InstanceId };
+    }
+  /**
    * A boost card was turned faceup during an activation (RRG 1.8 "Boost", p. 11), before its "Boost" ability resolves
    * and its icons are added: "When a boost card is turned faceup" (Attacrobatics, an interrupt) and "After a boost card is
    * turned faceup" (Target Acquired, a response). `boostIcons` is what it would add now, 0 once cancelled.
    */
   | {
       readonly kind: "boostCardTurnedFaceup";
+      /** The card holding it: an enemy, or a villainous ally or hero using a basic power (§S3.7). */
       readonly enemyInstanceId: InstanceId;
       readonly boostInstanceId: InstanceId;
-      readonly activation: "attack" | "scheme";
+      /**
+       * The activation, or for a villainous character's own card (`resolve/villainous.ts`) "attack" for its basic
+       * attack or a hero's basic defense (it is during an attack) and null for a thwart or a recovery.
+       */
+      readonly activation: "attack" | "scheme" | null;
       readonly boostIcons: number;
-      /** The player the activation is against ("you"). */
+      /** "You": the player the activation is against, or for a villainous character's own card its controller. */
       readonly playerId: PlayerId;
       /**
        * An attack's target character as the card is turned faceup (the defender, once declared): "an enemy attacking
@@ -519,6 +579,16 @@ export type TriggerEventBody =
        * keyword" (RRG 1.8 "Ranged", p. 35). Stamped when the attack pushes this event, alongside `dealDamage.piercing`.
        */
       readonly ranged?: boolean;
+      /**
+       * The player the target was engaged with as the attack was made, before its damage was dealt (absent: engaged
+       * with no one). By the response window an attack may have defeated the minion, and a card out of play is engaged
+       * with no one, so a pattern's `engagedWithPlayer` / `engagedWith` clauses read this for a target that has left
+       * play (`EffectContext.lastKnown`, `resolve/triggers.ts`); a target still in play is read live. "After a
+       * character in this play area is attacked" (Battle in the Bodega 60134b) still hears an attack that defeated the
+       * minion engaged with that player (owner Q208 open, built A; a response reads the game as its triggering
+       * condition happened, RRG 1.8 "Response", p. 38).
+       */
+      readonly targetEngagedWith?: PlayerId;
     }
   | { readonly kind: "cardEntersPlay"; readonly instanceId: InstanceId; readonly playerId: PlayerId | null }
   /**
@@ -532,12 +602,26 @@ export type TriggerEventBody =
       readonly kind: "cardPlayed";
       readonly instanceId: InstanceId;
       readonly playerId: PlayerId;
+      /**
+       * Where the card was played from, and `countsAsFrom: "hand"` when the game counts it as played from the hand
+       * from elsewhere ("as if it were in your hand"; RRG 1.8 FAQ "Magik (#30A)", p. 64). Read by
+       * `EventPattern.playedFromHand`. Absent on an event built by hand: from the hand.
+       */
+      readonly from?: PlayedFrom;
+      readonly countsAsFrom?: "hand";
       readonly payment?: Vars;
       /**
        * The cards that paid for the play (`PAID_CARDS_SLOT`, docs/phase7-wave9.md §3.46 (b)), which an answering
        * ability reads as slot `paid.cards` (`carriedByEvent`). Absent when no card paid.
        */
       readonly paidCards?: readonly InstanceId[];
+      /**
+       * The card whose ability or permission played this one, as the play recorded it (`PLAYED_VIA_SLOT`): the
+       * `playFromHand.via` card (Wolverine's Claws; docs/phase7-wave6.md §3.42) or the hand card discarded to play it
+       * as if it were in the hand (Photographic Reflexes; docs/phase7-wave11.md §3.9). Read by `EventPattern.playedVia`
+       * and `notPlayedVia`. Absent for every other play.
+       */
+      readonly via?: InstanceId;
     }
   /**
    * A card has been paid for and is about to resolve: "When you play an [Attack] event" (Embiggen!, Shrink). An
@@ -549,6 +633,9 @@ export type TriggerEventBody =
       readonly kind: "cardBeingPlayed";
       readonly instanceId: InstanceId;
       readonly playerId: PlayerId;
+      /** As `cardPlayed.from` / `countsAsFrom`. */
+      readonly from?: PlayedFrom;
+      readonly countsAsFrom?: "hand";
       /** The cards that paid for the play, as `cardPlayed.paidCards` has them; absent when no card paid. */
       readonly paidCards?: readonly InstanceId[];
     }
@@ -566,6 +653,14 @@ export type TriggerEventBody =
        * `TargetRef grantedTo`. Absent on a reveal that grants nothing, and in a game where no ability asks.
        */
       readonly grantedTo?: Readonly<Record<string, readonly InstanceId[]>>;
+      /**
+       * `"encounterDeck"`: the reveal began at an encounter deck, a facedown encounter card dealt from one included
+       * (`Frame<"reveal">.source`; docs/phase7-wave6.md §3.64, §4 Q35). "After a player reveals a [Tracksuit] minion
+       * from the encounter deck" (Tracksuit Mafia, `fne` 60204; docs/phase7-wave11-scenarios.md §S3.10) reads it with
+       * `EventPattern.eventIs { from: "encounterDeck" }`, so a minion revealed from under that scheme, from a set-aside
+       * area, a scenario deck or a discard pile is not heard. Absent on every other reveal.
+       */
+      readonly from?: "encounterDeck";
     }
   /**
    * A revealed treachery (or a revealed event) has **resolved**: "After you resolve a treachery, … attach that treachery
@@ -769,8 +864,22 @@ export type TriggerEventBody =
        */
       readonly asDefeated?: DefeatedSnapshot;
     }
-  /** An encounter card has been flipped faceup and is about to resolve (RRG "Reveal"): the point to cancel it. */
-  | { readonly kind: "encounterCardRevealing"; readonly instanceId: InstanceId; readonly playerId: PlayerId }
+  /**
+   * An encounter card has been flipped faceup and is about to resolve (RRG "Reveal"): the point to cancel it.
+   *
+   * `from`: as `cardRevealed.from`, `"encounterDeck"` only for a reveal that began at an encounter deck or at a
+   * facedown encounter card dealt from one (`Frame<"reveal">.source`). "When a card is revealed from the encounter
+   * deck" (Black Widow 01075, Enhanced Spider-Sense 01004; `on.encounterCardRevealedFromEncounterDeck`) reads it, so a
+   * minion revealed from under Tracksuit Mafia, a set-aside card or a scenario deck's card is not heard (ruling
+   * September 14, 2026 - Ruling 1; docs/phase7-wave11-scenarios.md §S7 E22). Wording that says only "revealed" hears
+   * every reveal.
+   */
+  | {
+      readonly kind: "encounterCardRevealing";
+      readonly instanceId: InstanceId;
+      readonly playerId: PlayerId;
+      readonly from?: "encounterDeck";
+    }
   /**
    * A side scheme reached no threat and is defeated (RRG 1.8 "Defeat", p. 15). `defeatedByPlayerId` is the player
    * whose thwart or card effect removed the last threat — "the player who defeated this scheme" (Crossbones' Assault
@@ -785,6 +894,24 @@ export type TriggerEventBody =
       readonly instanceId: InstanceId;
       readonly defeatedByPlayerId?: PlayerId | null;
       readonly sourceInstanceId?: InstanceId | null;
+      /**
+       * How much more threat the defeating removal attempted to remove than the scheme had (its `removeThreat.amount`,
+       * after every modifier, minus the threat there as it applied): 0 when it removed exactly the last threat. Absent
+       * for a defeat no removal made (a scheme held at no threat whose protection ended, `checkSchemeProtectionEnded`).
+       * Read by `Predicate exactlyDefeated` (docs/phase7-wave11.md §3.7).
+       */
+      readonly excessThreat?: number;
+      /**
+       * The defeating removal was a thwart's (a basic thwart, a `thwart` effect or a "(thwart)"-labeled ability's
+       * removal; `thwartOfRemoval`): "After you thwart and exactly defeat a side scheme". Absent for a plain removal.
+       */
+      readonly byThwart?: true;
+      /**
+       * The thwart frame whose removal initiated this defeat (`byThwart`), which records its `defeated` result once the
+       * defeat actually happens (`applySchemeDefeated`; `EffectSpec atEndOfThwart`, docs/phase7-wave11-hero-packs.md
+       * H3.12). Absent for any other defeat.
+       */
+      readonly thwartFrameId?: FrameId;
     }
   | { readonly kind: "villainStageAdvanced"; readonly stageIndex: number; readonly instanceId: InstanceId }
   /** `schemeInstanceId` is set only for a separate game area's own stage (docs/phase7-wave2.md §3.1). */
@@ -956,6 +1083,11 @@ export type TriggerEventBody =
       /** The card replaces another (`StatusGiver.replacing`): landed, it is not announced as `statusPlaced` (post-RRG 1.5 #181). */
       readonly replacing?: true;
       readonly countOn?: { readonly frameId: FrameId; readonly name: string };
+      /**
+       * The effects frame of the `giveStatus` that gives it: a card that is not given after all (no room left, or
+       * replaced by an "instead" interrupt) marks that frame's pre-"then" text unresolved (`statusNotGiven`).
+       */
+      readonly givingFrameId?: FrameId;
     }
   /**
    * A character's hit points were reset (docs/phase7-wave6.md §3.67): "Forced Response: After MaGog's hit points are
@@ -1715,8 +1847,12 @@ export type TriggerEventBody =
    * "at the end of the phase/round" delayed effects, which RRG 1.8 "Delayed Effect" (p. 15) places "immediately after
    * their specified timing point [...] and before responses". The Collector's and Hela's ∞ faces, Rogue Vessel (`gmw`),
    * Regroup (`drax`), Magical Enhancements (`drs`), the temporary keyword. Pushed only when an ability is listening.
+   *
+   * `"round"`: the round ends with no villain phase, which was skipped (`EffectSpec skipNextVillainPhase`,
+   * docs/phase7-wave11-hero-packs.md H3.7, Q101). "When the round ends" hears it (`eventIs: { phase: ["villain",
+   * "round"] }`, the DSL's `on.roundEnding()`, the temporary keyword); "when the villain phase ends" does not.
    */
-  | { readonly kind: "phaseEnding"; readonly phase: "player" | "villain" }
+  | { readonly kind: "phaseEnding"; readonly phase: "player" | "villain" | "round" }
   /**
    * "After resolving step one of the villain phase" (docs/phase7-wave3.md §3.2): 36 printed cards, among them
    * Terrestrial Invasion 1B, Protect the Planet 2B and Bombardment (`gmw`). Announced once step one's threat and its
@@ -1769,9 +1905,39 @@ export interface CardCausedActivation {
   readonly noBoost?: boolean;
   readonly divert?: SchemeThreatDivert;
   readonly wouldPlaceThreat?: SchemeWouldPlaceThreat;
+  /** Handed on to the attack's or scheme's event (`TriggerEvent enemyAttack.deferredBonus`). */
+  readonly deferredBonus?: DeferredActivationBonus;
   readonly vars: Vars;
   /** A rule waiting on "that attack" (`LastingDuration awaitingAttack`) is retimed to this activation's attack. */
   readonly settlesAwaitingAttack?: boolean;
+}
+
+/**
+ * An activation bonus read when the activation's ATK / SCH is set (`EffectSpec enemyAttack.statBonusTiming`): after the
+ * "when [enemy] activates / attacks / schemes" interrupts, at the apply step of the attack's or scheme's event, in the
+ * scope of the ability whose effect initiated it. An attack reads `atkBonus`, a scheme `schBonus`. Engine extension of
+ * FFG ruling #147, Feb 15 2024 (authority tier 5, built on #147's order: interrupts to the initiated activation, then
+ * the rest of the card, then the activation); RRG 1.8 "Interrupt", p. 25.
+ *
+ * The scope is the one the effect had, read later: `selfInstanceId` names the card even after it left play (a revealed
+ * treachery is in the discard pile by then), so a bonus reading `self` sees it there, and the `event` the value sees
+ * is the activation being resolved, not the reveal or other event that triggered the ability.
+ *
+ * `shared`: the same attack resolved against several players (`additionalResolution`) reads the bonus once, at its
+ * first resolution, as the eager form does; `fixed` then carries that value to the other resolutions still queued.
+ * Separate activations from one effect ("each enemy attacks you") each read their own, after their own interrupts.
+ */
+export interface DeferredActivationBonus {
+  readonly atkBonus?: ValueSpec;
+  readonly schBonus?: ValueSpec;
+  readonly selfInstanceId: InstanceId | null;
+  readonly controllerId: PlayerId | null;
+  readonly bindings: Bindings;
+  readonly vars: Vars;
+  /** The effect frame and effect index that initiated the resolutions sharing one reading (`additionalResolution`). */
+  readonly shared?: string;
+  /** The value the first of the `shared` resolutions read. */
+  readonly fixed?: { readonly atkBonus?: number; readonly schBonus?: number };
 }
 
 /**
@@ -1962,19 +2128,45 @@ export type LeaveRequest =
    */
   | { readonly kind: "tuck"; readonly hostInstanceId: InstanceId; readonly replaced: ReplaceableLeave }
   /**
+   * A leaving an interrupt sent to the bottom of its owner's separate deck (`EffectSpec replaceLeaveDestination` with
+   * `to.separateDeck`, docs/phase7-wave11.md §3.3): placed there when the leaving applies, in place of the move
+   * `replaced` describes, which still says what made it leave (its source card, a cost, a defeat).
+   */
+  | ({ readonly kind: "separateDeck"; readonly replaced: ReplaceableLeave } & SeparateDeckPlacement)
+  /**
    * An attachment (or Victory X upgrade) leaving play because its host `host` does (§4.1 Q32): its interrupts share
    * the host's window, and its host's move takes it (`leaveNow` records where in `moved`). `step`: the host has no
    * leaving of its own on the stack (a villain removed or set aside, a main scheme stage removed or flipped), so this
-   * frame's apply step performs the host's change, which takes the attachments with it.
+   * frame's apply step performs the host's change, which takes the attachments with it. `toSeparateDeck`: an interrupt
+   * sent it to the bottom of its owner's separate deck instead (docs/phase7-wave11.md §3.3), so the host's move puts
+   * it there rather than where it was going.
    */
   | {
       readonly kind: "withHost";
       readonly host: InstanceId;
       readonly step?: HostStep;
       readonly moved?: ZoneId["kind"];
+      readonly toSeparateDeck?: SeparateDeckPlacement;
     };
 
-/** The leavings whose destination `EffectSpec replaceLeaveDestination` can replace (`LeaveRequest tuck.replaced`). */
+/**
+ * Where `EffectSpec replaceLeaveDestination { to: { separateDeck } }` sends a leaving card: the bottom of `playerId`'s
+ * separate deck `name` (the card's owner's). `instead`: where it was going (`TriggerEvent cardLeavesPlay.to` when the
+ * replacement resolved), for the log's `returnedToSeparateDeck`. `order`: among the attachments of one host move
+ * sent to separate decks, the order their replacements resolved, which is the order they go to the bottom (the first
+ * resolved goes first, so the last ends lowest).
+ */
+export interface SeparateDeckPlacement {
+  readonly playerId: PlayerId;
+  readonly name: string;
+  readonly instead: ZoneId["kind"];
+  readonly order: number;
+}
+
+/**
+ * The leavings whose destination `EffectSpec replaceLeaveDestination` can replace (`LeaveRequest tuck.replaced`,
+ * `separateDeck.replaced`).
+ */
 export type ReplaceableLeave = Extract<LeaveRequest, { readonly kind: "zone" | "moveCards" | "defeat" }>;
 
 /**
@@ -2030,6 +2222,20 @@ export type HostStep =
       readonly flippedBy?: PlayerId;
       /** `flipCard.keepCounters`: the counter types it keeps through the change of type. */
       readonly keepCounters?: readonly string[];
+    }
+  /**
+   * `swapMainScheme` (docs/phase7-wave11-scenarios.md §S3.2): the main scheme in play swapped out with `incoming`, a
+   * set-aside main scheme, its attachments discarded; `placePreviousThreat` / `sourceInstanceId` as
+   * `MainSchemeSwapOptions`. `frameId`: the swapping ability's effects frame, marked for a "then" if the swap is refused
+   * when it resumes.
+   */
+  | {
+      readonly kind: "swapMainScheme";
+      readonly schemeId: InstanceId;
+      readonly incoming: InstanceId;
+      readonly placePreviousThreat?: true;
+      readonly sourceInstanceId?: InstanceId;
+      readonly frameId?: FrameId;
     };
 
 /** How a card about to be attached is being attached (`TriggerEvent cardAttached.imminent`). */
@@ -2075,6 +2281,8 @@ export type BasicPowerResume =
       readonly shares: readonly BasicPowerShare[];
       readonly useAtk: boolean;
       readonly thwartCostPaid: boolean;
+      /** `BasicPowerTerms.ignores` of a thwart a card had the player make (docs/phase7-wave11-hero-packs.md §H3.14). */
+      readonly ignores?: readonly ("patrol" | "crisis")[];
     };
 
 /**
@@ -2139,6 +2347,8 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     case "statusBeingGiven":
     // "When a player would be dealt an encounter card" (docs/phase7-wave9.md §3.45): the deal is still to come.
     case "encounterCardBeingDealt":
+    // "When an enemy would be given a facedown boost card" (docs/phase7-wave11-scenarios.md E23): the give is to come.
+    case "boostCardBeingGiven":
     // "Forced Interrupt: When your turn begins, …" (The Poison, `gmw` 16125). A turn beginning is a timing point like a
     // phase beginning (below): RRG 1.8 "Interrupt" (p. 25) resolves an interrupt "immediately before that triggering
     // condition resolves", and nothing in the RRG makes a "begins" timing point response-only. The turn's state
@@ -2311,6 +2521,9 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
       return of([], [event.instanceId], [event.controllerId ?? event.speakerId ?? null]);
     case "boostCardGiven":
       return of([event.enemyInstanceId], [event.boostInstanceId], [event.playerId]);
+    // The enemy to hold it is the source, as for `boostCardGiven`; a named card is the target ("that card").
+    case "boostCardBeingGiven":
+      return of([event.enemyInstanceId], [event.named?.instanceId ?? null], [event.playerId]);
     case "boostCardResolved":
       return of([event.enemyInstanceId], [event.boostInstanceId], [event.playerId]);
     case "boostIconsCounting":

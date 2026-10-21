@@ -28,6 +28,7 @@ import {
   recordEncounterDeckDiscard,
   shuffleZone,
   encounterCardDealtEvent,
+  markDealtFromEncounterDeck,
   recordEncounterCardDealt,
   recordTuckedDiscard,
   tuckedHostToRecord,
@@ -82,6 +83,7 @@ function inOwnersZone(state: GameState, id: InstanceId, zone: PlayerZone): boole
 }
 import { hasCandidates } from "./triggers.js";
 import { tuckLeavingCard } from "./tuck.js";
+import { placeLeavingInSeparateDeck } from "./leave-to-separate-deck.js";
 import { pushWindow } from "./window.js";
 import { heard } from "./triggers.js";
 import { cannotLeavePlay, staysInHand } from "../rules.js";
@@ -92,8 +94,8 @@ import { markPreThenUnresolved } from "./then.js";
  * `count` cards of `pool` at random, without replacement, in the order drawn; every card of a smaller pool, none of an
  * empty one. Each pick is one draw on the game's seeded RNG (`GameState.rng`), which advances with it, so a replay of
  * the command log picks the same cards; an empty pool or a count of zero draws nothing and leaves the RNG as it was.
- * The one place a selector's `random` is resolved (`zone`, `encounter`, `encounterSetAside`, `victoryDisplay`,
- * `tucked`).
+ * The one place a selector's `random` is resolved (`zone`, `encounter`, `encounterSetAside`, `setAside`,
+ * `victoryDisplay`, `tucked`).
  */
 function pickAtRandom(ctx: Ctx, pool: readonly InstanceId[], count: number): InstanceId[] {
   const left = [...pool];
@@ -241,10 +243,13 @@ export function selectCards(ctx: Ctx, selector: CardSelector, context: EffectCon
         selector.filter,
       );
     }
-    case "setAside":
-      return resolvePlayers(state, selector.player, context).flatMap((playerId) =>
+    case "setAside": {
+      const matching = resolvePlayers(state, selector.player, context).flatMap((playerId) =>
         filtered(mustPlayer(state, playerId).setAside, selector.filter),
       );
+      if (!selector.random) return matching;
+      return pickAtRandom(ctx, matching, resolveValue(ctx.state, selector.random, context));
+    }
     case "tucked": {
       const under = filtered(
         resolveRef(state, selector.under, context).flatMap((id) => getInstance(state, id)?.tucked ?? []),
@@ -321,6 +326,8 @@ export function moveCardsTo(
   deckDiscardBy: DeckDiscarder = { sourceInstanceId: null },
   asCost = false,
 ): void {
+  // Empty scenario decks reset once the whole batch has moved (`Ctx.scenarioResetsHeld`), not at its first card.
+  ctx.scenarioResetsHeld = (ctx.scenarioResetsHeld ?? 0) + 1;
   const inPlay = new Set(cardsInPlay(ctx.state));
   const shuffleOwners = new Set<PlayerId>();
   let shuffleEncounter = false;
@@ -511,14 +518,16 @@ export function moveCardsTo(
     }
     // Once it is in a named scenario deck (a card that cannot leave play is not), that deck is its home when it has a
     // discard pile of its own or none, as `buildScenarioDeck` makes it; a card of an `encounter` deck keeps the home it
-    // has. Nobody controls a card in a scenario deck.
+    // has, and so does a card of a deck routing discards by trait (the trap deck, `discardZoneFor`). Nobody controls a
+    // card in a scenario deck.
     if (
       typeof destination === "object" &&
       ctx.state.scenarioDecks[destination.scenarioDeck]?.deck.includes(id) &&
       ctx.state.scenarioDecks[destination.scenarioDeck]?.discardPile !== "encounter"
     ) {
       const home = { kind: "scenarioDeck" as const, name: destination.scenarioDeck };
-      updateInstance(ctx, id, (i) => ({ ...i, controllerId: null, home }));
+      const byTrait = ctx.state.scenarioDecks[destination.scenarioDeck]?.discardByTrait !== undefined;
+      updateInstance(ctx, id, (i) => ({ ...i, controllerId: null, ...(byTrait ? {} : { home }) }));
     }
     // A deck whose top card is in play is made of one face of its cards: a card put into it shows that face ("flip it
     // and place it on the bottom of the Holding Cell deck"; docs/phase7-wave9.md §3.17).
@@ -549,14 +558,29 @@ export function moveCardsTo(
     if (destination === "separateDeckShuffle") shuffleSeparateDeck(ctx, playerId, name);
     else syncSeparateDeckTop(ctx, playerId, name);
   }
+  ctx.scenarioResetsHeld -= 1;
+  if (ctx.scenarioResetsHeld === 0)
+    for (const name of Object.keys(ctx.state.scenarioDecks)) resetScenarioDeckIfEmpty(ctx, name);
   // A card put under a deck whose top card is in play, with no card left in it, is its top card and enters play at
   // once (MC50 p. 22; docs/phase7-wave9.md §3.17); so does the next card when this move took the top card out of play.
   settleScenarioDeckTops(ctx);
 }
 
-/** Shuffles an identity's separate deck, then shows its top card as its rules say. */
-export function shuffleSeparateDeck(ctx: Ctx, playerId: PlayerId, name: string): void {
+/**
+ * Shuffles an identity's separate deck, then shows its top card as its rules say.
+ *
+ * A `fixedOrder` deck (docs/phase7-wave11.md §3.1; MC60 p. 26: "shuffle all five … you cannot change the order", and
+ * the Sense cards' "(Do not shuffle.)") is shuffled only by setup (`atSetup`, RRG 1.8 Appendix II step 6, p. 51). Every
+ * other shuffle of it — `shuffleDeck { separateDeck }`, the shuffle after a search (RRG 1.8 "Search", p. 39), a card
+ * shuffled into it — keeps the order: no `deckShuffled`, no RNG spent. The card text overrides the search rule (The
+ * "Golden Rules", p. 4), so this is not a conflict.
+ */
+export function shuffleSeparateDeck(ctx: Ctx, playerId: PlayerId, name: string, atSetup = false): void {
   const piles = separateDeckOf(ctx.state, playerId, name);
+  if (piles.fixedOrder && !atSetup) {
+    syncSeparateDeckTop(ctx, playerId, name);
+    return;
+  }
   const order = shuffleZone(ctx, { kind: "separateDeck", playerId, name }, piles.deck);
   updatePlayer(ctx, playerId, (p) => ({
     ...p,
@@ -597,7 +621,7 @@ export function buildScenarioDeck(
     if (!matches(id)) continue;
     moveCard(ctx, id, { kind: "scenarioDeck", name });
     // A deck with a discard pile of its own, or with none (the show deck), is its cards' home.
-    if (piles.discardPile !== "encounter")
+    if (piles.discardPile !== "encounter" && piles.discardByTrait === undefined)
       updateInstance(ctx, id, (i) => ({ ...i, home: { kind: "scenarioDeck", name } }));
   }
   shuffleScenarioDeck(ctx, name);
@@ -607,22 +631,35 @@ export function buildScenarioDeck(
 
 /**
  * `whenEmpty: "reshuffleDiscardWithoutPenalty"` (the Red Skull rulebook, p. 15: "If the side-scheme deck is ever empty,
- * shuffle the side-scheme discard pile into the side-scheme deck. There is no penalty for doing this."), checked
- * between frames as the Invocation deck's is. A `remainsEmpty` deck stays empty.
+ * shuffle the side-scheme discard pile into the side-scheme deck. There is no penalty for doing this."). A deck resets
+ * at the move that empties it (`resetScenarioDeckIfEmpty`); this between-frames pass is only the fallback for a state
+ * built another way (setup, an older save). A `remainsEmpty` deck stays empty.
  */
 export function resetEmptyScenarioDecks(ctx: Ctx): void {
-  for (const [name, piles] of Object.entries(ctx.state.scenarioDecks)) {
-    if (piles.whenEmpty !== "reshuffleDiscardWithoutPenalty" || piles.deck.length > 0 || piles.discard.length === 0)
-      continue;
-    // A deck whose top card is in play is not empty while that card is its top card (docs/phase7-wave9.md §3.17).
-    if (piles.inPlayTopId !== undefined) continue;
-    for (const id of [...piles.discard]) {
-      moveCard(ctx, id, { kind: "scenarioDeck", name });
-      updateInstance(ctx, id, (i) => ({ ...i, faceup: false }));
-    }
-    shuffleScenarioDeck(ctx, name);
-    emit(ctx, { type: "scenarioDeckReset", name });
+  for (const name of Object.keys(ctx.state.scenarioDecks)) resetScenarioDeckIfEmpty(ctx, name);
+}
+
+/**
+ * Resets one scenario deck if it is empty: called by `settlePlayerDecks` at the move that empties the deck or reaches
+ * its discard pile (as the Invocation deck's is), at the end of a `moveCardsTo` batch, and by the between-frames
+ * fallback `resetEmptyScenarioDecks`. "Once the trap deck is empty, shuffle the cards in the trap discard pile
+ * together to form a new trap deck. This is not considered resetting the encounter deck [...], and does not place an
+ * acceleration token" (MC65 p. 12). A card leaving the deck to resolve is not in the discard pile yet, so the deck is
+ * made without it (ruling, Apr 30, 2026 (3) answer 7, for a player deck). Logged as `scenarioDeckReset`, never as an
+ * encounter deck reset. Returns whether it reset.
+ */
+export function resetScenarioDeckIfEmpty(ctx: Ctx, name: string): boolean {
+  const piles = ctx.state.scenarioDecks[name];
+  if (!piles || piles.whenEmpty !== "reshuffleDiscardWithoutPenalty" || piles.deck.length > 0) return false;
+  // A deck whose top card is in play is not empty while that card is its top card (docs/phase7-wave9.md §3.17).
+  if (piles.discard.length === 0 || piles.inPlayTopId !== undefined) return false;
+  for (const id of [...piles.discard]) {
+    moveCard(ctx, id, { kind: "scenarioDeck", name });
+    updateInstance(ctx, id, (i) => ({ ...i, faceup: false }));
   }
+  shuffleScenarioDeck(ctx, name);
+  emit(ctx, { type: "scenarioDeckReset", name });
+  return true;
 }
 
 /**
@@ -813,6 +850,7 @@ export function dealAsEncounterCards(
     }
     updateInstance(ctx, id, (i) => ({ ...i, faceup: false }));
     moveCard(ctx, id, { kind: "dealtEncounter", playerId }, "bottom", encounterCardDealtEvent(playerId, id, "ability"));
+    markDealtFromEncounterDeck(ctx, id);
     recordEncounterCardDealt(ctx, playerId, id, "ability");
     dealt.push(id);
   }
@@ -967,8 +1005,10 @@ export function announceCardsLeftPlay(ctx: Ctx): boolean {
  * `leaving` describes happens now, after the interrupts and before the responses, through the same entry point that
  * waited (`leavePlay`, `moveCardsTo`, `defeatFromPlay`), which sees this frame applying and moves the card at once.
  * The event's `to` becomes where the card went, and `leaving` is dropped. Returns false, so no responses, when the card
- * did not leave here: an interrupt already moved it (a replacement, whose move was announced as its own leaving), or it
- * can no longer leave (permanent, "cannot leave play").
+ * did not leave here: an interrupt already moved it (a replacement, whose move was announced as its own leaving), it
+ * can no longer leave (permanent, "cannot leave play"), or a "would … instead" replacement sent it to a separate deck
+ * (RRG 1.8 "Replacement Effect", p. 37, and "'Would'", p. 48, allow no responses to a replaced effect). A tuck
+ * (docs/phase7-wave9.md §3.20) is no replacement effect, so its leaving keeps its responses.
  */
 export function applyLeavingPlay(ctx: Ctx, frame: Frame<"event">): boolean {
   const event = frame.event;
@@ -977,9 +1017,13 @@ export function applyLeavingPlay(ctx: Ctx, frame: Frame<"event">): boolean {
   const request = event.leaving;
   if (request.kind === "withHost") return applyLeavingWithHost(ctx, frame.frameId, request.step);
   const inPlay = cardsInPlay(ctx.state).includes(id);
+  let replaced = false;
   if (inPlay) {
-    // Sent under a card by an interrupt (docs/phase7-wave9.md §3.20); with that card gone, the move it replaced.
+    // Sent under a card by an interrupt (docs/phase7-wave9.md §3.20); with that card gone, the move it replaced. Sent
+    // to the bottom of a separate deck (docs/phase7-wave11.md §3.3), placed there.
     const move = request.kind === "tuck" && !tuckLeavingCard(ctx, id, request) ? request.replaced : request;
+    if (move.kind === "separateDeck") placeLeavingInSeparateDeck(ctx, id, move);
+    replaced = move.kind === "separateDeck";
     switch (move.kind) {
       case "zone":
         leavePlay(
@@ -1000,6 +1044,7 @@ export function applyLeavingPlay(ctx: Ctx, frame: Frame<"event">): boolean {
         defeatFromPlay(ctx, id, move.insteadTo, move.sourceCardId);
         break;
       case "tuck":
+      case "separateDeck":
         break;
       case "swap":
         // The swap completes now: this card takes the other's place as the other enters play (§3.47 of wave 6).
@@ -1014,7 +1059,10 @@ export function applyLeavingPlay(ctx: Ctx, frame: Frame<"event">): boolean {
     const { leaving: _, ...rest } = f.event;
     return { ...f, event: left && where ? { ...rest, to: where.kind } : rest };
   });
-  return left;
+  // RRG 1.8 "Replacement Effect" (p. 37): a replaced effect "is no longer considered imminent and no further
+  // interrupts or responses to that effect can be triggered" ("'Would'", p. 48): a leaving sent to a separate deck
+  // has none.
+  return left && !replaced;
 }
 
 /**
@@ -1033,7 +1081,8 @@ function applyLeavingWithHost(ctx: Ctx, frameId: FrameId, step: HostStep | undef
     const { leaving: _, ...rest } = f.event;
     return { ...f, event: moved !== undefined ? { ...rest, to: moved } : rest };
   });
-  return moved !== undefined;
+  // A replaced one (sent to a separate deck) has no responses (RRG 1.8 "Replacement Effect", p. 37; "'Would'", p. 48).
+  return moved !== undefined && !(leaving?.kind === "withHost" && leaving.toSeparateDeck !== undefined);
 }
 
 /**

@@ -38,6 +38,10 @@ import {
   nextSettingsAfterMusicVolume,
   cardSizeRowInfoOf,
   displayModeRowInfoOf,
+  frameRateRowInfoOf,
+  nextSettingsAfterFrameRate,
+  nextSettingsAfterRenderScale,
+  renderScaleRowInfoOf,
   nextSettingsAfterCardSize,
   nextSettingsAfterDisplayMode,
   nextSettingsAfterResolution,
@@ -45,9 +49,16 @@ import {
   nextSettingsAfterCardHover,
   nextSettingsAfterTokenMotion,
   tokenMotionRowInfoOf,
+  achievementPopupPlaceRowInfoOf,
+  achievementPopupSizeRowInfoOf,
+  nextSettingsAfterAchievementPopupSize,
+  achievementPopupTimeRowInfoOf,
+  nextSettingsAfterAchievementPopupPlace,
+  nextSettingsAfterAchievementPopupTime,
   nextSettingsAfterToggle,
   nextSettingsAfterVillainRow,
   settingsRowInfoOf,
+  earnedItemRowInfoOf,
   villainRowInfoOf,
   type GuideRowInfo,
   type SettingsRowInfo,
@@ -99,12 +110,17 @@ import { guidePrefs, onGuidePrefsChange, setGuidePrefs } from "../guide/guide-st
 import { canReadPowerSaving, onPowerSavingChange, powerSavingOn, powerSavingState } from "../platform/power-saving.js";
 import { powerSavingRowOf } from "../view/power-saving-notice.js";
 import { detectPlatform } from "../platform/platform.js";
+import { drawsAtScreenDensity, screenEnvironment } from "../platform/screen-density.js";
+import { applyScreenSettings, knownRefreshInfo, readRefreshInfo } from "../platform/screen-settings.js";
+import { knownHardware, onHardwareChange } from "../platform/device-hardware.js";
+import { hardwareSummaryOf, recommendedScreenOf, tierLabelOf } from "../platform/device-tier.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { SCENES } from "./keys.js";
+import type { AchievementToastScene } from "./achievement-toast.js";
 import type { RulesSceneData } from "./rules.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { OverlayMotion } from "../ui/transitions.js";
-import { unlocks } from "../progression/progression.js";
+import { applyEarnedItems, earnedItems, unlocks } from "../progression/progression.js";
 import { unlocksSummaryOf } from "../view/unlocks-model.js";
 import { SAVE_DATA_ROW_DETAIL, SAVE_DATA_ROW_TITLE } from "../view/save-data-model.js";
 
@@ -129,11 +145,22 @@ type GuideNonLevelRow = Extract<GuideRowInfo, { kind: "action" | "toggle" }>;
 const SPEED_CONTROL_WIDTH = 204;
 const CARD_HOVER_CONTROL_WIDTH = 280;
 const CARD_SIZE_CONTROL_WIDTH = 520;
+const POPUP_TIME_CONTROL_WIDTH = 320;
+const POPUP_PLACE_CONTROL_WIDTH = 400;
+const POPUP_SIZE_CONTROL_WIDTH = 300;
 /** Room for each mode's label with padding either side (the owner, 2026-10-16). */
 const DISPLAY_MODE_CONTROL_WIDTH = 480;
 /** Resolution is a dropdown and an Apply button: up to seventeen sizes is too many segments. */
 const RESOLUTION_CONTROL_WIDTH = 320;
 const APPLY_WIDTH = 88;
+/** Resolution's and Frame rate's up to four short segments ("Native", "720p"; "Screen", "60 fps"). */
+const SCREEN_CONTROL_WIDTH = 300;
+
+/** The Screen section: every build, unless `?renderscale=off`. */
+function screenSettingsShown(): boolean {
+  const env = screenEnvironment();
+  return drawsAtScreenDensity(env.search);
+}
 const LIST_ROW_HEIGHT = 36;
 const LIST_VISIBLE_ROWS = 8;
 
@@ -204,10 +231,13 @@ export class SettingsOverlay extends Phaser.Scene {
     const unsubscribeGuide = onGuidePrefsChange(() => this.#draw());
     // Power saving mode turning on or off changes the Reduced motion and Sharper text rows.
     const unsubscribePowerSaving = onPowerSavingChange(() => this.#redrawIfOpen());
+    // The hardware check finishing changes the Screen rows' recommendation.
+    const unsubscribeHardware = onHardwareChange(() => this.#redrawIfOpen());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", onResize, this);
       unsubscribeGuide();
       unsubscribePowerSaving();
+      unsubscribeHardware();
       for (const button of this.#buttons) button.destroy();
       this.#buttons = [];
       this.#tabs?.destroy();
@@ -217,6 +247,8 @@ export class SettingsOverlay extends Phaser.Scene {
     });
     this.#draw();
     if (hasDesktopWindow()) void refreshDesktopMonitor().then(() => this.#redrawIfOpen());
+    // The Frame rate row names the screen's refresh rate once the Android app has said it.
+    if (screenSettingsShown() && knownRefreshInfo() === null) void readRefreshInfo().then(() => this.#redrawIfOpen());
     // The game's volume in the Windows mixer may have moved there since: read it fresh for the Game volume row.
     if (followsWindowsMixer()) {
       // Read it now, then follow the shell's change events, so a change in the Windows mixer shows on the Game volume
@@ -298,6 +330,7 @@ export class SettingsOverlay extends Phaser.Scene {
     if (row.id === "sharper-text") setTextResolution(next.textResolution);
     if (row.id === "sound" || row.id === "music-shuffle") appSession().music?.syncSettings(next);
     appSession().settings = next;
+    applyEarnedItems();
     this.#draw();
   }
 
@@ -337,6 +370,7 @@ export class SettingsOverlay extends Phaser.Scene {
       steamDeck: onHandheldLinux(),
       powerSaving:
         canReadPowerSaving(detectPlatform(), globalThis.navigator?.userAgent ?? "") || powerSavingState().detected,
+      screenSettings: screenSettingsShown(),
     });
     const active = tabs.find((tab) => tab.id === lastTab) ?? tabs[0]!;
     const layout = settingsLayout(
@@ -422,7 +456,10 @@ export class SettingsOverlay extends Phaser.Scene {
    */
   #itemsOf(settings: Settings, guideRows: readonly GuideRowInfo[]): ReadonlyMap<SettingsItemId, SettingsItem> {
     const items = new Map<SettingsItemId, SettingsItem>();
-    for (const row of settingsRowInfoOf(settings, powerSavingOn())) {
+    for (const row of [
+      ...settingsRowInfoOf(settings, powerSavingOn()),
+      ...earnedItemRowInfoOf(settings, earnedItems()),
+    ]) {
       items.set(row.id, {
         spec: { kind: "toggle", id: row.id, detail: row.unavailable ?? row.detail },
         draw: (item, stops) => {
@@ -467,6 +504,47 @@ export class SettingsOverlay extends Phaser.Scene {
     });
     segmented("card-size", cardSizeRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setCardSize(v));
     segmented("token-motion", tokenMotionRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setTokenMotion(v));
+    // The achievement popup: picking a time or a position shows a sample there (`scenes/achievement-toast.ts`).
+    const setPopup = (next: Settings): void => {
+      appSession().settings = next;
+      this.#draw();
+      (this.scene.get(SCENES.achievementToast) as AchievementToastScene | null)?.preview();
+    };
+    segmented("achievement-popup-time", achievementPopupTimeRowInfoOf(settings), POPUP_TIME_CONTROL_WIDTH, (v) =>
+      setPopup(nextSettingsAfterAchievementPopupTime(appSession().settings, v)),
+    );
+    segmented("achievement-popup-place", achievementPopupPlaceRowInfoOf(settings), POPUP_PLACE_CONTROL_WIDTH, (v) =>
+      setPopup(nextSettingsAfterAchievementPopupPlace(appSession().settings, v)),
+    );
+    segmented("achievement-popup-size", achievementPopupSizeRowInfoOf(settings), POPUP_SIZE_CONTROL_WIDTH, (v) =>
+      setPopup(nextSettingsAfterAchievementPopupSize(appSession().settings, v)),
+    );
+    if (screenSettingsShown()) {
+      // The game's own size (inside the safe area) at each choice: the pixels it actually draws.
+      const { width, height } = this.scale.gameSize;
+      const screen = { width, height, devicePixelRatio: globalThis.devicePixelRatio || 1 };
+      const setScreen = (next: Settings): void => {
+        appSession().settings = next;
+        applyScreenSettings(this.game, next);
+        this.#draw();
+      };
+      const hardware = knownHardware();
+      const recommended = recommendedScreenOf(hardware);
+      const advice = { ...recommended, tier: tierLabelOf(recommended.tier), summary: hardwareSummaryOf(hardware) };
+      // A 1x screen has nothing below Native to offer, so the row is left out there.
+      const scaleInfo = renderScaleRowInfoOf(settings, screen, advice);
+      if (scaleInfo.options.length > 1) {
+        segmented("render-scale", scaleInfo, SCREEN_CONTROL_WIDTH, (v) =>
+          setScreen(nextSettingsAfterRenderScale(appSession().settings, v)),
+        );
+      }
+      segmented(
+        "frame-rate",
+        frameRateRowInfoOf(settings, knownRefreshInfo()?.maxRefreshRate ?? null, powerSavingOn(), advice),
+        SCREEN_CONTROL_WIDTH,
+        (v) => setScreen(nextSettingsAfterFrameRate(appSession().settings, v)),
+      );
+    }
     if (hasDesktopWindow()) {
       const monitor = desktopMonitor();
       const sizes = monitor === null ? [] : resolutionOptionsFor(monitor, settings.displayMode);

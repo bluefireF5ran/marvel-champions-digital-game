@@ -16,13 +16,24 @@ import {
   type SilencedWarningKey,
 } from "../guide/guide-prefs.js";
 import {
+  ACHIEVEMENT_POPUP_PLACE_VALUES,
+  ACHIEVEMENT_POPUP_SIZE_VALUES,
+  ACHIEVEMENT_POPUP_TIME_VALUES,
   CARD_HOVER_SCALE_VALUES,
   CARD_SIZE_VALUES,
   DISPLAY_MODE_VALUES,
   FIRST_PLAYER_TOKEN_MOTION_VALUES,
+  FRAME_RATE_VALUES,
+  RENDER_SCALE_VALUES,
   SHARP_TEXT_RESOLUTION_CEILING,
   clampMusicVolume,
+  renderScaleFactorOf,
   resolutionPixelsOf,
+  type FrameRate,
+  type RenderScale,
+  type AchievementPopupPlace,
+  type AchievementPopupSize,
+  type AchievementPopupTime,
   type CardHoverScale,
   type CardSize,
   type DisplayMode,
@@ -35,6 +46,7 @@ import {
 } from "../settings.js";
 import { FIRST_PLAYER_TOKEN_MOTION_LABELS } from "./first-player-token-motion.js";
 import { POWER_SAVING_ROW_NOTE } from "./power-saving-notice.js";
+import { EARNED_ITEMS, type EarnedItemId } from "../progression/earned-items.js";
 
 export type SettingsRowId =
   | "reduced-motion"
@@ -45,7 +57,8 @@ export type SettingsRowId =
   | "confirm-end-turn"
   | "same-name-conflict"
   | "hover-hero"
-  | "hover-villain";
+  | "hover-villain"
+  | EarnedItemId;
 
 export interface SettingsRowInfo {
   readonly id: SettingsRowId;
@@ -125,6 +138,20 @@ export function settingsRowInfoOf(settings: Settings, powerSaving = false): read
   ];
 }
 
+/**
+ * Settings ▸ More ▸ Earned items (issue #291): one toggle per earned item. One not earned yet is still listed, dim, and
+ * says how to earn it instead of what it does.
+ */
+export function earnedItemRowInfoOf(settings: Settings, earned: ReadonlySet<EarnedItemId>): readonly SettingsRowInfo[] {
+  return EARNED_ITEMS.map((item) => ({
+    id: item.id,
+    title: item.title,
+    detail: item.detail,
+    on: earned.has(item.id) && settings[item.setting],
+    ...(earned.has(item.id) ? {} : { unavailable: item.howToEarn }),
+  }));
+}
+
 /** The value "Sharper text" should switch *to* when it's off, given the screen's own device pixel ratio. What "off" restores is always `1`. */
 export function sharperTextTargetResolution(devicePixelRatio: number): number {
   return Math.min(SHARP_TEXT_RESOLUTION_CEILING, Math.max(1, devicePixelRatio || 1));
@@ -158,6 +185,8 @@ export function nextSettingsAfterToggle(settings: Settings, id: SettingsRowId, d
       return { ...settings, hoverHeroCard: !settings.hoverHeroCard };
     case "hover-villain":
       return { ...settings, hoverVillainCard: !settings.hoverVillainCard };
+    case "ultron-drone-art":
+      return { ...settings, ultronDroneArt: !settings.ultronDroneArt };
   }
 }
 
@@ -574,6 +603,84 @@ export function nextSettingsAfterTokenMotion(settings: Settings, value: FirstPla
 }
 
 // ---------------------------------------------------------------------------
+// "Achievement popup": how long the "Achievement unlocked" popup stays up and where it shows
+// (`scenes/achievement-toast.ts`). Two segmented rows under More, beside Unlocks and the earned items.
+// ---------------------------------------------------------------------------
+
+export interface AchievementPopupRowInfo<V extends string> {
+  readonly title: string;
+  readonly detail: string;
+  readonly options: readonly { readonly value: V; readonly label: string }[];
+  readonly selected: V;
+}
+
+const ACHIEVEMENT_POPUP_TIME_LABELS: Readonly<Record<AchievementPopupTime, string>> = {
+  off: "Off",
+  "3s": "3 s",
+  "5s": "5 s",
+  "8s": "8 s",
+  "10s": "10 s",
+};
+
+const ACHIEVEMENT_POPUP_PLACE_LABELS: Readonly<Record<AchievementPopupPlace, string>> = {
+  titleBar: "Title bar",
+  top: "Top",
+  middle: "Middle",
+  bottom: "Bottom",
+};
+
+const ACHIEVEMENT_POPUP_SIZE_LABELS: Readonly<Record<AchievementPopupSize, string>> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
+export function achievementPopupSizeRowInfoOf(settings: Settings): AchievementPopupRowInfo<AchievementPopupSize> {
+  return {
+    title: "Popup size",
+    detail: "How large the achievement popup is drawn. Picking one shows a sample.",
+    options: ACHIEVEMENT_POPUP_SIZE_VALUES.map((value) => ({ value, label: ACHIEVEMENT_POPUP_SIZE_LABELS[value] })),
+    selected: settings.achievementPopupSize,
+  };
+}
+
+/** `settings` with the popup's size set; a value that is not one of the three changes nothing. */
+export function nextSettingsAfterAchievementPopupSize(settings: Settings, value: AchievementPopupSize): Settings {
+  return ACHIEVEMENT_POPUP_SIZE_VALUES.includes(value) ? { ...settings, achievementPopupSize: value } : settings;
+}
+
+export function achievementPopupTimeRowInfoOf(settings: Settings): AchievementPopupRowInfo<AchievementPopupTime> {
+  return {
+    title: "Achievement popup",
+    detail:
+      settings.achievementPopupTime === "off"
+        ? "Off: a new achievement shows only in the Trophy Room, with no popup or sound."
+        : "How long the popup stays up when you earn an achievement, with its sound.",
+    options: ACHIEVEMENT_POPUP_TIME_VALUES.map((value) => ({ value, label: ACHIEVEMENT_POPUP_TIME_LABELS[value] })),
+    selected: settings.achievementPopupTime,
+  };
+}
+
+export function achievementPopupPlaceRowInfoOf(settings: Settings): AchievementPopupRowInfo<AchievementPopupPlace> {
+  return {
+    title: "Popup position",
+    detail: "Where on the screen the achievement popup shows. Picking one shows a sample there.",
+    options: ACHIEVEMENT_POPUP_PLACE_VALUES.map((value) => ({ value, label: ACHIEVEMENT_POPUP_PLACE_LABELS[value] })),
+    selected: settings.achievementPopupPlace,
+  };
+}
+
+/** `settings` with the popup's time set; a value that is not one of the five changes nothing. */
+export function nextSettingsAfterAchievementPopupTime(settings: Settings, value: AchievementPopupTime): Settings {
+  return ACHIEVEMENT_POPUP_TIME_VALUES.includes(value) ? { ...settings, achievementPopupTime: value } : settings;
+}
+
+/** `settings` with the popup's position set; a value that is not one of the four changes nothing. */
+export function nextSettingsAfterAchievementPopupPlace(settings: Settings, value: AchievementPopupPlace): Settings {
+  return ACHIEVEMENT_POPUP_PLACE_VALUES.includes(value) ? { ...settings, achievementPopupPlace: value } : settings;
+}
+
+// ---------------------------------------------------------------------------
 // "Window mode" and "Resolution": the desktop app's window (`platform/desktop-window.ts`). Desktop (Tauri) only; the
 // Settings screen leaves both rows out on the web and the phone apps.
 // ---------------------------------------------------------------------------
@@ -604,6 +711,116 @@ export function displayModeRowInfoOf(settings: Settings): DisplayModeRowInfo {
 /** `settings` with the window mode set; a value that is not one of the three changes nothing. */
 export function nextSettingsAfterDisplayMode(settings: Settings, value: DisplayMode): Settings {
   return DISPLAY_MODE_VALUES.includes(value) ? { ...settings, displayMode: value } : settings;
+}
+
+// ---------------------------------------------------------------------------
+// Shown on every build; the desktop app also has its Window section, whose Resolution is the window's own size.
+// The desktop app has its Window section instead; the web and iOS show neither.
+// ---------------------------------------------------------------------------
+
+export interface ScreenChoiceRowInfo<V extends string> {
+  readonly title: string;
+  readonly detail: string;
+  readonly options: readonly { readonly value: V; readonly label: string }[];
+  readonly selected: V;
+}
+
+/** The screen in CSS pixels and its density, as the row needs to name the sizes. */
+export interface ScreenSize {
+  readonly width: number;
+  readonly height: number;
+  readonly devicePixelRatio: number;
+}
+
+/**
+ * Native, then each lighter multiplier this screen is denser than, named by its short side the way games name
+ * resolutions ("720p"). A 2x phone has no "2x": that is its native.
+ */
+/**
+ * What the hardware check recommends for this phone (`platform/device-tier.ts`), and what it went on: "mid-range" and
+ * "6 GB, Adreno 642L".
+ */
+export interface ScreenAdvice {
+  readonly renderScale: RenderScale;
+  readonly frameRate: FrameRate;
+  readonly tier: string;
+  readonly summary: string;
+}
+
+/** " Recommended for this device (mid-range: 6 GB, Adreno 642L): 720p." */
+function adviceSentence(advice: ScreenAdvice, choice: string, withReason: boolean): string {
+  const reason = withReason ? ` (${advice.tier}${advice.summary ? `: ${advice.summary}` : ""})` : "";
+  return ` Recommended for this device${reason}: ${choice}.`;
+}
+
+export function renderScaleRowInfoOf(
+  settings: Settings,
+  screen: ScreenSize,
+  advice?: ScreenAdvice,
+): ScreenChoiceRowInfo<RenderScale> {
+  const native = renderScaleFactorOf("native", screen.devicePixelRatio);
+  const short = Math.min(screen.width, screen.height);
+  const offered = RENDER_SCALE_VALUES.filter(
+    (value) => value === "native" || renderScaleFactorOf(value, screen.devicePixelRatio) < native,
+  );
+  const selected = offered.includes(settings.renderScale) ? settings.renderScale : "native";
+  const factor = renderScaleFactorOf(selected, screen.devicePixelRatio);
+  const size = `${Math.round(screen.width * factor)} × ${Math.round(screen.height * factor)}`;
+  const options = offered.map((value) => ({
+    value,
+    label:
+      value === "native" ? "Native" : `${Math.round(short * renderScaleFactorOf(value, screen.devicePixelRatio))}p`,
+  }));
+  const recommended = advice && (options.find((o) => o.value === advice.renderScale) ?? options[0]!);
+  const detail =
+    selected === "native"
+      ? `Draws at ${size}, the screen's own. Lower is lighter on the GPU, memory and battery.`
+      : `Draws at ${size} and scales it up to the screen. Native is sharpest.`;
+  return {
+    title: "Render resolution",
+    detail: advice && recommended ? detail + adviceSentence(advice, recommended.label, true) : detail,
+    options,
+    selected,
+  };
+}
+
+/** `settings` with the render scale set; a value that is not one of the four changes nothing. */
+export function nextSettingsAfterRenderScale(settings: Settings, value: RenderScale): Settings {
+  return RENDER_SCALE_VALUES.includes(value) ? { ...settings, renderScale: value } : settings;
+}
+
+const FRAME_RATE_LABELS: Readonly<Record<FrameRate, string>> = { screen: "Screen", "60": "60 fps", "30": "30 fps" };
+
+/**
+ * Match screen, 60 and 30. `maxRefreshRate` is the screen's fastest mode as the app reports it (null until read): a
+ * 60 Hz screen gets no separate 60 fps choice. `powerSaving`: the device is in power saving mode, which caps it at 30.
+ */
+export function frameRateRowInfoOf(
+  settings: Settings,
+  maxRefreshRate: number | null,
+  powerSaving = false,
+  advice?: ScreenAdvice,
+): ScreenChoiceRowInfo<FrameRate> {
+  const offered = FRAME_RATE_VALUES.filter((value) => value !== "60" || maxRefreshRate === null || maxRefreshRate > 61);
+  const selected = offered.includes(settings.frameRate) ? settings.frameRate : "screen";
+  const rate = maxRefreshRate === null ? "" : ` (${maxRefreshRate} Hz)`;
+  const detail =
+    selected === "screen"
+      ? `Runs at the screen's own refresh rate${rate}. A cap saves battery; 30 fps saves the most.`
+      : `Holds the game to ${selected} fps, which saves battery and heat.`;
+  const recommended = advice && (offered.includes(advice.frameRate) ? advice.frameRate : "screen");
+  const advised = recommended ? detail + adviceSentence(advice!, FRAME_RATE_LABELS[recommended], false) : detail;
+  return {
+    title: "Frame rate",
+    detail: powerSaving ? `${advised} ${POWER_SAVING_ROW_NOTE}` : advised,
+    options: offered.map((value) => ({ value, label: FRAME_RATE_LABELS[value] })),
+    selected,
+  };
+}
+
+/** `settings` with the frame rate set; a value that is not one of the three changes nothing. */
+export function nextSettingsAfterFrameRate(settings: Settings, value: FrameRate): Settings {
+  return FRAME_RATE_VALUES.includes(value) ? { ...settings, frameRate: value } : settings;
 }
 
 export interface ResolutionRowInfo {

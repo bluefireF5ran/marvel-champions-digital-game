@@ -39,6 +39,8 @@ export interface Prepared {
   readonly schemeIcons?: { readonly crisis?: number; readonly acceleration?: number; readonly hazard?: number };
   /** `Correction.startingThreatPerPlayer`: replaces `!base_threat_fixed` for a side scheme (absent: raw decides). */
   readonly startingThreatPerPlayer?: boolean;
+  /** `Correction.startingThreat`: replaces `base_threat` for a side scheme (absent: raw decides). */
+  readonly startingThreat?: number;
   readonly text: CardText;
   readonly flavor?: string;
   readonly errata?: Errata;
@@ -65,6 +67,8 @@ export interface Prepared {
   readonly evidenceIcon?: { readonly icon: string; readonly color: EvidenceColor };
   /** A curated `Correction.definedCounterTypes` — absent for every card that defines no counter type in its text. */
   readonly definedCounterTypes?: readonly string[];
+  /** A curated `Correction.boostGrantedBy` — absent for every card that prints its own Boost or no star. */
+  readonly boostGrantedBy?: readonly string[];
   readonly impliedAttachHost?: "mainScheme" | "ally" | "minion" | "ownWhenRevealed" | AttachmentHost;
   /** A curated `Correction.hostChosenBy` (encounter attachments only) — absent for every ordinary card. */
   readonly hostChosenBy?: AttachmentHostChooser;
@@ -72,6 +76,8 @@ export interface Prepared {
   readonly attachmentMaxPerHost?: number;
   /** A curated `Correction.nemesisMinion` (minions only) — absent for every ordinary card. */
   readonly nemesisMinion?: boolean;
+  /** A curated `Correction.labelSentences` — absent for every ordinary card. */
+  readonly labelSentences?: readonly string[];
 }
 
 /** Prepares a record once per run (cached by code), marking which corrections and errata matched. */
@@ -92,6 +98,7 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
   let dashedMinionStats: readonly ("atk" | "sch")[] | undefined;
   let schemeIcons: Prepared["schemeIcons"];
   let startingThreatPerPlayer: boolean | undefined;
+  let startingThreat: number | undefined;
   // MarvelCDB's own `cost: -1` is an unambiguous encoding of a printed "X" cost (docs/phase7-wave2.md §1.3) —
   // read automatically, before any correction is consulted.
   let specialCost: SpecialCost | undefined = r.cost === -1 ? "X" : undefined;
@@ -101,9 +108,11 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
   let hostChosenBy: AttachmentHostChooser | undefined;
   let attachmentMaxPerHost: number | undefined;
   let nemesisMinion: boolean | undefined;
+  let labelSentences: readonly string[] | undefined;
   let dashedThreatFields: readonly MainSchemeThreatField[] | undefined;
   let evidenceIcon: { readonly icon: string; readonly color: EvidenceColor } | undefined;
   let definedCounterTypes: readonly string[] | undefined;
+  let boostGrantedBy: readonly string[] | undefined;
   let unheadedWhenRevealed: string | undefined;
   let extraConstantFrom: string | undefined;
   let preambleWhenRevealed: string | undefined;
@@ -116,6 +125,7 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
     if (c.hostChosenBy !== undefined) hostChosenBy = c.hostChosenBy;
     if (c.attachmentMaxPerHost !== undefined) attachmentMaxPerHost = c.attachmentMaxPerHost;
     if (c.nemesisMinion !== undefined) nemesisMinion = c.nemesisMinion;
+    if (c.labelSentences !== undefined) labelSentences = c.labelSentences;
     if (c.unheadedWhenRevealed !== undefined) unheadedWhenRevealed = c.unheadedWhenRevealed;
     if (c.extraConstantFrom !== undefined) extraConstantFrom = c.extraConstantFrom;
     if (c.preambleWhenRevealed !== undefined) preambleWhenRevealed = c.preambleWhenRevealed;
@@ -149,12 +159,14 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
     if (c.dashedMinionStats !== undefined) dashedMinionStats = c.dashedMinionStats;
     if (c.schemeIcons !== undefined) schemeIcons = c.schemeIcons;
     if (c.startingThreatPerPlayer !== undefined) startingThreatPerPlayer = c.startingThreatPerPlayer;
+    if (c.startingThreat !== undefined) startingThreat = c.startingThreat;
     if (c.specialCost !== undefined) specialCost = c.specialCost;
     if (c.cardBack !== undefined) cardBack = c.cardBack;
     if (c.quantityInSet !== undefined) quantityInSet = c.quantityInSet;
     if (c.dashedThreatFields !== undefined) dashedThreatFields = c.dashedThreatFields;
     if (c.evidenceIcon !== undefined) evidenceIcon = c.evidenceIcon;
     if (c.definedCounterTypes !== undefined) definedCounterTypes = c.definedCounterTypes;
+    if (c.boostGrantedBy !== undefined) boostGrantedBy = c.boostGrantedBy;
     for (const f of c.ignoreFields ?? []) ignored.add(f);
     notes.push(`${r.code}: ${c.reason} [evidence: ${c.evidence}]`);
   });
@@ -194,6 +206,7 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
     ...(dashedMinionStats ? { dashedMinionStats } : {}),
     ...(schemeIcons ? { schemeIcons } : {}),
     ...(startingThreatPerPlayer !== undefined ? { startingThreatPerPlayer } : {}),
+    ...(startingThreat !== undefined ? { startingThreat } : {}),
     text: { printed, current },
     ...(flavor ? { flavor } : {}),
     ...(errata ? { errata } : {}),
@@ -206,12 +219,14 @@ export function prepare(ctx: NormalizeContext, r: RawCard): Prepared {
     ...(hostChosenBy ? { hostChosenBy } : {}),
     ...(attachmentMaxPerHost !== undefined ? { attachmentMaxPerHost } : {}),
     ...(nemesisMinion !== undefined ? { nemesisMinion } : {}),
+    ...(labelSentences !== undefined ? { labelSentences } : {}),
     ...(unheadedWhenRevealed !== undefined ? { unheadedWhenRevealed } : {}),
     ...(extraConstantFrom !== undefined ? { extraConstantFrom } : {}),
     ...(preambleWhenRevealed !== undefined ? { preambleWhenRevealed } : {}),
     ...(dashedThreatFields ? { dashedThreatFields } : {}),
     ...(evidenceIcon ? { evidenceIcon } : {}),
     ...(definedCounterTypes ? { definedCounterTypes } : {}),
+    ...(boostGrantedBy ? { boostGrantedBy } : {}),
   };
   ctx.prepared.set(r.code, p);
   return p;

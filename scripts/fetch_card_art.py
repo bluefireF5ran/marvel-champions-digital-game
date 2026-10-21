@@ -94,6 +94,7 @@ A replacement or an addition keeps the exact local path a card record names
 at. Each one is recorded in assets/card-art/hall-of-heroes-manifest.tsv.
 
   uv run scripts/fetch_card_art.py audit
+  uv run scripts/fetch_card_art.py --self-test
   uv run scripts/fetch_card_art.py trim --dry-run
   uv run scripts/fetch_card_art.py fetch --stamped-only
   uv run scripts/fetch_card_art.py fetch --packs mts sm --dry-run
@@ -178,6 +179,7 @@ PACK_PAGES: dict[str, str] = {
     "rogue": "rogue-anna-marie",
     "ron": "ronan-the-accuser",
     "scw": "scarlet-witch",
+    "shadowland": "shadowland",
     "silk": "silk-cindy-moon",
     "sm": "sinister-motives",
     "spdr": "peni-parker-sp-dr",
@@ -217,6 +219,8 @@ MAX_EDGE = 1100
 WEBP_QUALITY = 72
 # Padding is any pixel at least this light on every channel (and near-grey) that connects to the image's edge.
 PAD_WHITE = 225
+# A scan with more than this fraction of transparent pixels walled in by card pixels has a hole (`interior_transparency`).
+INTERIOR_MAX = 0.001
 # A trimmed card's long/short edge ratio must land here (a printed card is 88x63mm, 1.40; local scans run 1.39-1.45).
 CARD_ASPECT = (1.34, 1.50)
 
@@ -239,9 +243,10 @@ class Card:
 
 
 def load_cards() -> dict[str, Card]:
-    """Every card record in the raw MarvelCDB cache, linked faces included, by code."""
+    """Every card record in the raw MarvelCDB cache (and the scan transcriptions in raw/hallofheroes, for faces
+    MarvelCDB lacks), linked faces included, by code."""
     cards: dict[str, Card] = {}
-    for path in sorted(RAW_DIR.glob("*.json")):
+    for path in sorted(RAW_DIR.glob("*.json")) + sorted((RAW_DIR.parent / "hallofheroes").glob("*.json")):
         raw = json.loads(path.read_text())
         stack = list(raw["cards"])
         while stack:
@@ -374,7 +379,69 @@ def background_mask(img: Image.Image) -> np.ndarray:
     candidate = light | (rgba[..., 3] < 16)
     labels, _ = ndimage.label(candidate)
     edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
-    return np.isin(labels, edge[edge > 0])
+    bg = np.isin(labels, edge[edge > 0])
+    # The flood can leak through a narrow gap in the card frame (a light or worn edge, a JPEG fringe) into a white
+    # area inside the card, such as the rules-text box, and make it transparent. Cut such channels: open the mask
+    # with a structuring element wider than any leak, keep only the opened pieces still touching the image border,
+    # then grow those back into the original mask just far enough to restore the rounded corners and tilted margins.
+    radius = max(2, round(0.008 * min(bg.shape)))
+    core = ndimage.binary_opening(bg, structure=np.ones((2 * radius + 1, 2 * radius + 1), bool))
+    core_labels, _ = ndimage.label(core)
+    core_edge = np.unique(
+        np.concatenate([core_labels[0], core_labels[-1], core_labels[:, 0], core_labels[:, -1]])
+    )
+    core = np.isin(core_labels, core_edge[core_edge > 0])
+    return ndimage.binary_dilation(core, iterations=radius + 3, mask=bg)
+
+
+def interior_transparency(img: Image.Image) -> float:
+    """
+    The fraction of a card's pixels that are transparent where only the card itself should be: transparency that is
+    neither in one of the four rounded corners (a square of 10% of the short side) nor a thin sliver along an edge
+    (the margin of a slightly tilted scan, thinner than 5% of the short side), which is what `trim` is meant to
+    leave. A hole of that size is a text box or title bar `trim` made see-through. 0.0 without an alpha channel.
+    """
+    if "A" not in img.getbands():
+        return 0.0
+    clear = np.asarray(img.convert("RGBA"))[..., 3] < 16
+    h, w = clear.shape
+    short = min(h, w)
+    k = max(3, round(0.05 * short))
+    clear = ndimage.binary_opening(clear, structure=np.ones((k, k), bool))
+    c = round(0.10 * short)
+    for ys, xs in ((slice(0, c), slice(0, c)), (slice(0, c), slice(w - c, w)),
+                   (slice(h - c, h), slice(0, c)), (slice(h - c, h), slice(w - c, w))):
+        clear[ys, xs] = False
+    return float(clear.mean())
+
+
+def self_test() -> None:
+    """Synthetic-image regression check for `trim` and `interior_transparency` (`--self-test`)."""
+    from PIL import ImageDraw
+
+    def card(leak: bool) -> Image.Image:
+        img = Image.new("RGB", (500, 700), (255, 255, 255))
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle((50, 50, 449, 649), radius=28, fill=(30, 60, 140))
+        d.rectangle((100, 420, 399, 600), fill=(255, 255, 255))  # rules-text box
+        if leak:  # a 3px white gap in the frame's bottom edge joining the text box to the padding
+            d.rectangle((250, 600, 252, 649), fill=(255, 255, 255))
+        return img
+
+    for leak in (False, True):
+        out = trim(card(leak))
+        assert out is not None, "trim rejected the synthetic card"
+        cropped, _ = out
+        a = np.asarray(cropped)[..., 3]
+        h, w = a.shape
+        assert a[h // 2 + 100, w // 2 - 60] == 255, f"text box made transparent (leak={leak})"
+        assert a[0, 0] == 0 and a[0, -1] == 0 and a[-1, 0] == 0 and a[-1, -1] == 0, "corners must be transparent"
+        assert a[h // 2, w // 2] == 255
+        assert interior_transparency(cropped) < INTERIOR_MAX, f"clean card flagged (leak={leak})"
+    holed = np.array(trim(card(False))[0])
+    holed[300:380, 100:300, 3] = 0
+    assert interior_transparency(Image.fromarray(holed, "RGBA")) > INTERIOR_MAX, "interior hole not detected"
+    print("self-test passed")
 
 
 def trim(img: Image.Image) -> tuple[Image.Image, tuple[int, int, int, int]] | None:
@@ -511,6 +578,56 @@ def original_url(img_tag, page_url: str) -> str | None:
 # 21092-21099 before looping back for card 21100 onward). Covers every Mad Titan's Shadow villain stage and main
 # scheme face; see the `card-data-pipeline` handoff notes for the 2026-09-26 audit this closed out.
 PACK_FILENAME_CODES: dict[str, dict[str, str]] = {
+    "shadowland": {
+        # Hall of Heroes' Shadowland previews are named by card title, with irregular separators; each stem is the file name
+        # minus extension, the code read from the collector number printed in the scan's footer (2026-10-19). 65038b and
+        # 65039b are main scheme B faces whose A faces are not previewed (no card record yet).
+        "mc65_cards_the_streets_below_villian": "65003a",
+        "mc65_cards_atop_the_tenshu_villian": "65003b",
+        "mc65_cards_the_streets_below_hero": "65004a",
+        "mc65_cards_atop-the-tenshu_hero": "65004b",
+        "mc65_cards_black-tarantula": "65005",
+        "mc65_cards_strategic-positioning": "65008",
+        "mc65_cards_chaos-in-hells-kitchen": "65010",
+        "mc65_cards_moonlit-silhouette": "65011",
+        "mc65_cards_archpriestess": "65012a",
+        "mc65_cards__daredevil": "65013a",
+        "mc65_cards__elektra": "65014a",
+        "mc65_cards__gorgon": "65015a",
+        "mc65_cards_lady-bullseye": "65016a",
+        "mc65_cards_white-tiger": "65017a",
+        "mc65_cards_art_of_the_kill": "65018",
+        "mc65_cards_krahllaks_blessing": "65019",
+        "mc65_cards_darkness_within": "65026",
+        "mc65_cards_embraced_by_darkness": "65027",
+        "mc65_cards_black_mountain": "65028",
+        "mc65_cards_bo_staff_ninja": "65030",
+        "mc65_cards_katana_ninja": "65032",
+        "mc65_cards_dancing_shadows": "65035",
+        "mc65_cards_countless_numbers": "65036",
+        "mc65_cards_shifting_corridors": "65037",
+        "mc65_cards_into_the_labyrinth": "65038b",
+        "mc65_cards_chamber_of_vile_secrets": "65039b",
+        "mc65_cards_lord_deathstrike": "65041",
+        "mc65_cards_dead_end": "65042",
+        "mc65_cards_no_time_to_think": "65044",
+        "mc65_cards_sudden_shift": "65045",
+        "mc65_cards_nervous_jitters": "65046",
+        "mc65_cards_iron_monk_": "65047",
+        "mc65_cards_hall_of_punishment": "65048",
+        "mc65_cards_path_of_a_thousand_cuts": "65049",
+        "mc65_cards_blinding_powder": "65050",
+        "mc65_cards_caltrops": "65051",
+        "mc65_cards_krahllak": "65057",
+        "mc65_cards_mark_of_the_wicked": "65064",
+        "mc65_cards_pull_of_power": "65065",
+        "mc65_cards__hellbride": "65067",
+        "mc65_cards_snakeroot_elders": "65069",
+        "mc65_cards_veil_of_nightmares": "65070",
+        "mc65_cards_submit_or_suffer": "65071",
+        "mc65_cards_creeping_corruption_a-side": "65072a",
+        "mc65_cards_creeping_corruption-overwhelming_side": "65072b",
+    },
     "mts": {
         "e1": "21071",  # Ebony Maw, stage 1
         "e2": "21072",  # Ebony Maw, stage 2
@@ -604,8 +721,10 @@ PACK_FILENAME_CODES: dict[str, dict[str, str]] = {
         "c4-1": "21128",  # Tribute
         "i4": "21132",  # Reality Stone
         "i7": "21135",  # Time Stone
-        "h7": "21141",  # Hall of Nastrond
-        "h6": "21142",  # Gjallerbru
+        # MarvelCDB's codes for these two run opposite to the printed collector numbers: Hall of Nastrond prints 142
+        # but is MarvelCDB 21141, and Gjallerbru prints 141 but is 21142. Match them by name, not by printed number.
+        "h6": "21141",  # Hall of Nastrond
+        "h7": "21142",  # Gjallerbru
         "h8": "21143",  # Garm
         "h13": "21148",  # Hela's Crown
         "h14": "21149",  # Hela's Domain
@@ -733,6 +852,15 @@ def audit(args: argparse.Namespace) -> list[tuple[float, str, str]]:
     results.sort(reverse=True)
     stamped = [r for r in results if r[0] > STAMP_THRESHOLD]
     if args.command == "audit":
+        holed = []
+        for code, path in local_scans().items():
+            with Image.open(path) as img:
+                frac = interior_transparency(img)
+            if frac > INTERIOR_MAX:
+                holed.append((frac, code))
+        for frac, code in sorted(holed, reverse=True):
+            print(f"interior transparency {frac:.1%}: {code} ({pack_of(code, cards)})")
+        print(f"{len(holed)} scans with interior transparency (a text box trim made see-through)\n")
         by_pack: dict[str, list[str]] = {}
         for _, code, pack in stamped:
             by_pack.setdefault(pack, []).append(code)
@@ -1145,7 +1273,8 @@ def compress(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--self-test", action="store_true", help="run the synthetic-image checks of trim and exit")
+    sub = parser.add_subparsers(dest="command")
     a = sub.add_parser("audit", help="list local scans carrying the FFG watermark")
     a.add_argument("-v", "--verbose", action="store_true", help="also show the highest-scoring clean scans")
     t = sub.add_parser("trim", help="crop white padding off local scans in place")
@@ -1171,6 +1300,11 @@ def main() -> None:
     c.add_argument("--dry-run", action="store_true", help="report what would change without writing")
     c.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
+    if not args.command:
+        parser.error("a command is required")
     commands = {"audit": audit, "trim": trim_local, "fetch": fetch, "grab": grab, "missing": missing, "compress": compress}
     commands[args.command](args)
 

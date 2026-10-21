@@ -2,9 +2,10 @@ import { trait } from "@mc/content";
 import type { AbilityRegistry } from "@mc/engine";
 import {
   bindTargets,
-  canPayResources,
   canTakeStatus,
   chooseOne,
+  hasStatus,
+  not,
   chooseTarget,
   chosen,
   confuse,
@@ -16,12 +17,11 @@ import {
   discardEncounterUntil,
   each,
   exists,
+  firstPlayer,
   forcedInterrupt,
   gainsKeyword,
   giveTough,
-  hasStatus,
   modifyAttack,
-  not,
   notMatching,
   on,
   option,
@@ -44,8 +44,10 @@ import {
  * Business. Each minion prints the same "[star] Forced Interrupt: When X attacks you or an ally you control, choose: ..."
  * as its villain's A face (`marauders.ts`, the worked example; helpers restated here because that module does not export
  * them). `againstYou` reads the attacked player, so an attack on an ally is chosen by the ally's controller (RRG 1.8
- * "Attacks Against Allies", p. 10; owner decision Q5 = A), and `you` in the options is that player. Owner decision Q8 = A:
- * an option is offered only if the player can carry it out in full, otherwise the other option is forced.
+ * "Attacks Against Allies", p. 10; owner decision Q5 = A), and `you` in the options is that player. Owner decision
+ * 2026-10-20 (A), revising Q8: an option is barred only when it needs a target and has no valid one (RRG 1.8 p. 12), so
+ * Chimera's spend is still offered; a status card needs a character that can take it and Blockbuster must not hold a
+ * tough card (a target is valid only if the ability can affect it, RRG 1.8 "Target", p. 42).
  *
  * A minion draws no boost card (only the villain and villainous minions do), so nothing here adds a boost card:
  * Harpoon's second option is "+2 ATK and piercing" (it has no extra-boost-card option as the villain does).
@@ -63,7 +65,11 @@ const highestCost = superlative("highest", each(YOUR_COSTED_CARDS), printedCostO
 const HIGHEST_PRINTED_COST = printedCostOf(
   superlative("highest", each(YOUR_COSTED_CARDS), printedCostOf(chosen("candidate")), { ties: "first" }),
 );
-/** A character you control that a status card can still be given to (Q8's reading of "in full"). */
+/**
+ * A character you control that a status card can be given to. A target is valid only if the ability can affect it (RRG
+ * 1.8 "Target", p. 42; "Status Cards", p. 41): not a stalwart one, nor one holding that status already. With none, the
+ * engine bars the option (`optionLacksValidTarget`, RRG p. 12).
+ */
 const ABLE = (status: "confused" | "stunned") => query("character", { controller: "you", ...canTakeStatus(status) });
 
 const MARAUDER_MINIONS = query("minion", { trait: trait("MARAUDER") });
@@ -81,8 +87,9 @@ export const MUTANT_SLAYERS: AbilityRegistry = defineAbilities({
     chooseOne(
       option(
         "Confuse a character you control",
-        { when: exists(ABLE("confused")) },
-        chooseTarget("target", ABLE("confused")),
+        // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+        // (RRG 1.8 "First Player", p. 19).
+        chooseTarget("target", ABLE("confused"), { chooser: firstPlayer }),
         confuse(chosen("target")),
       ),
       option(`Arclight ${PLUS_2_ATK}`, modifyAttack({ atkBonus: 2 })),
@@ -102,16 +109,12 @@ export const MUTANT_SLAYERS: AbilityRegistry = defineAbilities({
   "40096.chimera-forced-interrupt": forcedInterrupt(
     ATTACKS_YOU(),
     chooseOne(
-      option(
-        "Spend a [mental] resource",
-        { when: canPayResources({ mental: 1 }) },
-        spendResources({ mental: 1 }, "spent"),
-      ),
+      option("Spend a [mental] resource", spendResources({ mental: 1 }, "spent")),
       option(`Chimera ${PLUS_2_ATK}`, modifyAttack({ atkBonus: 2 })),
     ),
   ),
 
-  // Greycrow. A tie for the highest cost is the attacked player's pick.
+  // Greycrow. A tie for the highest cost is the first player's pick.
   "40097.greycrow-forced-interrupt": forcedInterrupt(
     ATTACKS_YOU(),
     chooseOne(
@@ -119,7 +122,7 @@ export const MUTANT_SLAYERS: AbilityRegistry = defineAbilities({
         "Discard the highest-cost card you control",
         { when: exists(YOUR_COSTED_CARDS) },
         bindTargets("highest", highestCost),
-        chooseTarget("pick", { inSlot: "highest" }),
+        chooseTarget("pick", { inSlot: "highest" }, { chooser: firstPlayer }),
         discard(chosen("pick")),
       ),
       option("Greycrow gets +X ATK for this attack", modifyAttack({ atkBonus: HIGHEST_PRINTED_COST })),
@@ -157,8 +160,7 @@ export const MUTANT_SLAYERS: AbilityRegistry = defineAbilities({
     chooseOne(
       option(
         "Stun a character you control",
-        { when: exists(ABLE("stunned")) },
-        chooseTarget("target", ABLE("stunned")),
+        chooseTarget("target", ABLE("stunned"), { chooser: firstPlayer }),
         stun(chosen("target")),
       ),
       option(`Vertigo ${PLUS_2_ATK}`, modifyAttack({ atkBonus: 2 })),

@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { playableScenario, playableScenarioOffer } from "@mc/cards";
-import { CW_CARDS, CW_ENCOUNTER_SETS, CW_SCENARIOS, type AnyCard } from "@mc/content";
+import {
+  CW_CARDS,
+  CW_ENCOUNTER_SETS,
+  CW_SCENARIOS,
+  SYNTHEZOID_CARDS,
+  SYNTHEZOID_SCENARIOS,
+  type AnyCard,
+} from "@mc/content";
 import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import {
   applyBuilderAction,
@@ -20,10 +27,10 @@ import { GAME_MODE_OPTIONS, COMPETITIVE_TAPPED_MESSAGE } from "./game-mode-optio
 import { initialSetupDraft, setDifficulty, setModularSetIds, toSessionConfig, type SetupDraft } from "./setup-draft.js";
 import { offerOf } from "./setup-options.js";
 
-const CARDS = new Map<string, AnyCard>(CW_CARDS.map((c) => [c.id as string, c]));
+const CARDS = new Map<string, AnyCard>([...CW_CARDS, ...SYNTHEZOID_CARDS].map((c) => [c.id as string, c]));
 const BASE: BuilderContext = {
   cards: CARDS,
-  scenarios: CW_SCENARIOS,
+  scenarios: [...CW_SCENARIOS, ...SYNTHEZOID_SCENARIOS],
   encounterSets: [...POOL_ENCOUNTER_SETS, ...CW_ENCOUNTER_SETS],
 };
 const LEADERS = [
@@ -137,13 +144,14 @@ describe("the steps and the choices", () => {
       ["Review and play", "Ready-made", true],
     ]);
     expect(v.sideChoices.map((s) => [s.name, s.selected, s.leaderNames])).toEqual([
-      ["Registration", true, ["Iron Man", "Captain Marvel"]],
-      ["Resistance", false, ["Captain America", "Spider-Woman"]],
+      ["Registration", true, ["Iron Man", "Captain Marvel", "She-Hulk"]],
+      ["Resistance", false, ["Captain America", "Spider-Woman", "Vision"]],
     ]);
     const leaders = v.leaderChoices;
     expect(leaders.map((l) => [l.name, l.word, l.selected, l.openingStage])).toEqual([
       ["Iron Man", "Leader", true, "I"],
       ["Captain Marvel", "Leader", false, "I"],
+      ["She-Hulk", "Leader", false, "I"],
     ]);
     expect(leaders[0]!.ownSet).toBe("Iron Man set, 10 cards");
     expect(leaders[0]!.stages.map((s) => s.numeral)).toEqual(["I", "II"]);
@@ -164,7 +172,8 @@ describe("the steps and the choices", () => {
 
   test("the stage rows mark the recommended and the picked option", () => {
     const v = view(draftFor(IRON));
-    expect(v.stageRows.map((r) => r.options.length)).toEqual([4, 4]);
+    // Civil War's four of each number plus Synthezoid Smackdown's fifth (docs/phase7-synthezoid.md §3 M1, §4.3).
+    expect(v.stageRows.map((r) => r.options.length)).toEqual([5, 5]);
     expect(v.stageRows[0]!.label).toBe("Stage 1 (it goes on top)");
     expect(v.stageRows.map((r) => r.options.filter((o) => o.selected).length)).toEqual([1, 1]);
     expect(v.stageRows.map((r) => r.options.filter((o) => o.recommended).map((o) => o.printedCardId))).toEqual([
@@ -282,9 +291,9 @@ describe("6. other-side and neutral sets", () => {
     const d = draftFor(IRON);
     const v = view(d);
     const group = v.modular.sections.find((s) => s.key === "otherSide")!;
-    expect(group.tiles).toHaveLength(8);
+    expect(group.tiles).toHaveLength(12);
     expect(group.expanded).toBe(false);
-    expect(group.collapsedLine).toBe("8 sets from the Resistance are not used with Iron Man");
+    expect(group.collapsedLine).toBe("12 sets from the Resistance are not used with Iron Man");
     const offer = playableScenarioOffer(IRON);
     for (const t of group.tiles) {
       expect(t.enabled).toBe(false);
@@ -294,7 +303,7 @@ describe("6. other-side and neutral sets", () => {
     expect(group.tiles.find((t) => t.id === "defenders")!.disabledReason).toBe(
       "Defenders is a resistance set; Iron Man leads the registration side (MC56 p. 4)",
     );
-    expect(v.layout.setCounts.otherSide).toBe(8);
+    expect(v.layout.setCounts.otherSide).toBe(12);
   });
 
   test("a neutral set from another product is selectable and counts", () => {
@@ -314,7 +323,7 @@ describe("6. other-side and neutral sets", () => {
   test("the side's own sets list the leader's recommended four first, marked", () => {
     const own = view(draftFor(IRON)).modular.sections[0]!;
     expect(own.label).toBe("Registration sets");
-    expect(own.tiles).toHaveLength(8);
+    expect(own.tiles).toHaveLength(12);
     expect(own.tiles.slice(0, 4).every((t) => t.recommended)).toBe(true);
     expect(own.tiles.slice(4).some((t) => t.recommended)).toBe(false);
     expect(own.tiles[0]!.cardCount).toBe(5);
@@ -415,7 +424,7 @@ describe("9. blind", () => {
     expect(shown.blind).toBe(false);
     expect(shown.summary).toContain("Stage 2: Negative Zone Prison");
     expect(shown.summary.find((l) => l.startsWith("Modular sets: "))).not.toContain("hidden");
-    expect(shown.stageRows[1]!.options).toHaveLength(4);
+    expect(shown.stageRows[1]!.options).toHaveLength(5);
   });
 });
 
@@ -482,8 +491,8 @@ describe("12. focus order and the action strings", () => {
 
   test("the layout counts follow the sections", () => {
     const v = view(draftFor(IRON), { step: 4, extraSets: 1 });
-    expect(v.layout.setCounts.side).toBe(8);
-    expect(v.layout.setCounts.otherSide).toBe(8);
+    expect(v.layout.setCounts.side).toBe(12);
+    expect(v.layout.setCounts.otherSide).toBe(12);
     expect(v.layout.setCounts.other).toBeGreaterThan(0);
     expect([v.layout.step, v.layout.otherSideExpanded, v.layout.extraSets]).toEqual([4, false, 1]);
   });

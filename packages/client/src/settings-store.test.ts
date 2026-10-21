@@ -83,6 +83,12 @@ describe("SettingsStore", () => {
     ["villainDockTable", false],
     ["cardHoverScale", "2.5x"],
     ["cardHoverScale", "off"],
+    ["achievementPopupTime", "off"],
+    ["achievementPopupTime", "10s"],
+    ["achievementPopupPlace", "titleBar"],
+    ["achievementPopupPlace", "bottom"],
+    ["achievementPopupSize", "small"],
+    ["achievementPopupSize", "large"],
   ])("%s survives a restart", (field, value) => {
     const storage = new MapStorage();
     const first = new SettingsStore(storage, device(false, 2));

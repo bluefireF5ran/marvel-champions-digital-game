@@ -124,6 +124,8 @@ export default defineConfig({
         "org-support-one-way.spec.ts",
         "music-volume-pause.spec.ts",
         "villain-boost-breakdown.spec.ts",
+        "settings-earned-items.spec.ts",
+        "achievement-popup.spec.ts",
         "spectrum-energy-forms.spec.ts",
       ],
     },

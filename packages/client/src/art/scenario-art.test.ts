@@ -125,3 +125,57 @@ describe("the real art/ folder", () => {
     expect([...ART_CATALOG.packs.keys()].filter((code) => !codes.has(code))).toEqual([]);
   });
 });
+
+describe("a chosen villain's own outcome scene (Fear No Evil)", () => {
+  const catalog = parseArtCatalog({
+    "art/villains/typhoid_mary/villain-wins.jpg": "/mary-wins.jpg",
+    "art/villains/typhoid_mary/villain-loses.jpg": "/mary-loses.jpg",
+    "art/villains/hammerhead/villain-loses.jpg": "/hh-loses.jpg",
+    "art/scenarios/the-getaway/villain-loses.jpg": "/getaway-loses.jpg",
+    "art/outcomes/defeat.avif": "/defeat.avif",
+  });
+  const first = () => 0;
+
+  it("shows the villain faced, ahead of the scenario's own scene", () => {
+    expect(outcomeArtFor(catalog, "the-getaway", "loss", first, "typhoid_mary")?.url).toBe("/mary-wins.jpg");
+    expect(outcomeArtFor(catalog, "the-getaway", "win", first, "typhoid_mary")?.url).toBe("/mary-loses.jpg");
+    expect(outcomeArtFor(catalog, "the-getaway", "win", first, "hammerhead")?.url).toBe("/hh-loses.jpg");
+  });
+
+  it("falls back to the scenario, then the generic scene, when that villain has none; a concession stays generic", () => {
+    expect(outcomeArtFor(catalog, "the-getaway", "win", first, "electro")?.url).toBe("/getaway-loses.jpg");
+    expect(outcomeArtFor(catalog, "the-getaway", "loss", first, "hammerhead")?.url).toBe("/defeat.avif");
+    expect(outcomeArtFor(catalog, "the-getaway", "conceded", first, "typhoid_mary")?.url).toBe("/defeat.avif");
+    expect(catalog.unrecognized).toEqual([]);
+  });
+
+  it("the shipped art has the six underling scenes and Kingpin's", () => {
+    for (const [id, slots] of [
+      ["hammerhead", ["villain-loses"]],
+      ["bullseye", ["villain-loses"]],
+      ["purple_man", ["villain-loses", "villain-wins"]],
+      ["typhoid_mary", ["villain-loses", "villain-wins"]],
+    ] as const) {
+      for (const slot of slots) expect(ART_CATALOG.villains.get(id)?.[slot].length, `${id} ${slot}`).toBeGreaterThan(0);
+    }
+    expect(ART_CATALOG.scenarios.get("kingpin")?.["villain-loses"].length).toBeGreaterThan(0);
+  });
+});
+
+describe("an outcome scene for a hero at the table", () => {
+  const catalog = parseArtCatalog({
+    "art/scenarios/kingpin/villain-loses.jpg": "/kp-loses.jpg",
+    "art/scenarios/kingpin/villain-loses-with-60001a.jpg": "/kp-transfer.jpg",
+  });
+  const first = () => 0;
+
+  it("shows Kingpin's transfer only when Daredevil played, and never as a plain variant", () => {
+    expect(outcomeArtFor(catalog, "kingpin", "win", first, undefined, ["60037a", "60001a"])?.url).toBe(
+      "/kp-transfer.jpg",
+    );
+    expect(outcomeArtFor(catalog, "kingpin", "win", first, undefined, ["60037a"])?.url).toBe("/kp-loses.jpg");
+    expect(outcomeArtFor(catalog, "kingpin", "win", () => 0.99)?.url).toBe("/kp-loses.jpg");
+    expect(catalog.scenarios.get("kingpin")?.["villain-loses"]).toHaveLength(1);
+    expect(ART_CATALOG.withHero.get("kingpin")?.some((s) => s.identityId === "60001a")).toBe(true);
+  });
+});

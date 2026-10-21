@@ -23,6 +23,7 @@ import {
   exhaust,
   firstPlayer,
   forEachPlayer,
+  forEachPlayerInChosenOrder,
   forcedInterrupt,
   forcedResponse,
   gainsKeyword,
@@ -196,7 +197,12 @@ export const RED_SKULL_SET = defineAbilities({
     chooseTarget("chars", query("character", { controller: "you" }), { count: countOf(query("sideScheme")) }),
     exhaust(chosen("chars")),
   ),
-  "04136.boost": boost(chooseTarget("char", query("character", { controller: "you" })), exhaust(chosen("char"))),
+  // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+  // (RRG 1.8 "First Player", p. 19).
+  "04136.boost": boost(
+    chooseTarget("char", query("character", { controller: "you" }), { chooser: firstPlayer }),
+    exhaust(chosen("char")),
+  ),
 
   // Spreading Lies — When Revealed: place 2 threat on each scheme in play. [star] Boost: give Red Skull a tough
   // status card.
@@ -288,12 +294,12 @@ export const RED_SKULL_SET = defineAbilities({
       usesAttackedPlayer: true,
       requireResults: { undefended: 1 },
     },
-    chooseTarget("support", query("support", { controller: "you" })),
+    chooseTarget("support", query("support", { controller: "you" }), { chooser: firstPlayer }),
     ifThen({ kind: "exists", query: query("support", { controller: "you" }) }, discard(chosen("support"))),
   ),
   "04145.boost": boost(
     ifThen(undefendedAttack, [
-      chooseTarget("support2", query("support", { controller: "you" })),
+      chooseTarget("support2", query("support", { controller: "you" }), { chooser: firstPlayer }),
       ifThen({ kind: "exists", query: query("support", { controller: "you" }) }, discard(chosen("support2"))),
     ]),
   ),
@@ -347,7 +353,7 @@ export const RED_SKULL_SET = defineAbilities({
   // Hydra Patrol (Hydra Patrol) — When Defeated: each player searches the encounter deck and discard pile for a
   // Hydra minion and puts it into play engaged with them. Shuffle the encounter deck.
   "04154.when-defeated": whenDefeated(
-    forEachPlayer(eachPlayer, [
+    forEachPlayerInChosenOrder(eachPlayer, [
       chooseCards(
         "found",
         { kind: "encounter", zones: ["deck", "discard"], filter: query("minion", { trait: HYDRA }) },

@@ -9,10 +9,15 @@
  * corrupt record is no record, and a newer `version` is read best-effort.
  */
 import {
+  ACHIEVEMENT_POPUP_PLACE_VALUES,
+  ACHIEVEMENT_POPUP_SIZE_VALUES,
+  ACHIEVEMENT_POPUP_TIME_VALUES,
   CARD_HOVER_SCALE_VALUES,
   CARD_SIZE_VALUES,
   DISPLAY_MODE_VALUES,
   FIRST_PLAYER_TOKEN_MOTION_VALUES,
+  FRAME_RATE_VALUES,
+  RENDER_SCALE_VALUES,
   SHARP_TEXT_RESOLUTION_CEILING,
   VILLAIN_AUTO_ADVANCE_VALUES,
   VILLAIN_BEAT_SPEED_VALUES,
@@ -42,6 +47,7 @@ const BOOLEAN_FIELDS = [
   "villainDockTable",
   "hoverHeroCard",
   "hoverVillainCard",
+  "ultronDroneArt",
   "powerSavingAdjust",
 ] as const;
 
@@ -74,6 +80,16 @@ export function parseSettingsOverrides(raw: string | null): SettingsOverrides {
   if (cardSizeValue !== undefined) out.cardSize = cardSizeValue;
   const tokenMotionValue = FIRST_PLAYER_TOKEN_MOTION_VALUES.find((value) => value === source["firstPlayerTokenMotion"]);
   if (tokenMotionValue !== undefined) out.firstPlayerTokenMotion = tokenMotionValue;
+  const popupTimeValue = ACHIEVEMENT_POPUP_TIME_VALUES.find((value) => value === source["achievementPopupTime"]);
+  if (popupTimeValue !== undefined) out.achievementPopupTime = popupTimeValue;
+  const popupPlaceValue = ACHIEVEMENT_POPUP_PLACE_VALUES.find((value) => value === source["achievementPopupPlace"]);
+  if (popupPlaceValue !== undefined) out.achievementPopupPlace = popupPlaceValue;
+  const popupSizeValue = ACHIEVEMENT_POPUP_SIZE_VALUES.find((value) => value === source["achievementPopupSize"]);
+  if (popupSizeValue !== undefined) out.achievementPopupSize = popupSizeValue;
+  const renderScaleValue = RENDER_SCALE_VALUES.find((value) => value === source["renderScale"]);
+  if (renderScaleValue !== undefined) out.renderScale = renderScaleValue;
+  const frameRateValue = FRAME_RATE_VALUES.find((value) => value === source["frameRate"]);
+  if (frameRateValue !== undefined) out.frameRate = frameRateValue;
   const displayModeValue = DISPLAY_MODE_VALUES.find((value) => value === source["displayMode"]);
   if (displayModeValue !== undefined) out.displayMode = displayModeValue;
   const drawResolution = source["resolution"];
