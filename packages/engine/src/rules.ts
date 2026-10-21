@@ -1770,7 +1770,8 @@ export function restrictedLimitFor(
  * them (contributor's rules call 2026-10-16 (bluefireF5ran), reversing upstream Q52 = B). A `restrictedLimit` rule's
  * `cards` makes room for every card that weighs on the limit, a card that "counts as N restricted cards" counted N
  * times: FFG ruling 152 (March 22, 2024), "Laser Swords counts as two Restricted Weapon cards, so it does interact with
- * Side Holster". The player is over the limit when `load > limit`.
+ * Side Holster" (the same contributor's rules call 2026-10-16 (bluefireF5ran), the fork owner's, overriding upstream
+ * Q52 = B on this point). The player is over the limit when `load > limit`.
  */
 export function restrictedStanding(
   state: GameState,
