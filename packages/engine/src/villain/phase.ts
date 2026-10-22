@@ -17,6 +17,7 @@ import {
 } from "../effects.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { statusActive } from "../keywords.js";
+import { hasPerPlayerMainSchemes } from "../per-player-main-schemes.js";
 import { cannotActivate, iconsInPlay } from "../rules.js";
 import {
   activeVillainIdFor,
@@ -67,13 +68,16 @@ export function executePlaceThreat(ctx: Ctx): void {
       const offScheme = offSchemeAccelerationTokens(ctx.state);
       const tokensGoTo = gliderMainSchemeId(ctx.state, ctx.deps) ?? ctx.state.mainScheme.instanceId;
       const schemes = sharedMainSchemes(ctx.state);
+      const perPlayer = hasPerPlayerMainSchemes(ctx.state);
       const events = schemes.map((scheme, index): TriggerEvent => ({
         kind: "placeThreat",
         schemeInstanceId: scheme.instanceId,
         amount:
           mainSchemeValue(ctx.state, "acceleration", ctx.deps, scheme) +
           scheme.accelerationTokens +
-          (scheme.instanceId === tokensGoTo ? offScheme : 0) +
+          // With a main scheme per player, every token adds to each (MC60 p. 13: "Each acceleration token adds 1
+          // additional threat to each main scheme during step 1"; docs/phase7-wave11-scenarios.md §S3.1).
+          (perPlayer || scheme.instanceId === tokensGoTo ? offScheme : 0) +
           iconsInPlay(ctx.state, ctx.deps, "acceleration"),
         sourceInstanceId: null,
         // Several main schemes: all the threat lands first, then completions, then one shared response window
@@ -343,6 +347,7 @@ function initiateCardCausedActivation(
           targetInstanceId: made.targetInstanceId ?? mustPlayer(ctx.state, playerId).identity.instanceId,
           ...(made.additionalResolution ? { additionalResolution: true } : {}),
           ...noBoost,
+          ...(made.deferredBonus?.atkBonus ? { deferredBonus: made.deferredBonus } : {}),
         }
       : {
           kind: "enemyScheme",
@@ -351,6 +356,7 @@ function initiateCardCausedActivation(
           ...noBoost,
           ...(made.divert ? { divert: made.divert } : {}),
           ...(made.wouldPlaceThreat ? { wouldPlaceThreat: made.wouldPlaceThreat } : {}),
+          ...(made.deferredBonus?.schBonus ? { deferredBonus: made.deferredBonus } : {}),
         };
   const [frameId] = pushEvents(ctx, [event], reportTo, made.vars);
   if (made.settlesAwaitingAttack && reportTo && activation === "attack" && frameId)
@@ -437,10 +443,15 @@ export function executeRevealEncounterCards(ctx: Ctx, remainingPlayerIds: readon
 
 // RRG "Villain Phase" step 5: the first player token passes clockwise.
 export function executePassFirstPlayer(ctx: Ctx): void {
+  passFirstPlayerToken(ctx);
+  setStep(ctx, { phase: "villain", kind: "endOfRound" });
+}
+
+/** The first player token passes clockwise (step 5's own change, also read by a skipped villain phase's Q101 B). */
+export function passFirstPlayerToken(ctx: Ctx): void {
   const next = nextClockwisePlayer(ctx.state, ctx.state.firstPlayerId);
   if (next) {
     ctx.state = { ...ctx.state, firstPlayerId: next.playerId };
     emit(ctx, { type: "firstPlayerChanged", playerId: next.playerId });
   }
-  setStep(ctx, { phase: "villain", kind: "endOfRound" });
 }

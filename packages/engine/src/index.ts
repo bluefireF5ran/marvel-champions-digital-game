@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "0.30.0";
+export const ENGINE_VERSION = "0.33.0";
 
 export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId, TeamId } from "./ids.js";
 export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId, teamId } from "./ids.js";
@@ -91,6 +91,7 @@ export {
   cardTotalOf,
   ENEMY_TEAM_CHOICE_INSTRUCTION,
   ENEMY_TEAM_CHOICE_RULE,
+  facedownOptionId,
   mostCardsUnderTotal,
   PLAY_TO_OWN_AREA,
   playDestinationOfOption,
@@ -142,6 +143,7 @@ export {
   PAID_FOR_SLOT,
   additionalPlayCostOf,
   basicPowerCost,
+  basicPowerDivisionTotal,
   costAsDetermined,
   inPlayCostCandidates,
   minimumChosenX,
@@ -150,7 +152,14 @@ export {
   playableOutsideHand,
 } from "./actions.js";
 export { encounterSearchCostCandidates } from "./encounter-search-cost.js";
-export { deckTopPermission, deckTopPlayOf, type DeckTopPermission } from "./actions.js";
+export {
+  asIfInHandPermissions,
+  asIfInHandPlayOf,
+  deckTopPermission,
+  deckTopPlayOf,
+  type AsIfInHandPermission,
+  type DeckTopPermission,
+} from "./actions.js";
 export type { Command, CommandType, Payment, ResourceAbilityUse, SpentCardAbilityUse } from "./commands.js";
 export type { GameEvent, GameEventType } from "./events.js";
 export type { EngineError, EngineErrorCode, IllegalDeck } from "./errors.js";
@@ -201,6 +210,7 @@ export type {
   AbilityRegistry,
   AbilitySource,
   AbilityTriggerSpec,
+  PlayableAsIfInHandSpec,
   CardZoneQuery,
   ConsequentialDamageScope,
   CostModifierSpec,
@@ -259,7 +269,10 @@ export {
   cannotLeavePlay,
   cardAbilitiesCannotRemove,
   resourceIconsInPlay,
+  canDivideBasicPower,
+  cannotBeDealtDamage,
   cannotTakeDamage,
+  evenlyDividesBasicPower,
   playDestinationsOf,
   countSchemeIcons,
   damageTakenAfterConstants,
@@ -318,6 +331,7 @@ export {
   labeledResolvedVar,
   isResourcesChoice,
   NO_ABILITIES,
+  playableAsIfInHandOf,
   resourcesChoiceOf,
 } from "./abilities.js";
 export type { InPlayCostMode, ResourcesChoice } from "./abilities.js";
@@ -342,6 +356,7 @@ export type {
   SchemeValueName,
   StatName,
   BasicPowerName,
+  BasicPowerTerms,
   StatComparison,
   StatusName,
   CollectionSearchFilter,
@@ -349,6 +364,7 @@ export type {
   TargetQuery,
   TargetRef,
   ValueSpec,
+  AttachCategory,
 } from "./spec.js";
 
 /**
@@ -626,6 +642,8 @@ export {
   showingResources,
   separateDeckDefinition,
   separateDeckOf,
+  isFixedOrderDeck,
+  mayLookThroughSeparateDeck,
   discardZoneFor,
   encounterDeckOf,
   heroFacesOf,
@@ -641,6 +659,7 @@ export {
   getPlayer,
   handSize,
   hasStarIcon,
+  printsBoostAbility,
   isMinion,
   isTerminal,
   maxHitPoints,

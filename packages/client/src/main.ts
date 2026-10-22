@@ -39,17 +39,32 @@ import { applyDesktopWindowOnLaunch, desktopLaunchSettings, setRenderSizeHandler
 import { storedSettingsOverrides } from "./settings-store.js";
 import { applyRenderSize } from "./ui/render-resolution.js";
 import { isAndroidEdge, rendererOptionsOf } from "./platform/renderer-options.js";
-import { POWER_SAVING_FPS, onPowerSavingChange, watchPowerSaving } from "./platform/power-saving.js";
+import { onPowerSavingChange, watchPowerSaving } from "./platform/power-saving.js";
+import { gpuRendererName, installRenderScale } from "./ui/render-scale.js";
+import { installIdleRender } from "./ui/idle-render.js";
+import { onHardwareChange, readHardware } from "./platform/device-hardware.js";
+import {
+  drawsAtScreenDensity,
+  renderScaleFor,
+  screenEnvironment,
+  textResolutionFor,
+} from "./platform/screen-density.js";
+import { applyScreenSettings, readRefreshInfo } from "./platform/screen-settings.js";
 import { PowerSavingNoticeScene } from "./scenes/power-saving-notice.js";
+import { AchievementToastScene } from "./scenes/achievement-toast.js";
 
 // The one `Settings` instance for the whole app (`appSession().settings`), not a
 // second copy: `scenes/settings.ts` mutates that same object, and every text
 // object this game creates from here on must read the resolution it left behind.
 const settings = appSession().settings;
 
+// The game draws at the screen's own density (`platform/screen-settings.ts`), unless `?renderscale=off`.
+const screen = screenEnvironment();
+const renderScale = renderScaleFor(settings, screen);
+
 // Every text object the theme creates renders at the device pixel ratio, so
 // text stays sharp. Phaser 4 has no game-level equivalent.
-setTextResolution(settings.textResolution);
+setTextResolution(textResolutionFor(settings, renderScale, drawsAtScreenDensity(screen.search)));
 
 // Before the canvas first takes its parent's size, which depends on whether #game is inset by the safe area.
 applyViewportFit();
@@ -60,11 +75,13 @@ setDesktopType(formFactorFor(window.innerWidth, window.innerHeight) === "desktop
 // A device whose WebGL cannot draw gets a plain-text reason instead of a black page (`ui/startup-watchdog.ts`).
 const watchStartup = installStartupWatchdog();
 // Edge on Android reads its WebGL renderer first: on ANGLE's Vulkan backend its multisampled canvas shows black (#157).
+// At 2x and up there is no multisampled canvas either (#328).
 const rendererOptions = rendererOptionsOf(
   window.location.search,
   isAndroidEdge(navigator.userAgent)
     ? { userAgent: navigator.userAgent, webglRenderer: probeWebgl()?.renderer ?? null }
     : null,
+  renderScale,
 );
 
 const game = new Phaser.Game({
@@ -77,6 +94,8 @@ const game = new Phaser.Game({
     ...(rendererOptions.powerPreference ? { powerPreference: rendererOptions.powerPreference } : {}),
   },
   parent: "game",
+  // Before the renderer asks the canvas for its WebGL context, so the context is wrapped from its first call.
+  callbacks: { preBoot: (booting: Phaser.Game) => installRenderScale(booting, renderScale, Phaser.Scale.RESIZE) },
   backgroundColor: cssOf(surface.void.hex),
   // Off by default in Phaser 4; the Board's focus route is otherwise wired
   // for it already (`view/gamepad.ts`, `scenes/board/input.ts#bindGamepad`).
@@ -100,6 +119,7 @@ const game = new Phaser.Game({
     TitleScene,
     MusicScene,
     PowerSavingNoticeScene,
+    AchievementToastScene,
     MusicPlayerOverlay,
     MusicButtonScene,
     ReportIssueOverlay,
@@ -127,12 +147,28 @@ void desktopLaunchSettings(settings, storedSettingsOverrides().displayMode !== u
 });
 watchStartup(game);
 
-// Power saving mode (`platform/power-saving.ts`): the session's settings already follow it; the frame rate cap and the
-// text resolution new labels draw at are applied here.
-onPowerSavingChange(({ applied }) => {
-  game.loop.setFPSLimit(applied ? POWER_SAVING_FPS : 0);
-  setTextResolution(appSession().settings.textResolution);
-});
+// The frame rate, and on Android the refresh rate the app asks the OS for. Power saving mode (`platform/power-saving.ts`)
+// moves the session's defaults (a 30 fps cap, 1x text), so they are applied again whenever it changes.
+applyScreenSettings(game, settings);
+void readRefreshInfo();
+// The hardware check: the GPU is known once the renderer exists, and the Android app reports the rest. A fuller reading
+// moves the defaults of a player who never set Resolution or Frame rate (`platform/device-tier.ts`).
+onHardwareChange(() => applyScreenSettings(game, appSession().settings));
+void readHardware(gpuRendererName());
+// The display's scale changes when the window moves to another monitor, when Windows' scaling changes, and with browser
+// zoom: Native follows it. A media query on the current ratio fires once when it stops matching.
+const followPixelRatio = (): void => {
+  globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio || 1}dppx)`).addEventListener(
+    "change",
+    () => {
+      applyScreenSettings(game, appSession().settings);
+      followPixelRatio();
+    },
+    { once: true },
+  );
+};
+followPixelRatio();
+onPowerSavingChange(() => applyScreenSettings(game, appSession().settings));
 watchPowerSaving();
 
 // Registered before any scene's own resize listener, so a screen redrawing on resize already draws at the new size.
@@ -144,6 +180,10 @@ game.scale.on("resize", (size: Phaser.Structs.Size) =>
 // stay out of the way of it. Phaser 4 has no game-config flag for this, only
 // this call on the mouse manager.
 game.input.mouse?.disableContextMenu();
+
+// A frame that would look exactly like the last one isn't drawn again (#328, `ui/idle-render.ts`). Before the frame
+// guard, which wraps whatever `step` is by then.
+installIdleRender(game, Phaser, window.location.search);
 
 // One bad frame must not end the game: a throwing tween is removed, anything else skips that frame (`ui/frame-guard.ts`).
 installFrameGuard(game);

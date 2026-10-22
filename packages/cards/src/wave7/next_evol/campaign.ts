@@ -20,6 +20,8 @@ import {
   defineAbilities,
   discard,
   discardFromHand,
+  handCountOf,
+  valueAtLeast,
   draw,
   each,
   eachPlayer,
@@ -33,7 +35,6 @@ import {
   gainsKeyword,
   gets,
   grantOwnedCards,
-  handCountOf,
   heal,
   host,
   ifThen,
@@ -55,7 +56,6 @@ import {
   takeDamage,
   thatPlayer,
   treatAttachedAllyAsMinion,
-  valueAtLeast,
   whenDefeated,
   whenRevealed,
   you,
@@ -108,7 +108,7 @@ const searchAndAttachUpgrade = (): EffectSpec =>
     shuffleDeck(thatPlayer),
   );
 
-/** "Choose to either discard 1 resource card from your hand or take 2 damage." A choice is offered only if it can be carried out (§4.2 Q8). */
+/** "Choose to either discard 1 resource card from your hand or take 2 damage." The discard needs a resource card in hand to target (RRG 1.8 "Target", p. 42, and "Choose (Option)", p. 12; owner 2026-10-20 revising Q8). */
 const overburdened = () =>
   chooseOne(
     option(
@@ -119,15 +119,17 @@ const overburdened = () =>
     option("Take 2 damage", takeDamage(2)),
   );
 
-/** "The support you control with the highest cost": a tie is the controller's choice (RRG 1.8 "Choose", p. 12). */
+/** "The support you control with the highest cost": a tie is the first player's choice (RRG 1.8 "First Player", p. 19). */
 const returnHighestSupport = (): EffectSpec[] => [
   bindTargets(
     "highest",
+    // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+    // (RRG 1.8 "First Player", p. 19).
     superlative("highest", each(query("support", { controller: "you" })), printedCostOf(chosen("candidate")), {
       leavesPlay: true,
     }),
   ),
-  chooseTarget("pick", { inSlot: "highest" }),
+  chooseTarget("pick", { inSlot: "highest" }, { chooser: firstPlayer }),
   moveCards(cards(chosen("pick")), "hand"),
 ];
 
@@ -244,7 +246,7 @@ export const NEXT_EVOL_CAMPAIGN_CARDS: AbilityRegistry = defineAbilities({
   "40198.boost": boost(discardFromHand(1, you, { filter: query("event") })),
 
   "40200.when-revealed": whenRevealed(
-    chooseTarget("upgrade", query("upgrade", { controller: "you" })),
+    chooseTarget("upgrade", query("upgrade", { controller: "you" }), { chooser: firstPlayer }),
     discard(chosen("upgrade")),
   ),
 

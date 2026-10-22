@@ -76,7 +76,7 @@ export const NEBULA_PACK_CARDS = defineAbilities({
   // fewer minions exist than resources spent, the errata'd repeated choice can only ever re-confuse one already
   // chosen, which changes nothing.
   "22011.eros-response": response(
-    on.youPlayThis(),
+    on.youPlayThisFromHand(),
     chooseTarget("minions", query("minion"), { count: varOf("paid.mental"), upTo: true }),
     confuse(chosen("minions")),
   ),
@@ -97,7 +97,9 @@ export const NEBULA_PACK_CARDS = defineAbilities({
   // …)`, `packages/cards/src/dsl/abilities.ts`), not `RuleSpec reduceDamageTaken` (which is for damage dealt *from
   // an attack*, `fromAttack: true` — consequential damage is neither, RRG 1.8 "Consequential Damage", p. 14). With
   // several main schemes, his controller chooses which is "the main scheme" each time (Ruling 132, Dec 22, 2023), so
-  // the reduction applies while any main scheme has no threat.
+  // the reduction applies while any main scheme has no threat. In Tower Defense a player card's constant "always refers
+  // to the scheme card with the attachment 'Focused Defense'" (MC21 p. 10), so there he reads only that scheme (it was
+  // the central scheme before `theMainScheme` replaced `centralMainScheme` here).
   "22013.venom-constant": constant(
     gets("consequentialAttack", -1, query("ally", { self: true }), {
       while: whileOnChosenMainScheme(valueAtMost(threatOn(theMainScheme), 0)),

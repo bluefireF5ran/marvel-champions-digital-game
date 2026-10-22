@@ -18,7 +18,9 @@ import {
   eachPlayer,
   enemyAttack,
   attackDamageDealt,
+  anyIn,
   exists,
+  firstPlayer,
   flipCard,
   forEachPlayer,
   forcedInterrupt,
@@ -74,6 +76,13 @@ import {
 const THE_VILLAIN = query("villain");
 /** "An upgrade or support you control". */
 const YOUR_UPGRADES_AND_SUPPORTS = query(["upgrade", "support"], { controller: "you" });
+/** Breakthrough's pool: the highest-cost of them that can leave play (RRG 1.8 "Permanent", p. 32). */
+const HIGHEST_COST_UPGRADE_OR_SUPPORT = superlative(
+  "highest",
+  each(YOUR_UPGRADES_AND_SUPPORTS),
+  printedCostOf(chosen("candidate")),
+  { ties: "all", leavesPlay: true },
+);
 const ATTACHED_VILLAIN = query("villain", { hostOfSelf: true });
 const HIS_ATK = statOf(theVillain, "atk");
 const MOMENTUM = "momentum";
@@ -164,21 +173,18 @@ export const JUGGERNAUT: AbilityRegistry = defineAbilities({
   ),
 
   // Breakthrough (40125) — Choose: take damage equal to Juggernaut's ATK, or discard the highest-cost upgrade or support
-  // you control. An option is offered only if it can be carried out in full (Q8 = A); the player picks among ties.
+  // you control. The discard option needs a card to target (RRG 1.8 p. 12; owner 2026-10-20 revising Q8); the first player
+  // picks among ties.
   "40125.when-revealed": whenRevealed(
     chooseOne(
       option("Take damage equal to Juggernaut's ATK", takeDamage(HIS_ATK)),
       option(
         "Discard the highest-cost upgrade or support you control",
-        { when: exists(YOUR_UPGRADES_AND_SUPPORTS) },
-        bindTargets(
-          "highest",
-          superlative("highest", each(YOUR_UPGRADES_AND_SUPPORTS), printedCostOf(chosen("candidate")), {
-            ties: "all",
-            leavesPlay: true,
-          }),
-        ),
-        chooseTarget("pick", { inSlot: "highest" }),
+        { when: anyIn(HIGHEST_COST_UPGRADE_OR_SUPPORT) },
+        bindTargets("highest", HIGHEST_COST_UPGRADE_OR_SUPPORT),
+        // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+        // (RRG 1.8 "First Player", p. 19).
+        chooseTarget("pick", { inSlot: "highest" }, { chooser: firstPlayer }),
         discard(chosen("pick")),
       ),
     ),
@@ -200,7 +206,7 @@ export const JUGGERNAUT: AbilityRegistry = defineAbilities({
   "40127.boost": boost(dealIndirectDamage(you, 1)),
 
   // Trample (40128) — Alter-Ego: take 2 indirect damage. Hero: Juggernaut attacks the ally with the fewest remaining hit
-  // points (any player's; the revealing player picks among ties; no ally, no attack). [star] Boost: Deal 1 damage to an
+  // points (any player's; the first player picks among ties; no ally, no attack). [star] Boost: Deal 1 damage to an
   // ally you control.
   "40128.when-revealed-alter-ego": whenRevealedAlterEgo(dealIndirectDamage(you, 2)),
   "40128.when-revealed-hero": whenRevealedHero(
@@ -209,13 +215,13 @@ export const JUGGERNAUT: AbilityRegistry = defineAbilities({
         "fewest",
         superlative("lowest", each(query("ally")), remainingHpOf(chosen("candidate")), { ties: "all" }),
       ),
-      chooseTarget("victim", { inSlot: "fewest" }),
+      chooseTarget("victim", { inSlot: "fewest" }, { chooser: firstPlayer }),
       enemyAttack(theVillain, { targetCharacter: chosen("victim") }),
     ]),
   ),
   "40128.boost": boost(
     ifThen(exists(query("ally", { controller: "you" })), [
-      chooseTarget("ally", query("ally", { controller: "you" })),
+      chooseTarget("ally", query("ally", { controller: "you" }), { chooser: firstPlayer }),
       dealDamage(1, chosen("ally")),
     ]),
   ),

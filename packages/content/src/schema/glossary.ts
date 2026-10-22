@@ -99,6 +99,7 @@ export type GlossaryBoxId =
   | "cycle8"
   | "cycle9"
   | "cycle10"
+  | "cycle11"
   | "later";
 
 /** Which "New in this box" group a concept belongs under: a hero's own mechanic, or a scenario's. Keywords have their own group. */
@@ -496,10 +497,10 @@ const INTRODUCED_IN: Record<GlossaryId, Intro> = {
   teamwork: { box: "cycle6" },
   temporary: { box: "cycle6" },
   assault: { box: "cycle7" },
-  discount: { box: "later" },
+  discount: { box: "cycle11" },
   linked: { box: "cycle7" },
-  prerequisite: { box: "later" },
-  starting: { box: "later" },
+  prerequisite: { box: "cycle11" },
+  starting: { box: "cycle11" },
   vulnerable: { box: "cycle9" },
   // Status cards: all three are in the Core Set.
   confused: { box: "core" },
@@ -724,7 +725,7 @@ const KEYWORD_RAW: Record<KeywordName, UntaggedEntry<KeywordName>> = {
       "While a minion with this keyword is engaged with you, none of your cards can attack the villain. An attack card whose only target is the guarded villain can't be played.",
     sources: [
       { kind: "rrg", page: 21 },
-      { kind: "ruling", date: "April 30, 2026 - Ruling 2" },
+      { kind: "ruling", date: "April 30, 2026 - Ruling 5" },
       { kind: "owner-ruling", date: "Oct 8, 2026" },
     ],
   },

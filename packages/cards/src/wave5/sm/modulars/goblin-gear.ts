@@ -34,6 +34,8 @@ import {
   whenRevealed,
   you,
   zone,
+  firstPlayer,
+  firstPlayerPicksFromHand,
 } from "../../../dsl/index.js";
 
 const ATTACK = trait("ATTACK");
@@ -85,9 +87,11 @@ export const GOBLIN_GEAR = defineAbilities({
   "27137.concussive-bombs-forced-response": forcedResponse(
     after.villainAttacks({ againstYou: true }),
     { cost: removeCounter("bomb", 1) },
-    chooseTarget("upgrade", query("upgrade", { controller: "you" })),
+    // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+    // (RRG 1.8 "First Player", p. 19).
+    chooseTarget("upgrade", query("upgrade", { controller: "you" }), { chooser: firstPlayer }),
     exhaust(chosen("upgrade")),
-    chooseTarget("support", query("support", { controller: "you" })),
+    chooseTarget("support", query("support", { controller: "you" }), { chooser: firstPlayer }),
     exhaust(chosen("support")),
   ),
 
@@ -121,11 +125,11 @@ export const GOBLIN_GEAR = defineAbilities({
     after.villainAttacks({ againstYou: true }),
     { cost: removeCounter("bomb", 1) },
     selectCards("candidates", zone("hand", you, { filter: query("event") })),
-    bindTargets(
-      "lowest",
-      superlative("lowest", chosen("candidates"), printedCostOf(chosen("candidate")), { ties: "first" }),
-    ),
-    moveCards(cards(chosen("lowest")), "discard"),
+    bindTargets("lowest", superlative("lowest", chosen("candidates"), printedCostOf(chosen("candidate")))),
+    // A tie for the lowest cost is the first player's to break, facedown when the hand is not theirs (RRG 1.8 "First
+    // Player", p. 19; p. 42, "Table Talk"; owner answer 211, docs/phase7-wave11-scenarios.md §4.1).
+    firstPlayerPicksFromHand("discarded", cards(chosen("lowest"))),
+    moveCards(cards(chosen("discarded")), "discard"),
   ),
 
   // Limitless Supply (27140, side scheme; startingThreat 5/3 boost icons are data) — Each Tech attachment gains

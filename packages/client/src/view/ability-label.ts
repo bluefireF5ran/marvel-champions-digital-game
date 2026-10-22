@@ -117,6 +117,8 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
   // it): exhaust, then what's spent, then what's discarded — "Spend 1
   // [physical] resource and discard Tenacity" reads spend-then-discard, not
   // the other way around.
+  // "Change to hero form and discard this card →" (Entrapment 61024): printed first.
+  if (cost.changeForm) parts.push(`change to ${cost.changeForm === "hero" ? "hero" : "alter-ego"} form`);
   if (cost.exhaustSelf) parts.push("exhaust");
   if (cost.exhaustIdentity) parts.push("exhaust your identity");
   const everyone = eachPlayerPhrase(cost.eachPlayer);
@@ -124,9 +126,17 @@ function costPhrase(cost: AbilityCost | undefined): string | null {
   const resources = resourcePhrase(cost.resources);
   if (resources) parts.push(resources);
   if (cost.resourcesX) parts.push(chosenSpendPhrase(cost.resourcesX));
+  // "Choose a non-Elite minion. Remove X evidence counters …" (61009): the card prints the choice first.
+  if (cost.chooseTarget) parts.push("choose a card");
   if (cost.spendCounters) {
     const { amount, counterType } = cost.spendCounters;
-    parts.push(`remove ${amount} ${counterType} counter${amount === 1 ? "" : "s"}`);
+    // An amount read from the board ("X equal to 2 less than that minion's remaining hit points", 61009) is a value
+    // spec: said as X, as a computed `damageSelf` is said without a figure.
+    parts.push(
+      typeof amount === "number"
+        ? `remove ${amount} ${counterType} counter${amount === 1 ? "" : "s"}`
+        : `remove X ${counterType} counters`,
+    );
   }
   // A computed amount (Wolverine's Claws: "take damage equal to its printed cost") is a value spec, not a number,
   // and printing it showed "[object Object]" on the button: say the cost without a figure instead.

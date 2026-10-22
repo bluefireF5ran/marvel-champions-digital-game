@@ -5,7 +5,6 @@ import {
   anyOfCards,
   attacksGainKeywords,
   boost,
-  canPayResources,
   cancelRevealedCard,
   cards,
   chooseCards,
@@ -19,6 +18,7 @@ import {
   each,
   encounterCards,
   exists,
+  firstPlayer,
   gainsKeyword,
   gets,
   giveTough,
@@ -100,7 +100,9 @@ export const BATROCS_BRIGADE: AbilityRegistry = defineAbilities({
     ifThen(
       exists(query("upgrade", { controller: "you", trait: WEAPON })),
       [
-        chooseTarget("weapon", query("upgrade", { controller: "you", trait: WEAPON })),
+        // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+        // (RRG 1.8 "First Player", p. 19).
+        chooseTarget("weapon", query("upgrade", { controller: "you", trait: WEAPON }), { chooser: firstPlayer }),
         tuckCards(cards(chosen("weapon")), self),
       ],
       tuckCards(topOfDeck(1, you), self),
@@ -117,11 +119,7 @@ export const BATROCS_BRIGADE: AbilityRegistry = defineAbilities({
 
   "50102.when-revealed": whenRevealed(
     chooseOne(
-      option(
-        "Spend 3 resources of any type",
-        { when: canPayResources({ generic: 3 }) },
-        spendResources({ generic: 3 }, "paid"),
-      ),
+      option("Spend 3 resources of any type", spendResources({ generic: 3 }, "paid")),
       option(
         "Find a Mercenary minion and reveal it",
         setVar("minionsBefore", countOf(query("minion"))),
@@ -141,11 +139,7 @@ export const BATROCS_BRIGADE: AbilityRegistry = defineAbilities({
   ),
   "50102.boost": boost(
     chooseOne(
-      option(
-        "Spend 1 resource of any type",
-        { when: canPayResources({ generic: 1 }) },
-        spendResources({ generic: 1 }, "paid"),
-      ),
+      option("Spend 1 resource of any type", spendResources({ generic: 1 }, "paid")),
       option("This card gains 3 boost icons", adjustBoostCount(3)),
     ),
   ),

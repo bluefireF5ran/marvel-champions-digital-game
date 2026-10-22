@@ -222,7 +222,7 @@
  *   instructions of the effect only, not a cost (next point).
  * - **A printed cost written as effects is not part of the attack** (`AbilityDefinition.costEffects`; official: RRG
  *   1.8 "Initiating Abilities", p. 24, costs in step 5 and effects in step 6, p. 26's "after costs have been paid",
- *   and ruling April 30, 2026 - Ruling 2 on Return the Favor: "If a treachery revealed in Step 5 Stuns the hero, the
+ *   and ruling April 30, 2026 - Ruling 5 on Return the Favor: "If a treachery revealed in Step 5 Stuns the hero, the
  *   Stun card is discarded in Step 6 instead of dealing damage"; owner decision 2026-10-16, audit finding 13, which
  *   supersedes reading the 2026-10-08 rule ahead of the cost). The ability begins resolving when the cursor reaches
  *   its first instruction after the cost (`beginEffectAfterCost` in `effects-frame.ts`, `effectBeganAt`): the status
@@ -338,7 +338,7 @@ import { type Ctx, emit, findFrame, updateFrame } from "../ctx.js";
 import type { AbilityDefinition, EngineDeps } from "../abilities.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { attackKeywordsOf } from "../keywords.js";
-import { lostAttackKeywords } from "../rules.js";
+import { attackExtraDamageAgainst, lostAttackKeywords } from "../rules.js";
 import {
   canAttack,
   cardsInPlay,
@@ -1316,13 +1316,18 @@ export function abilityAttackDamage(
   });
   const overkill =
     keywords.includes("overkill") ||
-    (event.overkill === true && !lostAttackKeywords(state, deps, targetId).includes("overkill"));
+    (event.overkill === true &&
+      !lostAttackKeywords(state, deps, targetId, event.attackerInstanceId).includes("overkill"));
+  const engagedWith = state.instances[targetId]?.engagedWith ?? null;
   return {
     // "This attack deals N additional damage" (`modifyAttack.extraDamage` on the attack's frame) increases each
     // instance of the attack's damage (RRG 1.8 "Attack (Player Ability Type)", p. 10; owner ruling Q53): the attack's
     // own damage (`applyPlayerAttack`) and each later instruction's, through here. The caller leaves it off an
-    // instruction that is itself additional damage (`dealDamage.additional`).
-    extra: Math.max(0, attack.vars.extraDamage ?? 0),
+    // instruction that is itself additional damage (`dealDamage.additional`). "Attacks against attached minion deal 2
+    // additional damage" (`attacksDealExtraDamage`, docs/phase7-wave11-hero-packs.md §H3.15) is added the same way.
+    extra:
+      Math.max(0, attack.vars.extraDamage ?? 0) +
+      attackExtraDamageAgainst(state, deps, event.attackerInstanceId, targetId),
     damage: {
       sourceInstanceId: event.attackerInstanceId,
       fromAttack: true,
@@ -1338,6 +1343,8 @@ export function abilityAttackDamage(
       targetInstanceId: targetId,
       playerId: event.playerId,
       ...(keywords.includes("ranged") ? { ranged: true } : {}),
+      // Whom the enemy was engaged with as the damage was aimed at it, before it was dealt (`targetEngagedWith`).
+      ...(engagedWith ? { targetEngagedWith: engagedWith } : {}),
     },
   };
 }

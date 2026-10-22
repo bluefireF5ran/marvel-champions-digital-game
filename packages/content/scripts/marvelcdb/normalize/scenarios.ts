@@ -1,5 +1,5 @@
 /** Step 9: scenarios from curation, resolved against the villains, main schemes and encounter sets just emitted. */
-import type { MultipleVillains, Scenario, ScenarioVillain } from "../../../src/schema/index.ts";
+import type { MultipleVillains, Scenario, ScenarioVillain, VillainOption } from "../../../src/schema/index.ts";
 import { brand } from "./brand.ts";
 import type { NormalizeContext } from "./context.ts";
 import { CORE_ENCOUNTER_SET_CODES } from "./core-raw.ts";
@@ -169,6 +169,47 @@ export function normalizeScenarios(
       }
     }
 
+    // docs/phase7-wave11-scenarios.md §S1.2: the villain as a setup option, one per set, the default included.
+    let villainOptions: Scenario["villainOptions"];
+    if (s.villainOptionSetCodes) {
+      const codes = s.villainOptionSetCodes;
+      if (!codes.includes(s.villainSetCode))
+        errors.push(`scenario ${s.id}: villainOptionSetCodes must include villainSetCode ${s.villainSetCode}`);
+      for (const code of Object.keys(s.villainOptionDetails ?? {}))
+        if (!codes.includes(code)) errors.push(`scenario ${s.id}: villainOptionDetails names ${code}, not an option`);
+      const options: VillainOption[] = codes.map((code) => {
+        if (!setNames.has(code)) errors.push(`scenario ${s.id}: unknown villain option set ${code}`);
+        const detail = s.villainOptionDetails?.[code];
+        const isDefault = code === s.villainSetCode;
+        const vid = isDefault ? villainId : villainIdBySet.get(code);
+        if (!vid) errors.push(`scenario ${s.id}: no villain in option set ${code}`);
+        const victory = detail?.victory ?? (isDefault ? s.victory : undefined);
+        const stages = detail?.villainStages ?? s.villainStages;
+        return {
+          villainSetId: brand("encounterSet", code),
+          villainCardId: brand("card", vid ?? ""),
+          villainStages: { standard: stages.standard, expert: stages.expert },
+          ...(victory ? { victory } : {}),
+        };
+      });
+      villainOptions = { options, defaultSetId: brand("encounterSet", s.villainSetCode) };
+    }
+
+    // docs/phase7-wave11-scenarios.md §S3.1: a main scheme per player, chosen among the listed cards.
+    let mainSchemeChoice: Scenario["mainSchemeChoice"];
+    if (s.perPlayerMainSchemeCodes) {
+      const cardIds = s.perPlayerMainSchemeCodes
+        .map((c) => resolveCardCode(c, `scenario ${s.id} perPlayerMainSchemeCodes`))
+        .filter((id): id is string => id !== undefined)
+        .map((id) => brand("card", id));
+      for (const id of cardIds)
+        if (ctx.cards.find((c) => c.id === id)?.type !== "main_scheme")
+          errors.push(`scenario ${s.id}: perPlayerMainSchemeCodes names ${id}, not a main scheme card`);
+      if (cardIds[0] !== undefined && cardIds[0] !== schemeId)
+        errors.push(`scenario ${s.id}: perPlayerMainSchemeCodes must start with the main scheme ${schemeId}`);
+      mainSchemeChoice = { kind: "perPlayer", cardIds, expert: "random" };
+    }
+
     // docs/phase7-wave10.md §1.4: the recommended stage 1 and 2, by the B face code each stage's `printedCardId` holds.
     let mainSchemeStages: Scenario["mainSchemeStages"];
     if (s.recommendedMainSchemeStageCodes) {
@@ -228,7 +269,10 @@ export function normalizeScenarios(
       ...(s.separateGameAreas ? { separateGameAreas: s.separateGameAreas } : {}),
       ...(separateDecks ? { separateDecks } : {}),
       ...(s.startingVillain ? { startingVillain: s.startingVillain } : {}),
+      ...(s.randomVillainName ? { randomVillainName: s.randomVillainName } : {}),
       ...(s.victoryCondition ? { victoryCondition: s.victoryCondition } : {}),
+      ...(villainOptions ? { villainOptions } : {}),
+      ...(mainSchemeChoice ? { mainSchemeChoice } : {}),
     };
   });
 }

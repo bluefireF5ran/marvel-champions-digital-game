@@ -36,6 +36,12 @@ export type ChoicePrompt =
    * §3.26). Absent on a player's first mulligan.
    */
   | { readonly kind: "mulligan"; readonly handSize: number; readonly additional?: number }
+  /**
+   * The Starting keyword (MC60 p. 3; docs/phase7-wave11.md §3.6), just before RRG 1.8 Appendix II step 14: the player
+   * may search their deck for their Starting card and add it to their starting hand. The options are the deck's
+   * Starting cards (`ref` each instance); selecting none declines, and the deck is then not searched.
+   */
+  | { readonly kind: "takeStartingCard" }
   /** RRG "Activation": the engaged player chooses which of their minions activates next. */
   | { readonly kind: "chooseMinionToActivate" }
   /**
@@ -54,11 +60,23 @@ export type ChoicePrompt =
    */
   | { readonly kind: "orderKeywords"; readonly instanceId: InstanceId }
   /**
+   * Reveal step 3 of the encounter card `instanceId` (RRG 1.8 "Reveal", p. 38): its incite, its printed When Revealed
+   * abilities and its surge share one timing, "which allows players to resolve them in any order" (FFG ruling, September
+   * 22, 2026), and the first player orders them (RRG 1.8 "Simultaneous Resolution", p. 40). The options are `incite`
+   * and `surge` (each `ref` the card) and each printed ability by its id (`ref` the ability); all are selected, in the
+   * order they resolve. Asked only when a printed ability shares the step with incite or surge
+   * (docs/phase7-wave11-scenarios.md §S7 E37).
+   */
+  | { readonly kind: "orderWhenRevealed"; readonly instanceId: InstanceId }
+  /**
    * RRG 1.8 "Each Player" (p. 17): "If the effect does not specify what order the players resolve the effect in,
    * the first player decides the order." Ordering which players receive dealt encounter cards (ruling, Jan 26, 2026
    * (4) answer 3). The selections are player ids, in the order they resolve.
+   *
+   * `reason: "forEachPlayer"`: a `forEachPlayer` with `order: "firstPlayerChooses"` (docs/phase7-wave11-scenarios.md
+   * §S7 E27); each player's pass resolves in the order selected.
    */
-  | { readonly kind: "orderPlayers"; readonly reason: "dealEncounterCards" }
+  | { readonly kind: "orderPlayers"; readonly reason: "dealEncounterCards" | "forEachPlayer" }
   /**
    * "Put the others back in any order" (Heimdall): the selections are the cards, in the order they go back on top of
    * the deck. RRG 1.8 "Deck" (p. 15): a deck's order changes only when a card instructs it.
@@ -97,6 +115,11 @@ export type ChoicePrompt =
         readonly atMost: number;
         readonly values: Readonly<Record<string, number>>;
       };
+      /**
+       * Some options are cards in another player's hand, offered facedown (`EffectSpec chooseCards.hiddenHands`; RRG
+       * 1.8 p. 19 and p. 42): their `ref` is `facedownCard` and their option id and label say only whose hand.
+       */
+      readonly facedown?: true;
     }
   /**
    * `EffectSpec lookAt`: the options are cards the player is looking at (RRG 1.8 "Look, Looked-At", p. 27), offered
@@ -417,6 +440,12 @@ export type ChoiceRef =
   | { readonly kind: "cardDefinition"; readonly cardId: CardId }
   | { readonly kind: "player"; readonly playerId: PlayerId }
   | { readonly kind: "ability"; readonly instanceId: InstanceId; readonly abilityId: AbilityId }
+  /**
+   * A card in `ownerId`'s hand offered facedown to a chooser who may not look at it (`EffectSpec
+   * chooseCards.hiddenHands`; RRG 1.8 "Table Talk", p. 42): a client draws a card back. Neither the card nor its
+   * instance is named; the engine maps the option back to the card when the choice is answered.
+   */
+  | { readonly kind: "facedownCard"; readonly ownerId: PlayerId }
   | { readonly kind: "none" };
 
 type CardTotal = NonNullable<Extract<ChoicePrompt, { kind: "chooseCards" }>["maxTotal"]>;
@@ -444,6 +473,12 @@ export function mostCardsUnderTotal(values: readonly number[], atMost: number): 
   }
   return count;
 }
+
+/**
+ * The option id of the `n`th (from 1, in hand order) facedown card offered out of `ownerId`'s hand
+ * (`ChoiceRef facedownCard`). It names whose hand and a position, never the card.
+ */
+export const facedownOptionId = (ownerId: PlayerId, n: number): string => `facedown:${ownerId}:${n}`;
 
 /** The option of an effect play's destination choice that plays the card to its player's own play area. */
 export const PLAY_TO_OWN_AREA = "playTo:ownArea";

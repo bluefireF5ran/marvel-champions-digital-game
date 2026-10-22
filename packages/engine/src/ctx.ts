@@ -25,6 +25,7 @@ import { describeFrame, type StackFrame } from "./stack.js";
 import type { EngineDeps } from "./abilities.js";
 import { loseIfEncounterCardsExhausted, resetEncounterDeckIfEmpty, resetPlayerDeckIfEmpty } from "./effects.js";
 import { resetSeparateDeckIfEmpty } from "./resolve/separate-decks.js";
+import { resetScenarioDeckIfEmpty } from "./resolve/cards.js";
 import { syncTreatedAs } from "./treat-as.js";
 import { announceDeckTops } from "./deck-top.js";
 import { shownCardId } from "./hidden-reverse.js";
@@ -48,6 +49,11 @@ export interface Ctx {
    * such a host alone, since the card is going whatever its attachments made it. Working memory of one command.
    */
   leavingHosts?: InstanceId[];
+  /**
+   * Open `moveCardsTo` batches: while above zero, `settlePlayerDecks` leaves empty scenario decks alone, and the batch
+   * resets them once every card of it has moved (`resetScenarioDeckIfEmpty`). Working memory of one command.
+   */
+  scenarioResetsHeld?: number;
 }
 
 export const createCtx = (state: GameState, deps: EngineDeps): Ctx => ({ state, events: [], deps });
@@ -266,6 +272,13 @@ export function settlePlayerDecks(ctx: Ctx, from: ZoneId | null, to: ZoneId, id?
       pendingDeckRunOuts: [...(ctx.state.pendingDeckRunOuts ?? []), { deck: "scenario", name: from.name }],
     };
   }
+  // A scenario deck that reshuffles its discard pile does so at the move that empties it (the trap deck, MC65 p. 12:
+  // "Once the trap deck is empty"; `resetScenarioDeckIfEmpty`), after the run-out above is recorded. Inside a
+  // `moveCardsTo` batch it waits for the batch's end, so cards discarded together are shuffled in together.
+  if (!ctx.scenarioResetsHeld) {
+    if (from?.kind === "scenarioDeck") resetScenarioDeckIfEmpty(ctx, from.name);
+    if (to.kind === "scenarioDiscard") resetScenarioDeckIfEmpty(ctx, to.name);
+  }
 }
 
 const LISTENS_FOR_ENTERING_HAND = new WeakMap<EngineDeps, boolean>();
@@ -331,7 +344,16 @@ export function relocateCard(ctx: Ctx, id: InstanceId, to: ZoneId, position: Zon
     ctx.state = { ...ctx.state, instances: { ...ctx.state.instances, [id]: instance } };
   }
   // "If this card was revealed from the encounter deck" (docs/phase7-wave6.md §3.64): a card dealt facedown straight
-  // off an encounter deck remembers it until it leaves the players' dealt encounter cards.
+  // off an encounter deck remembers it until it leaves the players' dealt encounter cards. It is what makes a reveal's
+  // `source` `encounterDeck`, read by `Predicate revealedFromEncounterDeck` and by "When a card is revealed from the
+  // encounter deck" (`encounterCardRevealing.from`, docs/phase7-wave11-scenarios.md §S7 E22).
+  // "If this card was revealed from the encounter deck" (docs/phase7-wave6.md §3.64): a card moved straight off an
+  // encounter deck into a player's dealt cards remembers it, and keeps it while passed between players. It is what makes
+  // a reveal's `source` `encounterDeck`, read by `Predicate revealedFromEncounterDeck` and by "When a card is revealed
+  // from the encounter deck" (`encounterCardRevealing.from`, docs/phase7-wave11-scenarios.md §S7 E22). A card dealt from
+  // anywhere else (the encounter discard pile, a player's deck, set-aside, play) is marked by the deal itself
+  // (`markDealtFromEncounterDeck`, effects.ts), not by where it came from: owner answer Q35 A, 2026-10-20. A reveal that
+  // only parks a card with the revealing player (`revealCard`) is not a deal and names its own `source`.
   const dealtFromDeck =
     to.kind === "dealtEncounter" &&
     (from?.kind === "encounterDeck" || (from?.kind === "dealtEncounter" && instance.dealtFromEncounterDeck === true));

@@ -10,6 +10,7 @@ import {
   defineAbilities,
   discard,
   each,
+  firstPlayer,
   forcedResponse,
   gainsKeyword,
   gainsTrait,
@@ -76,7 +77,9 @@ export const SUPER_STRENGTH: AbilityRegistry = defineAbilities({
         }),
       ),
     ),
-    chooseTarget("pick", { inSlot: "extreme" }),
+    // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+    // (RRG 1.8 "First Player", p. 19).
+    chooseTarget("pick", { inSlot: "extreme" }, { chooser: firstPlayer }),
     moveCards(cards(chosen("pick")), "discard", "moved"),
     ifThen(valueEquals(varOf("moved.count"), 0), surge()),
   ),

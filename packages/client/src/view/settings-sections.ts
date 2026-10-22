@@ -3,6 +3,7 @@
  * place that says which setting sits under which heading, in draw order, so the scene only draws and a test can check
  * that every setting shows up exactly once. Pure data: the scene still owns each row's control.
  */
+import { EARNED_ITEMS } from "../progression/earned-items.js";
 import type { GuideSettingsRowId, SettingsRowId } from "./settings-rows.js";
 
 /** Every row the Settings screen can draw, by the id its focus stop is keyed on. */
@@ -16,6 +17,8 @@ export type SettingsItemId =
   | "token-motion"
   | "display-mode"
   | "resolution"
+  | "render-scale"
+  | "frame-rate"
   | "steam-deck"
   | "power-saving"
   | "villain-auto"
@@ -27,9 +30,23 @@ export type SettingsItemId =
   | GuideSettingsRowId
   | "unlocks"
   | "save-data"
-  | "rules";
+  | "rules"
+  | "achievement-popup-time"
+  | "achievement-popup-place"
+  | "achievement-popup-size";
 
-export type SettingsSectionId = "gameplay" | "villain" | "cards" | "window" | "motion" | "sound" | "guide" | "more";
+export type SettingsSectionId =
+  | "gameplay"
+  | "villain"
+  | "cards"
+  | "window"
+  | "screen"
+  | "motion"
+  | "sound"
+  | "guide"
+  | "more"
+  | "achievements"
+  | "earned";
 
 export interface SettingsSection {
   readonly id: SettingsSectionId;
@@ -53,6 +70,8 @@ export function settingsSectionsOf(input: {
   readonly steamDeck?: boolean;
   /** The Android app, which can read power saving mode, or a forced `?powersave=`: a "Lighter play" row under motion. */
   readonly powerSaving?: boolean;
+  /** A build that draws at the screen's own density (every one, unless `?renderscale=off`): a Screen section. */
+  readonly screenSettings?: boolean;
 }): readonly SettingsSection[] {
   return [
     { id: "gameplay", title: "Gameplay", items: ["confirm-end-turn", "same-name-conflict"] },
@@ -81,6 +100,9 @@ export function settingsSectionsOf(input: {
           } satisfies SettingsSection,
         ]
       : []),
+    ...(input.screenSettings
+      ? [{ id: "screen", title: "Screen", items: ["render-scale", "frame-rate"] } satisfies SettingsSection]
+      : []),
     {
       id: "motion",
       title: "Animation and display",
@@ -104,6 +126,12 @@ export function settingsSectionsOf(input: {
     },
     { id: "guide", title: "Guide", items: input.guideRowIds },
     { id: "more", title: "More", items: ["unlocks", "save-data", "rules"] },
+    {
+      id: "achievements",
+      title: "Achievements",
+      items: ["achievement-popup-time", "achievement-popup-place", "achievement-popup-size"],
+    },
+    { id: "earned", title: "Earned items", items: EARNED_ITEMS.map((item) => item.id) },
   ];
 }
 
@@ -123,10 +151,10 @@ const TAB_SECTIONS: readonly {
 }[] = [
   { id: "gameplay", label: "Game", sections: ["gameplay", "villain"] },
   { id: "cards", label: "Cards", sections: ["cards"] },
-  { id: "display", label: "Display", sections: ["window", "motion"] },
+  { id: "display", label: "Display", sections: ["window", "screen", "motion"] },
   { id: "sound", label: "Sound", sections: ["sound"] },
   { id: "guide", label: "Guide", sections: ["guide"] },
-  { id: "more", label: "More", sections: ["more"] },
+  { id: "more", label: "More", sections: ["more", "achievements", "earned"] },
 ];
 
 /** The Settings panel's tabs (owner, 2026-10-16: one tab at a time instead of one long scroll), built from `settingsSectionsOf`'s sections. */

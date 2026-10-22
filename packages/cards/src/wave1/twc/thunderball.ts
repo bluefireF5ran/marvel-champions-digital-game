@@ -38,7 +38,6 @@ import {
   scaled,
   self,
   selectCards,
-  setActiveVillain,
   stun,
   surge,
   theMainScheme,
@@ -52,14 +51,13 @@ import {
   whenRevealedAlterEgo,
   whenRevealedHero,
   you,
+  firstPlayer,
 } from "../../dsl/index.js";
 import {
   enemyAttackAfterThisNoBoost,
-  leastThreatSideScheme,
-  leastThreatVillain,
-  mostThreatSideScheme,
-  mostThreatVillain,
+  moveActiveCounterToVillain,
   moveThreat,
+  pickSideSchemeBy,
   pickVillainBy,
   pickedVillain,
   signatureSideSchemeOf,
@@ -68,6 +66,10 @@ import {
 } from "./local.js";
 
 const THUNDERBALL = query("villain", { name: "Thunderball" });
+
+const pickBlastScheme = pickSideSchemeBy("highest", "blast-scheme");
+const prowessFrom = pickSideSchemeBy("lowest", "prowess-from");
+const prowessTo = pickSideSchemeBy("highest", "prowess-to", prowessFrom.scheme);
 
 /**
  * Thunderball (07017/07018) and his own encounter set: Thunderstruck (07019), Ball and Chain (07020), Held Hostage
@@ -156,7 +158,7 @@ export const THUNDERBALL_SET = defineAbilities({
 
   // Escaped Convict — same text as Wrecker's copy (07009).
   "07024.boost": boost(
-    setActiveVillain(leastThreatVillain),
+    moveActiveCounterToVillain("lowest"),
     ifThen(isHero(), enemyAttackAfterThisNoBoost(theVillain, you)),
   ),
 
@@ -174,7 +176,7 @@ export const THUNDERBALL_SET = defineAbilities({
     ),
     revealCard(chosen("looked")),
   ),
-  "07025.boost": boost(setActiveVillain(leastThreatVillain)),
+  "07025.boost": boost(moveActiveCounterToVillain("lowest")),
 
   // Chaos In the Prison — same text as Wrecker's copy (07011).
   "07026.when-revealed": whenRevealed(
@@ -183,7 +185,9 @@ export const THUNDERBALL_SET = defineAbilities({
       chooseOne(
         option(
           "Discard an upgrade you control",
-          chooseTarget("discarded-upgrade", query("upgrade", { controller: "you" })),
+          // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+          // (RRG 1.8 "First Player", p. 19).
+          chooseTarget("discarded-upgrade", query("upgrade", { controller: "you" }), { chooser: firstPlayer }),
           discard(chosen("discarded-upgrade")),
         ),
         option(
@@ -196,7 +200,7 @@ export const THUNDERBALL_SET = defineAbilities({
   ),
   "07026.boost": boost(
     ifThen(undefendedAttack, [
-      chooseTarget("chaos-boost-upgrade", query("upgrade", { controller: "you" })),
+      chooseTarget("chaos-boost-upgrade", query("upgrade", { controller: "you" }), { chooser: firstPlayer }),
       discard(chosen("chaos-boost-upgrade")),
     ]),
   ),
@@ -210,15 +214,24 @@ export const THUNDERBALL_SET = defineAbilities({
   "07027.boost": boost(dealDamage(1, defendingCharacter)),
 
   // Get Wrecked! — same text as Wrecker's copy (07013).
-  "07028.when-revealed-alter-ego": whenRevealedAlterEgo(enemyScheme(mostThreatVillain)),
-  "07028.when-revealed-hero": whenRevealedHero(enemyAttack(leastThreatVillain, { against: you })),
+  "07028.when-revealed-alter-ego": whenRevealedAlterEgo(
+    pickVillainBy("highest", firstPlayer),
+    enemyScheme(pickedVillain),
+  ),
+  "07028.when-revealed-hero": whenRevealedHero(
+    pickVillainBy("lowest", firstPlayer),
+    enemyAttack(pickedVillain, { against: you }),
+  ),
 
   // I've Been Waiting For This! — same text as Wrecker's copy (07014).
   "07029.when-revealed": whenRevealed(heal(3, theVillain), giveTough(theVillain)),
-  "07029.boost": boost(setActiveVillain(leastThreatVillain), enemyScheme(theVillain)),
+  "07029.boost": boost(moveActiveCounterToVillain("lowest"), enemyScheme(theVillain)),
 
   // Lightning Blast — When Revealed (Alter-Ego): Place 3 threat on the side scheme with the most threat.
-  "07030.when-revealed-alter-ego": whenRevealedAlterEgo(placeThreat(3, mostThreatSideScheme)),
+  "07030.when-revealed-alter-ego": whenRevealedAlterEgo(
+    pickBlastScheme.effects,
+    placeThreat(3, pickBlastScheme.scheme),
+  ),
   // When Revealed (Hero): Thunderball attacks you. If this attack is undefended, place 3 threat on Thunderball's
   // side scheme.
   "07030.when-revealed-hero": whenRevealedHero(
@@ -230,7 +243,9 @@ export const THUNDERBALL_SET = defineAbilities({
   // with the most threat. If that scheme's "Forced Response" ability is not triggered this way, this card gains
   // surge.
   "07031.when-revealed": whenRevealed(
-    moveThreat(leastThreatSideScheme, mostThreatSideScheme, { bind: "moved" }),
+    prowessFrom.effects,
+    prowessTo.effects,
+    moveThreat(prowessFrom.scheme, prowessTo.scheme, { bind: "moved" }),
     ifThen(not(varAtLeast("moved.forcedResponses")), surge()),
   ),
 });

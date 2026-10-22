@@ -3,6 +3,7 @@ import {
   inPlayPicksOf,
   tuckedPickOf,
   isResourcesChoice,
+  playableAsIfInHandOf,
   hearsEncounterDeckDiscard,
   MOMENT_PREFIX,
   PAID_FOR_SLOT,
@@ -281,12 +282,20 @@ function checkCost(definition: AbilityDefinition, problems: string[]): void {
     problems.push("cost enemyAttack: not on a resource ability");
   if (definition.trigger.kind === "resource" && looks.some((part) => part.resolveAbility))
     problems.push("cost resolveAbility: not on a resource ability");
+  // `changeFormCost`: the change and its event need the frame being paid for (engine `AbilityCost.changeForm`).
+  if (definition.trigger.kind === "resource" && looks.some((part) => part.changeForm !== undefined))
+    problems.push("cost changeForm: not on a resource ability");
+  if (looks.some((part) => part.changeFormFolded !== undefined))
+    problems.push("cost changeFormFolded: the engine's own marker, never scripted");
   // The engine asks for the player a cost deals to only as an action is initiated (`AbilityCost.dealEncounterCardsTo`).
   if (definition.trigger.kind !== "action" && looks.some((part) => part.dealEncounterCardsTo))
     problems.push("cost dealEncounterCardsTo: only on an action (a window cannot ask which player is dealt the card)");
   // The engine asks which character a cost heals only as an action is initiated (`AbilityCost.healCharacter`).
   if (definition.trigger.kind !== "action" && looks.some((part) => part.healCharacter))
     problems.push("cost healCharacter: only on an action (a window cannot ask which character is healed)");
+  // The engine asks for a cost's chosen card only as an action is initiated (`AbilityCost.chooseTarget`, H3.5).
+  if (definition.trigger.kind !== "action" && looks.some((part) => part.chooseTarget))
+    problems.push("cost chooseTarget: only on an action (a window cannot ask which card is chosen)");
   // "Each player exhausts their identity and takes 1 damage →" (`AbilityCost.eachPlayer`, docs/phase7-wave9.md §3.58).
   for (const part of looks) {
     const each = part.eachPlayer;
@@ -381,12 +390,18 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
   // docs/phase7-wave3.md §3.32, §3.33, §3.36.
   const counters = [cost.spendCounters, ...(cost.either ?? []).map((branch) => branch.spendCounters)];
   for (const component of counters) {
-    if (component?.upTo && (!Number.isInteger(component.amount) || component.amount < 1))
+    if (
+      component?.upTo &&
+      typeof component.amount === "number" &&
+      (!Number.isInteger(component.amount) || component.amount < 1)
+    )
       problems.push(
         'cost spendCounters: an "up to" amount must be a whole number of at least 1 (RRG 1.8 "Cost", p. 14)',
       );
     if (component?.upTo && component.all)
       problems.push('cost spendCounters: a counter cost is either "up to" or "each", not both');
+    if (component && typeof component.amount !== "number" && (component.upTo || component.all))
+      problems.push('cost spendCounters: an amount read from the board is a fixed X, not "up to" or "each"');
   }
   // docs/phase7-wave6.md §3.53: "place N counters →" places at least one.
   const placed = cost.placeCounters;
@@ -484,6 +499,7 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
   if (healed && (!Number.isInteger(healed.amount) || healed.amount < 1))
     problems.push("cost healCharacter: amount must be a whole number of at least 1");
   if (healed && healed.slot === "") problems.push("cost healCharacter: needs a slot for the character healed");
+  if (cost.chooseTarget?.slot === "") problems.push("cost chooseTarget: needs a slot for the card chosen");
   const dealtTo = cost.dealEncounterCardsTo;
   if (dealtTo && (!Number.isInteger(dealtTo.count) || dealtTo.count < 1))
     problems.push("cost dealEncounterCardsTo: count must be a whole number of at least 1");
@@ -513,6 +529,7 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
     ...(cost.removeThreat?.choose ? [cost.removeThreat.choose.slot] : []),
     ...(cost.dealEncounterCardsTo ? [cost.dealEncounterCardsTo.slot] : []),
     ...(cost.healCharacter ? [cost.healCharacter.slot] : []),
+    ...(cost.chooseTarget ? [cost.chooseTarget.slot] : []),
     ...inPlayPicksOf(cost).flatMap(({ pick }) => [pick.slot, ...(pick.bindHosts ? [pick.bindHosts] : [])]),
   ];
   if (new Set(slots).size !== slots.length)
@@ -535,6 +552,10 @@ function checkScaled(value: unknown, path: string, problems: string[]): void {
       problems.push(`${path}: scaled divide.round must be "down" or "up"`);
   }
   // An empty list is almost certainly an authoring slip: `sum` of nothing is 0, and `anyTrait`/`anyPrintedResource`/`anyOf` of nothing matches no card.
+  // `reduceCostToPlay` (a `playCostModifier` rule): a reduction, so a negative one (a fixed delta above 0) is a slip.
+  // No card in the pool raises a play cost by a lasting rule; one that does would need its own builder and reading.
+  if (record.kind === "playCostModifier" && typeof record.delta === "number" && record.delta > 0)
+    problems.push(`${path}: reduceCostToPlay needs a reduction of 0 or more, not ${-record.delta}`);
   if (record.kind === "sum" && (!Array.isArray(record.values) || record.values.length === 0))
     problems.push(`${path}: sum needs at least one value`);
   if (Array.isArray(record.anyTrait) && record.anyTrait.length === 0)
@@ -658,9 +679,14 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
   }
   if (definition.generates !== undefined && trigger.kind !== "resource")
     problems.push("only resource abilities generate resources");
-  // The one limit a constant carries is its `playableTopOfDeck` permission's "once per phase" (docs/phase7-wave8.md
-  // §3.49), counted when a card is played under it.
-  const permissionLimit = trigger.kind === "constant" && trigger.playableTopOfDeck !== undefined;
+  // The one limit a constant carries is its `playableTopOfDeck` / `playableAsIfInHand` permission's "once per phase"
+  // (docs/phase7-wave8.md §3.49, docs/phase7-wave11.md §3.8), counted when a card is played under it.
+  const permissionLimit = playableAsIfInHandOf(trigger) !== undefined;
+  if (trigger.kind === "constant" && trigger.playableTopOfDeck && trigger.playableAsIfInHand)
+    problems.push("a constant ability has at most one of playableTopOfDeck and playableAsIfInHand");
+  // "Discard [this card] from your hand to play …" (docs/phase7-wave11.md §3.9): only a card in the hand can pay it.
+  if (trigger.kind === "constant" && trigger.playableAsIfInHand?.discardSelfFromHand && definition.activeIn !== "hand")
+    problems.push("a playableAsIfInHand that discards its own card from hand works from the hand (activeIn: hand)");
   if (
     trigger.kind === "constant" &&
     ((definition.cost && !additionalPlayCost) || (definition.limit && !permissionLimit) || definition.label)
@@ -676,6 +702,8 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
       !cost.spendCounters ||
       cost.spendCounters.upTo ||
       cost.spendCounters.all ||
+      // A board-given amount (hero-pack spec H3.5) cannot be multiplied by the uses before it is read.
+      typeof cost.spendCounters.amount !== "number" ||
       others.length > 0 ||
       // The one limit it may carry counts its uses toward one card paid for (docs/phase7-wave9.md §3.46 (a)).
       (definition.limit && definition.limit.per !== "paidCard")
@@ -785,6 +813,8 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
     // Nor has an encounter card about to be dealt (docs/phase7-wave9.md §3.45): "after" answers `encounterCardDealt`.
     if (kinds.includes("encounterCardBeingDealt"))
       problems.push("encounterCardBeingDealt is interrupt-only: after a player is dealt a card is encounterCardDealt");
+    if (kinds.includes("boostCardBeingGiven"))
+      problems.push("boostCardBeingGiven is interrupt-only: after a boost card is given is boostCardGiven");
   }
   // docs/phase7-wave7.md §3.35: the card's "attach to" text as an ability. It is forced and free, and attaches itself.
   if (definition.attachInstruction) {
@@ -852,8 +882,8 @@ function checkPreparations(definition: AbilityDefinition, problems: string[]): v
     if (!effect.of)
       problems.push("resolveSpecials preparation: name the card with `of` (it is in the encounter discard pile)");
     if (effect.asIf) problems.push("resolveSpecials preparation: `asIf` is not read for a Preparation ability");
-    if (effect.includeKeywords)
-      problems.push("resolveSpecials preparation: `includeKeywords` is for When Revealed abilities");
+    if (effect.excludeKeywords)
+      problems.push("resolveSpecials preparation: `excludeKeywords` is for When Revealed abilities");
   }
 }
 
@@ -873,8 +903,8 @@ function checkBorrowedBoosts(definition: AbilityDefinition, problems: string[]):
     if (option !== undefined && option !== "nothing" && option !== "joinActivation")
       problems.push('resolveSpecials boost: `borrowedBoostIcons` is "nothing" or "joinActivation"');
     if (effect.asIf) problems.push("resolveSpecials boost: `asIf` is not read for a Boost ability");
-    if (effect.includeKeywords)
-      problems.push("resolveSpecials boost: `includeKeywords` is for When Revealed abilities");
+    if (effect.excludeKeywords)
+      problems.push("resolveSpecials boost: `excludeKeywords` is for When Revealed abilities");
   }
 }
 
@@ -1080,8 +1110,10 @@ function checkAttackKeywordLoss(value: unknown, path: string, problems: string[]
           `${path}: attacksLoseKeywords takes piercing, ranged or overkill, not ${JSON.stringify(keyword)} (a character's own keyword is lost with losesKeyword)`,
         );
     }
-    if (typeof record.target !== "object" || record.target === null || Object.keys(record.target).length === 0)
-      problems.push(`${path}: attacksLoseKeywords names the attacked character (target)`);
+    // "Attacks against them" (`target`) or "his attacks" (`attacker`, docs/phase7-wave11-scenarios.md §S7 E19).
+    const names = (end: unknown) => typeof end === "object" && end !== null && Object.keys(end).length > 0;
+    if (!names(record.target) && !names(record.attacker))
+      problems.push(`${path}: attacksLoseKeywords names the attacked character (target) or the attacker (attacker)`);
   }
   for (const [key, item] of Object.entries(record)) checkAttackKeywordLoss(item, `${path}.${key}`, problems);
 }
@@ -1108,8 +1140,10 @@ function checkPlays(definition: AbilityDefinition, problems: string[]): void {
     const reduction = effect.costReduction;
     if (reduction?.kind === "const" && (!Number.isInteger(reduction.value) || reduction.value < 0))
       problems.push("playFromHand costReduction: a constant reduction must be a whole number of at least 0");
-    if (effect.from === "deck" && effect.card)
+    if ((effect.from === "deck" || (typeof effect.from === "object" && "deck" in effect.from)) && effect.card)
       problems.push("playFromHand from deck: the card is picked from the searched deck, so `card` is not read");
+    if (typeof effect.from === "object" && "separateDeck" in effect.from && effect.card)
+      problems.push("playFromHand from a separate deck: the card is picked from that deck, so `card` is not read");
   }
 }
 
@@ -1288,7 +1322,14 @@ function checkHiddenPiles(definition: AbilityDefinition, problems: string[]): vo
 }
 
 /** The card selectors that take `random`: that many of their cards, by the game's seeded RNG. */
-const RANDOM_SELECTORS: readonly string[] = ["zone", "encounter", "encounterSetAside", "victoryDisplay", "tucked"];
+const RANDOM_SELECTORS: readonly string[] = [
+  "zone",
+  "encounter",
+  "encounterSetAside",
+  "setAside",
+  "victoryDisplay",
+  "tucked",
+];
 
 /**
  * A selector's `random` is a number of cards to pick ("1 of those cards at random", docs/phase7-wave9.md §3.40): a
@@ -1391,6 +1432,7 @@ function nestedLists(effect: EffectSpec): (readonly EffectSpec[])[] {
     case "sentence":
     case "atEndOfAttack":
     case "atEndOfActivation":
+    case "atEndOfThwart":
     case "atEndOfRound":
     case "afterNextCardPlayed":
       return [effect.effects];
@@ -1702,20 +1744,30 @@ function bindsOf(effect: EffectSpec, scope: Scope): void {
   }
 }
 
-function walk(effects: readonly EffectSpec[], scope: Scope, path: string, problems: string[]): void {
+/**
+ * `loops`: the `bind` names of the bound `forEachPlayer` / `forEachCard` loops `walk` is inside, outermost first (a
+ * nested loop must not reuse one).
+ */
+function walk(
+  effects: readonly EffectSpec[],
+  scope: Scope,
+  path: string,
+  problems: string[],
+  loops: readonly string[] = [],
+): void {
   effects.forEach((effect, index) => {
     const where = `${path}[${index}] ${effect.kind}`;
     if (effect.kind === "chooseOne") {
       effect.options.forEach((option, i) => {
         if (option.condition) checkRefs(option.condition, scope, `${where} option ${i}`, problems);
-        walk(option.effects, scope, `${where}.options[${i}]`, problems);
+        walk(option.effects, scope, `${where}.options[${i}]`, problems, loops);
       });
       return;
     }
     // "Repeat this effect" (docs/phase7-wave4.md §3.54): the condition is read after the repeated effects, so it may
     // read what they bind.
     if (effect.kind === "repeatWhile") {
-      walk(effect.effects, scope, `${where}/0`, problems);
+      walk(effect.effects, scope, `${where}/0`, problems, loops);
       checkRefs(effect.while, scope, `${where} while`, problems);
       return;
     }
@@ -1731,7 +1783,39 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         vars: new Set(scope.vars),
         prefixes: new Set(scope.prefixes),
       };
-      walk(effect.effects, pass, `${where}/0`, problems);
+      walk(effect.effects, pass, `${where}/0`, problems, loops);
+      return;
+    }
+    // "Each player …" with a `bind`: each pass is its own frame, so what it binds is read inside it, and comes back to
+    // the effects after the loop under `<bind>.` only (vars summed over the players). Without one, walked as before.
+    // The name must be new: a pass drops the `<bind>.` names it inherits and the loop sums onto any already there, so
+    // one already known (an earlier `bind`, or an enclosing loop's) would mix the two. A pass must not bind a var or
+    // slot the ability already holds either: a pass hands back only what differs from what it inherited
+    // (`Frame<"effects">.returnChangedFrom`), so binding the same value again would be lost.
+    if (effect.kind === "forEachPlayer" && effect.bind !== undefined) {
+      const prefix = `${effect.bind}.`;
+      if (effect.bind.length === 0) problems.push(`${where}: forEachPlayer bind needs a name`);
+      else if (
+        scope.prefixes.has(prefix) ||
+        [...scope.vars, ...scope.slots].some((name) => name.startsWith(prefix)) ||
+        loops.includes(effect.bind)
+      )
+        problems.push(`${where}: forEachPlayer bind "${effect.bind}" is already bound earlier in the ability`);
+      checkRefs(effect.players, scope, `${where} players`, problems);
+      const bound: Scope = { slots: new Set(), vars: new Set(), prefixes: new Set() };
+      for (const inner of allEffects(effect.effects)) bindsOf(inner, bound);
+      for (const name of [...bound.vars, ...bound.slots])
+        if (scope.vars.has(name) || scope.slots.has(name))
+          problems.push(
+            `${where}: a forEachPlayer bind pass binds "${name}", which the ability already holds; use a new name`,
+          );
+      const pass: Scope = {
+        slots: new Set(scope.slots),
+        vars: new Set(scope.vars),
+        prefixes: new Set(scope.prefixes),
+      };
+      walk(effect.effects, pass, `${where}/0`, problems, [...loops, effect.bind]);
+      scope.prefixes.add(prefix);
       return;
     }
     // "For each character you control, … that character" (RRG 1.8 "'For Each'", p. 20): the pass's card is read under
@@ -1748,7 +1832,9 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         vars: new Set(scope.vars),
         prefixes: new Set(scope.prefixes),
       };
-      walk(effect.effects, pass, `${where}/0`, problems);
+      if (effect.bind !== undefined && loops.includes(effect.bind))
+        problems.push(`${where}: forEachCard bind "${effect.bind}" is already an enclosing loop's bind`);
+      walk(effect.effects, pass, `${where}/0`, problems, effect.bind === undefined ? loops : [...loops, effect.bind]);
       if (effect.bind !== undefined) {
         if (effect.bind.length === 0) problems.push(`${where}: forEachCard bind needs a name`);
         scope.prefixes.add(`${effect.bind}.`);
@@ -1765,7 +1851,7 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         problems.push(`${where}: a block resolved in a group's area cannot name another group`);
       if (readsKind(effect.effects, (kind) => kind.startsWith("event")))
         problems.push(`${where}: a block resolved in a group's area cannot read the triggering event`);
-      walk(effect.effects, { slots: new Set(), vars: new Set(), prefixes: new Set() }, `${where}/0`, problems);
+      walk(effect.effects, { slots: new Set(), vars: new Set(), prefixes: new Set() }, `${where}/0`, problems, loops);
       return;
     }
     // `enemyScheme.wouldPlaceThreat`: resolved later, at the activation's place-threat step, with this ability's slots
@@ -1780,7 +1866,7 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         vars: new Set(scope.vars),
         prefixes: new Set(scope.prefixes),
       };
-      walk(wouldPlaceThreat, placing, `${where}/0`, problems);
+      walk(wouldPlaceThreat, placing, `${where}/0`, problems, loops);
       bindsOf(effect, scope);
       return;
     }
@@ -1810,7 +1896,7 @@ function walk(effects: readonly EffectSpec[], scope: Scope, path: string, proble
         if (!scope.slots.has(slot)) problems.push(`${where}: carried slot "${slot}" is not bound before the moment`);
     }
     checkRefs(effect, scope, where, problems);
-    nestedLists(effect).forEach((list, i) => walk(list, scope, `${where}/${i}`, problems));
+    nestedLists(effect).forEach((list, i) => walk(list, scope, `${where}/${i}`, problems, loops));
     bindsOf(effect, scope);
   });
 }
@@ -1891,7 +1977,6 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
     if (cost.damageSelf !== undefined && typeof cost.damageSelf !== "number") scope.vars.add("cost.damageSelf");
     // "Remove [up to] N threat from [a card] →" records how much it removed (docs/phase7-wave9.md §3.7 (b)).
     if (cost.removeThreat) scope.vars.add("cost.removeThreat");
-    if (cost.removeThreat?.choose) scope.slots.add(cost.removeThreat.choose.slot);
     // A chosen "discard up to N cards from the top of your deck →" records how many it discarded (wave 8 §3.55).
     if (typeof cost.discardFromDeck === "object" && "choose" in cost.discardFromDeck)
       scope.vars.add("cost.discardFromDeck");
@@ -1901,10 +1986,16 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
       if (component.spendCounters?.bind) scope.vars.add(component.spendCounters.bind);
     }
     if (cost.either) scope.vars.add("cost.branch");
-    if (cost.dealDamage?.choose) scope.slots.add(cost.dealDamage.choose.slot);
-    if (cost.dealEncounterCardsTo) scope.slots.add(cost.dealEncounterCardsTo.slot);
-    if (cost.healCharacter) scope.slots.add(cost.healCharacter.slot);
-    for (const { pick } of inPlayPicksOf(cost)) {
+    // Slots chosen by a cost component, in the cost or any either/or branch. A slot only a branch picks is in scope
+    // for the effects but reads empty when the other branch was the one paid (`cost.branch` says which).
+    for (const component of [cost, ...(cost.either ?? [])]) {
+      if (component.removeThreat?.choose) scope.slots.add(component.removeThreat.choose.slot);
+      if (component.dealDamage?.choose) scope.slots.add(component.dealDamage.choose.slot);
+      if (component.dealEncounterCardsTo) scope.slots.add(component.dealEncounterCardsTo.slot);
+      if (component.healCharacter) scope.slots.add(component.healCharacter.slot);
+      if (component.chooseTarget) scope.slots.add(component.chooseTarget.slot);
+    }
+    for (const { pick } of [cost, ...(cost.either ?? [])].flatMap((component) => inPlayPicksOf(component))) {
       scope.slots.add(pick.slot);
       if (pick.bindHosts) scope.slots.add(pick.bindHosts);
       if (pick.snapshotStats) for (const stat of ["thw", "atk", "def"]) scope.vars.add(`${pick.slot}.${stat}`);

@@ -13,6 +13,7 @@ import {
   perPlayerCountAt,
   villainStageOf,
   playerCardOwnerOf,
+  textGoneByTreatment,
 } from "./query.js";
 import { cannotHaveStatus, grantedAttackKeywords, lostAttackKeywords, statusLimit } from "./rules.js";
 import {
@@ -57,14 +58,15 @@ export function printedKeywordsOf(
 
 /**
  * The keywords printed on a card's showing face with no text-box blank applied (`printedKeywordsOf` less the blank
- * check). A facedown card and a card treated as another type still have none. The Permanent keyword's blank
+ * check). A facedown card and a card treated as another type still have none (`textGoneByTreatment`), except a card
+ * its own constant treats as an ally (Black Cat, docs/phase7-wave11-scenarios.md §S3.8). The Permanent keyword's blank
  * protection reads this (RRG 1.8 "Permanent", p. 32; docs/phase7-wave5.md §4.1 Q31), since the keyword protects the
  * very text box it is printed in, and so it can be asked from inside every blank check without recursion.
  */
 export function unblankedPrintedKeywordsOf(state: GameState, id: InstanceId): readonly KeywordInstance[] {
   const card = cardOf(state, id);
   if (!card) return [];
-  if (state.instances[id]?.facedownAs || state.instances[id]?.treatedAs) return [];
+  if (textGoneByTreatment(state, id)) return [];
   const face = encounterFace(state, id);
   if (face) return face.keywords;
   if (card.type === "villain") {
@@ -360,7 +362,8 @@ export interface AttackKeywordContext {
   readonly vars?: Readonly<Record<string, number>>;
   /**
    * The character the attack is against, when the caller knows it: the keywords attacks lose against that character
-   * are left out (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18). Absent: what the attack has against a
+   * are left out (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18), and those attacks against it gain are added
+   * (`attackKeywords.target`, docs/phase7-wave11-hero-packs.md §H3.15). Absent: what the attack has against a
    * character with no such rule, which is what "when you make a ranged attack" reads.
    */
   readonly targetInstanceId?: InstanceId | null;
@@ -377,7 +380,8 @@ export interface AttackKeywordContext {
  * 4. a constant `attackKeywords` rule in play ("each of your [Arrow] attacks gain ranged", Hawkeye's Bow).
  *
  * Less the keywords attacks lose against `targetInstanceId` ("attacks against them lose piercing", Cap's Shield;
- * `attacksLoseKeywords`): a loss beats every source above (RRG 1.8 "Lose", p. 27).
+ * `attacksLoseKeywords`) and those the attacker's attacks lose ("Bullseye's attacks lose ranged", Deadly Sai): a loss
+ * beats every source above (RRG 1.8 "Lose", p. 27).
  */
 export function attackKeywordsOf(
   state: GameState,
@@ -385,8 +389,16 @@ export function attackKeywordsOf(
   attack: AttackKeywordContext,
 ): readonly AttackKeyword[] {
   const via = attack.viaInstanceId ?? null;
-  const fromRules = grantedAttackKeywords(state, deps, attack.attackerInstanceId, via, attack.basic === true);
-  const lost = attack.targetInstanceId ? lostAttackKeywords(state, deps, attack.targetInstanceId) : [];
+  const fromRules = grantedAttackKeywords(
+    state,
+    deps,
+    attack.attackerInstanceId,
+    via,
+    attack.basic === true,
+    attack.targetInstanceId ?? null,
+  );
+  // Without a target only the attacker-scoped losses apply ("Bullseye's attacks lose ranged", wave 11 §S7 E19).
+  const lost = lostAttackKeywords(state, deps, attack.targetInstanceId ?? null, attack.attackerInstanceId);
   return ATTACK_KEYWORDS.filter(
     (name) =>
       !lost.includes(name) &&

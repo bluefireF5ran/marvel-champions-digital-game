@@ -92,6 +92,14 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "secret_avengers",
           "spider_man_modular",
           "the_initiative",
+          "deadly_duo",
+          "moon_knight_modular",
+          "royal_guard",
+          "scarlet_twins",
+          "shield_ops",
+          "taskmaster_modular",
+          "thunderbolts_modular",
+          "young_avengers",
           "all_versus_all",
         ],
         "Core Set": [
@@ -99,6 +107,14 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "masters_of_evil",
           "the_doomsday_chair",
           "under_attack",
+        ],
+        "Fear No Evil": [
+          "cops",
+          "disasters",
+          "drive",
+          "the_owl",
+          "tombstone",
+          "tracksuit_mafia",
         ],
         "Mutant Genesis": [
           "acolytes",
@@ -250,6 +266,14 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "secret_avengers",
           "spider_man_modular",
           "the_initiative",
+          "deadly_duo",
+          "moon_knight_modular",
+          "royal_guard",
+          "scarlet_twins",
+          "shield_ops",
+          "taskmaster_modular",
+          "thunderbolts_modular",
+          "young_avengers",
           "all_versus_all",
         ],
         "Core Set": [
@@ -258,6 +282,14 @@ describe("modular candidates, pinned for three scenarios (everything unlocked)",
           "masters_of_evil",
           "the_doomsday_chair",
           "under_attack",
+        ],
+        "Fear No Evil": [
+          "cops",
+          "disasters",
+          "drive",
+          "the_owl",
+          "tombstone",
+          "tracksuit_mafia",
         ],
         "Mutant Genesis": [
           "acolytes",
@@ -428,7 +460,7 @@ describe("what counts as modular", () => {
     for (const g of groups) if (seen[seen.length - 1] !== g) seen.push(g);
     expect(new Set(seen).size, "each group is one run").toBe(seen.length);
     expect(seen.slice(0, 3)).toEqual([RECOMMENDED_GROUP_ID, "core", "wave1"]);
-    expect(seen[seen.length - 1]).toBe("cycle10");
+    expect(seen[seen.length - 1]).toBe("cycle11");
   });
 });
 

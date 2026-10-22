@@ -4,7 +4,8 @@
  * the effect chooses one main scheme on which to count the acceleration tokens") and post-RRG 1.5 #132 (Dec 22, 2023:
  * Venom 22013 and Cable 44002 by name). Engine interpretation, contributor's rules call 2026-10-16 (bluefireF5ran): the
  * engine takes the choice best for that player instead of asking, the most tokens for Cable, and Venom's reduction if
- * any scheme has no threat; Montage follows Cable's ruling by analogy.
+ * any scheme has no threat. Montage has its own ruling, post-RRG 1.5 #188 (May 16, 2024: "you can choose any main
+ * scheme to check").
  */
 import { cardId } from "@mc/content";
 import { createGame, currentName, statBonus, type GameSetupConfig, type GameState, type InstanceId } from "@mc/engine";

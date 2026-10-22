@@ -26,6 +26,7 @@ import {
   type AttachmentHostChooser,
   type HostClassification,
   type HostMeasure,
+  type PrintedStatModifiers,
   type SuperlativeHostPool,
 } from "./cards/attachment-host.js";
 import { EVIDENCE_COLORS, EVIDENCE_KINDS } from "./cards/evidence.js";
@@ -225,6 +226,7 @@ export function validateAttachmentHost(host: unknown, label: string): string[] {
     optionalName("trait");
     optionalName("withoutTrait");
     optionalName("withoutAttachmentNamed");
+    optionalName("withoutAttachmentTrait");
     optionalName("titleContains");
     for (const key of ["keyword", "withoutKeyword"] as const) {
       if (h[key] !== undefined && !KNOWN_KEYWORD_NAMES.includes(h[key] as KeywordName)) {
@@ -250,6 +252,7 @@ export function validateAttachmentHost(host: unknown, label: string): string[] {
     h.trait !== undefined ||
     h.withoutTrait !== undefined ||
     h.withoutAttachmentNamed !== undefined ||
+    h.withoutAttachmentTrait !== undefined ||
     h.keyword !== undefined ||
     h.withoutKeyword !== undefined ||
     h.titleContains !== undefined ||
@@ -404,11 +407,24 @@ function faceSchemeIconErrors(face: { readonly schemeIcons?: unknown } | undefin
  * `starIcon` is a plain boolean when present at all (docs/phase7-wave2-data.md): a boost area carries at most one
  * star, so there is no count to validate, just the type.
  */
-function boostErrors(card: { boostIcons: number; starIcon?: unknown }, label: string): string[] {
+function boostErrors(
+  card: { boostIcons: number; starIcon?: unknown; boostGrantedBy?: unknown },
+  label: string,
+): string[] {
   const errors: string[] = [];
   if (!isNonNegativeInteger(card.boostIcons)) errors.push(`${label} boostIcons must be a whole number of at least 0`);
   if (card.starIcon !== undefined && typeof card.starIcon !== "boolean") {
     errors.push(`${label} starIcon must be a boolean when present`);
+  }
+  if (card.boostGrantedBy !== undefined) {
+    if (
+      !Array.isArray(card.boostGrantedBy) ||
+      card.boostGrantedBy.length === 0 ||
+      !card.boostGrantedBy.every(isNonEmptyString)
+    ) {
+      errors.push(`${label} boostGrantedBy must be a non-empty list of card ids`);
+    }
+    if (card.starIcon !== true) errors.push(`${label} boostGrantedBy needs starIcon: true`);
   }
   return errors;
 }
@@ -420,18 +436,40 @@ function boostErrors(card: { boostIcons: number; starIcon?: unknown }, label: st
  * cards agree). This is an ingest-quality signal, not a hard schema error — a card can legitimately have a `.boost`
  * ref named differently in principle — so it is surfaced as a warning string for a test to assert is empty across
  * the pool, not folded into `ValidationResult`.
+ *
+ * A star whose Boost another card grants (`boostGrantedBy`, Purple Man's set) is accepted without an own `.boost` ref;
+ * a card with its own `.boost` ref and a `boostGrantedBy` is flagged. `boostGrantedByMissing` checks the granters exist.
  */
 export function starIconAbilityMismatch(
-  card: { readonly cardCode?: string; readonly starIcon?: boolean; readonly abilities: readonly AbilityReference[] },
+  card: {
+    readonly cardCode?: string;
+    readonly starIcon?: boolean;
+    readonly boostGrantedBy?: readonly unknown[];
+    readonly abilities: readonly AbilityReference[];
+  },
   label: string,
 ): string | null {
   if (!Array.isArray(card.abilities)) return null;
   const hasBoostRef = card.abilities.some((ref) => typeof ref?.id === "string" && ref.id.endsWith(".boost"));
   const starIcon = card.starIcon === true;
+  if (card.boostGrantedBy !== undefined && card.boostGrantedBy.length > 0) {
+    if (hasBoostRef) return `${label} has a ".boost" ability ref and also boostGrantedBy`;
+    return starIcon ? null : `${label} has boostGrantedBy but starIcon is not true`;
+  }
   if (hasBoostRef === starIcon) return null;
   return hasBoostRef
     ? `${label} has a ".boost" ability ref but starIcon is not true`
     : `${label} has starIcon: true but no ".boost" ability ref`;
+}
+
+/** The `boostGrantedBy` ids of `cards` that name no card in `cards`, as `"<card> names <id>"` strings. */
+export function boostGrantedByMissing(
+  cards: readonly { readonly id: unknown; readonly boostGrantedBy?: readonly unknown[] }[],
+): string[] {
+  const ids = new Set(cards.map((c) => String(c.id)));
+  return cards.flatMap((c) =>
+    (c.boostGrantedBy ?? []).filter((g) => !ids.has(String(g))).map((g) => `${String(c.id)} names ${String(g)}`),
+  );
 }
 
 /** Fields every player-deck card shares: text, keywords, abilities, deck limit, play restrictions, separate deck. */
@@ -494,10 +532,12 @@ function playerCommonErrors(card: PlayerCard): string[] {
   }
   if ("cost" in card && !isNonNegativeNumber(card.cost)) errors.push(`${card.type} cost must be a non-negative number`);
   if ("specialCost" in card && card.specialCost !== undefined) {
-    if (card.specialCost !== "X" && card.specialCost !== "dash")
-      errors.push(`${card.type} specialCost must be 'X' or 'dash'`);
+    if (card.specialCost !== "X" && card.specialCost !== "dash" && card.specialCost !== "star")
+      errors.push(`${card.type} specialCost must be 'X', 'dash' or 'star'`);
     else if (card.cost !== 0)
-      errors.push(`${card.type} cost is printed ${card.specialCost === "X" ? "X" : "—"}, so its value must be 0`);
+      errors.push(
+        `${card.type} cost is printed ${card.specialCost === "X" ? "X" : card.specialCost === "star" ? "a star" : "—"}, so its value must be 0`,
+      );
   }
   if ("costPerPlayer" in card && card.costPerPlayer !== undefined) {
     if (card.costPerPlayer !== true) errors.push(`${card.type} costPerPlayer must be true when present`);
@@ -709,6 +749,12 @@ export function validateHeroIdentityCard(card: HeroIdentityCard): ValidationResu
         if (deck.cardFamily !== undefined && deck.cardFamily !== "player" && deck.cardFamily !== "encounter") {
           errors.push(`${label} cardFamily must be 'player' or 'encounter'`);
         }
+        if (deck.fixedOrder !== undefined && typeof deck.fixedOrder !== "boolean") {
+          errors.push(`${label} fixedOrder must be a boolean`);
+        }
+        if (deck.ownerMayLookThrough !== undefined && typeof deck.ownerMayLookThrough !== "boolean") {
+          errors.push(`${label} ownerMayLookThrough must be a boolean`);
+        }
       }
     }
   }
@@ -887,6 +933,8 @@ function flipSideErrors(
   const frontMode = (card as { readonly modeOnly?: unknown }).modeOnly;
   if (back.modeOnly !== undefined && frontMode === back.modeOnly)
     errors.push(`${side} modeOnly repeats the front face's; the two faces name different modes`);
+  errors.push(...flipSideStatErrors(card, back, side));
+  errors.push(...flipSideModifierErrors(card, back, side));
   if (Array.isArray(back.abilities) && Array.isArray(card.abilities)) {
     const front = new Set((card.abilities as readonly AbilityReference[]).map((ref) => ref?.id));
     for (const ref of back.abilities) {
@@ -895,6 +943,55 @@ function flipSideErrors(
     }
   }
   return errors;
+}
+
+/**
+ * A flip side's own THW / ATK / hit points (`CardFlipSide.thw` / `atk` / `hp`): only on an ally's flip side, each a
+ * valid printed value that differs from the front's (a stat the face does not change is left out).
+ */
+function flipSideStatErrors(card: object, back: EncounterCardFlipSide, side: string): string[] {
+  const stats = (["thw", "atk", "hp"] as const).filter((stat) => back[stat] !== undefined);
+  if (stats.length === 0) return [];
+  const front = card as { readonly type?: unknown } & Partial<Record<"thw" | "atk" | "hp", unknown>>;
+  if (front.type !== "ally") return [`${side} thw/atk/hp are only for a double-sided ally`];
+  const errors: string[] = [];
+  for (const stat of stats) {
+    if (stat === "hp" ? !isNonNegativeNumber(back.hp) || back.hp < 1 : !isPrintedStat(back[stat]))
+      errors.push(`${side} ${stat} must be a valid printed ${stat === "hp" ? "hit point value" : "stat"}`);
+    else if (back[stat] === front[stat]) errors.push(`${side} ${stat} repeats the front face's; leave it out`);
+  }
+  return errors;
+}
+
+/** The keys and values an attachment's printed stat boxes may carry (`PrintedStatModifiers`). */
+function statModifierErrors(mods: unknown, label: string): string[] {
+  if (typeof mods !== "object" || mods === null) return [`${label} must be an object`];
+  const errors: string[] = [];
+  for (const [key, value] of Object.entries(mods)) {
+    if (!["atk", "sch", "thw", "hp"].includes(key)) errors.push(`${label}.${key} is not a stat`);
+    else if (typeof value !== "number" || !Number.isFinite(value)) errors.push(`${label}.${key} must be a number`);
+  }
+  return errors;
+}
+
+/**
+ * A flip side's own printed stat boxes (`CardFlipSide.statModifiers`): only on an attachment's flip side, and only
+ * when they differ from the front's (an absent field reads the front's; `{}` is a face printing none behind a front
+ * that prints some).
+ */
+function flipSideModifierErrors(card: object, back: EncounterCardFlipSide, side: string): string[] {
+  if (back.statModifiers === undefined) return [];
+  const front = card as { readonly type?: unknown; readonly statModifiers?: PrintedStatModifiers };
+  if (front.type !== "attachment") return [`${side} statModifiers are only for a double-sided attachment`];
+  const errors = statModifierErrors(back.statModifiers, `${side} statModifiers`);
+  if (errors.length > 0) return errors;
+  const keys = new Set([...Object.keys(front.statModifiers ?? {}), ...Object.keys(back.statModifiers)]);
+  const same = [...keys].every(
+    (key) =>
+      (front.statModifiers?.[key as keyof PrintedStatModifiers] ?? 0) ===
+      (back.statModifiers?.[key as keyof PrintedStatModifiers] ?? 0),
+  );
+  return same ? [`${side} statModifiers repeat the front face's; leave them out`] : [];
 }
 
 function encounterCommonErrors(
@@ -967,18 +1064,8 @@ export function validateAttachmentCard(card: AttachmentCard): ValidationResult {
         errors.push("attachment playRestrictions.maxPerHost must be a positive integer");
     }
   }
-  const mods = card.statModifiers;
-  if (mods !== undefined) {
-    if (typeof mods !== "object" || mods === null) errors.push("attachment statModifiers must be an object");
-    else {
-      for (const [key, value] of Object.entries(mods)) {
-        if (!["atk", "sch", "thw", "hp"].includes(key)) errors.push(`attachment statModifiers.${key} is not a stat`);
-        else if (typeof value !== "number" || !Number.isFinite(value)) {
-          errors.push(`attachment statModifiers.${key} must be a number`);
-        }
-      }
-    }
-  }
+  if (card.statModifiers !== undefined)
+    errors.push(...statModifierErrors(card.statModifiers, "attachment statModifiers"));
   return result(errors);
 }
 
@@ -1251,7 +1338,74 @@ export function validateScenario(scenario: Scenario): ValidationResult {
   errors.push(...wave2ScenarioErrors(scenario));
   errors.push(...wave4ScenarioErrors(scenario));
   errors.push(...wave10ScenarioErrors(scenario));
+  errors.push(...villainOptionErrors(scenario));
   return result(errors);
+}
+
+const sameStageRange = (a: unknown, b: unknown): boolean =>
+  Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((n, i) => n === b[i]);
+
+/**
+ * `Scenario.villainOptions` on its own (docs/phase7-wave11-scenarios.md §S1.2): two or more options, one per villain
+ * set, the default among them and described by the record's own villain fields, so a reader that knows nothing of the
+ * choice still builds the default game. The cards are checked by `validateScenarioVillainOptions`.
+ */
+function villainOptionErrors(scenario: Scenario): string[] {
+  const choice: unknown = scenario.villainOptions;
+  if (choice === undefined) return [];
+  const label = "scenario villainOptions";
+  const { options, defaultSetId } = (typeof choice === "object" && choice !== null ? choice : {}) as Record<
+    string,
+    unknown
+  >;
+  if (!Array.isArray(options) || options.length < 2) return [`${label} must list at least two villains`];
+  const errors: string[] = [];
+  const ownSets: readonly unknown[] = Array.isArray(scenario.encounterSetIds) ? scenario.encounterSetIds : [];
+  const setIds = new Set<string>();
+  for (const [index, entry] of options.entries()) {
+    const option = (typeof entry === "object" && entry !== null ? entry : {}) as Record<string, unknown>;
+    const name = isNonEmptyString(option.villainSetId) ? option.villainSetId : `#${index}`;
+    if (!isNonEmptyString(option.villainSetId)) errors.push(`${label} option ${name} missing villainSetId`);
+    else if (setIds.has(option.villainSetId)) errors.push(`${label} lists set ${option.villainSetId} twice`);
+    else setIds.add(option.villainSetId);
+    if (!isNonEmptyString(option.villainCardId)) errors.push(`${label} option ${name} missing villainCardId`);
+    const stages = (typeof option.villainStages === "object" ? option.villainStages : null) as Record<
+      string,
+      unknown
+    > | null;
+    if (!stages || !isStageRange(stages.standard) || !isStageRange(stages.expert))
+      errors.push(`${label} option ${name} villainStages.standard/expert must be [first, last] stage numerals`);
+    if (option.victory !== undefined && option.victory !== "finalVillainStage" && option.victory !== "cardAbility")
+      errors.push(`${label} option ${name} victory must be 'finalVillainStage' or 'cardAbility' when present`);
+    if (option.expertVillainCardId !== undefined && !isNonEmptyString(option.expertVillainCardId))
+      errors.push(`${label} option ${name} expertVillainCardId must be a card id when present`);
+    // Another option's set among the record's own sets would put two villains' sets in the default game.
+    if (isNonEmptyString(option.villainSetId) && option.villainSetId !== defaultSetId && ownSets.includes(name))
+      errors.push(`${label} option ${name} is not the default, so encounterSetIds must not name its set`);
+  }
+  if (!isNonEmptyString(defaultSetId) || !setIds.has(defaultSetId)) {
+    errors.push(`${label}.defaultSetId must be one of the options' villainSetId`);
+    return errors;
+  }
+  const fallback = (options as readonly Record<string, unknown>[]).find((o) => o?.villainSetId === defaultSetId)!;
+  if (fallback.villainCardId !== scenario.villainCardId)
+    errors.push(`${label}: villainCardId must be the default option's (${String(fallback.villainCardId)})`);
+  const stages = (typeof fallback.villainStages === "object" ? fallback.villainStages : null) as Record<
+    string,
+    unknown
+  > | null;
+  if (
+    !sameStageRange(stages?.standard, scenario.villainStages?.standard) ||
+    !sameStageRange(stages?.expert, scenario.villainStages?.expert)
+  )
+    errors.push(`${label}: villainStages must be the default option's`);
+  if ((fallback.victory ?? "finalVillainStage") !== (scenario.victory ?? "finalVillainStage"))
+    errors.push(`${label}: victory must be the default option's`);
+  if (!ownSets.includes(defaultSetId))
+    errors.push(`${label}: encounterSetIds must name the default villain's set ${defaultSetId}`);
+  for (const field of ["multipleVillains", "expertVillains", "setAsideVillainCardIds", "startingVillain"] as const)
+    if (scenario[field] !== undefined) errors.push(`${label} cannot be combined with ${field}`);
+  return errors;
 }
 
 /** Wave 10 scenario fields (docs/phase7-wave10.md §1.4): `side`, `modularSetCountRange`, `mainSchemeStages`. */
@@ -1360,7 +1514,8 @@ function separateDeckListErrors(decks: unknown, owner: string): string[] {
       (sets === undefined &&
         contents.cardType === undefined &&
         contents.trait === undefined &&
-        contents.cardIds === undefined)
+        contents.cardIds === undefined &&
+        contents.wholeEncounterSetIds === undefined)
     ) {
       errors.push(`${label} contents must name encounter sets, a card type, a trait, card ids, or several`);
     } else {
@@ -1377,7 +1532,20 @@ function separateDeckListErrors(decks: unknown, owner: string): string[] {
         (!Array.isArray(ids) || ids.length === 0 || !ids.every(isNonEmptyString) || new Set(ids).size !== ids.length)
       )
         errors.push(`${label} contents.cardIds must list card ids, each once`);
+      const whole = contents.wholeEncounterSetIds;
+      if (
+        whole !== undefined &&
+        (!Array.isArray(whole) ||
+          whole.length === 0 ||
+          !whole.every(isNonEmptyString) ||
+          new Set(whole).size !== whole.length)
+      )
+        errors.push(`${label} contents.wholeEncounterSetIds must list encounter set ids, each once`);
     }
+    if (deck?.discardByTrait !== undefined && (!isNonEmptyString(deck.discardByTrait) || deck.discardPile !== "own"))
+      errors.push(`${label} discardByTrait must be a trait, on a deck with a discard pile of its own`);
+    if (deck?.buildAtSetup !== undefined && deck.buildAtSetup !== true)
+      errors.push(`${label} buildAtSetup must be true when present`);
     if (deck?.discardPile !== "own" && deck?.discardPile !== "encounter" && deck?.discardPile !== "none")
       errors.push(`${label} discardPile must be 'own', 'encounter' or 'none'`);
     if (deck?.closedToPlayerCards !== undefined && deck.closedToPlayerCards !== true)
@@ -1579,6 +1747,7 @@ export function validateScenarioEncounterSets(
     ...scenario.standardEncounterSetIds,
     ...scenario.expertEncounterSetIds,
     ...(scenario.multipleVillains?.villains.flatMap((villain) => villain.encounterSetIds) ?? []),
+    ...(scenario.villainOptions?.options.map((option) => option.villainSetId) ?? []),
   ];
   for (const id of new Set(named)) {
     const set = byId.get(id);
@@ -1668,6 +1837,74 @@ export function validateScenarioMainSchemeStages(
     });
     if (numbers.every((n) => n !== undefined) && (numbers[0] !== 1 || numbers[1] !== 2))
       errors.push(`scenario ${scenario.id} must recommend one stage 1 then one stage 2, not ${numbers.join(" then ")}`);
+  }
+  return result(errors);
+}
+
+/**
+ * `Scenario.villainOptions` against the cards and sets (docs/phase7-wave11-scenarios.md §S1.2): each option's set is
+ * registered, its villain card (and expert card) is a villain card of that set, and the card's first side, as the
+ * builders read it, holds every stage number the option's `villainStages` name. A scenario without the field passes.
+ * A card or set `cards`/`sets` don't contain is reported, so the check can't pass by omission.
+ */
+export function validateScenarioVillainOptions(
+  scenario: Scenario,
+  cards: readonly AnyCard[],
+  sets: readonly EncounterSet[],
+): ValidationResult {
+  const errors: string[] = [];
+  const choice = scenario.villainOptions;
+  if (!choice) return result(errors);
+  const byId = new Map(cards.map((card) => [card.id as string, card]));
+  for (const option of choice.options) {
+    const label = `scenario ${scenario.id} villain option ${option.villainSetId}`;
+    if (!sets.some((set) => set.id === option.villainSetId)) errors.push(`${label}: set is not registered`);
+    for (const id of [option.villainCardId, ...(option.expertVillainCardId ? [option.expertVillainCardId] : [])]) {
+      const card = byId.get(id);
+      if (!card || card.type !== "villain") errors.push(`${label}: ${id} is not a villain card`);
+      else if (!(card.encounterSetIds as readonly string[]).includes(option.villainSetId))
+        errors.push(`${label}: villain ${id} is not in set ${option.villainSetId}`);
+    }
+    const villain = byId.get(option.villainCardId);
+    if (villain?.type !== "villain") continue;
+    const held = new Set((villain.sides[0]?.stages ?? []).map((stage) => stage.stageNumber));
+    // An expert card is started at its own first stage, so only the standard range is read from this card then.
+    const named = option.expertVillainCardId
+      ? option.villainStages.standard
+      : [...option.villainStages.standard, ...option.villainStages.expert];
+    for (const stage of new Set(named))
+      if (!held.has(stage)) errors.push(`${label}: villain ${villain.id} has no stage ${stage}`);
+  }
+  // The builder swaps one option's villain set for another's, so nothing else the record lists may carry any option's
+  // villain set: it would stay in the game beside the chosen villain's set (or be missing from it).
+  const villainSets = new Set(choice.options.map((option) => option.villainSetId as string));
+  const inVillainSet = (id: string): string | undefined => {
+    const card = byId.get(id);
+    const sets: readonly string[] =
+      card && "encounterSetIds" in card ? (card.encounterSetIds as readonly string[]) : [];
+    return sets.find((set) => villainSets.has(set));
+  };
+  const noVillainSets = (field: string, ids: readonly string[]) => {
+    for (const id of ids)
+      if (villainSets.has(id))
+        errors.push(
+          `scenario ${scenario.id} ${field} names villain option set ${id}, which the chosen villain decides`,
+        );
+  };
+  noVillainSets("recommendedModularSetIds", scenario.recommendedModularSetIds);
+  noVillainSets("standardEncounterSetIds", scenario.standardEncounterSetIds);
+  noVillainSets("expertEncounterSetIds", scenario.expertEncounterSetIds);
+  const cardsIn = (field: string, ids: readonly string[]) => {
+    for (const id of ids) {
+      const set = inVillainSet(id);
+      if (set !== undefined)
+        errors.push(`scenario ${scenario.id} ${field} names ${id}, a card of villain option set ${set}`);
+    }
+  };
+  cardsIn("setAsideCardIds", scenario.setAsideCardIds ?? []);
+  for (const deck of scenario.separateDecks ?? []) {
+    noVillainSets(`separateDecks ${deck.name} encounterSetIds`, deck.contents.encounterSetIds ?? []);
+    cardsIn(`separateDecks ${deck.name} cardIds`, deck.contents.cardIds ?? []);
   }
   return result(errors);
 }

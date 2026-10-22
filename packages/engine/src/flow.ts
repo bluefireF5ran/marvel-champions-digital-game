@@ -70,12 +70,14 @@ import { cannotChooseToDiscard, playerPhaseTurnOrder } from "./rules.js";
 import { cardsInPlay, controllerOf, handCountTowardHandSize } from "./select.js";
 import { describeFrame } from "./stack.js";
 import { putSeparatedCardIntoPlay } from "./separated-identity.js";
+import { offerStartingCard } from "./starting.js";
 import type { GameState, GameStep } from "./state.js";
 import type { TriggerEvent } from "./trigger-events.js";
 import {
   executeDealEncounterCards,
   executeEnemyActivations,
   executePassFirstPlayer,
+  passFirstPlayerToken,
   executePlaceThreat,
   executeRevealEncounterCards,
 } from "./villain/phase.js";
@@ -188,6 +190,8 @@ function executeStep(ctx: Ctx): void {
       return executeEndPhaseReady(ctx, step.readied === true);
     // Villain phase steps one to five live in villain/phase.ts.
     case "placeThreat":
+      // A skip made while the player phase's end resolved (`skipsVillainPhaseNow`) is taken before step one.
+      if (!step.placed && skipsVillainPhaseNow(ctx)) return;
       return executePlaceThreat(ctx);
     case "enemyActivations":
       return executeEnemyActivations(ctx, step);
@@ -238,6 +242,8 @@ function executeScenarioSetupStep(ctx: Ctx): void {
 // a refill: a drawn obligation goes into play and is not replaced here; the mulligan's draw makes the hand up
 // (maintainer decision 2026-09-23, docs/campaign-mode-design.md Q20).
 function executeDrawStartingHands(ctx: Ctx): void {
+  // The Starting keyword's search comes first, one player at a time (MC60 p. 3; docs/phase7-wave11.md §3.6).
+  if (offerStartingCard(ctx)) return;
   for (const player of ctx.state.players) {
     // A seat that sat the scenario out during setup draws no hand (`EffectSpec sitOutScenario`).
     if (player.eliminated) continue;
@@ -446,12 +452,13 @@ function pushIfHeard(ctx: Ctx, event: TriggerEvent): boolean {
 
 /**
  * The apply step of `phaseEnding` (docs/phase7-wave3.md §3.2): the "at the end of the phase" delayed effects, and at the
- * villain phase's end, which is the round's, the "at the end of the round" ones too. RRG 1.8 "Delayed Effect" (p. 16):
+ * villain phase's end, which is the round's, or at the round's end alone when its villain phase was skipped
+ * (`phase: "round"`, docs/phase7-wave11-hero-packs.md H3.7), the "at the end of the round" ones too. RRG 1.8 "Delayed Effect" (p. 16):
  * they resolve "immediately after their specified timing point [...] and before responses to that point".
  */
-export function pushPhaseEndDelayed(ctx: Ctx, phase: "player" | "villain"): void {
+export function pushPhaseEndDelayed(ctx: Ctx, phase: "player" | "villain" | "round"): void {
   const phaseDelayed = takeDelayed(ctx, "endOfPhase");
-  pushDelayed(ctx, phase === "villain" ? [...phaseDelayed, ...takeDelayed(ctx, "endOfRound")] : phaseDelayed);
+  pushDelayed(ctx, phase === "player" ? phaseDelayed : [...phaseDelayed, ...takeDelayed(ctx, "endOfRound")]);
 }
 
 /** Ends `playerId`'s turn if it still is theirs: the `endTurn` command, or its `turnEnding` event applying. */
@@ -686,7 +693,9 @@ function readyEveryCard(ctx: Ctx): boolean {
 
 /** RRG 1.8 "End of Player Phase" (p. 18) step 5 and the move to the villain phase. */
 function finishPlayerPhase(ctx: Ctx): void {
-  setStep(ctx, { phase: "villain", kind: "placeThreat" });
+  const skipping = (ctx.state.villainPhasesToSkip ?? 0) > 0;
+  if (skipping) skipVillainPhase(ctx);
+  else setStep(ctx, { phase: "villain", kind: "placeThreat" });
   clearAbilityUses(ctx, "phase");
   ctx.state = { ...ctx.state, playedThisPhase: {} };
   clearDamageTakenThisPhase(ctx);
@@ -698,7 +707,23 @@ function finishPlayerPhase(ctx: Ctx): void {
   const listened = heard(ctx.state, ctx.deps, ending);
   const delayed = listened ? [] : takeDelayed(ctx, "endOfPhase");
   expireLastingEffects(ctx, "endOfPhase");
-  // Pushed first, so it resolves after everything the player phase's end queues and before step one.
+  // "Until the end of the player phase" (docs/phase7-wave11-hero-packs.md H3.9), with the phase's own effects.
+  expireLastingEffects(ctx, "endOfPlayerPhase");
+  // A skipped villain phase never begins (docs/phase7-wave11-hero-packs.md H3.7): no beginning to answer, and "until
+  // the next villain phase begins" lasts on to the next one played (H3.8).
+  if (!skipping) pushVillainPhaseBeginning(ctx);
+  announce(ctx, { kind: "playerPhaseEnded" });
+  if (listened) {
+    pushEvent(ctx, ending);
+    return;
+  }
+  // "At the end of the phase, …" (`atEndOfPhase`; docs/phase7-wave2.md §3.1, §3.4), after "until the end of the phase"
+  // effects expire, as RRG 1.8 "Lasting Effects" orders the round's.
+  pushDelayed(ctx, delayed);
+}
+
+/** The villain phase's beginning, pushed beneath the player phase's end so it resolves after it and before step one. */
+function pushVillainPhaseBeginning(ctx: Ctx): void {
   const beginning: TriggerEvent = { kind: "phaseBeginning", phase: "villain" };
   const untilNow = untilNextVillainPhase(ctx.state);
   if (untilNow.length === 0) pushIfHeard(ctx, beginning);
@@ -711,14 +736,40 @@ function finishPlayerPhase(ctx: Ctx): void {
     if (heard(then, ctx.deps, beginning)) pushEvent(ctx, beginning);
     pushEffects(ctx, { effects: [{ kind: "villainPhaseBegins" }], selfInstanceId: null, controllerId: null });
   }
-  announce(ctx, { kind: "playerPhaseEnded" });
-  if (listened) {
-    pushEvent(ctx, ending);
-    return;
-  }
-  // "At the end of the phase, …" (`atEndOfPhase`; docs/phase7-wave2.md §3.1, §3.4), after "until the end of the phase"
-  // effects expire, as RRG 1.8 "Lasting Effects" orders the round's.
-  pushDelayed(ctx, delayed);
+}
+
+/**
+ * Q101 (docs/phase7-wave11-hero-packs.md §4.1, open): whether a skipped villain phase still passes the first player
+ * token. RRG 1.8 "First Player" (p. 19) passes it "At the end of the round (during step five of the villain phase)": the
+ * round still ends, but step five is a step of the skipped phase. Default A, `false`: steps one to five are all
+ * skipped, the token pass with them, and only the round's end (RRG 1.8 "Villain Phase", p. 47, step 6; "Round
+ * Overview", p. 4, step 10) happens. B is `true`: the token passes as the round ends (`executeEndOfRound`).
+ */
+const SKIPPED_VILLAIN_PHASE_PASSES_TOKEN = false;
+
+/**
+ * "Skip the next villain phase" (`EffectSpec skipNextVillainPhase`, docs/phase7-wave11-hero-packs.md H3.7): one off
+ * `GameState.villainPhasesToSkip`, and the round goes straight to its end. RRG 1.8 has no "skip" entry; per Q101 A
+ * (open) nothing of steps one to five happens (no threat, activations, deal, reveals or token pass) and neither the
+ * villain phase's beginning nor its end is raised, but the round still ends (`phaseEnding { phase: "round" }`). Cards
+ * dealt facedown meanwhile wait for the next villain phase played (RRG 1.8 "Deal", p. 15).
+ */
+function skipVillainPhase(ctx: Ctx): void {
+  ctx.state = { ...ctx.state, villainPhasesToSkip: Math.max(0, (ctx.state.villainPhasesToSkip ?? 0) - 1) };
+  emit(ctx, { type: "villainPhaseSkipped", round: ctx.state.round, remaining: ctx.state.villainPhasesToSkip ?? 0 });
+  setStep(ctx, { phase: "villain", kind: "endOfRound", villainPhaseSkipped: true });
+}
+
+/**
+ * A skip made after the player phase's end was read (by an effect that end resolved, "At the end of the player phase,
+ * …"): the next villain phase is the one about to start, so it is skipped from here, before step one's threat. Its
+ * beginning was already answered and "until the next villain phase begins" effects already ended (`finishPlayerPhase`
+ * pushed both beneath the end's effects); an engine reading, no ruling covers the order.
+ */
+function skipsVillainPhaseNow(ctx: Ctx): boolean {
+  if ((ctx.state.villainPhasesToSkip ?? 0) <= 0) return false;
+  skipVillainPhase(ctx);
+  return true;
 }
 
 /** The delayed effects waiting on this timing point, marked fired (they resolve through the stack next). */
@@ -747,15 +798,23 @@ function executeEndOfRound(ctx: Ctx, step: Extract<GameStep, { kind: "endOfRound
   if (!step.delayedResolved) {
     // RRG 1.8 "Villain Phase" (p. 47) step 6: "until the end of the phase/round" effects end (6a), then "when/after the
     // [villain] phase ends" and "when/after the round ends" resolve (6b) — one timing point, an event when an ability
-    // listens (docs/phase7-wave3.md §3.2), whose apply step resolves the delayed effects.
-    const ending: TriggerEvent = { kind: "phaseEnding", phase: "villain" };
+    // listens (docs/phase7-wave3.md §3.2), whose apply step resolves the delayed effects. A skipped villain phase
+    // (H3.7) never began, so only the round ends: `phase: "round"`, which "when the villain phase ends" does not hear.
+    const skipped = step.villainPhaseSkipped === true;
+    if (skipped && SKIPPED_VILLAIN_PHASE_PASSES_TOKEN) passFirstPlayerToken(ctx);
+    const ending: TriggerEvent = { kind: "phaseEnding", phase: skipped ? "round" : "villain" };
     const listened = heard(ctx.state, ctx.deps, ending);
     // The villain phase and the round end together: "at the end of the phase" effects first, then the round's.
     const phaseDelayed = listened ? [] : takeDelayed(ctx, "endOfPhase");
     const delayed = listened ? [] : takeDelayed(ctx, "endOfRound");
     expireLastingEffects(ctx, "endOfPhase");
     expireLastingEffects(ctx, "endOfRound");
-    setStep(ctx, { phase: "villain", kind: "endOfRound", delayedResolved: true });
+    setStep(ctx, {
+      phase: "villain",
+      kind: "endOfRound",
+      delayedResolved: true,
+      ...(skipped ? { villainPhaseSkipped: true as const } : {}),
+    });
     if (listened) pushEvent(ctx, ending);
     else pushDelayed(ctx, [...phaseDelayed, ...delayed]);
     return;
@@ -779,5 +838,6 @@ function executeEndOfRound(ctx: Ctx, step: Extract<GameStep, { kind: "endOfRound
   };
   emit(ctx, { type: "roundStarted", round: ctx.state.round });
   beginPlayerPhase(ctx);
-  announce(ctx, { kind: "villainPhaseEnded" });
+  // A skipped villain phase (H3.7) did not end: it never began.
+  if (!step.villainPhaseSkipped) announce(ctx, { kind: "villainPhaseEnded" });
 }

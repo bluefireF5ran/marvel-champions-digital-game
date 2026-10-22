@@ -50,6 +50,7 @@ import {
   getPlayer,
   handSize,
   hasStarIcon,
+  printsBoostAbility,
   foeHeroFace,
   heroFacesOf,
   identityFace,
@@ -86,6 +87,7 @@ import {
   isOwnedEncounterCard,
   playerCardOwnerOf,
   hasStat,
+  textGoneByTreatment,
 } from "./query.js";
 import type { LogValue } from "./campaign.js";
 import {
@@ -111,8 +113,15 @@ import { canUseBasicPower } from "./basic-power-uses.js";
 import { changeFormTarget } from "./form-change-target.js";
 import { uniqueEntryBlocker } from "./unique.js";
 import { threatRemovalBlocked } from "./resolve/event.js";
+import { playFromHandCandidates } from "./resolve/effects-frame.js";
 import { accusationWrongGuesses, accusedWrong, isAccusationBoardMember } from "./accusation.js";
 import { hiddenPileSize } from "./hidden-pile-state.js";
+import {
+  hasPerPlayerMainSchemes,
+  mainSchemeInPlayAreaOf,
+  mainSchemePlayAreaOf,
+  mainSchemesFor,
+} from "./per-player-main-schemes.js";
 import {
   attackUsesAtk,
   canHaveAttached,
@@ -232,10 +241,12 @@ export interface EffectContext {
    */
   readonly reaches?: "all" | { readonly scenarioPlayArea: string };
   /**
-   * Last known information about cards that may have left play, by card: what was attached to each and the status
-   * cards it held (`LastKnownCard`). A query's `hasAttachment`, `hasStatus` and `hasAnyStatus` read it for a card that
-   * is no longer in play; a card still in play is always read live. Set only where a ruling asks for it: an ally's
-   * consequential damage after an attack that defeated its target (`rules.ts` `lastKnownFromAttack`).
+   * Last known information about cards that may have left play, by card: what was attached to each, the status
+   * cards it held and whom it was engaged with (`LastKnownCard`). A query's `hasAttachment`, `hasStatus`,
+   * `hasAnyStatus`, `engagedWith` and `engagedWithPlayer` read it for a card that is no longer in play; a card still in
+   * play is always read live. Set only where a ruling asks for it: an ally's consequential damage after an attack that
+   * defeated its target (`rules.ts` `lastKnownFromAttack`), and a pattern on `characterAttacked` whose target was
+   * engaged as it was attacked (`characterAttacked.targetEngagedWith`, `resolve/triggers.ts`).
    */
   readonly lastKnown?: Readonly<Record<InstanceId, LastKnownCard>>;
   /**
@@ -254,8 +265,12 @@ export interface EffectContext {
 
 /** A card as it last was in play, as far as `EffectContext.lastKnown` carries it. */
 export interface LastKnownCard {
-  readonly attachments: readonly InstanceId[];
-  readonly statuses: Readonly<Record<"stunned" | "confused" | "tough", number>>;
+  /** Absent: not recorded, so `hasAttachment` reads the live card. */
+  readonly attachments?: readonly InstanceId[];
+  /** Absent: not recorded, so `hasStatus` / `hasAnyStatus` read the live card. */
+  readonly statuses?: Readonly<Record<"stunned" | "confused" | "tough", number>>;
+  /** The player it was engaged with (null: no one). Absent: not recorded, so the engagement clauses read it live. */
+  readonly engagedWith?: PlayerId | null;
 }
 
 /** `AbilityDefinition.reaches` as a context field: spread into the context an ability's queries are read in. */
@@ -350,8 +365,9 @@ export const DEFENDER_SLOT = "defender";
  * the player plays, resources they spend, and upgrades they control "unless attached to a different friendly
  * character" — so what they do is done by that identity. Allies, supports, player side schemes and encounter cards are
  * not. `TargetQuery.extensionOf` (docs/phase7-wave4.md §3.22: "If Valkyrie defeated that enemy" when an event she
- * played dealt the damage). Read wherever the card is (an event or spent resource is out of play by then); an event or
- * resource is its owner's, an upgrade its controller's.
+ * played dealt the damage). Read wherever the card is (an event or spent resource is out of play by then); an event is
+ * the identity's of the player playing it while it resolves (`eventPlayerOf`), else its owner's, a resource its
+ * owner's, an upgrade its controller's.
  */
 export function isIdentityExtension(state: GameState, id: InstanceId, players: readonly PlayerId[]): boolean {
   const card = cardOf(state, id);
@@ -359,8 +375,10 @@ export function isIdentityExtension(state: GameState, id: InstanceId, players: r
   if (!card || !instance) return false;
   const identityOf = (player: PlayerId) => state.players.find((p) => p.playerId === player)?.identity.instanceId;
   if (players.some((player) => identityOf(player) === id)) return true;
-  if (card.type === "event" || card.type === "resource")
-    return instance.ownerId !== null && players.includes(instance.ownerId);
+  if (card.type === "event" || card.type === "resource") {
+    const player = eventPlayerOf(state, id);
+    return player !== null && players.includes(player);
+  }
   if (card.type !== "upgrade") return false;
   const controller = controllerOf(state, id);
   if (controller === null || !players.includes(controller)) return false;
@@ -372,13 +390,26 @@ export function isIdentityExtension(state: GameState, id: InstanceId, players: r
 }
 
 /**
+ * The player an event or resource acts for: the player resolving it while it resolves, else its owner. RRG 1.8 "You,
+ * Your" (p. 49): what resolves from an event is "performed by that player's identity", the player playing it; a
+ * borrowed event stays its owner's card (RRG 1.8 "Ownership and Control", p. 31; August 13, 2026 R1: Echo's Study the
+ * Tape plays another player's event) but acts for whoever plays it. Out of resolution (in its owner's discard pile)
+ * the engine reads its owner (engine interpretation).
+ */
+export function eventPlayerOf(state: GameState, id: InstanceId): PlayerId | null {
+  const resolving = state.players.find((p) => p.resolving.includes(id));
+  return resolving?.playerId ?? state.instances[id]?.ownerId ?? null;
+}
+
+/**
  * The character a card's ability is performed by, or null when no character performs it: "Characters other than [X]
  * cannot remove threat from [this scheme]" (`RuleSpec threatCannotBeRemoved.exceptBy`, docs/phase7-wave7.md §3.51).
  *
  * - A character (RRG 1.8 "Character", p. 12: "Identities (heroes and alter-egos), allies, villains, and minions are
  *   all characters") acts for itself.
- * - An event or a resource is its owner's identity (RRG 1.8 "You, Your", p. 49: what resolves from a player playing an
- *   event is "performed by that player's identity").
+ * - An event or a resource is the identity of the player it acts for (`eventPlayerOf`: the player playing an event
+ *   while it resolves, else its owner; RRG 1.8 "You, Your", p. 49: what resolves from a player playing an event is
+ *   "performed by that player's identity").
  * - An upgrade attached to a friendly character other than its controller's identity is that character. The RRG says
  *   only that such an upgrade is not an extension of the controller's identity ("unless attached to a different
  *   friendly character"), not whose it is then; the engine reads it as its host's. Any other upgrade (attached to the
@@ -393,7 +424,7 @@ export function actingCharacterOf(state: GameState, id: InstanceId): InstanceId 
   if (categoriesOf(state, id).includes("character")) return id;
   const identityOf = (player: PlayerId | null) =>
     state.players.find((p) => p.playerId === player)?.identity.instanceId ?? null;
-  if (card.type === "event" || card.type === "resource") return identityOf(instance.ownerId);
+  if (card.type === "event" || card.type === "resource") return identityOf(eventPlayerOf(state, id));
   if (card.type !== "upgrade") return null;
   const host = instance.attachedTo;
   const hostCategories = host === null ? [] : categoriesOf(state, host);
@@ -600,6 +631,12 @@ function printedTraitsOf(state: GameState, id: InstanceId): readonly Trait[] {
   const facedown = getInstance(state, id)?.facedownAs;
   if (facedown) return facedown.traits;
   const treated = getInstance(state, id)?.treatedAs;
+  // A card its own constant treats as an ally keeps its printed traits (Black Cat; docs/phase7-wave11-scenarios.md
+  // §S3.8).
+  if (treated?.kind === "ally" && treated.keepsText === true) {
+    const own = encounterFace(state, id)?.traits ?? ("traits" in card ? card.traits : []);
+    return [...treated.traits, ...own];
+  }
   if (treated) {
     if (treated.kind === "ally") return treated.traits;
     // A hero treated as a minion keeps its hero side's traits (docs/phase7-wave9.md §4.1 Q41 = A).
@@ -657,7 +694,7 @@ export function traitsOf(state: GameState, id: InstanceId, deps: EngineDeps = DE
 /**
  * `traitsOf`, with the cards whose traits are already being worked out (`reading`). A copied-traits grant
  * (`traitGrant.copiedFrom`, "you gain each of the attached character's TRAITS", docs/phase7-wave6.md §3.50) reads its
- * source's traits live (§4.1 Q28), printed and granted; a source already being read in this chain (two characters
+ * source's traits live (ruling October 9, 2026 - Ruling 1, revising §4.1 Q28), printed and granted; a source already being read in this chain (two characters
  * copying each other) gives its printed traits only, so the read terminates and neither side's answer depends on which
  * is asked first.
  */
@@ -1222,6 +1259,8 @@ export type QueryExclusion =
   | "notFriendly"
   | "wrongController"
   | "notIdentityExtension"
+  /** The character the card acts for (none, for a support) does not match `TargetQuery.actsFor`. */
+  | "notActingCharacter"
   | "notEngagedWithYou"
   | "notEngaged"
   | "missingTrait"
@@ -1240,6 +1279,8 @@ export type QueryExclusion =
   /** No ability with one of the query's `abilityTiming` words (docs/phase7-wave4.md §3.33), or none printed with a `printsAbility` label. */
   | "noSuchAbility"
   | "wrongStarIcon"
+  /** Not in an enemy's boost area (`TargetQuery.boostCard`, docs/phase7-wave11-scenarios.md §S3.6). */
+  | "notBoostCard"
   | "wrongUnique"
   | "notHostOfSelf"
   | "notAttachedToHost"
@@ -1347,6 +1388,12 @@ export function explainQuery(
     const chosen = chosenFromList(context.vars, query.cardTypeIs.chosen);
     if (chosen === null || cardTypeOf(state, id) !== chosen) return "wrongCategory";
   }
+  // A player side scheme by its card type, whoever controls it or nobody (RRG 1.8 p. 34; wave 11 hero packs).
+  if (
+    query.playerSideScheme !== undefined &&
+    (cardTypeOf(state, id) === "player_side_scheme") !== query.playerSideScheme
+  )
+    return "wrongCategory";
   // docs/phase7-wave9.md §3.29 (b): the accused or the mole of the game's accusation, a card named by its printed id
   // (either face), so the exclusion is the one `printedId` gives.
   if (query.accusation !== undefined && !isAccusationBoardMember(state, id, query.accusation)) return "wrongPrintedId";
@@ -1358,8 +1405,14 @@ export function explainQuery(
       return "wrongController";
     }
   }
-  if (query.engagedWith === "you" && instance.engagedWith !== context.controllerId) return "notEngagedWithYou";
-  if (query.engagedWith === "any" && instance.engagedWith === null) return "notEngaged";
+  // A card that has left play: whom it was engaged with as last known (`EffectContext.lastKnown`).
+  const knownEngagement =
+    query.engagedWith !== undefined || query.engagedWithPlayer !== undefined
+      ? lastKnownOf(state, id, context)?.engagedWith
+      : undefined;
+  const engagedWith = knownEngagement !== undefined ? knownEngagement : instance.engagedWith;
+  if (query.engagedWith === "you" && engagedWith !== context.controllerId) return "notEngagedWithYou";
+  if (query.engagedWith === "any" && engagedWith === null) return "notEngaged";
   if (query.trait && !traitsOf(state, id, context.deps).includes(query.trait)) return "missingTrait";
   if (query.withoutTrait && traitsOf(state, id, context.deps).includes(query.withoutTrait)) return "hasExcludedTrait";
   if (query.anyTrait) {
@@ -1411,6 +1464,9 @@ export function explainQuery(
   // read of the ability registry: see docs/phase7-wave2.md §18.6. RRG 1.8 "Boost, Boost Icon" (p. 11) — a star is not
   // a boost icon, so this clause says nothing about the card's pip count.
   if (query.starIcon !== undefined && hasStarIcon(state, id) !== query.starIcon) return "wrongStarIcon";
+  if (query.boostCard === true && locateCard(state, id)?.kind !== "boost") return "notBoostCard";
+  // "If the discarded card has a 'Boost' ability" (H3.21): printed, so a granted Boost (Purple Man's set) is not one.
+  if (query.printsBoostAbility === true && !printsBoostAbility(state, id)) return "noSuchAbility";
   // "Against a unique enemy" (Godslayer, `gam` 18018): the same printed-fact reading `unique.ts`'s `isUnique` uses
   // for the deckbuilding unique rule (RRG 1.8 "Unique", p. 46) — every hero identity is unique whether or not its
   // own card prints the icon. Read inline here (not `isUnique` itself) to avoid a `select.ts` ↔ `unique.ts` import
@@ -1438,7 +1494,7 @@ export function explainQuery(
       wanted.facedown === true || !isFacedownAttachment(state, attached);
     // A card that has left play: what was attached to it as last known (`EffectContext.lastKnown`).
     const known = lastKnownOf(state, id, context);
-    const attachments = known ? known.attachments : instance.attachments.filter(counts);
+    const attachments = known?.attachments ?? instance.attachments.filter(counts);
     if (!attachments.some((attached) => matchesQuery(state, attached, wanted, context))) return "missingAttachment";
   }
   // "Attach it to another character": only a host that can take that card (`cannotHaveAttachments`).
@@ -1523,6 +1579,7 @@ export function explainQuery(
   if (query.hasThreat !== undefined && instance.threat > 0 !== query.hasThreat)
     return query.hasThreat ? "noThreat" : "hasThreat";
   if (query.hasCounter !== undefined && countersOfType(state, id, query.hasCounter) <= 0) return "missingCounter";
+  if (query.hasAccelerationToken && accelerationTokensOnCard(state, id) <= 0) return "missingCounter";
   if (query.damaged !== undefined && instance.damage > 0 !== query.damaged)
     return query.damaged ? "notDamaged" : "damaged";
   // The status cards of a card that has left play are its last known ones (`EffectContext.lastKnown`).
@@ -1606,6 +1663,10 @@ export function explainQuery(
   }
   if (query.extensionOf && !isIdentityExtension(state, id, resolvePlayers(state, query.extensionOf, context)))
     return "notIdentityExtension";
+  if (query.actsFor !== undefined) {
+    const acting = actingCharacterOf(state, id);
+    if (acting === null || !matchesQuery(state, acting, query.actsFor, context)) return "notActingCharacter";
+  }
   if (
     query.signatureSideScheme !== undefined &&
     state.villains.some((villain) => villain.signatureSideSchemeId === id) !== query.signatureSideScheme
@@ -1614,13 +1675,16 @@ export function explainQuery(
   }
   if (query.inPlayAreaOf) {
     const owners = resolvePlayers(state, query.inPlayAreaOf, context);
-    if (!state.players.some((p) => owners.includes(p.playerId) && p.playArea.includes(id))) return "notInPlayArea";
+    // A main scheme placed in a player's play area is in it too (docs/phase7-wave11-scenarios.md §S3.1).
+    const schemeArea = mainSchemePlayAreaOf(state, id);
+    if (
+      !state.players.some((p) => owners.includes(p.playerId) && p.playArea.includes(id)) &&
+      !(schemeArea !== null && owners.includes(schemeArea))
+    )
+      return "notInPlayArea";
   }
   if (query.engagedWithPlayer) {
-    if (
-      instance.engagedWith === null ||
-      !resolvePlayers(state, query.engagedWithPlayer, context).includes(instance.engagedWith)
-    )
+    if (engagedWith === null || !resolvePlayers(state, query.engagedWithPlayer, context).includes(engagedWith))
       return "notEngagedWithPlayer";
   }
   if (query.identitySetOf) {
@@ -1751,7 +1815,7 @@ export function explainQuery(
   // RRG 1.8 "Classifications" (p. 12); docs/phase7-wave8.md §3.53. A printed attribute, read wherever the card is.
   if (query.classification !== undefined && !classificationsOf(state, id).includes(query.classification))
     return "wrongClassification";
-  if (query.inEncounterSet !== undefined && !encounterSetsOf(state, id).includes(query.inEncounterSet))
+  if (query.inEncounterSet !== undefined && !inEncounterSet(state, id, query.inEncounterSet))
     return "wrongEncounterSet";
   if (query.inCampaignLogField) {
     // "Each EXPERIMENTAL attachment recorded in the campaign log" (MC10 p. 7) as a filter. Membership only: the
@@ -1791,6 +1855,20 @@ export function campaignSeatRead(
   if (!spec.seat) return null;
   const [playerId] = resolvePlayers(state, spec.seat, context);
   return playerId === undefined ? null : campaignSeatNumber(state, playerId);
+}
+
+/**
+ * `CardQuery inEncounterSet`: an encounter card listing the set in `encounterSetIds`, or a player card printed as
+ * belonging to it (`specificTo.encounterSetId`: a scenario's or campaign's own supports and allies, the Daily Bugle
+ * supports 60153-60156; docs/phase7-wave11-scenarios.md §S7 E28). Read off card data, so it matches wherever the card
+ * is.
+ */
+function inEncounterSet(state: GameState, id: InstanceId, setId: string): boolean {
+  if (encounterSetsOf(state, id).includes(setId)) return true;
+  const card = cardOf(state, id);
+  const specific =
+    card && "specificTo" in card ? (card.specificTo as { readonly encounterSetId?: string } | undefined) : undefined;
+  return specific?.encounterSetId === setId;
 }
 
 /** The encounter sets a card belongs to (`encounterSetIds`); empty for a player card. */
@@ -2023,6 +2101,9 @@ export function uncontrolledYouOf(state: GameState, id: InstanceId): PlayerId | 
   const instance = getInstance(state, id);
   if (!instance) return null;
   if (instance.attachedTo) return controllerOf(state, instance.attachedTo);
+  // A main scheme in a player's play area (docs/phase7-wave11-scenarios.md §S3.1): "this play area" is that player's.
+  const schemeArea = mainSchemePlayAreaOf(state, id);
+  if (schemeArea) return schemeArea;
   // An obligation, and an environment placed in a player's play area (Ebony Maw's Spells, "in front of them in their play
   // area", MC21 p. 6; "deal 4 damage to your identity": docs/phase7-wave4.md §3.16).
   const type = cardOf(state, id)?.type;
@@ -2616,6 +2697,11 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       return context.event ? eventSubjects(context.event).sources : [];
     case "eventTarget":
       return context.event ? eventSubjects(context.event).targets : [];
+    case "actingCharacter":
+      return resolveRef(state, ref.of, context).flatMap((id) => {
+        const acting = actingCharacterOf(state, id);
+        return acting === null ? [] : [acting];
+      });
     case "defendingCharacter": {
       // The stack is innermost-first, so a nested or queued attack names its own defender.
       const attack = state.stack.find((f) => f.kind === "event" && f.event.kind === "enemyAttack");
@@ -2674,6 +2760,15 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
     case "mainScheme": {
       // "The main scheme": this area's own stage, or the central one (`of: "central"`, "under stage 4A").
       if (ref.of === "central") return [state.mainScheme.instanceId];
+      // "Your main scheme" (docs/phase7-wave11-scenarios.md §S3.2): the one in your play area, wherever the card is.
+      if (ref.of === "yours" && hasPerPlayerMainSchemes(state)) {
+        const you = context.scopedPlayerId ?? context.controllerId;
+        const yours = you ? mainSchemeInPlayAreaOf(state, you) : undefined;
+        return yours ? [yours.instanceId] : [];
+      }
+      // A main scheme per player (docs/phase7-wave11-scenarios.md §S3.1; MC60 p. 13): the one in the play area of the
+      // card that says it (or of the player who played or revealed it), or every one for a card in no play area.
+      if (hasPerPlayerMainSchemes(state)) return mainSchemesFor(state, context);
       const area = contextArea(state, context);
       // Two main schemes in the shared area (Tower Defense, docs/phase7-wave4.md §3.2; MC21 p. 10): the one the player
       // chose for this ability (`MAIN_SCHEME_CHOICE`, asked before the effect resolves); on a player card otherwise the
@@ -2807,6 +2902,46 @@ function eventAmount(state: GameState, deps: EngineDeps, event: TriggerEvent | n
   return "amount" in event ? (event.amount ?? 0) : 0;
 }
 
+/**
+ * The cards a `highestStat` read is measuring for, outermost first, so a card it measures that reads the same way
+ * skips them (`ValueSpec highestStat`). Module-level because nothing else reaches the inner read: measuring a
+ * candidate goes `characterStat` → `modifiedStat` → `modifiersFor`, and `modifiersFor` builds a fresh `EffectContext`
+ * for each constant source from the state alone, so a guard carried on the caller's context is gone by then. Only ever
+ * non-empty during that one synchronous read, and emptied by its `finally`: never part of the game state, and no
+ * read's result depends on anything but the state read.
+ */
+const highestStatReaders: InstanceId[] = [];
+
+/** `ValueSpec highestStat` (docs/phase7-wave11-hero-packs.md H3.10). */
+function highestStatAmong(
+  state: GameState,
+  value: Extract<ValueSpec, { kind: "highestStat" }>,
+  context: EffectContext,
+  deps: EngineDeps,
+): number {
+  // The card whose stat is being read, bound by `modifiersFor`; none outside a modifier.
+  const reader = context.bindings[AFFECTED_SLOT]?.[0];
+  const skipped = new Set<InstanceId>(highestStatReaders);
+  if (reader) skipped.add(reader);
+  const candidates = resolveRef(state, value.among, context).filter(
+    (id) => !skipped.has(id) && !categoriesOf(state, id).includes("alterEgo"),
+  );
+  if (reader) highestStatReaders.push(reader);
+  try {
+    let best = 0;
+    for (const id of candidates) {
+      const missing = printedProfile(state, id)?.missing ?? [];
+      for (const stat of value.stats) {
+        if ((missing as readonly string[]).includes(stat)) continue;
+        best = Math.max(best, characterStat(state, id, stat, deps) ?? 0);
+      }
+    }
+    return best;
+  } finally {
+    if (reader) highestStatReaders.pop();
+  }
+}
+
 /** `deps` lets stat reads include constant and lasting modifiers ("damage equal to your hero's ATK" reads the modified ATK). */
 export function resolveValue(
   state: GameState,
@@ -2909,6 +3044,10 @@ export function resolveValue(
     case "remainingHp": {
       const [id] = resolveRef(state, value.of, context);
       return id ? (consideredRemainingHitPoints(state, id, deps) ?? 0) : 0;
+    }
+    case "hitPoints": {
+      const [id] = resolveRef(state, value.of, context);
+      return id ? (maxHitPoints(state, id, deps) ?? 0) : 0;
     }
     case "conditional":
       return evaluate(state, value.if, { ...context, deps })
@@ -3044,6 +3183,8 @@ export function resolveValue(
       );
       return value.prefer === "most" ? Math.max(...readings) : Math.min(...readings);
     }
+    case "highestStat":
+      return highestStatAmong(state, value, context, deps);
     case "deckCount": {
       // The player deck only: a separate deck (`PlayerState.separateDecks`) is its own deck, not part of this one.
       const [playerId] = resolvePlayers(state, value.player, context);
@@ -3179,10 +3320,24 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
         playerId !== undefined && changeFormTarget(state, context.deps ?? DEFAULT_DEPS, playerId, predicate) !== null
       );
     }
+    case "canPlayFromHand":
+      return (
+        playFromHandCandidates(
+          state,
+          context.deps ?? DEFAULT_DEPS,
+          {
+            kind: "playFromHand",
+            player: predicate.player,
+            ...(predicate.filter ? { filter: predicate.filter } : {}),
+            ...(predicate.reduction ? { costReduction: predicate.reduction } : {}),
+          },
+          context,
+        ).length > 0
+      );
     case "canUseBasicPower": {
       // docs/phase7-wave8.md §3.64: read as `EffectSpec basicPowerBy` would offer it.
       return resolvePlayers(state, predicate.player, context).some((playerId) =>
-        canUseBasicPower(state, context.deps ?? DEFAULT_DEPS, playerId, predicate.powers),
+        canUseBasicPower(state, context.deps ?? DEFAULT_DEPS, playerId, predicate.powers, predicate.terms),
       );
     }
     case "inAdditionalForm": {
@@ -3254,6 +3409,11 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
       return predicate.of.some((p) => evaluate(state, p, context));
     case "eventResultAtLeast":
       return (context.event?.results?.[predicate.key] ?? 0) >= predicate.amount;
+    case "eventKindIs": {
+      const kind = context.event?.kind;
+      if (kind === undefined) return false;
+      return typeof predicate.event === "string" ? predicate.event === kind : predicate.event.includes(kind);
+    }
     case "basicPowerIs": {
       const triggering = context.event;
       const power =
@@ -3343,6 +3503,10 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
     case "playedVia": {
       const play = context.selfInstanceId ? playFrameOf(state.stack, context.selfInstanceId) : undefined;
       return (play?.bindings[PLAYED_VIA_SLOT] ?? []).some((id) => matchesQuery(state, id, predicate.card, context));
+    }
+    case "exactlyDefeated": {
+      const defeat = context.event;
+      return defeat?.kind === "schemeDefeated" && defeat.byThwart === true && defeat.excessThreat === 0;
     }
     case "playNote": {
       const play = context.selfInstanceId ? playFrameOf(state.stack, context.selfInstanceId) : undefined;
@@ -3481,6 +3645,9 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
         (act) =>
           act.did === predicate.did && matchesQuery(state, act.characterInstanceId, predicate.character, context),
       );
+    case "anyPlayerEliminated":
+      // A player who sat the scenario out never started it (`sitOutScenario`), so is not one who was eliminated.
+      return state.players.some((player) => player.eliminated && player.sittingOut !== true);
     case "areaPlayersDefeated": {
       const area = contextArea(state, context);
       return area !== null && area.playerIds.every((id) => getPlayer(state, id)?.eliminated !== false);
@@ -3959,6 +4126,25 @@ const GAINED_BY_RULES = new WeakMap<
   WeakMap<EngineDeps, ReadonlyMap<InstanceId, readonly GrantedAbility[]> | null>
 >();
 
+/** Whether any `gainsAbility` rule could be in effect: one in the registry, a lasting rule grant or a scenario rule. */
+function mayGainAbilities(state: GameState, deps: EngineDeps): boolean {
+  let inRegistry = GAIN_RULE_IN_REGISTRY.get(deps);
+  if (inRegistry === undefined) {
+    inRegistry = Object.values(deps.abilities).some(
+      (definition) =>
+        definition.trigger.kind === "constant" &&
+        (definition.trigger.rules ?? []).some((rule) => rule.kind === "gainsAbility"),
+    );
+    GAIN_RULE_IN_REGISTRY.set(deps, inRegistry);
+  }
+  const isGain = (rule: RuleSpec): boolean => rule.kind === "gainsAbility";
+  return (
+    inRegistry ||
+    state.lastingEffects.some((effect) => effect.kind === "ruleGrant" && isGain(effect.rule)) ||
+    (state.scenarioRules.rules ?? []).some(isGain)
+  );
+}
+
 /**
  * The abilities cards in play gain from `gainsAbility` rules in effect, by the card that gains them (`RuleSpec
  * gainsAbility`; RRG 1.8 "'Gains'", p. 21), one entry per rule that reaches the card, in the order `activeRules` reads
@@ -3977,22 +4163,7 @@ export function gainedAbilities(
   state: GameState,
   deps: EngineDeps,
 ): ReadonlyMap<InstanceId, readonly GrantedAbility[]> {
-  let inRegistry = GAIN_RULE_IN_REGISTRY.get(deps);
-  if (inRegistry === undefined) {
-    inRegistry = Object.values(deps.abilities).some(
-      (definition) =>
-        definition.trigger.kind === "constant" &&
-        (definition.trigger.rules ?? []).some((rule) => rule.kind === "gainsAbility"),
-    );
-    GAIN_RULE_IN_REGISTRY.set(deps, inRegistry);
-  }
-  const isGain = (rule: RuleSpec): boolean => rule.kind === "gainsAbility";
-  if (
-    !inRegistry &&
-    !state.lastingEffects.some((effect) => effect.kind === "ruleGrant" && isGain(effect.rule)) &&
-    !(state.scenarioRules.rules ?? []).some(isGain)
-  )
-    return NO_GAINED_ABILITIES;
+  if (!mayGainAbilities(state, deps)) return NO_GAINED_ABILITIES;
   let perDeps = GAINED_BY_RULES.get(state);
   if (!perDeps) {
     perDeps = new WeakMap();
@@ -4025,6 +4196,42 @@ export function gainedAbilities(
     perDeps.delete(deps);
     throw error;
   }
+}
+
+/**
+ * The "Boost" abilities a boost card gains from `gainsAbility` rules in effect, read as it is turned faceup: "Each
+ * boost card from the Purple Man encounter set gains: '[star] Boost: …'" (60097–60099; docs/phase7-wave11-scenarios.md
+ * §S3.6). `gainedAbilities` reads only cards in play, and a boost card is not one; this is the same rules' read for a
+ * card in a boost area, by `to` (`TargetQuery.boostCard`). A rule with no `to` (this card gains) never reaches it.
+ *
+ * - Only a `boost` ability is gained here: "Only the ability text beneath the divider line is active on a card that is
+ *   resolving as a boost card" (RRG 1.8 "Boost, Boost Icon", p. 11), so a granted response or action is not.
+ * - As `activeAbilityRefs` treats a gained ability: one of each, not one the card prints, not one an `ignoreAbilities`
+ *   rule names, and not taken away by the boost card's own blank text box. That last is an engine interpretation, the
+ *   one `RuleSpec gainsAbility` makes in play: RRG 1.8 "'Gains'" (p. 21) does not speak to blanking.
+ * - `asBoostCard`: read the card as if it were in a boost area (a facedown card's possible identities, for the defend
+ *   preview), by ignoring the top-level `boostCard` clause of each `to`.
+ */
+export function gainedBoostAbilities(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  opts: { readonly asBoostCard?: true } = {},
+): readonly GrantedAbility[] {
+  const card = cardOf(state, id);
+  if (!card || !mayGainAbilities(state, deps)) return [];
+  const printed = new Set(printedAbilityRefs(card).map((ref) => ref.id));
+  const ignored = ignoredAbilities(state, deps).get(id);
+  const found: GrantedAbility[] = [];
+  for (const { rule, context } of activeRules(state, deps, "gainsAbility")) {
+    if (!rule.to || deps.abilities[rule.abilityId]?.trigger.kind !== "boost") continue;
+    if (printed.has(rule.abilityId) || ignored?.has(rule.abilityId)) continue;
+    if (found.some((grant) => grant.abilityId === rule.abilityId)) continue;
+    const { boostCard: _boostCard, ...rest } = rule.to;
+    if (!matchesQuery(state, id, opts.asBoostCard ? rest : rule.to, context)) continue;
+    found.push({ abilityId: rule.abilityId, grantedBy: context.selfInstanceId });
+  }
+  return found;
 }
 
 const NO_IGNORED_ABILITIES: ReadonlyMap<InstanceId, ReadonlySet<string>> = new Map();
@@ -4179,9 +4386,10 @@ export function unblankedAbilityRefs(state: GameState, id: InstanceId): readonly
   const card = cardOf(state, id);
   if (!card) return [];
   // A facedown card's own text is blank while it is facedown, and so is a card whose text box is treated as blank
-  // (an ally treated as a minion "with a blank text box", docs/phase7-wave4.md §3.9).
+  // (an ally treated as a minion "with a blank text box", docs/phase7-wave4.md §3.9); not a card its own constant
+  // treats as an ally (Black Cat, docs/phase7-wave11-scenarios.md §S3.8).
   const instance = getInstance(state, id);
-  if (instance?.facedownAs || instance?.treatedAs) return [];
+  if (textGoneByTreatment(state, id)) return [];
   // An event's abilities resolve only by playing it (RRG 1.8 "Event", p. 19), which reads its printed text directly.
   // One sitting faceup on another card (an Arrow on Hawkeye's Quiver) has none of its own: offered as a card ability,
   // its effect ran without paying the event's cost or discarding it (2026-09-29 report).

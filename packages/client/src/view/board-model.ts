@@ -64,8 +64,8 @@ import {
   shownEncounterTop,
   villainStageOf,
 } from "@mc/engine";
-import { artFor, type ArtSource, type CardBack, type CardFace } from "../art/art-source.js";
-import { POOL_ENCOUNTER_SETS } from "../content/pool.js";
+import { artFor, type ArtSource, type CardBack, type CardFace, type StandIn } from "../art/art-source.js";
+import { POOL_DEPS, POOL_ENCOUNTER_SETS } from "../content/pool.js";
 import { breakPointOf } from "./break-point.js";
 import { giftReaderNote, giftSeatNote } from "./gift-count.js";
 import { counterGoalsOf } from "./counter-goal.js";
@@ -75,6 +75,7 @@ import { threatGoalOf } from "./threat-goal.js";
 import { otherFaceVisible } from "./hidden-reverse.js";
 import { keywordLabel } from "./keyword-label.js";
 import { faceVisible } from "./visibility.js";
+import { isDroneRole } from "./facedown-history.js";
 import { foeWord, isLeaderCard } from "./foe-words.js";
 import { deckTopStatus, shownTopOf } from "./deck-top.js";
 import { STATUS_DISABLES } from "../tokens.js";
@@ -661,6 +662,8 @@ export interface HandCardView {
   readonly resourceIcons: readonly ResourceIconType[];
   /** The whole card scan; the hand draws it behind the frame. */
   readonly art: ArtSource | null;
+  /** The printed face is sideways (a player side scheme): the hand draws it as a horizontal card. */
+  readonly landscape: boolean;
   /**
    * Where the card is, when that is not your hand: "on Hawkeye's Quiver" for an Arrow event attached to the Quiver,
    * "in your discard" for a card whose own text lets it be played from there. The engine lets you play these "as if
@@ -1445,6 +1448,16 @@ function backKindOf(state: GameState, instance: CardInstance | undefined): CardB
 }
 
 /**
+ * The Drone picture for a facedown Drone minion (#291), at the ATK the engine gives it now: what every player can
+ * read off the table, never the card underneath. Null for any other hidden card.
+ */
+function standInOf(state: GameState, instance: CardInstance | undefined): StandIn | null {
+  if (!instance || !isDroneRole(instance.facedownAs)) return null;
+  const atk = characterProfile(state, instance.instanceId, POOL_DEPS)?.atk;
+  return atk === undefined ? null : { kind: "ultronDrone", atk };
+}
+
+/**
  * Which printed face this instance is showing right now.
  *
  * A facedown card gets none: the engine deliberately says only what a facedown
@@ -1455,7 +1468,10 @@ export function faceOf(state: GameState, instanceId: InstanceId, view?: ViewerCo
   const instance = getInstance(state, instanceId);
   const card = cardOf(state, instanceId);
   if (!instance || !card || !faceVisible(state, instanceId, view)) {
-    return { kind: "back", back: backKindOf(state, instance) };
+    const standIn = standInOf(state, instance);
+    return standIn
+      ? { kind: "back", back: backKindOf(state, instance), standIn }
+      : { kind: "back", back: backKindOf(state, instance) };
   }
   switch (card.type) {
     case "hero_identity": {
@@ -2149,6 +2165,7 @@ export function handCardView(state: GameState, id: InstanceId, playerId: PlayerI
       rulesText: "",
       resourceIcons: [],
       art: null,
+      landscape: false,
       from: null,
     };
   }
@@ -2172,8 +2189,14 @@ export function handCardView(state: GameState, id: InstanceId, playerId: PlayerI
     // [wild] per ally you control (docs/phase7-wave4.md §3.38).
     resourceIcons: resourceIconList(handCardResources(state, deps, id, playerId, null)),
     art: artFor(card, { kind: "front" }),
+    landscape: isLandscapeType(card.type),
     from: null,
   };
+}
+
+/** Card types printed sideways: the schemes. */
+export function isLandscapeType(type: string): boolean {
+  return type === "player_side_scheme" || type === "side_scheme" || type === "main_scheme";
 }
 
 /**

@@ -147,6 +147,26 @@ export interface EventPattern {
    */
   readonly eventAtMost?: Readonly<Record<string, number>>;
   /**
+   * "When you **remove the last threat** from attached scheme" (Acute Tactility, Enhanced Olfaction; docs/phase7-
+   * wave11.md §3.4): a `removeThreat` interrupt that hears a pending removal that will take the scheme from some threat
+   * to none. Matches while the scheme's threat is above 0 and the removal's amount is at least that threat, read as the
+   * interrupt window opens. It also asks that nothing will stop the removal as it applies (`removalBlockedOf`: a crisis
+   * icon, a patrol minion, a `cannotThwart` or `threatCannotBeRemoved` rule): an engine interpretation (authority step
+   * 5), since no ruling says whether a removal that will be stopped "removes the last threat". RRG 1.8 "Interrupt" (p. 25): it resolves before the threat is removed, so before the side scheme's defeat
+   * (August 3, 2026 R1; August 13, 2026 R2). A main scheme is heard too; nothing is defeated for it. Read in an
+   * interrupt window only, never a response one: a response reads `requireResults: { lastThreatRemoved: 1 }`. Any
+   * other event kind never matches. Pair it with `playerIn` for "you remove".
+   */
+  readonly removesLastThreat?: true;
+  /**
+   * On a `removeThreat` event: nothing will stop the pending removal as it applies (`removalBlockedOf`: a crisis icon,
+   * a patrol minion, a `cannotThwart` or `threatCannotBeRemoved` rule), read as the interrupt window opens. A removal
+   * that will be stopped removes no threat, so "when a character would remove threat" does not hear it (RRG 1.8
+   * "'Cannot'", p. 11; "'Would'", p. 48): Traffic Jam (`fne` 60189) does not replace a removal from the main scheme
+   * under a crisis icon. Any other event kind is not read, so a pattern that also hears `placeThreat` keeps it.
+   */
+  readonly removalWillApply?: true;
+  /**
    * String fields the event itself carries must equal these, in both windows — the string counterpart of
    * `eventAtLeast`. `{ to: "hero" }` is "After a player changes to **hero form**" (Taskmaster 04093–04095), which
    * `formChanged`'s own `to` field already records but no pattern field could read. An event without the field, or
@@ -200,6 +220,28 @@ export interface EventPattern {
    * read from the outer pattern or from the alternatives that hear the event's kind. Alternatives may nest.
    */
   readonly anyOf?: readonly EventPattern[];
+  /**
+   * On `cardPlayed` only: the card that played it (`TriggerEvent cardPlayed.via`) must match, read with this card as
+   * `self` wherever the via card now is (a discarded Photographic Reflexes is in its owner's discard pile).
+   * docs/phase7-wave11.md §3.9. Any other event, and a play with no `via`, never matches.
+   */
+  readonly playedVia?: TargetQuery;
+  /**
+   * On `cardPlayed` only: the play must not have been made via a card matching this. "You cannot trigger Echo's
+   * 'Watch and Learn' ability for that event" (Photographic Reflexes, `fne` 60040a/b/c; docs/phase7-wave11.md §3.9) is
+   * Watch and Learn's own pattern with `notPlayedVia` naming Photographic Reflexes, so the ability is not offered and
+   * its cost is not paid. A play with no `via` always passes; any other event kind is not read.
+   */
+  readonly notPlayedVia?: TargetQuery;
+  /**
+   * On `cardPlayed` and `cardBeingPlayed` only: "After you play [this card] **from your hand**" (Nova Prime 17002,
+   * Ironheart 13018, Squirrel Girl 61017; Star-Lord 17001a's "When you play a card from your hand"). The play must be
+   * from the hand, or counted as one ("as if it were in your hand": RRG 1.8 FAQ "Magik (#30A)", p. 64, "considered to
+   * have been played from her hand"; owner answer Q102 = A for Calling in Favors 61008). A card an effect plays from
+   * the deck without those words (Fetch Quest 39045, Shuri's Inventor) does not match, nor does any other event kind.
+   * An event that carries no origin is a play from the hand.
+   */
+  readonly playedFromHand?: true;
 }
 
 /**
@@ -282,6 +324,57 @@ export type ResourceMultiplierSpec =
       readonly resource?: ResourceType;
       readonly additional?: { readonly resource: ResourceType; readonly amount: ValueSpec };
     };
+
+/** `AbilityTriggerSpec playableAsIfInHand`: where a card may be played "as if it were in your hand" (wave 11 §3.8). */
+export interface PlayableAsIfInHandSpec {
+  readonly player: PlayerRef;
+  readonly zone: "deckTop" | { readonly tuckedUnder: TargetRef };
+  /**
+   * Only the covered cards that match ("the upgrade tucked here"); read with this ability's card as `self`. On a tuck
+   * this is the only filter: nothing checks who owns the tucked card, so a permission meant for its owner's cards
+   * only says so here (`owner: "you"`) or in `player`.
+   */
+  readonly cards?: TargetQuery;
+  readonly costReduction?: number;
+  /**
+   * "Reduce **the cost to play** that event by 2" (Photographic Reflexes) rather than "reducing its **resource cost**"
+   * (Magik): `costReduction` comes off the play's whole cost, the card's resource cost and then the generic resources
+   * of its ability cost, which are both costs of playing it (ruling August 26, 2026 - Ruling 1, on RRG 1.8 "Cost",
+   * p. 13-14: Reflexes reduces Make the Call's total, including the chosen ally's cost). Absent: the card's own
+   * resource cost only, floored at 0. `playRequirement` applies it.
+   */
+  readonly reducesAbilityCost?: true;
+  /**
+   * The permission is in force only while `player` is in this form: "If you are in hero form, you can discard …"
+   * (Photographic Reflexes, `fne` 60040a/b/c; docs/phase7-wave11.md §3.9). Read with the other conditions, so in the
+   * other form nothing is covered and nothing is offered.
+   */
+  readonly form?: Form;
+  /**
+   * "You can **discard [this card] from your hand** to play an event tucked under Echo as if it were in your hand"
+   * (Photographic Reflexes; docs/phase7-wave11.md §3.9): an additional cost of the play (RRG 1.8 "Cost", p. 13), paid
+   * with it. Only on a permission whose ability works from the hand (`AbilityDefinition.activeIn: "hand"`); the card
+   * carrying it is then not a resource toward that play's cost, and it is discarded as the play is paid for, right
+   * after the played card leaves the tuck. The log's `cardPlayed` names it as `via`.
+   */
+  readonly discardSelfFromHand?: true;
+}
+
+/**
+ * The "as if it were in your hand" permission a constant carries, or undefined: its `playableAsIfInHand`, or its
+ * `playableTopOfDeck` read as the `"deckTop"` case (docs/phase7-wave11.md §3.8).
+ */
+export function playableAsIfInHandOf(trigger: AbilityTriggerSpec | undefined): PlayableAsIfInHandSpec | undefined {
+  if (trigger?.kind !== "constant") return undefined;
+  if (trigger.playableAsIfInHand) return trigger.playableAsIfInHand;
+  const top = trigger.playableTopOfDeck;
+  if (!top) return undefined;
+  return {
+    player: top.player,
+    zone: "deckTop",
+    ...(top.costReduction !== undefined ? { costReduction: top.costReduction } : {}),
+  };
+}
 
 export type AbilityTriggerSpec =
   /**
@@ -600,6 +693,29 @@ export type AbilityTriggerSpec =
        * is showing it. On the one printed card the two lines are two constants of the same face and go off together.
        */
       readonly playableTopOfDeck?: { readonly player: PlayerRef; readonly costReduction?: number };
+      /**
+       * The general form of `playableTopOfDeck` (docs/phase7-wave11.md §3.8): a permission (RRG 1.8 "Play
+       * Restrictions and Permissions", p. 33) for each player `player` names to play a card from `zone` "as if it
+       * were in your hand", read the same way and on every route that plays a card from the hand.
+       *
+       * - `zone: "deckTop"`: exactly `playableTopOfDeck` (which stays, and is read as this case).
+       * - `zone: { tuckedUnder }`: "You may play the upgrade tucked here as if it were in your hand." (Contingency
+       *   Planning, `fne` 60030). Each card tucked under the card(s) `tuckedUnder` names (this ability's card as
+       *   `self`), faceup or facedown, that matches `cards` when given. A tucked card is out of play (RRG 1.8 "Tuck",
+       *   p. 45), so it is played at its own timing as a hand card is (an upgrade in its player's turn, an event in its
+       *   window) and leaves the tuck at step 1 of initiating (RRG 1.8 "Initiating Abilities", p. 24). The log's
+       *   `cardPlayed` carries `from: "tucked", countsAsFrom: "hand"`. The tuck goes with its host (RRG 1.8 "Tuck",
+       *   p. 45: discarded when the host leaves play), and with it the permission.
+       *
+       * - From the hand: on an ability with `activeIn: "hand"` (docs/phase7-wave11.md §3.9) the permission is read
+       *   from each card in its player's hand, for that player ("you"), and never from a card in play. With
+       *   `discardSelfFromHand` the card is discarded as an additional cost of each play it allows.
+       *
+       * `costReduction` and the ability's limit work as for `playableTopOfDeck`. At most one of the two is set.
+       * (The spec calls this `playableFrom`; that name is the card's own discard permission above, so it is
+       * `playableAsIfInHand` here.)
+       */
+      readonly playableAsIfInHand?: PlayableAsIfInHandSpec;
       /** "As an additional cost for Wonder Man to attack, you must discard 1 card." Costs on this character's own basic powers. */
       readonly basicPowerCosts?: readonly { readonly power: "attack" | "thwart"; readonly cost: AbilityCost }[];
       /**
@@ -785,10 +901,20 @@ export type RuleSpec =
    * Damage that is not from an attack (an ability's or non-attack event's, retaliate, indirect damage) has neither
    * an attacker nor an attack, meets none of them and is blocked (§4.1 Q17). Overkill's spill is "damage from an
    * attack" (RRG 1.8 "Overkill", p. 31) and carries its attack's attacker, card and keywords.
+   *
+   * `stage: "dealt"`: "X cannot be dealt damage" (Kingpin `fne` 60159a, Jackknifed Tanker Truck 60131;
+   * docs/phase7-wave11-scenarios.md §S3.5). RRG 1.8 "Damage" (p. 14) separates the damage dealt from the damage taken,
+   * and "Cannot" (p. 11) is absolute, so damage that cannot be dealt is never dealt: it is dropped before its
+   * interrupt window, with no "would deal / be dealt" or "would take" interrupt, no tough card used or pierced, no
+   * excess damage and no "after … deals / is dealt damage" response (logged `damageNotDealt`). The attack it belongs
+   * to was still made, so "after … attacks" and retaliate still resolve. Everywhere else (target validity, damage
+   * costs, sequential damage) it reads as "cannot take damage": what cannot be dealt cannot be taken either. Absent,
+   * the rule is the "cannot take damage" above (dealt, then not taken; ruling March 6, 2026 R1).
    */
   | {
       readonly kind: "cannotTakeDamage";
       readonly target: TargetQuery;
+      readonly stage?: "dealt";
       readonly while?: Predicate;
       readonly fromSource?: TargetQuery;
       readonly exceptFromSource?: TargetQuery;
@@ -827,6 +953,19 @@ export type RuleSpec =
    * player's identity's); an encounter card's removal; threat moved off the scheme. The scheme is not a legal target
    * of a basic thwart or thwart ability the rule stops. It may be combined with `player`, which then scopes whose
    * removals are bound, as above.
+   *
+   * `exceptFromSource` scopes it by the removing **card** (docs/phase7-wave11.md §3.5): "Threat cannot be removed from
+   * this scheme except by Daredevil or Matt Murdock" (Focus the Senses, `fne` 60012) is `{ target: { self: true },
+   * exceptFromSource: { extensionOf: <that player> } }`. It binds every removal (RRG 1.8 "'Cannot'", p. 11: an
+   * encounter card's, a support's and an ally's included) and lets through one whose removing card matches; for a
+   * removal a thwart makes, the removing card is the thwarting character alone. With `extensionOf` that is the
+   * identity's basic thwart in either form (RRG 1.8 "Identity", p. 23: both titles name the identity), an event its
+   * player plays (a borrowed one included; one they own that another player plays is not), its upgrades unless on
+   * another friendly character (RRG 1.8 "You, Your", p. 49), and any "(thwart)"-labeled ability its player uses, on a
+   * support or ally included: RRG 1.8 "Labeled Ability" (p. 26) makes it "a thwart made by that player's identity",
+   * which the engine follows over p. 49's line that supports and allies are not extensions (engine interpretation).
+   * An ally's basic thwart is the ally's. A `removeThreat.noPlayer` removal has no removing card and is bound. The
+   * scheme is not a legal target of a basic thwart or thwart ability the rule stops.
    */
   | {
       readonly kind: "threatCannotBeRemoved";
@@ -836,6 +975,7 @@ export type RuleSpec =
       readonly player?: PlayerRef;
       readonly exceptBy?: TargetQuery;
       readonly exceptThwartBy?: TargetQuery;
+      readonly exceptFromSource?: TargetQuery;
     }
   /**
    * "While Baron Zemo is engaged with you, you cannot thwart." `player` is resolved with "you" as the rule card's
@@ -964,8 +1104,11 @@ export type RuleSpec =
    * - **Where it is read** (`gainedAbilities`, select.ts): `activeAbilityRefs` joins the gained abilities to the
    *   card's live printed ones, so every reader of a card's abilities has them: timing windows, the triggers of an
    *   event, legal actions and `useAbility`, resource abilities, the limit and the uses counted under
-   *   `<instance>:<abilityId>`, costs, labels. Inside the gained ability `self` is the card that gained it and `you`
-   *   its controller, as for a printed ability. Its form, `while`, cost and limit are its own.
+   *   `<instance>:<abilityId>`, costs, labels, and the game-triggered abilities (`gameAbilityFrames`: a gained When
+   *   Defeated or When Revealed resolves after the card's printed ones, "Each minion gains: 'When Defeated: …'", The
+   *   Raft Breakout 60142b; an effect that ignores When Defeated abilities ignores it too). Inside the gained ability
+   *   `self` is the card that gained it and `you` its controller, as for a printed ability. Its form, `while`, cost and
+   *   limit are its own.
    * - **Not printed.** A blank on the gaining card's text box does not take a gained ability away (only the granting
    *   card's own blank does, by turning its constant off: one and the same for "this card gains"); "printed" readers
    *   (`printedAbilityRefs`) never see it. `RuleSpec ignoreAbilities` naming its id does remove it.
@@ -977,6 +1120,10 @@ export type RuleSpec =
    * - A constant like any other: off while its `while` is false, on a face that is not up, under a blank text box,
    *   and once its card has left play (an ability already on the stack still resolves). Also given by a lasting
    *   `applyRuleUntil` and by a scenario rule.
+   * - **To boost cards.** A `to` with `boostCard: true` reaches a card in an enemy's boost area, which is not in play:
+   *   "Each boost card from the Purple Man encounter set gains: '[star] Boost: …'" (60097–60099;
+   *   docs/phase7-wave11-scenarios.md §S3.6). Read as the boost card is turned faceup (`gainedBoostAbilities`); only a
+   *   `boost` ability is gained that way, and it resolves after the card's printed ones, as one of them would.
    *
    * How it relates to `grantsLabeledAbility` above: both name a registry-only ability from a constant. That one is
    * for a labeled ability (a Preparation) of a card that is resolved on demand wherever the card is (an encounter
@@ -1166,6 +1313,22 @@ export type RuleSpec =
       readonly while?: Predicate;
     }
   /**
+   * "Until the end of the phase, reduce the cost to play each Team-Up card by 1" (Defend Our City 61029): every play by
+   * a player `player` names of a card `appliesTo` matches has its resource cost changed by `delta` (negative reduces),
+   * as a `CostModifierSpec` does, but as a rule, so `applyRuleUntil` makes it lasting (RRG 1.8 "Lasting Effects",
+   * p. 26). Read on every play while it lasts: the cards in hand when it was created and any drawn later. Added to the
+   * other cost modifiers and floored at 0 with them (RRG 1.8 "Cost", p. 13; "Modifiers", p. 29: below zero is zero).
+   * `appliesTo` and `delta` are read with the rule's "you" (the creating ability's controller). `playCostContributions`
+   * lists it under the rule's own card.
+   */
+  | {
+      readonly kind: "playCostModifier";
+      readonly player: PlayerRef;
+      readonly appliesTo: TargetQuery;
+      readonly delta: number | ValueSpec;
+      readonly while?: Predicate;
+    }
+  /**
    * "Players cannot attack other villains." (Distracting Taunts): player attacks against a matching `target` are
    * illegal. `player` scopes the restriction to one player — "You cannot attack Kang" (Fear of Kang, `toafk` 11049).
    * Absent, it binds the whole table, which is what Distracting Taunts' plural printed wording means; every caller
@@ -1345,6 +1508,28 @@ export type RuleSpec =
   /** "When a character thwarts this side scheme, they may use their ATK instead of their THW" (The Red House): `basicThwart.useAtk`. */
   | { readonly kind: "thwartWithAtk"; readonly scheme: TargetQuery; readonly while?: Predicate }
   /**
+   * "Use your DEF in place of your THW and ATK. (Ignore any modifiers to your THW and ATK.)" (The Best Offense...,
+   * `fne` 60052; docs/phase7-wave11.md §3.10): `{ target, stats: ["thw", "atk"], use: "def" }`. Each read of a listed
+   * stat of a matching character (`query.ts characterStat` / `characterProfile`, so every basic power, every "equal to
+   * your ATK" and every effect that names the stat) is that character's `use` stat as it stands, its own modifiers
+   * included; the listed stat's base override and modifiers are ignored. Ruling June 25, 2026 - Ruling 3 (on RRG 1.8
+   * "Thwart", p. 43, and "Attack", p. 8): basic thwart thwarts for the DEF, Go All Out uses the DEF for its THW, ATK
+   * and DEF, As One! uses the DEF in place of the ATK. Not a choice and not one use, unlike `modifyBasicPower.useStat`
+   * and `thwartWithAtk`. The `use` stat itself is read plainly, never through another such rule. Consequential damage
+   * is unchanged (the power used still decides it, docs/phase7-wave6.md §4.1 Q22). A `modifyAttack.atkBonus` on the
+   * attack is an ATK modifier too, so it is ignored (`resolve/event.ts`).
+   *
+   * `target` and `while` must not read a character's stats (a `stat` value, a stat comparison): the rule is consulted
+   * inside every stat read, so such a read would recurse.
+   */
+  | {
+      readonly kind: "statInPlaceOf";
+      readonly target: TargetQuery;
+      readonly stats: readonly ("atk" | "thw" | "def" | "rec" | "sch")[];
+      readonly use: "atk" | "thw" | "def" | "rec" | "sch";
+      readonly while?: Predicate;
+    }
+  /**
    * "Each of your [Arrow] attacks gain ranged" (Hawkeye's Bow): an `AttackKeyword` granted to *attacks*, not to a
    * character. RRG 1.8 defines piercing, ranged and overkill as properties of an attack ("An attack with the …
    * keyword"), so a grant can be keyed on either end of one:
@@ -1357,7 +1542,12 @@ export type RuleSpec =
    *   its ATK, which is exactly what `attack.basic` records, so an attack an event or ability makes is excluded even
    *   when the same character makes it. The mirror of `via`, which excludes a basic attack rather than requiring one.
    *
-   * All three are optional and ANDed. A rule with none of them grants the keyword to every attack in the game, which
+   * - `target` matches the **attacked** character ("attacks against attached minion … gain overkill", Cruisin' for a
+   *   Bruisin' 62009; docs/phase7-wave11-hero-packs.md §H3.15), the mirror of `attacksLoseKeywords.target`. It is read
+   *   only where the attacked character is known (`AttackKeywordContext.targetInstanceId`: as the attack's damage is
+   *   made), so a rule with `target` never answers "when you make an overkill attack" before a target is in hand.
+   *
+   * All four are optional and ANDed. A rule with none of them grants the keyword to every attack in the game, which
    * no card does; `@mc/cards` should always set at least one.
    */
   | {
@@ -1366,6 +1556,26 @@ export type RuleSpec =
       readonly attacker?: TargetQuery;
       readonly via?: TargetQuery;
       readonly basicOnly?: boolean;
+      readonly target?: TargetQuery;
+      readonly while?: Predicate;
+    }
+  /**
+   * "Attacks against attached minion deal 2 additional damage" (Cruisin' for a Bruisin' 62009;
+   * docs/phase7-wave11-hero-packs.md §H3.15): while it applies, a player's attack (basic, or made by a card's ability)
+   * and an enemy's attack on another enemy deal `amount` more damage to a character matching `target`, added where
+   * `modifyAttack.extraDamage` is: after the attack's amount is computed, to each instance of attack damage dealt to
+   * that character (owner ruling Q53). `attacker` narrows it to attacks by a matching character. Several matching
+   * rules add up.
+   *
+   * Not read for an enemy's attack on a hero or ally (RRG 1.8 "Attack (Enemy Activation)", p. 9): 62009 only attaches
+   * to minions, so no card needs it yet; a card that does should settle whether "against" there means the attacked
+   * character or the defender.
+   */
+  | {
+      readonly kind: "attacksDealExtraDamage";
+      readonly amount: number;
+      readonly target: TargetQuery;
+      readonly attacker?: TargetQuery;
       readonly while?: Predicate;
     }
   /**
@@ -1381,11 +1591,18 @@ export type RuleSpec =
    * the excess of the character it defeats, "Ranged" (p. 35) ignores that character's retaliate. The same attack
    * keeps the keyword against any other character. Read by `attackKeywordsOf` when it is given the attacked
    * character, and again as the damage is dealt (`lostAttackKeywords`).
+   *
+   * `attacker` scopes the loss to attacks *made by* a matching character instead ("Bullseye's attacks lose ranged",
+   * Deadly Sai 60070; docs/phase7-wave11-scenarios.md §S7 E19): such an attack has none of these keywords against any
+   * character, and is read so even where no attacked character is known yet ("when an enemy makes a ranged attack").
+   * The same "Lose" sentence makes it beat every grant, "attached villain's attacks gain ranged" (Out Front 60129a)
+   * included. With both set, the two are ANDed; at least one must be set (`@mc/cards` validates it).
    */
   | {
       readonly kind: "attacksLoseKeywords";
       readonly keywords: readonly AttackKeyword[];
-      readonly target: TargetQuery;
+      readonly target?: TargetQuery;
+      readonly attacker?: TargetQuery;
       readonly while?: Predicate;
     }
   /**
@@ -1706,11 +1923,16 @@ export type RuleSpec =
    * reduced amount (RRG 1.8 "Overkill", p. 31, superseding ruling Jan 26, 2026 (3); `resolve/event.ts`
    * `excessDamageOf`). Constants resolve before a tough status (RRG 1.8 FAQ p. 58: "A hero can keep their tough
    * status card if … A constant effect reduces the damage the hero takes to zero"). docs/phase7-wave3.md §3.15.
+   *
+   * `amount` may be a value read live, from the rule's card, each time damage is taken: "Reduce the amount of damage
+   * Echo takes from each enemy attack by your hero's DEF." (Echo, `jj` 61038; docs/phase7-wave11-hero-packs.md). A
+   * value below 0 reduces nothing. A consequential-scoped rule whose card leaves play keeps the amount it read then
+   * (`lingeringConsequentialRules`).
    */
   | {
       readonly kind: "reduceDamageTaken";
       readonly target: TargetQuery;
-      readonly amount: number;
+      readonly amount: number | ValueSpec;
       readonly fromAttack?: boolean;
       /**
        * "… unless the attacker has the [TINY] trait." (docs/phase7-wave7.md §3.30): no reduction for an attack's
@@ -2232,11 +2454,66 @@ export type RuleSpec =
       readonly thwFromSch?: boolean;
       readonly consequential: number;
     }
+  /**
+   * On a minion, of itself: "While there is 4 threat here, treat Black Cat as an ally that takes 2 consequential
+   * damage after she attacks or thwarts." (Black Cat, `fne` 60169; docs/phase7-wave11-scenarios.md §S3.8). While
+   * `while` holds (read with the minion as "self"), the minion may be an ally: `EffectSpec takeControl` ("take control
+   * of Black Cat as an ally") makes it one under the effect's controller, as RRG 1.8 "Card Types" (p. 12) has it: "When
+   * a player changes a minion to an ally, that player takes control of that ally." It stays one while `while` holds and
+   * the rule is active; the moment either fails it is a minion again, engaged with the player who controlled it, and
+   * its threat stays (`syncOwnTreatments`). Unlike Karma or Mind Control its text box is not blank: its printed
+   * abilities and keywords stay (MC60 p. 26 FAQ: Black Cat keeps villainous as an ally), and so do its printed traits,
+   * with `traits` added. `thwFromSch`: its THW is its printed SCH; otherwise 0, a minion having no printed THW.
+   *
+   * Engine reading (tier 5, no source answers it): with `while` holding and no player having taken control (threat
+   * reaching 4 by any other way than the card's own action), the card stays a minion. An ally has a controller (RRG 1.8
+   * "Ally", p. 7) and RRG 1.8 p. 12 names the player who made the change as that controller; no player made it.
+   */
+  | {
+      readonly kind: "treatSelfAsAlly";
+      readonly while: Predicate;
+      readonly consequential: number;
+      readonly traits?: readonly Trait[];
+      readonly thwFromSch?: boolean;
+    }
   | {
       readonly kind: "treatHostAsMinion";
       readonly traits: readonly Trait[];
       readonly keepPrintedTraits?: boolean;
-      readonly schFromThw?: boolean | "current";
+      /** `"base"`: "SCH is equal to its base THW" (Converted, `fne` 60100), as `RuleSpec treatAsMinion` reads it. */
+      readonly schFromThw?: boolean | "current" | "base";
+    }
+  /**
+   * On any card, of every ally a query matches: "Treat each ally with threat on it as a [Deceived] minion with a blank
+   * text box. Its SCH is equal to its base THW and it does not take consequential damage." (Baron Zemo, `fne` 60145;
+   * docs/phase7-wave11-scenarios.md §S3.9). `treatHostAsMinion`'s treatment (blank text box, `traits` in place of the
+   * printed ones unless `keepPrintedTraits`, its printed ATK and hit points, no consequential damage, a minion takes
+   * none), given to each ally card in play that `cards` matches, read live with the rule's card as "self": checked
+   * between frames (`treat-as.ts` `syncRuleTreatments`), as a constant ability's effects "are active anytime the
+   * specific condition is met" (RRG 1.8 "Ability", p. 5). The query is read of the card as it would be untreated (an
+   * ally its controller controls), so "an ally with threat on it" stays matched once it is a minion.
+   *
+   * It is an ally again, under the player who controlled it, in their play area and engaged with no one, the moment the
+   * query stops matching it (its threat removed) or the rule stops being active (its card leaves play, or its text box
+   * is blanked); its threat and damage stay. MC60 p. 26 FAQ: when Baron Zemo leaves play "they are allies again, under
+   * their owner's control, and keep the threat"; ruling Dec 17, 2025 (1) #3: nothing enters or leaves play. Becoming a
+   * minion engages no one: "It engages its controller" is the revealing ability's own `engage` (as Beguiled's is).
+   *
+   * Only a card printed as an ally that nothing else treats as another type is changed: an ally an attachment already
+   * treats as a minion is left to that attachment, and a minion treated as an ally (Karma, Black Cat) is left as it is
+   * (engine reading, tier 5: no source says what a minion-turned-ally that the query matches becomes).
+   *
+   * `schFromThw`: `"base"` is its base THW (RRG 1.8 "Base Value", p. 10: "A defined value before modifiers are
+   * applied"), the printed THW unless an active "has a base THW of" ability sets it, with no THW modifier; `true` its
+   * printed THW; `"current"` its THW with its modifiers. SCH modifiers apply on top of each.
+   */
+  | {
+      readonly kind: "treatAsMinion";
+      readonly cards: TargetQuery;
+      readonly traits: readonly Trait[];
+      readonly keepPrintedTraits?: boolean;
+      readonly schFromThw?: boolean | "current" | "base";
+      readonly while?: Predicate;
     }
   | {
       readonly kind: "cannotHaveAttachments";
@@ -2558,6 +2835,22 @@ export interface AbilityCost {
    */
   readonly flipSelf?: boolean;
   /**
+   * "Change to hero form and discard this card →" (Entrapment 61024): the paying player's identity changes to this form
+   * as part of the cost (`change-form-cost.ts`). RRG 1.8 "Cost" (pp. 13–14): paid in full or not at all, so payable
+   * only from the other form and when no `cannotChangeForm` rule stops the change; an additional cost to change form
+   * (`RuleSpec formChangeCost`, Work-Life Balance 61030) is folded into this cost and paid with it. The change is not the
+   * once-per-round change (RRG 1.8 "Form, Change Form", p. 21), and its `formChanged` event goes above the frame paid
+   * for, so "after you change form" responses resolve before the ability's effects. Not on a resource ability: the
+   * change and its event need the frame being paid for, which a resource ability paid mid-payment does not have.
+   */
+  readonly changeForm?: "hero" | "alterEgo";
+  /**
+   * Engine-internal, never scripted: set by `foldChangeFormCost` on the cost it returns, listing the parts the additional
+   * costs to change form added. It marks the cost folded (so it is not folded twice) and keeps those parts the
+   * changing player's own (`delegatesFoldedPart`).
+   */
+  readonly changeFormFolded?: readonly (keyof AbilityCost)[];
+  /**
    * "Spend a [energy] resource" → `{ energy: 1 }`; "Spend [E][M][P]" → one of each. A number is a generic amount.
    * `{ choose }` is a number of resources of any type the payer chooses (`ResourcesChoice`).
    */
@@ -2603,8 +2896,18 @@ export interface AbilityCost {
    */
   readonly spendCounters?: {
     readonly counterType: string;
-    /** How many; with `upTo`, the most that may be removed. */
-    readonly amount: number;
+    /**
+     * How many; with `upTo`, the most that may be removed.
+     *
+     * A `ValueSpec` is a number the board gives (hero-pack spec H3.5; 4K Digital Camcorder 61009: "choose a non-Elite
+     * minion. Remove X evidence counters from Alias Investigations, where X is equal to 2 less than that minion's
+     * remaining hit points →"). It is read when the cost is determined (RRG 1.8 "Initiating Abilities", p. 24, step 3),
+     * after the cost's own picks (`chooseTarget` and the other slots), with them bound, the payer as `you` and the
+     * ability's card as `self`; rounded down and never below 0, so an X of 0 removes nothing and is always payable
+     * while the card is there. The number is the plan's (`CostPlan.cost`), paid as read, and bound to `bind`. Not with
+     * `upTo` or `all`, and not on a `repeatable` resource ability (a use cannot be multiplied by a number not yet read).
+     */
+    readonly amount: number | ValueSpec;
     readonly target?: "self" | "identity" | TargetRef;
     /**
      * "Remove **up to** 4 growth counters from Groot →" ("We Are Groot", `gmw` 16006; docs/phase7-wave3.md §3.32): the
@@ -2856,6 +3159,24 @@ export interface AbilityCost {
    *   steps 3 and 5). `legalActions` offers one variant per candidate.
    */
   readonly healCharacter?: { readonly slot: string; readonly query: TargetQuery; readonly amount: number };
+  /**
+   * "Exhaust this card and **choose a non-Elite minion**. Remove X evidence counters …, where X is equal to 2 less than
+   * that minion's remaining hit points → discard that minion" (4K Digital Camcorder 61009; hero-pack spec H3.5;
+   * `choose-target-cost.ts`): a choice made as part of the cost, before the arrow, with nothing done to the card. The
+   * rest of the cost and the effects read it as slot `slot`.
+   *
+   * - **Candidates.** Cards in play matching `query`, read with the payer as `you` and the ability's card as `self`.
+   *   Any player's card and an enemy alike: it is the target of the ability, not a card the cost is paid with (RRG
+   *   1.8 "Cost", p. 14, names only what the cost spends). Put what the effect needs of it in `query` (RRG 1.8 "Target",
+   *   p. 43: the cost does not make a card a valid target; "Cost", p. 14: a cost cannot be paid without one).
+   * - **The pick** is made up front in `costChoices[slot]`, as every cost pick is; with exactly one candidate it is
+   *   forced and may be omitted. `legalActions` offers one variant per candidate, and `planCost` refuses any whose
+   *   other parts it cannot pay (a counter cost read off it, `spendCounters.amount` as a `ValueSpec`), so a minion with
+   *   too many hit points is no variant at all.
+   * - With no candidate the cost cannot be paid and the ability is not offered (RRG 1.8 "Initiating Abilities", p. 24,
+   *   steps 3 and 5). Only on an action: a timing window cannot ask for the pick.
+   */
+  readonly chooseTarget?: { readonly slot: string; readonly query: TargetQuery };
   /**
    * "Discard [this card] →" (Cosmic Flight, Tenacity, Energy Channel). The
    * card's counters are snapshotted into vars `self.counters.<type>` first, so
@@ -3326,6 +3647,9 @@ export interface InPlayCostPick {
    * payer controls and that tie for the highest (or lowest) `measure` among them can pay; a tie is the payer's pick. The
    * superlative is taken over every matching card before asking whether it can pay, so a highest-cost card that cannot
    * leave play leaves the cost unpayable rather than passing the cost to the next one down (the text names that card).
+   * The exception is a permanent card the source cannot remove, which a discard or return cost skips: RRG 1.8
+   * "Permanent" (p. 32) retargets the effect to "the non-permanent card that fits its criteria" (applied to costs, an
+   * engine interpretation).
    */
   readonly superlative?: { readonly order: "highest" | "lowest"; readonly measure: DiscardCombined["measure"] };
   /**

@@ -10,8 +10,8 @@ import {
   type ResourceType,
   type TypedResource,
 } from "./resources.js";
-import type { EffectSpec } from "./spec.js";
-import type { TriggerEvent } from "./trigger-events.js";
+import type { BasicPowerName, EffectSpec, StatName } from "./spec.js";
+import type { PlayedFrom, TriggerEvent } from "./trigger-events.js";
 import type { ZoneId } from "./state.js";
 
 /**
@@ -207,6 +207,12 @@ interface FrameBase {
   readonly frameId: FrameId;
   /** Selections fed back by `resolveChoice`; the frame reads and clears it. */
   readonly answer: readonly string[] | null;
+}
+
+/** A var on a frame that counts each ability that resolved (`Frame<"ability">.resolvedCounts`). */
+export interface ResolvedCountVar {
+  readonly frameId: FrameId;
+  readonly name: string;
 }
 
 export type StackFrame =
@@ -495,6 +501,12 @@ export type StackFrame =
        */
       readonly returnBindingsTo?: { readonly frameId: FrameId; readonly prefix: string };
       /**
+       * Vars on other frames that count this ability if it resolves (`EffectSpec resolveSpecials`): its `<bind>.count`,
+       * and the attack in progress's `labeledResolvedVar("preparation")`. Its effects frame raises each by 1 as it
+       * finishes, only if they changed the game (`Frame<"effects">.resolvedCount`).
+       */
+      readonly resolvedCounts?: readonly ResolvedCountVar[];
+      /**
        * An attack- or thwart-labeled ability whose `characterWouldAct` event was pushed above this frame
        * (docs/phase7-wave10.md §3.21): `"asked"` once it has been, so it is announced once; `"replaced"` when an
        * interrupt replaced it ("discard this card instead"), so the ability resolves none of its effects.
@@ -525,6 +537,20 @@ export type StackFrame =
        * each var summed, so several Specials of one `resolveSpecials` report together (docs/phase7-wave5.md §3.7).
        */
       readonly returnBindingsPrefix?: string;
+      /**
+       * With `returnBindingsPrefix`: what this frame started with (a `forEachPlayer` `bind` pass inherits its ability's
+       * vars and slots). Only the vars and slots it set or changed go back, so a var the ability held before the loop
+       * is not handed back once per pass.
+       */
+      readonly returnChangedFrom?: { readonly vars: Vars; readonly bindings: Bindings };
+      /**
+       * An ability's effects whose resolution is read (`resolveAbility`): `from` is the game's digest as they began
+       * (`gameFingerprint`). When they finish with the game changed, the ability resolved: each var in `to` (its
+       * `Frame<"ability">.resolvedCounts`) goes up by 1, a Special is listed in `<prefix>.resolved` and
+       * `abilityResolved` is announced; when nothing changed, none of them (RRG 1.8 "Resolve", p. 37). Absent when
+       * nothing reads it, which reads as changed.
+       */
+      readonly resolvedCount?: { readonly from: string; readonly to: readonly ResolvedCountVar[] };
       /**
        * The effects of an ability a player uses: an ability on a player card, an action, or an optional interrupt or
        * response (not a forced ability, When Revealed, boost or setup on an encounter card). "Players cannot discard
@@ -573,6 +599,14 @@ export type StackFrame =
        * card, and is never the source of its leaving.
        */
       readonly defeatedLeavingSource?: CardId;
+      /**
+       * These effects replace this event ("… instead", `EffectSpec replaceTriggeringEvent`), carried into their `if`
+       * branches. A `placeThreat` or `removeThreat` replacing an event of the same kind is still that threat ("that
+       * threat is added here instead", Traffic Jam `fne` 60189; RRG 1.8 "Replacement Effect", p. 37): it keeps the
+       * replaced event's source and parent frame, so the scheme activation or thwart it belonged to reports it
+       * (`threatPlaced`, `threatRemoved`) and a scheme it defeats is defeated by that thwart's player.
+       */
+      readonly replacesEvent?: TriggerEvent;
       /** The one thwart this "(thwart)" ability is making, on the root frame of its resolution (`ThwartSession`). */
       readonly thwart?: ThwartSession;
       /**
@@ -614,7 +648,7 @@ export type StackFrame =
        * 6; "Labeled Ability" (p. 26): the labeled effect is performed "when the labeled ability begins resolving (after
        * costs have been paid)". So the status cards that cancel the label are read, and an "(attack)" ability's attack
        * begins, only when the cursor reaches the effect (`beginEffectAfterCost`, `resolve/effects-frame.ts`; ruling
-       * April 30, 2026 - Ruling 2). Counted from the end because a choice inserted while paying lands before the
+       * April 30, 2026 - Ruling 5). Counted from the end because a choice inserted while paying lands before the
        * effect. Absent once the cost is paid, and on every other frame.
        */
       readonly costEffectsPending?: number;
@@ -688,6 +722,48 @@ export type StackFrame =
       readonly boostsGiven?: number;
       readonly boost?: BoostInProgress | null;
     })
+  /**
+   * RRG 1.8 "Villainous" (p. 47) on a character that is not an enemy (an ally or a hero: MC60 p. 26 FAQ, "The rules for
+   * villainous have been revised to function for allies (and heroes) who have it"; docs/phase7-wave11-scenarios.md
+   * §S3.7): "When resolving that basic power, turn the boost card faceup, resolve any boost ability on that card, and
+   * apply its boost icons to the character's stats for this use. Discard the boost card after it is resolved."
+   * `resolve/villainous.ts`. Two frames for one use of a basic power:
+   *
+   * - `use`, the record of the use, beneath the use's own frame (`useFrameId`): what the use turned up, the stat its
+   *   icons go to, and the lasting modifiers carrying them. It runs once the use has resolved, and discards the cards
+   *   (RRG 1.8 p. 47; MC60 p. 3, "after the basic power resolves").
+   * - `resolve`, above the use, which turns each card up and resolves it, writing to its record (`recordFrameId`).
+   */
+  | (FrameBase & {
+      readonly kind: "characterBoost";
+      readonly stage: "use" | "resolve";
+      readonly characterInstanceId: InstanceId;
+      /** The character's controller: "you" for the Boost abilities (RRG 1.8 p. 47). */
+      readonly playerId: PlayerId;
+      readonly power: BasicPowerName;
+      /**
+       * `use`: the stat powering this use, its icons' destination (rewritten by `setBasicPowerStat`, as the events are,
+       * and its `bonuses` with it). `resolve` reads its record's.
+       */
+      readonly stat: StatName;
+      /** The frame the use is (`basicPowerUseFrameId`); its end ends the icons' modifiers. */
+      readonly useFrameId: FrameId;
+      /**
+       * `use`: the facedown boost cards the character held before this use. They stay facedown: only the card this use
+       * gave is resolved (RRG 1.8 "Boost, Boost Icon", p. 11).
+       */
+      readonly heldBefore: readonly InstanceId[];
+      /** `use`: the cards turned faceup for this use, in order. */
+      readonly turned: readonly InstanceId[];
+      /** `use`: the lasting stat modifiers carrying their icons (`LastingEffect.id`). */
+      readonly bonuses: readonly string[];
+      /** `use`: its `resolve` frame has been pushed (a basic defense's waits for the enemy's boost cards). */
+      readonly started?: true;
+      /** `resolve`: its `use` record. */
+      readonly recordFrameId?: FrameId;
+      /** `resolve`: the card being resolved. */
+      readonly boost?: BoostInProgress | null;
+    })
   /** RRG "Reveal" steps 1–4. */
   | (FrameBase & {
       readonly kind: "reveal";
@@ -699,6 +775,12 @@ export type StackFrame =
       readonly effectsCancelled: boolean;
       /** "This card gains surge" resolved while it was being revealed. */
       readonly surgeGained: boolean;
+      /**
+       * The card's surge resolved in step 3 among its other When Revealed abilities, because the first player ordered it
+       * before a printed one (FFG ruling, September 22, 2026; `orderWhenRevealed`), so the `surge` stage has nothing
+       * left to resolve. Absent on every other reveal.
+       */
+      readonly surgeResolved?: true;
       /**
        * Reveal step 3 initiated at least one of the card's When Revealed abilities, incite included (RRG 1.8 "Reveal",
        * p. 38), uncancelled. With a live surge, this is what makes a treachery "resolved" (RRG 1.8 "Resolve", p. 37;
@@ -855,11 +937,13 @@ export type StackFrame =
       /** Who controls the card once it's in play ("Play under any player's control"); usually `playerId`. */
       readonly controllerId: PlayerId;
       readonly attachToInstanceId: InstanceId | null;
-      readonly stage: "enterPlay" | "effects" | "abilities" | "discardEvent" | "done";
+      /** `beingPlayed`: a non-event's play interrupt window has resolved; it enters play next unless cancelled. */
+      readonly stage: "enterPlay" | "beingPlayed" | "effects" | "abilities" | "discardEvent" | "done";
       /**
-       * RRG 1.8 "Cancel" (p. 13): a Forced Interrupt on `cardBeingPlayed` cancelled this card's effects
+       * RRG 1.8 "Cancel" (p. 11): a Forced Interrupt on `cardBeingPlayed` cancelled this card's effects
        * ("When you play an event, cancel its effects and discard it", Counterspell, `drs` pack). The card is still
-       * considered played and is still discarded — only its own abilities are prevented from initiating.
+       * considered played and is still discarded — only its own abilities are prevented from initiating. A cancelled
+       * non-event never enters play (Spellcasting 57063): it goes from the table to its owner's discard pile.
        */
       readonly effectsCancelled: boolean;
       /**
@@ -880,6 +964,12 @@ export type StackFrame =
        * `RuleSpec playDestination`; docs/phase7-wave8.md §3.34). Absent on every other play.
        */
       readonly intoScenarioPlayArea?: string;
+      /**
+       * Where the card was played from, and whether it counts as played from the hand (`PlayOrigin`; RRG 1.8 FAQ
+       * "Magik (#30A)", p. 64), carried by its `cardBeingPlayed` and `cardPlayed` trigger events. Absent (a frame built
+       * before origins were recorded): from the hand.
+       */
+      readonly playedFrom?: { readonly from: PlayedFrom; readonly countsAsFrom?: "hand" };
       /**
        * Where a played event goes once its effects have resolved, when not its owner's discard pile (`EffectSpec
        * afterResolving`; docs/phase7-wave7.md §3.68): "return that event to your hand after resolving its effects".
@@ -910,9 +1000,24 @@ export type StackFrameKind = StackFrame["kind"];
  */
 export function playPaymentVars(stack: readonly StackFrame[], instanceId: InstanceId): Vars {
   const play = stack.find((frame) => frame.kind === "playCard" && frame.instanceId === instanceId);
-  if (play?.kind !== "playCard") return {};
-  return paymentVarsIn(play.vars);
+  if (play?.kind === "playCard") return paymentVarsIn(play.vars);
+  // A card put into play by an ability whose cost paid its printed cost ("Pay the printed cost of an ally in any
+  // player's discard pile → put that ally into play", Make the Call 01071): that payment was for the card, so what was
+  // overpaid is overpaid for its cost (FFG ruling, RRG 1.0–1.4 era: "you CAN 'overpay' for Hank Pym if using Make the
+  // Call"; RRG 1.8 "Cost", p. 13). Read while that ability is still resolving, as a play's is (#335).
+  const paidBy = stack.find(
+    (frame) =>
+      (frame.kind === "playCard" || frame.kind === "ability" || frame.kind === "effects") &&
+      frame.bindings[PRINTED_COST_PAID_SLOT]?.includes(instanceId),
+  );
+  return paidBy && "vars" in paidBy ? paymentVarsIn(paidBy.vars) : {};
 }
+
+/**
+ * The slot naming the card whose printed cost an ability's cost paid (`AbilityCost.payPrintedCostOf`), so the payment
+ * reaches that card's own abilities as the ability puts it into play (`playPaymentVars`).
+ */
+export const PRINTED_COST_PAID_SLOT = "printedCostPaid";
 
 /**
  * The payment among a play frame's vars: `paid.*`, and `overpaid.*` and a chosen `x`, which travel the same way ("for
@@ -1035,6 +1140,33 @@ export function currentActivationFrameId(stack: readonly StackFrame[]): FrameId 
   return null;
 }
 
+/**
+ * The frame a basic power's use is, "for this use" (docs/phase7-wave2.md §17.4): its own `attack` / `thwart` event, or
+ * the enemy attack a basic defense answers (`currentActivationFrameId`), on the stack beneath the power's
+ * `basicPowerUsing` window. A basic recovery is neither an attack nor an activation: its use is its own `basicRecovery`
+ * event (docs/phase7-wave6.md §3.40), which reads REC as it applies, never an attack further down.
+ */
+export function basicPowerUseFrameId(
+  stack: readonly StackFrame[],
+  power: BasicPowerName,
+  characterId: InstanceId,
+): FrameId | null {
+  if (power !== "recover") return currentActivationFrameId(stack);
+  const recovery = stack.find(
+    (f) => f.kind === "event" && f.event.kind === "basicRecovery" && f.event.characterInstanceId === characterId,
+  );
+  return recovery?.frameId ?? null;
+}
+
+/**
+ * The innermost thwart on the stack (`EffectSpec atEndOfThwart`, docs/phase7-wave11-hero-packs.md H3.12), or null:
+ * "that thwart" for an interrupt or response answering it, the thwart around them for an effect resolving inside it.
+ */
+export function currentThwartFrameId(stack: readonly StackFrame[]): FrameId | null {
+  const frame = stack.find((f) => f.kind === "event" && f.event.kind === "thwart");
+  return frame?.frameId ?? null;
+}
+
 /** A client-facing summary of what is resolving and what is queued. */
 export interface StackView {
   readonly frameId: FrameId;
@@ -1062,6 +1194,8 @@ export function describeFrame(frame: StackFrame): string {
       return `play ${frame.instanceId} (${frame.stage})`;
     case "damageGroup":
       return `simultaneous damage to ${frame.members.length} character(s) (${frame.stage})`;
+    case "characterBoost":
+      return `villainous boost ${frame.stage} for ${frame.characterInstanceId}'s ${frame.power}`;
   }
 }
 

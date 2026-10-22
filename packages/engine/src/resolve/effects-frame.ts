@@ -4,6 +4,7 @@ import { displayNameOf } from "../visibility.js";
 import type { AbilityId } from "@mc/content";
 import { announceDeckTops } from "../deck-top.js";
 import { positionsOf, rearrangeable, rearrangeCards } from "./rearrange.js";
+import { anyFacedown, hiddenHandOptions, offerOrder, offeredSlotOf, pickedInstances } from "./hidden-hand-pick.js";
 import {
   BORROWED_BOOST_ICONS_SLOT,
   type EngineDeps,
@@ -15,6 +16,8 @@ import {
   cardsInPlayFromZone,
   hostChoicesForEffectPlay,
   hostForEffectPlay,
+  isSeparateDeckPlayFrom,
+  searchesOwnDeck,
   paymentOptions,
   paymentsFromOptionIds,
   announceResourcesSpent,
@@ -56,6 +59,7 @@ import {
   type ChoicePrompt,
 } from "../choices.js";
 import {
+  createCtx,
   type Ctx,
   emit,
   moveCard,
@@ -142,18 +146,20 @@ import {
   reachOf,
 } from "../select.js";
 import type { EffectSpec, PlayerRef, StatusName, ValueSpec } from "../spec.js";
-import type { Bindings, StackFrame, TriggerCandidate } from "../stack.js";
+import type { Bindings, ResolvedCountVar, StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
 import { executePayAttackCost } from "../attack-cost.js";
 import { executeSettleCostDamage } from "../cost-damage.js";
 import { executePayEncounterLookDiscard } from "../encounter-look-cost.js";
 import { executeSettleEnemyAttackCost } from "../enemy-attack-cost.js";
 import { executeSettleResolveAbilityCost } from "../resolve-ability-cost.js";
+import { gameFingerprint } from "../game-fingerprint.js";
 import { executePayDeckDiscardChoice } from "../deck-discard-choice-cost.js";
 import { executePayEncounterDeckDiscard } from "../encounter-discard-cost.js";
 import { executePayRemoveThreatCost } from "../remove-threat-cost.js";
 import { executeSettleReadyCardsCost } from "../ready-cards-cost.js";
 import { executeDefeatedTogether } from "./defeated-together.js";
+import { executeResolveSetupsTogether } from "./put-into-play-setup.js";
 import { executeSearchCollection } from "./collection.js";
 import { announceAbilityResolved, labelCancels } from "./ability.js";
 import { releaseSentenceResponses } from "./sentence-hold.js";
@@ -163,9 +169,10 @@ import { executeAccuse } from "./accusation.js";
 import { executeReportFact } from "./report-fact.js";
 import { executeBasicPowerBy } from "./basic-power-by.js";
 import { resolveTeamwork } from "./enter-play.js";
-import { effectChoiceAuthority, simultaneousOrderer } from "../villain/authority.js";
+import { effectChoiceAuthority, isEncounterCardType, simultaneousOrderer } from "../villain/authority.js";
 import {
   applyEffect,
+  pushEachPlayerPass,
   putIntoPlayChosenController,
   putIntoPlayControlIsChosen,
   putIntoPlayControllerSlot,
@@ -176,7 +183,7 @@ import { applyFindCard, findCandidates } from "./find.js";
 import { putIntoPlayHostCandidates } from "./reveal.js";
 import { controllerOfArea, joinGameArea } from "./game-areas.js";
 import { damageGroupFrame } from "./damage-group.js";
-import { eachEncounterCard, selectCards } from "./cards.js";
+import { eachEncounterCard, selectCards, shuffleSeparateDeck } from "./cards.js";
 import { abilityFrame, addFrameVars, eventFrame, type Frame, pushEffects, pushEvents } from "./frames.js";
 import { giveStatusOrAnnounce } from "./status-being-given.js";
 import { splitWouldDiscard } from "./would-discard.js";
@@ -207,6 +214,7 @@ import {
   slotTargetValid,
   UNRESOLVED_VAR,
 } from "./target-validity.js";
+import { hasPerPlayerMainSchemes } from "../per-player-main-schemes.js";
 import { executePairCards } from "./pair-cards.js";
 import { executeSequentialDamage } from "./sequential-damage.js";
 import { markPreThenUnresolved } from "./then.js";
@@ -242,6 +250,15 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
     // An optional setup rule is logged as applied once its instruction has resolved (`Frame.setupOption`).
     if (frame.setupOption) emit(ctx, { type: "setupOptionApplied", ...frame.setupOption });
     popFrame(ctx);
+    // RRG 1.8 "Resolve" (p. 37): an ability resolves only if one or more of its effects is applied to the game state;
+    // FFG ruling on Citywide Crisis (RRG 1.0-1.4 era): a When Revealed that changes nothing does not count. Any change
+    // counts, however partial. Read with this frame popped, so the frames beneath are the ones beneath at its start,
+    // and before the lasting effects that end with it do, which were there at its start too. The count, the
+    // `<prefix>.resolved` slot and the `abilityResolved` announcement all follow it. Unmeasured (nothing could answer
+    // as the effects began, `resolveAbility`): read as changed, so a listener that arrived meanwhile still hears it.
+    const changed = !frame.resolvedCount || gameFingerprint(ctx.state) !== frame.resolvedCount.from;
+    if (changed && frame.resolvedCount)
+      for (const counted of frame.resolvedCount.to) addFrameVars(ctx, counted.frameId, { [counted.name]: 1 });
     // A rule waiting on an attack this frame never initiated ends with it (spec.ts `applyRuleUntil`, "initiated").
     settleAwaitingAttackEffects(ctx, frame.frameId, null);
     // "That attack" on a resource ability ends with the ability it paid for (spec.ts `applyRuleUntil`, "endOfPaidFor").
@@ -251,19 +268,26 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
       // A Special's own bindings, reported to the `resolveSpecials` that resolved it (docs/phase7-wave5.md §3.7): under
       // the prefix, added to what the sequence's earlier Specials reported.
       const prefix = frame.returnBindingsPrefix;
+      // A `forEachPlayer` pass hands back only the vars and slots it set or changed, not what it inherited.
+      const from = frame.returnChangedFrom;
+      // Order-sensitive: a slot re-bound to the same cards in another order counts as changed and is joined back, which
+      // adds no card the ability did not already hold.
+      const sameIds = (a: readonly InstanceId[], b: readonly InstanceId[] | undefined) =>
+        b !== undefined && a.length === b.length && a.every((id, i) => id === b[i]);
       updateFrame(ctx, frame.returnBindingsTo, (parent) => {
         if (parent.kind !== "effects") return parent;
         const bindings: Record<string, readonly InstanceId[]> = { ...parent.bindings };
         for (const [key, ids] of Object.entries(frame.bindings))
-          bindings[`${prefix}.${key}`] = [...new Set([...(bindings[`${prefix}.${key}`] ?? []), ...ids])];
+          if (!from || !sameIds(ids, from.bindings[key]))
+            bindings[`${prefix}.${key}`] = [...new Set([...(bindings[`${prefix}.${key}`] ?? []), ...ids])];
         const vars: Record<string, number> = { ...parent.vars };
         for (const [key, amount] of Object.entries(frame.vars))
-          vars[`${prefix}.${key}`] = (vars[`${prefix}.${key}`] ?? 0) + amount;
+          if (!from || from.vars[key] !== amount) vars[`${prefix}.${key}`] = (vars[`${prefix}.${key}`] ?? 0) + amount;
         // `<prefix>.resolved`: the cards whose Special resolved. One a stunned/confused status card or an interrupt
         // replaced never reaches its effects, and one cut short after its cost (`beginEffectAfterCost`) lost its
         // announcement, so neither is listed ("each technique upgrade resolved this way"; FFG ruling Oct 18, 2024,
-        // post-RRG 1.6 #26 (3)).
-        if (frame.announceResolved && frame.selfInstanceId)
+        // post-RRG 1.6 #26 (3)); nor is one whose effects changed nothing (RRG 1.8 "Resolve", p. 37).
+        if (changed && frame.announceResolved && frame.selfInstanceId)
           bindings[`${prefix}.resolved`] = [
             ...new Set([...(bindings[`${prefix}.resolved`] ?? []), frame.selfInstanceId]),
           ];
@@ -279,7 +303,7 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
     // A response to a deck discard: the cards it took away are recorded as its (box-heroes B3.3).
     noteDeckDiscardsTaken(ctx, frame);
     // The ability these effects are has now resolved (RRG 1.8 "Resolve", p. 37).
-    announceAbilityResolved(ctx, frame);
+    announceAbilityResolved(ctx, frame, changed);
     // A sentence has resolved in full: the responses it held open now (`sentence-hold.ts`).
     releaseSentenceResponses(ctx, frame);
     return;
@@ -345,6 +369,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   if (effect.kind === "divideDamageEvenly") return executeDivideDamageEvenly(ctx, frame, effect, context);
   if (effect.kind === "spendResources") return executeSpendResources(ctx, frame, effect, context);
   if (effect.kind === "dealEncounterCard") return executeDealEncounterCards(ctx, frame, effect, context);
+  if (effect.kind === "forEachPlayer" && effect.order === "firstPlayerChooses")
+    return executeForEachPlayerOrdered(ctx, frame, effect, context);
   if (effect.kind === "reorderCards") return executeReorderCards(ctx, frame, effect, context);
   if (effect.kind === "changeForm") return executeChangeForm(ctx, frame, effect, context);
   if (effect.kind === "joinGameArea") return executeJoinGameArea(ctx, frame, context);
@@ -378,6 +404,8 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   if (effect.kind === "settleReadyCardsCost") return executeSettleReadyCardsCost(ctx, frame, effect);
   // docs/phase7-wave5.md §4.1 Q49: allies and minions defeated by one effect, resolved together.
   if (effect.kind === "defeatedTogether") return executeDefeatedTogether(ctx, frame, effect);
+  // docs/phase7-wave11-scenarios.md §S3.15: the Setup abilities of cards a `putIntoPlay` put into play.
+  if (effect.kind === "resolveSetupsTogether") return executeResolveSetupsTogether(ctx, frame, effect);
   // docs/phase7-wave6.md §3.1: a minion's teamwork keyword, checked as it resolves.
   if (effect.kind === "resolveTeamwork") {
     setFrame(ctx, { ...frame, cursor: frame.cursor + 1 });
@@ -460,7 +488,7 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
  * .costEffectsPending`): once the cursor reaches the first instruction of the effect, the cost has been paid. Official
  * text: RRG 1.8 "Initiating Abilities" (p. 24), costs in step 5 and the effect in step 6; "Labeled Ability" (p. 26),
  * the labeled effect begins "after costs have been paid", and a stunned or confused identity has "the entire ability
- * (except for its costs)" cancelled; ruling April 30, 2026 - Ruling 2: "If a treachery revealed in Step 5 Stuns the
+ * (except for its costs)" cancelled; ruling April 30, 2026 - Ruling 5: "If a treachery revealed in Step 5 Stuns the
  * hero, the Stun card is discarded in Step 6 instead of dealing damage" (Return the Favor; owner decision 2026-10-16,
  * audit finding 13, superseding the 2026-10-08 reading that the attack began before the cost). So the status check
  * `resolveAbility` makes for every other labeled ability is made here: a status card gained while paying cancels the
@@ -625,6 +653,8 @@ function needsVillainChoice(ctx: Ctx, frame: Frame<"effects">, effect: EffectSpe
  */
 function needsMainSchemeChoice(ctx: Ctx, frame: Frame<"effects">, effect: EffectSpec): boolean {
   if ((ctx.state.extraMainSchemes ?? []).length === 0 || frame.bindings[MAIN_SCHEME_CHOICE]) return false;
+  // A main scheme per player: "the main scheme" is read by play area, never chosen (wave 11 scenarios §S3.1).
+  if (hasPerPlayerMainSchemes(ctx.state)) return false;
   if (frame.controllerId === null || !isPlayerCard(ctx.state, frame.selfInstanceId)) return false;
   if (contextArea(ctx.state, contextOf(frame, ctx.deps))) return false;
   return JSON.stringify(effect).includes('{"kind":"mainScheme"}');
@@ -639,12 +669,13 @@ function needsMainSchemeChoice(ctx: Ctx, frame: Frame<"effects">, effect: Effect
  * more than one it could trigger → pick a host, if the upgrade has more than one → pick a payment**. Nothing is spent until the last step, and a payment that does not cover the reduced cost
  * plays nothing at all (RRG 1.8 "Initiating Abilities", p. 24, step 5: "abort this process without paying any costs").
  */
-function executePlayFromHand(
-  ctx: Ctx,
-  frame: Frame<"effects">,
-  effect: Extract<EffectSpec, { kind: "playFromHand" }>,
-  context: EffectContext,
-): void {
+/**
+ * What a `playFromHand` effect could play right now, read as it would resolve: its player, the zone, the Action
+ * timing, whether it pays, and the cards it would offer (each legal to play, affordable after the reductions, with a
+ * legal place). `executePlayFromHand` runs on these, and `Predicate canPlayFromHand` reads `candidates`, so an option
+ * gated on "play a card … (paying its costs)" agrees with the play it would make.
+ */
+function playFromHandOptions(ctx: Ctx, effect: Extract<EffectSpec, { kind: "playFromHand" }>, context: EffectContext) {
   const [playerId] = resolvePlayers(ctx.state, effect.player, context);
   const reduction =
     effect.costReduction === undefined
@@ -652,10 +683,13 @@ function executePlayFromHand(
       : Math.max(0, resolveValue(ctx.state, effect.costReduction, context, ctx.deps));
   const paying = effect.ignoreCost !== true;
   // `{ tuckedUnder }` (Med Lab; docs/phase7-wave6.md §3.57): the hosts are read as the effect resolves.
+  // `{ separateDeck, position }` (docs/phase7-wave11.md §3.2): the player's own deck of that name.
   const from: PlayFromZone =
-    typeof effect.from === "object"
-      ? { tuckedUnder: resolveRef(ctx.state, effect.from.tuckedUnder, context) }
-      : (effect.from ?? "hand");
+    typeof effect.from !== "object"
+      ? (effect.from ?? "hand")
+      : "tuckedUnder" in effect.from
+        ? { tuckedUnder: resolveRef(ctx.state, effect.from.tuckedUnder, context) }
+        : effect.from;
   // "Play an event with a 'Hero Action' ability" from a Response (`ignoreActionTiming`): the Action's turn is not asked.
   const timing: ActionTiming = effect.ignoreActionTiming === true ? "any" : "turn";
   // What this effect takes off the card's cost when it goes to `into`: its own reduction, plus a reduction that reads
@@ -691,6 +725,30 @@ function executePlayFromHand(
           (!effect.filter || matchesQuery(ctx.state, id, effect.filter, context)),
       )
     : [];
+  return { playerId, reduction, reductionAt, paying, from, timing, placesFor, named, candidates };
+}
+
+/** The cards a `playFromHand` effect would offer now (`playFromHandOptions`), for `Predicate canPlayFromHand`. */
+export function playFromHandCandidates(
+  state: GameState,
+  deps: EngineDeps,
+  effect: Extract<EffectSpec, { kind: "playFromHand" }>,
+  context: EffectContext,
+): readonly InstanceId[] {
+  return playFromHandOptions(createCtx(state, deps), effect, context).candidates;
+}
+
+function executePlayFromHand(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "playFromHand" }>,
+  context: EffectContext,
+): void {
+  const { playerId, reduction, reductionAt, paying, from, timing, placesFor, named, candidates } = playFromHandOptions(
+    ctx,
+    effect,
+    context,
+  );
   // "If you exhausted Wolverine's Claws to play this card" (`via`): recorded on the play for its ability frames.
   const via = effect.via ? resolveRef(ctx.state, effect.via, context) : [];
   const playBindings = via.length > 0 ? { [PLAYED_VIA_SLOT]: via } : {};
@@ -726,12 +784,19 @@ function executePlayFromHand(
   // A searched deck (`from: "deck"`, Fetch Quest; docs/phase7-wave6.md §3.70) is shuffled "upon completion of that game
   // step" (RRG 1.8 "Search", p. 39): this step stays current while the played card resolves above it, then comes back
   // here once to shuffle, played or not.
-  const searched = from === "deck" && playerId !== undefined;
+  // A play from any card of a separate deck searches it too, and is shuffled the same way: `shuffleSeparateDeck`
+  // leaves a fixed-order deck as it is (docs/phase7-wave11.md §3.1, §3.2). Playing its top card is no search.
+  const searchedSeparate = isSeparateDeckPlayFrom(from) && from.position === "any" ? from.separateDeck : null;
+  const searched = (searchesOwnDeck(from) || searchedSeparate !== null) && playerId !== undefined;
   const finish = (): void => {
     if (!searched) return done();
     setFrame(ctx, { ...frame, answer: null, vars: { ...vars, "_play.shuffle": 1 }, bindings });
   };
-  if (from === "deck" && playerId && (frame.vars["_play.shuffle"] ?? 0) > 0) {
+  if (searched && playerId && (frame.vars["_play.shuffle"] ?? 0) > 0) {
+    if (searchedSeparate !== null) {
+      shuffleSeparateDeck(ctx, playerId, searchedSeparate);
+      return done();
+    }
     const order = shuffleZone(ctx, { kind: "deck", playerId }, mustPlayer(ctx.state, playerId).deck);
     updatePlayer(ctx, playerId, (p) => ({ ...p, deck: order }));
     announceDeckTops(ctx);
@@ -824,13 +889,14 @@ function executePlayFromHand(
       chosen = actions.find((abilityId) => abilityId === frame.answer?.[0]);
       if (!chosen) return finish();
     }
-    if (!paying) {
+    // A host is only a question when the upgrade names one and several are legal (RRG 1.8 "Attach To", p. 8), whether
+    // the play pays or ignores the cost (Deposition 60009: a Sense upgrade onto an enemy; docs/phase7-wave11.md §3.2).
+    const choices = hostChoicesForEffectPlay(ctx, playerId, card);
+    if (!paying && choices.length <= 1) {
       finish();
       grantWhileResolving(playIgnoringCost(ctx, playerId, card, from, playBindings, chosen, timing, into), card);
       return;
     }
-    // A host is only a question when the upgrade names one and several are legal (RRG 1.8 "Attach To", p. 8).
-    const choices = hostChoicesForEffectPlay(ctx, playerId, card);
     setFrame(ctx, {
       ...frame,
       answer: null,
@@ -869,6 +935,11 @@ function executePlayFromHand(
   }
 
   const [chosenHost] = frame.bindings["_play.host"] ?? [];
+  if (!paying) {
+    finish();
+    grantWhileResolving(playIgnoringCost(ctx, playerId, card, from, playBindings, action, timing, into, chosenHost));
+    return;
+  }
   const attachTo = chosenHost ?? hostForEffectPlay(ctx, playerId, card) ?? null;
   const requirement = playFromEffectRequirement(ctx, playerId, card, attachTo, reductionHere, action, from);
   if (requirement === null) return finish();
@@ -1672,6 +1743,41 @@ function orderedActivation(
 }
 
 /**
+ * A `forEachPlayer` with `order: "firstPlayerChooses"` (docs/phase7-wave11-scenarios.md §S7 E27). RRG 1.8 "Each
+ * Player" (p. 17): "If the effect does not specify what order the players resolve the effect in, the first player
+ * decides the order." The first player orders the players with the `orderPlayers` prompt `dealEncounterCard` asks
+ * (`authority: "firstPlayerOrders"`, as every simultaneous ordering is); then each player's pass resolves in turn, as
+ * `forEachPlayer` resolves in player order. One player (or none) is not asked, and an answer that does not name every
+ * player exactly once falls back to player order, so a replay always resolves the same way.
+ */
+function executeForEachPlayerOrdered(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "forEachPlayer" }>,
+  context: EffectContext,
+): void {
+  const players = resolvePlayers(ctx.state, effect.players, context);
+  if (frame.answer === null && players.length > 1) {
+    requestChoice(ctx, {
+      playerId: simultaneousOrderer(ctx.state),
+      authority: "firstPlayerOrders",
+      prompt: { kind: "orderPlayers", reason: "forEachPlayer" },
+      options: players.map((id) => ({ optionId: id, label: id, ref: { kind: "player", playerId: id } as const })),
+      minSelections: players.length,
+      maxSelections: players.length,
+      frameId: frame.frameId,
+      ordered: true,
+    });
+    return;
+  }
+  const answered = (frame.answer ?? []).map((id) => asPlayerId(id)).filter((id) => players.includes(id));
+  const order = answered.length === players.length && new Set(answered).size === players.length ? answered : players;
+  const next: Frame<"effects"> = { ...frame, answer: null, cursor: frame.cursor + 1 };
+  setFrame(ctx, next);
+  pushEachPlayerPass(ctx, next, effect.effects, order, effect.bind);
+}
+
+/**
  * "Deal N encounter cards to each player" (Green Goblin II). RRG 1.8 "Each Player" (p. 17): "If the effect does not
  * specify what order the players resolve the effect in, the first player decides the order"; ruling, Jan 26, 2026 (4)
  * answer 3: "the first player chooses the order players receive cards, and cards are dealt simultaneously.
@@ -1883,12 +1989,14 @@ function placeTarget(
   };
 }
 
-const cardOptions = (ctx: Ctx, ids: readonly InstanceId[]): readonly ChoiceOption[] =>
-  ids.map((id) => ({
+const cardOption =
+  (ctx: Ctx) =>
+  (id: InstanceId): ChoiceOption => ({
     optionId: id,
     label: displayNameOf(ctx.state, id),
     ref: { kind: "card", instanceId: id } as const,
-  }));
+  });
+const cardOptions = (ctx: Ctx, ids: readonly InstanceId[]): readonly ChoiceOption[] => ids.map(cardOption(ctx));
 
 /**
  * A choice that chooses nothing binds its slot empty and moves on. A required one (`isRequiredChoice`), or a search
@@ -1905,7 +2013,7 @@ function choseNothing(
   const required = noCandidates && isRequiredChoice(effect);
   const search = noCandidates && isRequiredSearch(effect);
   const unresolved = required || search;
-  if (required) emit(ctx, { type: "choiceFoundNothing", slot: effect.slot });
+  if (required) emit(ctx, { type: "choiceFoundNothing", slot: effect.slot, choice: effect.kind });
   if (search) emit(ctx, { type: "preThenUnresolved", cause: "searchFoundNothing" });
   setFrame(ctx, {
     ...frame,
@@ -1935,18 +2043,25 @@ function executeChooseCards(
   effect: Extract<EffectSpec, { kind: "chooseCards" }>,
   context: EffectContext,
 ): void {
+  const [chooser] = resolvePlayers(ctx.state, effect.chooser, context);
   if (frame.answer !== null) {
-    const chosen = frame.answer.map((id) => asInstanceId(id));
+    // A hidden-hand pick's facedown options map back through the candidates as offered (`hidden-hand-pick.ts`).
+    const offered = effect.hiddenHands ? frame.bindings[offeredSlotOf(effect.slot)] : undefined;
+    const chosen =
+      offered && chooser
+        ? pickedInstances(hiddenHandOptions(ctx.state, chooser, offered, cardOption(ctx)), offered, frame.answer)
+        : frame.answer.map((id) => asInstanceId(id));
+    const bindings: Record<string, readonly InstanceId[]> = { ...frame.bindings };
+    if (effect.hiddenHands) delete bindings[offeredSlotOf(effect.slot)];
     emit(ctx, { type: "targetChosen", slot: effect.slot, instanceIds: chosen });
     setFrame(ctx, {
       ...frame,
       answer: null,
       cursor: frame.cursor + 1,
-      bindings: { ...frame.bindings, [effect.slot]: chosen },
+      bindings: { ...bindings, [effect.slot]: chosen },
     });
     return;
   }
-  const [chooser] = resolvePlayers(ctx.state, effect.chooser, context);
   let candidates = selectCards(ctx, effect.from, context);
   if (effect.distinctNames) {
     const seen = new Set<string>();
@@ -1975,11 +2090,27 @@ function executeChooseCards(
     choseNothing(ctx, frame, effect, candidates.length === 0);
     return;
   }
-  // One card found by a search the enemy team must make: nothing to choose, so no prompt (`forcedEnemyTeamSearch`).
-  if (forcedEnemyTeamSearch(effect) && candidates.length === 1) {
+  // One card found by a search the enemy team must make, or one candidate of a hidden-hand pick (owner answer 211):
+  // nothing to choose, so no prompt (`forcedEnemyTeamSearch`).
+  if ((forcedEnemyTeamSearch(effect) || (effect.hiddenHands && effect.min > 0)) && candidates.length === 1) {
     emit(ctx, { type: "targetChosen", slot: effect.slot, instanceIds: candidates });
     setFrame(ctx, { ...frame, cursor: frame.cursor + 1, bindings: { ...frame.bindings, [effect.slot]: candidates } });
     return;
+  }
+  // A hidden-hand pick offers another player's hand cards facedown (RRG 1.8 p. 19 and p. 42; `hidden-hand-pick.ts`).
+  // The facedown cards are offered in a seeded shuffle, not hand order (`offerOrder`).
+  let offered = candidates;
+  if (effect.hiddenHands) {
+    const [order, rng] = offerOrder(ctx.state, chooser, candidates, ctx.state.rng);
+    ctx.state = { ...ctx.state, rng };
+    offered = order;
+  }
+  const options = effect.hiddenHands
+    ? hiddenHandOptions(ctx.state, chooser, offered, cardOption(ctx))
+    : cardOptions(ctx, candidates);
+  const facedown = anyFacedown(options);
+  if (facedown) {
+    setFrame(ctx, { ...frame, bindings: { ...frame.bindings, [offeredSlotOf(effect.slot)]: offered } });
   }
   requestChoice(ctx, {
     playerId: chooser,
@@ -1988,9 +2119,10 @@ function executeChooseCards(
       kind: "chooseCards",
       slot: effect.slot,
       ...(limit ? { maxTotal: { of: limit.of, atMost: limit.atMost, values } } : {}),
+      ...(facedown ? { facedown: true as const } : {}),
     },
     // "Different cards" by name: the offered ids are one per name, so any selection is legal.
-    options: cardOptions(ctx, candidates),
+    options,
     minSelections: Math.min(effect.min, max),
     maxSelections: max,
     frameId: frame.frameId,
@@ -2239,7 +2371,12 @@ function executeChooseOne(
     .map((option, index) => ({ option, index }))
     .filter(({ option }) => !option.condition || evaluate(ctx.state, option.condition, context))
     // An option to spend resources is offered only to a player who can pay it (`EffectSpec spendResources.required`).
-    .filter(({ option }) => option.effects.every((step) => requiredSpendPayable(ctx, step, context)))
+    // Not for an encounter-side source card: its option is barred only for want of a target (p. 12; owner 2026-10-20).
+    .filter(
+      ({ option }) =>
+        isEncounterCardType(ctx.state, context.selfInstanceId) ||
+        option.effects.every((step) => requiredSpendPayable(ctx, step, context)),
+    )
     // RRG 1.8 "Choose (Option)" (p. 12): an option that requires a target and has no valid one cannot be chosen
     // ("Remove 2 threat from a scheme" with no threat on any scheme). Read once, before the choice is asked: the
     // answer is checked against the options that were offered.
@@ -3146,11 +3283,37 @@ function executeResolveSpecials(
       });
     }
   }
+  // Incite X and surge are each "a type of 'When Revealed' ability" (RRG 1.8 "Incite X", p. 24; "Surge", p. 42), so "an
+  // ability that targets a card's 'When Revealed' ability would also include the 'Surge' keyword if on that card", and
+  // "Surge, Incite, and 'When Revealed' abilities each share the same timing, which allows players to resolve them in
+  // any order" (FFG ruling, September 22, 2026). Owner decision 2026-10-20 (docs/phase7-wave4.md §4 Q23, revised;
+  // docs/phase7-wave11-scenarios.md §S7 E37), superseding the user's 2026-09-25 reading of Citywide Crisis (printed
+  // abilities only). `excludeKeywords` leaves one out where a card says so ("non-surge"; Change of Venue's erratum).
+  const keywordSteps: KeywordStep[] = [];
+  if (trigger === "whenRevealed") {
+    const excluded = new Set(effect.excludeKeywords ?? []);
+    for (const id of sources) {
+      const amount = excluded.has("incite") ? 0 : keywordTotal(ctx.state, id, "incite", ctx.deps);
+      if (amount > 0) keywordSteps.push({ keyword: "incite", instanceId: id, amount });
+      if (!excluded.has("surge") && hasKeyword(ctx.state, id, "surge", ctx.deps))
+        keywordSteps.push({ keyword: "surge", instanceId: id, amount: 1 });
+    }
+  }
   // Two copies of a granting card give one card the same ability twice: the granting card tells them apart.
-  const key = (c: Step) =>
-    c.grantedBy === undefined ? `${c.instanceId}:${c.abilityId}` : `${c.instanceId}:${c.abilityId}@${c.grantedBy}`;
+  const key = (c: Step | KeywordStep) =>
+    "keyword" in c
+      ? `${c.instanceId}:${c.keyword}`
+      : c.grantedBy === undefined
+        ? `${c.instanceId}:${c.abilityId}`
+        : `${c.instanceId}:${c.abilityId}@${c.grantedBy}`;
   // A granted ability is offered under its granting card, the card that prints its text.
-  const option = (c: Step): ChoiceOption => {
+  const option = (c: Step | KeywordStep): ChoiceOption => {
+    if ("keyword" in c)
+      return {
+        optionId: key(c),
+        label: `${displayNameOf(ctx.state, c.instanceId)}: ${c.keyword === "incite" ? `Incite ${c.amount}` : "Surge"}`,
+        ref: { kind: "card", instanceId: c.instanceId },
+      };
     const printed = candidateOption(ctx.state)(c);
     if (c.grantedBy === undefined) return printed;
     if (c.grantedBy === null) return { ...printed, optionId: key(c) };
@@ -3160,69 +3323,77 @@ function executeResolveSpecials(
       ref: { kind: "ability", instanceId: c.grantedBy, abilityId: c.abilityId },
     };
   };
-  let ordered = steps;
+  // Unasked, a reveal's order: each card's incite first, the printed abilities, each surge last.
+  const all: (Step | KeywordStep)[] = [
+    ...keywordSteps.filter((k) => k.keyword === "incite"),
+    ...steps,
+    ...keywordSteps.filter((k) => k.keyword === "surge"),
+  ];
+  // Asked when the order can matter: several printed abilities, or a printed one with incite or surge. Incite and
+  // surge alone are not asked about (neither reads what the other does), as on a reveal (`resolve/reveal.ts`).
+  const asks = steps.length > 1 || (steps.length > 0 && keywordSteps.length > 0);
+  // Abilities on cards nobody controls (encounter cards: Citywide Crisis's side schemes, a treachery resolved by
+  // Moon Knight or Scarlet Witch) are ordered by the first player (RRG 1.8 "First Player", p. 19; "Simultaneous
+  // Resolution", p. 40), as on a reveal (`resolve/reveal.ts` `whenRevealedOrder`); a player's own cards' abilities by
+  // the calling ability's player (Wakanda Forever!).
+  const unowned = all.every((c) => controllerOf(ctx.state, c.instanceId) === null);
+  let ordered = all;
   if (frame.answer !== null) {
-    const byKey = new Map(steps.map((c) => [key(c), c]));
-    ordered = frame.answer.map((k) => byKey.get(k)).filter((c): c is Step => c !== undefined);
-  } else if (steps.length > 1 && frame.controllerId) {
+    const byKey = new Map(all.map((c) => [key(c), c]));
+    ordered = frame.answer.map((k) => byKey.get(k)).filter((c): c is Step | KeywordStep => c !== undefined);
+  } else if (asks && (frame.controllerId || unowned)) {
     requestChoice(ctx, {
-      playerId: frame.controllerId,
+      playerId: unowned ? simultaneousOrderer(ctx.state) : frame.controllerId!,
+      ...(unowned ? { authority: "firstPlayerOrders" as const } : {}),
       prompt: { kind: "orderSpecials" },
-      options: steps.map(option),
-      minSelections: steps.length,
-      maxSelections: steps.length,
+      options: all.map(option),
+      minSelections: all.length,
+      maxSelections: all.length,
       frameId: frame.frameId,
       ordered: true,
     });
     return;
   }
+  const abilitySteps = ordered.filter((c): c is Step => !("keyword" in c));
   setFrame(ctx, { ...frame, answer: null, cursor: frame.cursor + 1 });
   // A card whose Special resolves from an identity's separate deck (an Invocation card) leaves the deck as it starts
   // resolving, like a played event (RRG 1.8 "Event", p. 19), and is out of play in its owner's `resolving` area until its
   // own text moves it on. If it was the last card, the deck resets now, without it (`settlePlayerDecks`): ruling, Apr 30,
   // 2026 (3) answer 7, "The deck is reshuffled **before** the currently resolving card enters the discard pile"
   // (docs/phase7-wave1.md §4 Q9, resolved 2026-09-25).
-  for (const id of new Set(ordered.map((step) => step.instanceId))) {
+  for (const id of new Set(abilitySteps.map((step) => step.instanceId))) {
     const zone = locateCard(ctx.state, id);
     if (zone?.kind === "separateDeck") moveCard(ctx, id, { kind: "resolving", playerId: zone.playerId });
   }
-  // Only on request (`includeKeywords`): incite X and surge are each "equivalent to" a When Revealed ability (RRG 1.8
-  // "Incite X", p. 24; "Surge", p. 42), resolved in the order a reveal resolves them: incite first, the printed
-  // abilities, surge last. Off by default: the user decided Citywide Crisis re-resolves printed abilities only, since
-  // a card already in play is not being revealed (§3.56, §4 Q23, 2026-09-25).
-  const incites: { readonly id: InstanceId; readonly amount: number }[] = [];
-  const surges: InstanceId[] = [];
-  if (trigger === "whenRevealed" && effect.includeKeywords === true) {
-    for (const id of sources) {
-      const amount = keywordTotal(ctx.state, id, "incite", ctx.deps);
-      if (amount > 0) incites.push({ id, amount });
-      if (hasKeyword(ctx.state, id, "surge", ctx.deps)) surges.push(id);
-    }
-  }
   if (effect.bind) {
-    addFrameVars(ctx, frame.frameId, { [`${effect.bind}.count`]: ordered.length + incites.length + surges.length });
+    // The printed abilities add to the count as each finishes having changed the game (`resolvedCounts`); incite
+    // and surge always do (threat placed, a card dealt): "If no 'When Revealed' abilities were resolved this way"
+    // counts them as resolved (E37). `<bind>.triggered` is every one put on the stack, changed the game or not: a
+    // "resolve [ability]" cost reads it, having judged beforehand whether resolving could change the game
+    // (`executeSettleResolveAbilityCost`).
+    const keywords = ordered.length - abilitySteps.length;
+    addFrameVars(ctx, frame.frameId, {
+      [`${effect.bind}.count`]: keywords,
+      [`${effect.bind}.triggered`]: ordered.length,
+    });
   }
   // The attack in progress records how many Preparation abilities resolved during it (docs/phase7-wave9.md §3.2): the
   // innermost attack on the stack, as `Predicate attackInProgress` reads it. Its frame's vars become the attack's
-  // `results` when its response window opens ("if no 'Preparation' ability was resolved").
-  if (trigger === "preparation" && ordered.length > 0) {
-    const attack = ctx.state.stack.find(
-      (f) =>
-        f.kind === "event" &&
-        (f.event.kind === "attack" || f.event.kind === "enemyAttack" || f.event.kind === "enemyAttacksEnemy"),
-    );
-    addFrameVars(ctx, attack?.frameId, { [labeledResolvedVar("preparation")]: ordered.length });
-  }
+  // `results` when its response window opens ("if no 'Preparation' ability was resolved"). Each counts as it
+  // finishes having changed the game, as `<bind>.count` does (RRG 1.8 "Resolve", p. 37).
+  const attack =
+    trigger === "preparation"
+      ? ctx.state.stack.find(
+          (f) =>
+            f.kind === "event" &&
+            (f.event.kind === "attack" || f.event.kind === "enemyAttack" || f.event.kind === "enemyAttacksEnemy"),
+        )
+      : undefined;
+  const resolvedCounts: ResolvedCountVar[] = [
+    ...(effect.bind ? [{ frameId: frame.frameId, name: `${effect.bind}.count` }] : []),
+    ...(attack ? [{ frameId: attack.frameId, name: labeledResolvedVar("preparation") }] : []),
+  ];
   const whoFor = (id: InstanceId) => controllerOf(ctx.state, id) ?? resolvingPlayer ?? context.controllerId;
-  // Each surge on its own frame, as a reveal's does when an ability hears it (`surgeResolving`, `resolveSurge`): the
-  // keyword deals its player a facedown encounter card, a deal like any other (docs/phase7-wave9.md §4.1 Q19).
-  pushFrames(
-    ctx,
-    surges.flatMap((id) => {
-      const playerId = whoFor(id);
-      return playerId ? [eventFrame(ctx, { kind: "surgeResolving", instanceId: id, playerId })] : [];
-    }),
-  );
   // With `bind`, what each Special's effects bind comes back as `<bind>.<slot>` (docs/phase7-wave5.md §3.7).
   const returnTo = effect.bind ? { returnBindingsTo: { frameId: frame.frameId, prefix: effect.bind } } : {};
   // A When Defeated resolved on demand (Zeal for the Cause, docs/phase7-wave6.md §3.17) reads its defeat from its frame's
@@ -3258,7 +3429,7 @@ function executeResolveSpecials(
             effect.borrowedBoostIcons === "joinActivation" && frame.selfInstanceId ? [frame.selfInstanceId] : [],
         }
       : {};
-  const frames = ordered.map(
+  const frames = abilitySteps.map(
     (step, index): StackFrame =>
       ({
         ...abilityFrame(
@@ -3268,16 +3439,17 @@ function executeResolveSpecials(
           null,
           // "Then, discard [the granting card]": the card a granted ability names (`GRANTED_BY_SLOT`).
           step.grantedBy ? { [GRANTED_BY_SLOT]: [step.grantedBy] } : borrowedBoost,
-          { "sequence.step": index + 1, "sequence.final": index === ordered.length - 1 ? 1 : 0 },
+          { "sequence.step": index + 1, "sequence.final": index === abilitySteps.length - 1 ? 1 : 0 },
         ),
         ...returnTo,
+        ...(resolvedCounts.length > 0 ? { resolvedCounts } : {}),
       }) as StackFrame,
   );
   // "… as if it has at least 1 hit point" (`asIf`): the floor of §3.10 on each ability's own card, for exactly as long
   // as that ability's effects resolve (`endOfPaidFor` follows the ability into its effects frame and ends with it).
   const floor = effect.asIf?.remainingHpAtLeast;
   if (floor !== undefined) {
-    ordered.forEach((step, index) => {
+    abilitySteps.forEach((step, index) => {
       addLastingEffect(
         ctx,
         {
@@ -3289,14 +3461,35 @@ function executeResolveSpecials(
       );
     });
   }
-  pushFrames(ctx, frames);
-  for (const { id, amount } of [...incites].reverse()) {
+  // Pushed last first, so the first in order resolves first. Each surge on its own frame, as a reveal's does when an
+  // ability hears it (`surgeResolving`, `resolveSurge`): the keyword deals its player a facedown encounter card, a deal
+  // like any other (docs/phase7-wave9.md §4.1 Q19). Incite places its threat on the main scheme.
+  const framesByStep = new Map(abilitySteps.map((step, index) => [step, frames[index]!]));
+  for (const step of [...ordered].reverse()) {
+    if (!("keyword" in step)) {
+      pushFrames(ctx, [framesByStep.get(step)!]);
+      continue;
+    }
+    const playerId = whoFor(step.instanceId);
+    if (step.keyword === "surge") {
+      if (playerId)
+        pushFrames(ctx, [eventFrame(ctx, { kind: "surgeResolving", instanceId: step.instanceId, playerId })]);
+      continue;
+    }
     pushEffects(ctx, {
-      effects: [{ kind: "placeThreat", target: { kind: "mainScheme" }, amount: { kind: "const", value: amount } }],
-      selfInstanceId: id,
-      controllerId: whoFor(id),
+      effects: [{ kind: "placeThreat", target: { kind: "mainScheme" }, amount: { kind: "const", value: step.amount } }],
+      selfInstanceId: step.instanceId,
+      controllerId: playerId,
     });
   }
+}
+
+/** An incite or surge keyword resolved as one of a card's When Revealed abilities by `resolveSpecials` (E37). */
+interface KeywordStep {
+  readonly keyword: "incite" | "surge";
+  readonly instanceId: InstanceId;
+  /** Incite X's X; 1 for surge. */
+  readonly amount: number;
 }
 
 function requestTargetChoice(
