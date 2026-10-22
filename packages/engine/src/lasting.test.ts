@@ -658,8 +658,9 @@ test("lasting and delayed effects replay to an identical state", () => {
 /**
  * RRG 1.8 "Leaves Play" (p. 27): "When a card leaves play, there is no memory of its previous state and it is
  * considered to be a new copy of the card." A delayed effect "At the end of the phase, discard Goliath" (Goliath 23015;
- * To Me, My X-Men! 36020 "return it to hand") is bound to the copy that was in play when it was created. The engine
- * keeps the delayed effect on the instance id, which survives the trip.
+ * To Me, My X-Men! 36020 "return it to hand") is bound to the copy that was in play when it was created, so it stops
+ * naming the card once a new copy enters play under the same instance id (`noteLeftPlayInDelayedEffects`,
+ * `forgetReturnedInDelayedEffects`).
  * No FFG ruling in the transcripts covers it; the RRG sentence above is the authority.
  */
 describe("a delayed 'discard this at the end of the phase' and a copy that left play and came back", () => {
@@ -691,7 +692,7 @@ describe("a delayed 'discard this at the end of the phase' and a copy that left 
   );
   const deps = depsOf(GOLIATH_ACTION, OUT.ability, BACK.ability);
 
-  it.fails("the copy that returned is a new card: the old delayed discard does not touch it", () => {
+  it("the copy that returned is a new card: the old delayed discard does not touch it", () => {
     const base = gameAtFirstTurn({
       cards: [GOLIATH, OUT.card, BACK.card, BLANK],
       deps,
@@ -728,7 +729,6 @@ describe("a delayed 'discard this at the end of the phase' and a copy that left 
     expect(mustPlayer(returned, P1).playArea).toContain(put.id);
     // End of the player phase: the delayed effect of the first copy fires.
     const ended = runCommands(returned, deps, { type: "endTurn", playerId: P1 }).state;
-    // Actual: the returned copy is discarded by the old delayed effect (same instance id).
     expect(mustPlayer(ended, P1).playArea).toContain(put.id);
   });
 });
