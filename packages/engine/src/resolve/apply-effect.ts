@@ -1577,8 +1577,10 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       return report(1, icons);
     }
     case "discardBoostCard": {
-      // docs/phase7-wave4.md §3.35 (Defiance): "discard it instead" of turning it faceup and applying it.
-      // An enemy activation's boost card, or a villainous ally's or hero's own (§S3.7, `resolve/villainous.ts`).
+      // docs/phase7-wave4.md §3.35 (Defiance): "discard it instead" of turning it faceup and applying it. Defiance answers
+      // the card's facedown "would be turned faceup" window (`turning`, issue #348); a faceup card's `window` is kept for
+      // an ability that discards a card already turned up. An enemy activation's boost card, or a villainous ally's or
+      // hero's own (§S3.7, `resolve/villainous.ts`).
       const procedure = ctx.state.stack.find(
         (f): f is Frame<"enemyAttack"> | Frame<"enemyScheme"> | Frame<"characterBoost"> =>
           (f.kind === "enemyAttack" || f.kind === "enemyScheme" || f.kind === "characterBoost") && Boolean(f.boost),
@@ -1590,7 +1592,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       if (
         !procedure ||
         !boost ||
-        boost.step !== "window" ||
+        (boost.step !== "window" && boost.step !== "turning") ||
         locateCard(ctx.state, boost.instanceId)?.kind !== "boost"
       ) {
         return made(0);
@@ -3436,7 +3438,11 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
     }
     case "cancelWhenRevealed":
     case "cancelRevealedCard": {
-      const revealing = frame.event?.kind === "encounterCardRevealing" ? frame.event.instanceId : null;
+      // From a "would reveal" interrupt too (Spider-Tingle, 31020): the reveal frame is beneath it, not yet faceup.
+      const revealing =
+        frame.event?.kind === "encounterCardRevealing" || frame.event?.kind === "encounterCardBeingRevealed"
+          ? frame.event.instanceId
+          : null;
       const reveal = ctx.state.stack.find(
         (f): f is Frame<"reveal"> => f.kind === "reveal" && f.instanceId === revealing,
       );
