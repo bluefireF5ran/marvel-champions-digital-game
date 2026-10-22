@@ -307,9 +307,18 @@ export function noteLeftPlayInDelayedEffects(state: GameState, id: InstanceId): 
  * `id` has just entered play: a delayed effect that named it before it left play stops naming it. RRG 1.8 "Leaves
  * Play" (p. 27): "When a card leaves play, there is no memory of its previous state and it is considered to be a new
  * copy of the card", so an effect bound to the copy that was in play does not touch the copy that came back, though
- * the instance id is the same. A card named while out of play (Special Funding 50007 names the support it pays for,
- * still in hand) has not left play since, so it is still named when it enters. The effect itself stays and fires
- * with the rest of its body. Returns the same state when nothing names it.
+ * the instance id is the same; FFG ruling January 26, 2026 - Ruling 6 (marvel-champions-rulings-post-rrg-1-7.md) reads
+ * a card that "leaves and re-enters play" as a new copy for limits too. A card named while out of play (Special
+ * Funding 50007 names the support it pays for, still in hand) has not left play since, so it is still named when it
+ * enters. The effect itself stays and fires with the rest of its body. With its own card forgotten the effect has no
+ * `self` at all, so whatever else reads `self` (a game area, a damage source) reads nothing, which is meant: the card
+ * it had is gone. Returns the same state when nothing names it.
+ *
+ * The leaving is recorded only where a card leaves through `leaveNow` (`leavePlay`, `leavePlayAtOnce`, and so a swap
+ * of cards with different titles, `resolve/swap-cards.ts`). Not covered: a main scheme swapped out
+ * (`resolve/swap-main-scheme.ts`, its own `forgetOutgoing`), a villain replaced in place (`resolve/game-areas.ts`,
+ * `resolve/villain-swap.ts`), and a facedown attachment, which is out of play already. A same-title swap neither
+ * leaves nor enters play (RRG 1.8 "'Swap'", p. 42), so it has nothing to record.
  */
 export function forgetReturnedInDelayedEffects(state: GameState, id: InstanceId): GameState {
   let changed = false;
