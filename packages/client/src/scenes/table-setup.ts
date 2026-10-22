@@ -46,6 +46,8 @@ import { SET_CARDS_ACTION_EVENT, type SetCardsData } from "./set-cards.js";
 import { drawHeroAvatar, SEAT_AVATAR_READY } from "../ui/seat-avatar.js";
 import { difficultySetLine, difficultySetSections, difficultySetsSubtitle } from "../view/difficulty-sets.js";
 import { setSheetFor } from "../view/civil-war-builder-model.js";
+import { noteDeckFeat } from "../progression/deck-feats.js";
+import { refreshUnlocks } from "../progression/progression.js";
 import { progressionScope } from "../progression/progression-scope.js";
 import { blindRevealOf } from "../view/civil-war-blind.js";
 import { estimateWrappedLines, type Rect } from "../view/layout.js";
@@ -107,6 +109,7 @@ import {
 import { tableSetupFocusOrder } from "../view/screen-focus.js";
 import {
   applySetupOption,
+  scenarioOfDraft,
   isSetChoiceRow,
   optionActionsOf,
   setupOptionRowsOf,
@@ -380,6 +383,14 @@ export class TableSetupScene extends Phaser.Scene {
     return seatableDeckOptionsOf(this.#savedDecks, POOL_CARDS, POOL_VERSION, POOL_DEPS);
   }
 
+  /** The draft's scenario as it is played: the record, with the chosen villain in place of the default one (Fear No Evil). */
+  #scenario(): Scenario {
+    return scenarioOfDraft(
+      this.#draft,
+      POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!,
+    );
+  }
+
   /** The seed field's own `onChange`, shared by the standard (wide/tablet portrait) and compact (phone) paths — one `McTextInput` instance persists across both, so the handler has to be identical either way. */
   #onSeedChange = (value: string): void => {
     this.#seedText = value;
@@ -404,7 +415,7 @@ export class TableSetupScene extends Phaser.Scene {
     for (const node of kept) this.children.add(node);
 
     const { width, height } = this.scale.gameSize;
-    const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+    const scenario = this.#scenario();
 
     const deckOptions = this.#deckOptions();
     const seatedOptions = this.#draft.seats
@@ -1059,7 +1070,7 @@ export class TableSetupScene extends Phaser.Scene {
     }
     if (id === "header:modular") {
       const sectionTitle = data.civilWarSummary ? SUMMARY_SECTION_TITLE : "Modular sets";
-      const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+      const scenario = this.#scenario();
       const random = !data.civilWarSummary && offersRandomModularSets(scenario, this.#draft.seats.length);
       const titleWidth = rect.width - (random ? MODULAR_RANDOM_WIDTH + 10 : 0);
       if (random) {
@@ -1146,7 +1157,7 @@ export class TableSetupScene extends Phaser.Scene {
             ? `In the game · ${modularCardLabel({ selected: true, cardCount: option.cardCount, descriptor: option.descriptor })}`
             : `Set aside · ${option.cardCount} card${option.cardCount === 1 ? "" : "s"}`,
           onClick: () => {
-            const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+            const scenario = this.#scenario();
             this.#draft = toggleHoodIncludedSet(this.#draft, scenario, option.id);
             this.#rebuild();
           },
@@ -1314,7 +1325,7 @@ export class TableSetupScene extends Phaser.Scene {
     const barred = option.disabledReason !== null;
     const onClick = (): void => {
       if (barred) return;
-      const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+      const scenario = this.#scenario();
       this.#draft = toggleModularSet(this.#draft, scenario, option.id);
       this.#rebuild();
     };
@@ -1803,8 +1814,9 @@ export class TableSetupScene extends Phaser.Scene {
 
     if (control.kind === "stepper") {
       const buttonWidth = Math.min(48, zone.width / 3);
+      // A name (the villain) is centered between a button at each end; a number sits beside its buttons at the right.
       const down: Rect = {
-        x: zone.x + zone.width - buttonWidth * 2 - 56,
+        x: control.wide ? zone.x : zone.x + zone.width - buttonWidth * 2 - 56,
         y: zone.y,
         width: buttonWidth,
         height: zone.height,
@@ -1818,7 +1830,7 @@ export class TableSetupScene extends Phaser.Scene {
       };
       chipButton(control.down, down);
       chipButton(control.up, up);
-      this.add
+      const value = this.add
         .text(
           valueRect.x + valueRect.width / 2,
           valueRect.y + valueRect.height / 2,
@@ -1826,6 +1838,7 @@ export class TableSetupScene extends Phaser.Scene {
           textStyle({ ...typeRole.sectionHeader, size: 20 }, surface.ink.hex, row.active ? 1 : ink.secondary),
         )
         .setOrigin(0.5);
+      if (control.wide) fitText(value, valueRect.width - 8, 20);
       return;
     }
 
@@ -2230,7 +2243,7 @@ export class TableSetupScene extends Phaser.Scene {
   /** One of The Hood's own candidates: white, included = 4px red border, set aside = dim border + dim text — the same shape `#drawModularCard` uses for the ordinary picker. */
   #drawHoodModularCard(rect: Rect, option: HoodModularSetOption): void {
     const onClick = (): void => {
-      const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+      const scenario = this.#scenario();
       this.#draft = toggleHoodIncludedSet(this.#draft, scenario, option.id);
       this.#rebuild();
     };
@@ -2377,7 +2390,7 @@ export class TableSetupScene extends Phaser.Scene {
     const barred = option.disabledReason !== null;
     const onClick = (): void => {
       if (barred) return;
-      const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+      const scenario = this.#scenario();
       this.#draft = toggleModularSet(this.#draft, scenario, option.id);
       this.#rebuild();
     };
@@ -2617,7 +2630,7 @@ export class TableSetupScene extends Phaser.Scene {
   /** The sheet's "Add this set" / "Remove this set": the same toggle a tap on the tile makes. */
   #onSetCardsAction(setId: string): void {
     if (!this.sys.isActive()) return;
-    const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+    const scenario = this.#scenario();
     this.#draft = toggleModularSet(this.#draft, scenario, setId);
     this.#rebuild();
   }
@@ -2625,7 +2638,7 @@ export class TableSetupScene extends Phaser.Scene {
   /** The Modular sets header's Random button: a random legal draw for the scenario's count (`modular-random.ts`). */
   #drawModularRandom(rect: Rect, compact = false): void {
     const roll = (): void => {
-      const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === this.#draft.scenarioId)!;
+      const scenario = this.#scenario();
       this.#draft = withRandomModularSets(this.#draft, scenario, CARDS_BY_ID, Math.random, {
         scope: progressionScope(),
       });
@@ -2964,6 +2977,12 @@ export class TableSetupScene extends Phaser.Scene {
       this.#status?.setText(store.state.error ?? "setup failed");
       return;
     }
+    // A game dealt with a deck the player built (achievements).
+    const seated = new Set(this.#draft.seats);
+    const built = this.#deckOptions().some(
+      (option) => seated.has(option.deck.id as string) && option.deck.source.kind === "userBuilt",
+    );
+    if (built && noteDeckFeat("playedBuilt")) void refreshUnlocks().catch(() => false);
     this.scale.off("resize", this.#rebuild, this);
     // W3 (docs/phase4-screen-gaps.md §3): "Deal it out" routes through the dedicated setup deal & mulligan screen,
     // never straight to the Board — that scene hands off to the Board itself once `state.step.phase` leaves "setup".

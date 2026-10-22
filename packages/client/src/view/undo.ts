@@ -82,6 +82,7 @@ export const UNDO_EVENT_VERDICTS: Readonly<Record<GameEvent["type"], readonly [V
   boostCancelled: [STOPS, "boost cards are the encounter's"],
   boostCardDealt: [STOPS, "a boost card dealt"],
   boostCardFlipped: [STOPS, "a boost card turned up"],
+  characterBoostCardFlipped: [STOPS, "a boost card turned up"],
   boostCardMoved: [STOPS, "boost cards are the encounter's"],
   boostIgnored: [STOPS, "boost cards are the encounter's"],
   boostWithheld: [STOPS, "boost cards are the encounter's"],
@@ -97,6 +98,7 @@ export const UNDO_EVENT_VERDICTS: Readonly<Record<GameEvent["type"], readonly [V
   cardDiscardedFromPlay: [ALLOWED, "the hero's own visible play"],
   cardDrawn: [STOPS, "a draw"],
   cardExhausted: [ALLOWED, "the hero's own visible play"],
+  cardEnteredOnOtherFace: [STOPS, "turns a hidden face up"],
   cardFlipped: [STOPS, "turns a hidden face up"],
   cardFlippedToOtherFace: [STOPS, "turns a hidden face up"],
   cardFound: [STOPS, "the result of a search"],
@@ -114,7 +116,7 @@ export const UNDO_EVENT_VERDICTS: Readonly<Record<GameEvent["type"], readonly [V
   cardsSetAside: [STOPS, "cards leave for out of play"],
   cardsSwapped: [STOPS, "cards swapped after a look or reveal"],
   characterDefeated: [ALLOWED, "combat, all face up"],
-  choiceFoundNothing: [STOPS, "the end of a search or look"],
+  choiceFoundNothing: [CHECKED, "a target in play found none; a card choice may have read a hand"],
   choiceRequested: [CHECKED, "stops when the prompt looks through a deck"],
   choiceResolved: [ALLOWED, "a choice among public options"],
   consequentialDamageModified: [ALLOWED, "damage and healing, face up"],
@@ -129,10 +131,12 @@ export const UNDO_EVENT_VERDICTS: Readonly<Record<GameEvent["type"], readonly [V
   damageAboveCapRemoved: [ALLOWED, "damage and healing, face up"],
   damageBeyondZeroLost: [ALLOWED, "damage and healing, face up"],
   damageCapped: [ALLOWED, "damage and healing, face up"],
+  damageNotDealt: [ALLOWED, "damage and healing, face up"],
   damageDealt: [ALLOWED, "damage and healing, face up"],
   damageDoubled: [ALLOWED, "damage and healing, face up"],
   damageHealed: [ALLOWED, "damage and healing, face up"],
   damageIncreased: [ALLOWED, "damage and healing, face up"],
+  damageReduced: [ALLOWED, "damage and healing, face up"],
   damagePlaced: [ALLOWED, "damage and healing, face up"],
   damagePoolResolved: [ALLOWED, "damage and healing, face up"],
   damagePrevented: [ALLOWED, "damage and healing, face up"],
@@ -196,9 +200,11 @@ export const UNDO_EVENT_VERDICTS: Readonly<Record<GameEvent["type"], readonly [V
   mainSchemeCompleted: [STOPS, "the scheme ended the game"],
   mainSchemeFlippedToOtherFace: [STOPS, "turns a hidden face up"],
   mainSchemeStageRemoved: [STOPS, "scheme stages changed"],
+  mainSchemeSwapped: [STOPS, "a main scheme changed"],
   mainSchemeStageRevealed: [STOPS, "a stage revealed"],
   mainSchemeStageToVictoryDisplay: [STOPS, "scheme stages changed"],
   mainSchemeStagesChosen: [STOPS, "scheme stages changed"],
+  mainSchemesChosen: [STOPS, "a random pick spends the RNG"],
   mainSchemeStagesShuffled: [STOPS, "a shuffle spends the RNG"],
   minionHeld: [ALLOWED, "table state, face up"],
   moleIdentified: [STOPS, "a hidden identity revealed"],
@@ -278,6 +284,10 @@ export const UNDO_EVENT_VERDICTS: Readonly<Record<GameEvent["type"], readonly [V
   uniqueEntryBlocked: [ALLOWED, "the hero's own visible play"],
   villainAdded: [STOPS, "the villain changed"],
   villainFlipped: [STOPS, "the villain flipped"],
+  // A round with no villain phase (docs/phase7-wave11-hero-packs.md H3.7). Client follow-up: `view/phase-wipe.ts`
+  // still shows the villain wipe for a skipped round, whose round-end step reads `phase: "villain"`.
+  villainSideSet: [STOPS, "a random pick spends the RNG"],
+  villainPhaseSkipped: [STOPS, "a round boundary"],
   villainRemoved: [STOPS, "the villain changed"],
   villainReplaced: [STOPS, "the villain changed"],
   villainRowSet: [STOPS, "the villain changed"],
@@ -326,6 +336,10 @@ export function eventStopsUndo(event: GameEvent, mover: PlayerId): boolean {
       return !(OPEN_ZONE_KINDS.has(event.from.kind) || (event.from.kind === "hand" && event.from.playerId === mover));
     case "choiceRequested":
       return event.choice.playerId !== mover || DECK_LOOKING_PROMPT_KINDS.has(event.choice.prompt.kind);
+    case "choiceFoundNothing":
+      // No scheme or character in play to choose is open to everyone (issue #330). A required card choice that found
+      // nothing may have looked through other seats' hands ("an ally from any player's hand"), so it still stops.
+      return event.choice !== "chooseTarget";
     case "cardDiscardedFromHand":
       // Another seat's hand is theirs; the mover's own is gated by the RNG count (a random pick spends it).
       return event.playerId !== mover;

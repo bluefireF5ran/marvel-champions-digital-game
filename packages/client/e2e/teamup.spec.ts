@@ -171,15 +171,13 @@ test.describe("Team-Up: Gambit and Rogue", () => {
     expect(await findVisibleText(page, "Team-Up active", "Board"), "no active label while quiet").toEqual([]);
     await page.mouse.move(720, 450);
     expect(
-      await findVisibleText(page, "needs hero form", "Board"),
+      await findVisibleText(page, "team-up:", "Board"),
       "both alter-egos carry the yellow blurb (own panel and the other hero's row)",
     ).toHaveLength(2);
 
     await flipByClick(page, 0);
     expect(await teamUpRings(page), "still quiet with only Gambit a hero").toHaveLength(2);
-    expect((await findVisibleText(page, "needs hero form", "Board")).length, "only Rogue's panel keeps the blurb").toBe(
-      1,
-    );
+    expect((await findVisibleText(page, "team-up:", "Board")).length, "only Rogue's panel keeps the blurb").toBe(1);
     await endTurnByClick(page);
     await flipByClick(page, 1);
     // An absence has no state to wait for: hold the window open long enough for a wrongly re-opened splash to show.
@@ -381,7 +379,11 @@ test("every art/teamups folder has a splash and a badge that load, and is named 
     expect(row.splash, `${row.folder}/splash loads`).toBeGreaterThan(0);
     expect(row.badge, `${row.folder}/badge loads`).toBeGreaterThan(0);
   }
-  for (const key of result.pairKeys) {
+  // Pairs whose partner is not a playable hero yet have no art to draw (docs/team-ups.md: "none (... not a hero yet)").
+  const AWAITING_PARTNER = new Set(["daredevil-elektra", "iron-fist-luke-cage", "jessica-jones-luke-cage"]);
+  for (const key of AWAITING_PARTNER)
+    expect(folders, `"${key}" has no art folder yet; drop it from the list when it does`).not.toContain(key);
+  for (const key of result.pairKeys.filter((k) => !AWAITING_PARTNER.has(k))) {
     expect(folders, `the pool's pair "${key}" has an art folder`).toContain(key);
   }
 });

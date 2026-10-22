@@ -71,9 +71,10 @@ import {
   type ResolvedRequirement,
   type ResourcePool,
 } from "./resources.js";
-import type { AttackKeyword, CardDestination, PairLimit, TargetQuery } from "./spec.js";
+import type { AttackKeyword, CardDestination, PairLimit, TargetQuery, ValueSpec } from "./spec.js";
 import type { Bindings, LingeringDamageRule, StackFrame, Vars } from "./stack.js";
 import type { FrameId } from "./ids.js";
+import { mainSchemeInPlayAreaOf } from "./per-player-main-schemes.js";
 import { STATUS_NAMES, type Form, type GameAreaState, type GameState } from "./state.js";
 import type { TriggerEvent } from "./trigger-events.js";
 
@@ -186,8 +187,35 @@ export function cannotTakeDamage(
   sources: readonly (InstanceId | null | undefined)[],
   attack?: DamageAttackInfo,
 ): boolean {
+  return damageBlocked(state, deps, targetId, sources, attack, false);
+}
+
+/**
+ * "X cannot be dealt damage" (`cannotTakeDamage.stage: "dealt"`, docs/phase7-wave11-scenarios.md §S3.5): only those
+ * rules, read with the same sources, attack and exceptions as `cannotTakeDamage`. The damage step drops such damage
+ * before its interrupt window (RRG 1.8 "Damage", p. 14; "Cannot", p. 11).
+ */
+export function cannotBeDealtDamage(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+  sources: readonly (InstanceId | null | undefined)[],
+  attack?: DamageAttackInfo,
+): boolean {
+  return damageBlocked(state, deps, targetId, sources, attack, true);
+}
+
+function damageBlocked(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+  sources: readonly (InstanceId | null | undefined)[],
+  attack: DamageAttackInfo | undefined,
+  dealtOnly: boolean,
+): boolean {
   const card = sources[1] ?? sources[0] ?? null;
   return activeRules(state, deps, "cannotTakeDamage").some(({ rule, context }) => {
+    if (dealtOnly && rule.stage !== "dealt") return false;
     if (!matchesQuery(state, targetId, rule.target, context)) return false;
     if (rule.exceptFromSource && card !== null && matchesQuery(state, card, rule.exceptFromSource, context)) {
       return false;
@@ -279,7 +307,8 @@ export function canTakePlayerAttack(
     vars: attack.vars,
     targetInstanceId: targetId,
   });
-  const withOverkill = overkill === true && !lostAttackKeywords(state, deps, targetId).includes("overkill");
+  const withOverkill =
+    overkill === true && !lostAttackKeywords(state, deps, targetId, attackerInstanceId).includes("overkill");
   return !cannotTakeDamage(state, deps, targetId, [attackerInstanceId, sourceInstanceId], {
     attackerInstanceId,
     cardInstanceId: sourceInstanceId,
@@ -408,7 +437,11 @@ export function lingeringConsequentialRules(
     const rules: LingeringDamageRule[] = [
       ...reduce
         .filter(({ rule, context }) => applies(rule, context))
-        .map(({ rule }) => ({ sourceInstanceId: leavingId, kind: rule.kind, amount: rule.amount })),
+        .map(({ rule, context }) => ({
+          sourceInstanceId: leavingId,
+          kind: rule.kind,
+          amount: reductionAmount(state, deps, rule.amount, context),
+        })),
       ...increase
         .filter(({ rule, context }) => applies(rule, context))
         .map(({ rule }) => ({ sourceInstanceId: leavingId, kind: rule.kind, amount: rule.amount })),
@@ -480,6 +513,9 @@ function lastKnownFromAttack(damage: ConsequentialDamage): EffectContext["lastKn
  * A rule with `exceptThwartBy` ("except by Hercules's thwarts", docs/phase7-wave10-hero-packs.md H3.6) lets through
  * only a thwart (`byThwart`) whose thwarting character (`characterId`) matches, and blocks every other removal,
  * whether or not a character performs it.
+ *
+ * A rule with `exceptFromSource` ("except by Daredevil or Matt Murdock", docs/phase7-wave11.md §3.5) blocks every
+ * removal except one whose `removingCards` (a thwart's thwarting character, else the removing card) include a match.
  */
 export const threatCannotBeRemoved = (
   state: GameState,
@@ -488,6 +524,7 @@ export const threatCannotBeRemoved = (
   byThwart = false,
   removerId: PlayerId | null = null,
   characterId: InstanceId | null = null,
+  removingCards: readonly InstanceId[] = [],
 ): boolean =>
   activeRules(state, deps, "threatCannotBeRemoved").some((active) => {
     const { rule, context } = active;
@@ -504,31 +541,28 @@ export const threatCannotBeRemoved = (
     ) {
       return false;
     }
+    const fromSource = rule.exceptFromSource;
+    if (fromSource && removingCards.some((id) => matchesQuery(state, id, fromSource, context))) return false;
     if (!rule.player) return true;
     return removerId !== null && rulePlayers(state, { player: rule.player }, active).includes(removerId);
   });
 
 /**
- * Whether a `threatCannotBeRemoved` rule scoped with `exceptBy` keeps this character from removing threat from the
- * scheme (docs/phase7-wave7.md §3.51): what the basic thwart command refuses on, so the scheme is not a legal target
- * of that character's basic thwart. A rule without `exceptBy`, or one that also scopes itself with `by` or `player`,
- * is left to the removal itself, as before the field. A rule with `exceptThwartBy` (docs/phase7-wave10-hero-packs.md
- * H3.6) refuses the basic thwart of every character it does not name, on the same terms.
+ * Whether a `threatCannotBeRemoved` rule keeps this character's basic thwart from removing threat from the scheme, so
+ * the scheme is not a legal target of it: the same reading `threatCannotBeRemoved` gives the removal that thwart would
+ * make (a thwart by `characterId`, its removing card, for `playerId`, else the character's controller). Every rule
+ * counts, a plain "Threat cannot be removed from this scheme" as much as one with `exceptBy` (docs/phase7-wave7.md
+ * §3.51), `exceptThwartBy` (docs/phase7-wave10-hero-packs.md H3.6), `exceptFromSource` (docs/phase7-wave11.md §3.5),
+ * `by: "thwart"` or `player` (docs/phase7-wave11-scenarios.md §S7 item 40). RRG 1.8 "Target" (p. 43): a target is
+ * invalid if no part of the ability can affect it, or if another ability says it cannot perform that game function.
  */
 export const characterCannotRemoveThreat = (
   state: GameState,
   deps: EngineDeps,
   schemeId: InstanceId,
   characterId: InstanceId,
-): boolean =>
-  activeRules(state, deps, "threatCannotBeRemoved").some(
-    ({ rule, context }) =>
-      rule.by !== "thwart" &&
-      rule.player === undefined &&
-      matchesQuery(state, schemeId, rule.target, context) &&
-      ((rule.exceptBy !== undefined && !matchesQuery(state, characterId, rule.exceptBy, context)) ||
-        (rule.exceptThwartBy !== undefined && !matchesQuery(state, characterId, rule.exceptThwartBy, context))),
-  );
+  playerId: PlayerId | null = controllerOf(state, characterId),
+): boolean => threatCannotBeRemoved(state, deps, schemeId, true, playerId, characterId, [characterId]);
 
 /**
  * "While Baron Zemo is engaged with you, you cannot thwart." With `schemeId`, whether this player cannot thwart that
@@ -1167,6 +1201,8 @@ export function grantedAttackKeywords(
   attackerId: InstanceId,
   viaId: InstanceId | null,
   basic = false,
+  /** The attacked character, when known; a rule scoped by `target` grants nothing without it. */
+  targetId: InstanceId | null = null,
 ): readonly AttackKeyword[] {
   const granted: AttackKeyword[] = [];
   for (const { rule, context } of activeRules(state, deps, "attackKeywords")) {
@@ -1174,22 +1210,72 @@ export function grantedAttackKeywords(
     if (rule.via && (viaId === null || !matchesQuery(state, viaId, rule.via, context))) continue;
     // "Your *basic* attacks gain piercing": an attack made by a card's ability is not one, whoever makes it.
     if (rule.basicOnly === true && !basic) continue;
+    // "Attacks against attached minion gain overkill" (docs/phase7-wave11-hero-packs.md §H3.15).
+    if (rule.target && (targetId === null || !matchesQuery(state, targetId, rule.target, context))) continue;
     for (const keyword of rule.keywords) if (!granted.includes(keyword)) granted.push(keyword);
   }
   return granted;
 }
 
 /**
- * The `AttackKeyword`s attacks do not have against this character (`attacksLoseKeywords`, docs/phase7-wave10.md §3.18;
- * RRG 1.8 "Lose", p. 27: a loss holds whatever would give the keyword). Empty with no such rule in force.
+ * The additional damage an attack by `attackerId` deals to `targetId` under `attacksDealExtraDamage` rules ("Attacks
+ * against attached minion deal 2 additional damage", docs/phase7-wave11-hero-packs.md §H3.15): the sum of every
+ * matching rule's amount, 0 with none.
  */
-export function lostAttackKeywords(state: GameState, deps: EngineDeps, targetId: InstanceId): readonly AttackKeyword[] {
+export function attackExtraDamageAgainst(
+  state: GameState,
+  deps: EngineDeps,
+  attackerId: InstanceId,
+  targetId: InstanceId,
+): number {
+  let extra = 0;
+  for (const { rule, context } of activeRules(state, deps, "attacksDealExtraDamage")) {
+    if (!matchesQuery(state, targetId, rule.target, context)) continue;
+    if (rule.attacker && !matchesQuery(state, attackerId, rule.attacker, context)) continue;
+    extra += Math.max(0, rule.amount);
+  }
+  return extra;
+}
+
+/**
+ * The `AttackKeyword`s an attack by `attackerId` does not have against `targetId` (`attacksLoseKeywords`,
+ * docs/phase7-wave10.md §3.18, docs/phase7-wave11-scenarios.md §S7 E19; RRG 1.8 "Lose", p. 27: a loss holds whatever
+ * would give the keyword). A rule scoped by `target` needs the attacked character and one scoped by `attacker` needs the
+ * attacker: pass null for an end that is not known, and a rule needing it does not apply. Empty with no such rule.
+ */
+export function lostAttackKeywords(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId | null,
+  attackerId: InstanceId | null,
+): readonly AttackKeyword[] {
   const lost: AttackKeyword[] = [];
   for (const { rule, context } of activeRules(state, deps, "attacksLoseKeywords")) {
-    if (!matchesQuery(state, targetId, rule.target, context)) continue;
+    // A rule with neither end set would strip every attack in the game; no card says that, so it matches nothing.
+    if (!rule.target && !rule.attacker) continue;
+    if (rule.target && (targetId === null || !matchesQuery(state, targetId, rule.target, context))) continue;
+    if (rule.attacker && (attackerId === null || !matchesQuery(state, attackerId, rule.attacker, context))) continue;
     for (const keyword of rule.keywords) if (!lost.includes(keyword)) lost.push(keyword);
   }
   return lost;
+}
+
+/**
+ * The stat a character reads in place of `stat` (`RuleSpec statInPlaceOf`, docs/phase7-wave11.md §3.10: "Use your DEF
+ * in place of your THW and ATK"), or undefined when none applies. A stat never stands in for itself; with several rules
+ * the first in play order decides.
+ */
+export function statUsedInPlaceOf(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  stat: "atk" | "thw" | "def" | "rec" | "sch",
+): "atk" | "thw" | "def" | "rec" | "sch" | undefined {
+  const found = activeRules(state, deps, "statInPlaceOf").find(
+    ({ rule, context }) =>
+      rule.use !== stat && rule.stats.includes(stat) && matchesQuery(state, id, rule.target, context),
+  );
+  return found?.rule.use;
 }
 
 /** Whether a basic thwart against this scheme may use ATK instead of THW (`thwartWithAtk`). */
@@ -1417,6 +1503,19 @@ export function firstRevealGainsSurge(
 }
 
 /**
+ * What a `reduceDamageTaken` rule takes off now: its number, or its value read live from the rule's card ("by your
+ * hero's DEF", Echo 61038; docs/phase7-wave11-hero-packs.md). A value below 0 reduces nothing.
+ */
+function reductionAmount(
+  state: GameState,
+  deps: EngineDeps,
+  amount: number | ValueSpec,
+  context: EffectContext,
+): number {
+  return typeof amount === "number" ? amount : Math.max(0, resolveValue(state, amount, context, deps));
+}
+
+/**
  * The damage a character takes from one damage event once constant reductions and caps apply (`reduceDamageTaken`,
  * `maxDamageTakenPerAttack`; docs/phase7-wave3.md §3.15). Reductions first, then the lowest cap: a cap is the last word
  * on what one attack can make the character take (§4 Q9). Last of all, `maxSustainedDamage` (docs/phase7-wave6.md
@@ -1510,6 +1609,10 @@ export function damageTakenBeforeSustainedCap(
  * `damageTakenBeforeSustainedCap` with how doubling (`doubleDamageTaken`, docs/phase7-wave6.md §3.68) changed it:
  * `beforeDoubling` is the damage after every increase and reduction, `doubledBy` the cards whose rules doubled it (null for
  * a rule with no card), one entry per doubling, in the order the rules were read (empty when none did). `applyDamage` logs `damageDoubled` from it.
+ *
+ * `unpreventable` (docs/phase7-wave11-hero-packs.md §H3.3, the MC62 insert's "cannot be reduced or prevented"): no
+ * reduction applies, live or lingering; the increases, doubling and the per-attack cap do. A cap is a "cannot" (RRG 1.8
+ * "Cannot", p. 13, absolute), and capped damage is neither taken nor prevented (docs/phase7-wave6.md §4.1 Q9).
  */
 export function damageTakenBreakdown(
   state: GameState,
@@ -1519,6 +1622,7 @@ export function damageTakenBreakdown(
   fromAttack: boolean,
   consequential?: ConsequentialDamage,
   source?: DamageSourceInfo,
+  unpreventable = false,
 ): { readonly taken: number; readonly beforeDoubling: number; readonly doubledBy: readonly (InstanceId | null)[] } {
   let taken = amount;
   // "Increase all damage Venom takes by 1" (docs/phase7-wave5.md §3.8), summed with the reductions (RRG 1.8
@@ -1532,17 +1636,19 @@ export function damageTakenBreakdown(
       if (consequentialScopeMatches(state, rule.consequential, consequential, context)) taken += rule.amount;
     }
   }
-  for (const { rule, context } of activeRules(state, deps, "reduceDamageTaken")) {
+  for (const { rule, context } of unpreventable ? [] : activeRules(state, deps, "reduceDamageTaken")) {
     if (rule.fromAttack === true && !fromAttack) continue;
     if (!matchesQuery(state, targetId, rule.target, context)) continue;
     // "… unless the attacker has the [TINY] trait" (docs/phase7-wave7.md §3.30); "… unless the attacker or attack has
     // the [AERIAL] trait, or the attack has ranged" (docs/phase7-wave9.md §3.25).
     if (attackMeetsException(state, source?.attack, rule, context)) continue;
-    if (consequentialScopeMatches(state, rule.consequential, consequential, context)) taken -= rule.amount;
+    if (consequentialScopeMatches(state, rule.consequential, consequential, context)) {
+      taken -= reductionAmount(state, deps, rule.amount, context);
+    }
   }
   // Rules whose source left play while the power resolved (wave 6 §4.1 Q50; `lingeringConsequentialRules`).
   if (amount > 0) for (const l of lingeringRulesOf(state, consequential, "increaseDamageTaken")) taken += l.amount;
-  for (const l of lingeringRulesOf(state, consequential, "reduceDamageTaken")) taken -= l.amount;
+  if (!unpreventable) for (const l of lingeringRulesOf(state, consequential, "reduceDamageTaken")) taken -= l.amount;
   // "Double the amount of damage this minion takes from …" (§3.68): RRG 1.8 "Modifiers" (p. 29) calculates every
   // additive and subtractive modifier first, so the floored sum is what is doubled (Wild Wild Mojo's +1 too, §4 Q40),
   // and the per-attack cap below still has the last word.
@@ -1664,7 +1770,8 @@ export function restrictedLimitFor(
  * them (contributor's rules call 2026-10-16 (bluefireF5ran), reversing upstream Q52 = B). A `restrictedLimit` rule's
  * `cards` makes room for every card that weighs on the limit, a card that "counts as N restricted cards" counted N
  * times: FFG ruling 152 (March 22, 2024), "Laser Swords counts as two Restricted Weapon cards, so it does interact with
- * Side Holster". The player is over the limit when `load > limit`.
+ * Side Holster" (the same contributor's rules call 2026-10-16 (bluefireF5ran), the fork owner's, overriding upstream
+ * Q52 = B on this point). The player is over the limit when `load > limit`.
  */
 export function restrictedStanding(
   state: GameState,
@@ -1796,10 +1903,24 @@ export function schemeThreatDestination(state: GameState, deps: EngineDeps, enem
  * The scheme a scheme activation by this enemy places its threat on: RRG 1.8 "Scheme (Enemy Activation)" step 3 places
  * it on the main scheme unless a constant ability redirects it (`schemeThreatDestination`). With separate game areas,
  * "the main scheme" is the enemy's own area's (docs/phase7-wave2.md §3.1).
+ *
+ * With a main scheme per player (docs/phase7-wave11-scenarios.md §S3.1), the scheme in the play area of the player the
+ * enemy activates against (`activatedAgainst`), the villain's as much as a minion's. Tier 5 (engine reading): MC60
+ * p. 13 says only that a card in no play area "that refer[s] to 'the main scheme'" means every one, and a scheme
+ * activation is a game step, not card text. FFG's Fear No Evil preview (April 16, 2026) says "anytime an enemy
+ * schemes (including both the villain and their minions), they only add threat to the main scheme of the player
+ * they're activating against"; a preview article is not a rules source, so the reading is the owner's question Q204
+ * (docs/phase7-wave11-scenarios.md §S4.1; A, the activated player's scheme, is built until answered).
  */
-export function schemeActivationDestination(state: GameState, deps: EngineDeps, enemyId: InstanceId): InstanceId {
+export function schemeActivationDestination(
+  state: GameState,
+  deps: EngineDeps,
+  enemyId: InstanceId,
+  activatedAgainst: PlayerId | null = null,
+): InstanceId {
   return (
     schemeThreatDestination(state, deps, enemyId) ??
+    (activatedAgainst ? mainSchemeInPlayAreaOf(state, activatedAgainst)?.instanceId : undefined) ??
     pairedMainSchemeId(state, deps, enemyId) ??
     mainSchemeFor(state, areaOfCard(state, enemyId))?.instanceId ??
     state.mainScheme.instanceId
@@ -1935,6 +2056,8 @@ export function countSchemeIcons(
   icon: SchemeIcon,
   area: GameAreaState | null = null,
 ): number {
+  // TODO(§S3.1): with a main scheme per player this counts the central scheme's own icons for every scheme, and the
+  // other schemes' not at all. No Protection Racket scheme prints an icon (60134–60138), so it is left as is.
   const scheme = mainSchemeFor(state, area);
   let total =
     scheme && !iconsBlankedOn(state, deps, scheme.instanceId) && !losesIcon(state, deps, scheme.instanceId, icon)

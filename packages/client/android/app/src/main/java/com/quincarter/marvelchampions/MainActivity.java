@@ -10,6 +10,8 @@ public class MainActivity extends BridgeActivity {
         // Local plugins register before the bridge starts.
         registerPlugin(ExternalBrowserPlugin.class);
         registerPlugin(PowerSavingPlugin.class);
+        registerPlugin(DisplayRatePlugin.class);
+        registerPlugin(DeviceHardwarePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

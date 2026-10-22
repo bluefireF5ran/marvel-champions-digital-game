@@ -3,6 +3,7 @@
 import type { AbilityId } from "@mc/content";
 import { type AbilityDefinition, abilityUseKey, GRANTED_BY_SLOT } from "../abilities.js";
 import { COST_NOT_PAID_VAR } from "../cost-damage.js";
+import { gameFingerprint } from "../game-fingerprint.js";
 import { type Ctx, emit, popFrame, setFrame } from "../ctx.js";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { statusActive } from "../keywords.js";
@@ -101,6 +102,16 @@ export function executeAbilityFrame(ctx: Ctx, frame: Frame<"ability">): void {
   const top = ctx.state.stack[0];
   const pushed = top?.kind === "effects" && top.frameId !== below && top.selfInstanceId === frame.instanceId;
   settlePaidForEffects(ctx, frame.frameId, pushed ? top.frameId : null);
+  // The game as a measured ability's effects begin (`Frame<"effects">.resolvedCount`), the frames beneath them with it:
+  // after its costs. Limitation: a cost written as its leading effects (`costEffects`) is paid inside the frame, so
+  // paying it reads as a change even if the effects then do nothing. No counted Special (a When Revealed, Boost,
+  // Preparation or When Defeated resolved on instruction) has such a cost today.
+  const effects = ctx.state.stack[0];
+  if (pushed && effects?.kind === "effects" && effects.resolvedCount)
+    setFrame(ctx, {
+      ...effects,
+      resolvedCount: { ...effects.resolvedCount, from: gameFingerprint(ctx.state, ctx.state.stack.slice(1)) },
+    });
 }
 
 /**
@@ -176,7 +187,7 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
   // its effects resolve. Its costs are paid and its limit counted above, as for a use a status card cancels.
   if (frame.wouldAct === "replaced") return;
   // A printed cost written as the leading effects (`costEffects`) is paid in step 5, before the label's status check,
-  // which its effects frame makes once that cost is paid (`beginEffectAfterCost`; ruling April 30, 2026 - Ruling 2).
+  // which its effects frame makes once that cost is paid (`beginEffectAfterCost`; ruling April 30, 2026 - Ruling 5).
   const costEffects = keyword ? 0 : Math.min(definition.costEffects ?? 0, definition.effects.length);
   const labelAfterCost = costEffects > 0 && definition.label !== undefined && definition.label.length > 0;
   if (
@@ -199,6 +210,10 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
     abilityId: frame.abilityId,
     controllerId: frame.controllerId,
   };
+  const measured =
+    (frame.resolvedCounts?.length ?? 0) > 0 ||
+    frame.returnBindingsTo !== undefined ||
+    heard(ctx.state, ctx.deps, { kind: "abilityResolved", ...announceResolved });
   // A player's own ability, or one a player chose to use (docs/phase7-wave4.md §3.44).
   const trigger = definition.trigger;
   // A keyword is a game rule, not a player's choice: "players cannot discard …" does not stop temporary.
@@ -222,6 +237,11 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
     ...(frame.returnBindingsTo
       ? { returnBindingsTo: frame.returnBindingsTo.frameId, returnBindingsPrefix: frame.returnBindingsTo.prefix }
       : {}),
+    // Whether this ability resolved is read as its effects finish, against the game as they begin: taken here, with
+    // the stack beneath them, and again by `executeAbilityFrame` once the paid-for effects have followed the ability.
+    // Taken only where it is read: a counted Special, a Special reporting `<prefix>.resolved`, or an ability whose
+    // resolution something could answer (the digest is the whole game, too costly to take for every ability).
+    ...(measured ? { resolvedCount: { from: gameFingerprint(ctx.state), to: frame.resolvedCounts ?? [] } } : {}),
   });
   if (labelAfterCost) {
     const pushed = ctx.state.stack[0];
@@ -235,10 +255,11 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
  * resolve the ability of …" answers, made by the ability's effects frame as it finishes and only when something could
  * respond. It carries the slots the ability holds by then (docs/phase7-wave9.md §3.43 (c)): what its costs bound, its
  * chosen targets, and what its effects bound, so "After you resolve Falcon's 'Eagle-Eyed' ability, … for each icon in
- * the discarded card's boost area" reads the card that ability's effect discarded.
+ * the discarded card's boost area" reads the card that ability's effect discarded. Not made when its effects changed
+ * nothing (`changed`, read by `executeEffectsFrame` from `Frame<"effects">.resolvedCount`): RRG 1.8 "Resolve", p. 37.
  */
-export function announceAbilityResolved(ctx: Ctx, frame: Frame<"effects">): void {
-  if (!frame.announceResolved) return;
+export function announceAbilityResolved(ctx: Ctx, frame: Frame<"effects">, changed: boolean): void {
+  if (!frame.announceResolved || !changed) return;
   const carried = slotsCarriedByResolved(frame.bindings);
   const resolved: TriggerEvent = {
     kind: "abilityResolved",

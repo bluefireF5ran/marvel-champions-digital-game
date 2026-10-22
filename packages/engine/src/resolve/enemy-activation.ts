@@ -27,7 +27,7 @@ import {
   updateInstance,
 } from "../ctx.js";
 import { activationVarsOf, plannedAttackDamage } from "../defend-preview.js";
-import { currentEnemyAttackFrame, defenseBarFor, defendingCharacterOf } from "../defense-claim.js";
+import { currentEnemyAttackFrame, defenseBarFor, defendingCharacterOf, defenseClaimOf } from "../defense-claim.js";
 import { drawEncounterCard, exhaustCard } from "../effects.js";
 import { type FrameId, type InstanceId, instanceId as asInstanceId, type PlayerId } from "../ids.js";
 import { attackKeywordsOf, hasKeyword } from "../keywords.js";
@@ -56,8 +56,17 @@ import {
   schemeActivationDestination,
   cannotDefend,
   defendsWithoutExhausting,
+  attackExtraDamageAgainst,
 } from "../rules.js";
-import { canAttack, cardsInPlay, controllerOf, DEFENDER_SLOT, evaluate, isAlly } from "../select.js";
+import {
+  canAttack,
+  cardsInPlay,
+  controllerOf,
+  DEFENDER_SLOT,
+  evaluate,
+  gainedBoostAbilities,
+  isAlly,
+} from "../select.js";
 import { currentActivationFrameId, type Vars } from "../stack.js";
 import type { BoostGiven, GameState, ZoneId } from "../state.js";
 import { type SchemeThreatDivert, TOTAL_ATK_RESULT, type TriggerEvent } from "../trigger-events.js";
@@ -75,6 +84,7 @@ import {
   pushEventsJoiningResponses,
 } from "./frames.js";
 import { heard } from "./triggers.js";
+import { pushCharacterBoost, startDefenderBoost } from "./villainous.js";
 
 /**
  * RRG 1.8 "Villainous" (p. 47): a minion with the keyword is given a boost card when it activates. The keyword is read
@@ -82,7 +92,7 @@ import { heard } from "./triggers.js";
  * if it possesses the gained characteristic" (RRG 1.8 "Gains", p. 21; Solus, `spiderham` 30037), and a printed one on a
  * blanked text box does not (RRG 1.8 "Blank", p. 10).
  */
-const getsBoostCard = (state: GameState, deps: EngineDeps, enemyId: InstanceId): boolean => {
+export const getsBoostCard = (state: GameState, deps: EngineDeps, enemyId: InstanceId): boolean => {
   const card = cardOf(state, enemyId);
   if (!card) return false;
   if (card.type === "villain") return true;
@@ -167,17 +177,121 @@ export function listensForBoostGiven(deps: EngineDeps): boolean {
  */
 function recordBoostGiven(ctx: Ctx, enemyId: InstanceId, boostId: InstanceId): void {
   if (!listensForBoostGiven(ctx.deps)) return;
+  const given: BoostGiven = { enemyInstanceId: enemyId, boostInstanceId: boostId, ...activationGivingTo(ctx, enemyId) };
+  ctx.state = { ...ctx.state, pendingBoostGiven: [...(ctx.state.pendingBoostGiven ?? []), given] };
+}
+
+/**
+ * The innermost activation of `enemyId` in progress, as a boost card given to it reads it (`boostCardGiven`,
+ * `boostCardBeingGiven`): the procedure giving its own card, or the one a card ability gives a card during; none for
+ * an enemy that is not activating.
+ */
+function activationGivingTo(
+  ctx: Ctx,
+  enemyId: InstanceId,
+): { readonly activation: "attack" | "scheme" | null; readonly playerId: PlayerId | null } {
   const procedure = ctx.state.stack.find(
     (f): f is Frame<"enemyAttack"> | Frame<"enemyScheme"> =>
       (f.kind === "enemyAttack" || f.kind === "enemyScheme") && f.enemyInstanceId === enemyId && f.stage !== "done",
   );
-  const given: BoostGiven = {
-    enemyInstanceId: enemyId,
-    boostInstanceId: boostId,
+  return {
     activation: procedure ? (procedure.kind === "enemyAttack" ? "attack" : "scheme") : null,
     playerId: procedure ? (procedure.kind === "enemyAttack" ? procedure.attackedPlayerId : procedure.playerId) : null,
   };
-  ctx.state = { ...ctx.state, pendingBoostGiven: [...(ctx.state.pendingBoostGiven ?? []), given] };
+}
+
+const LISTENS_FOR_BOOST_BEING_GIVEN = new WeakMap<EngineDeps, boolean>();
+
+/**
+ * Whether any ability in the registry triggers on `boostCardBeingGiven` (docs/phase7-wave11-scenarios.md E23); cached
+ * per registry. A boost card is given in every villain phase, so nothing is asked for a registry with no such ability.
+ */
+export function listensForBoostBeingGiven(deps: EngineDeps): boolean {
+  const cached = LISTENS_FOR_BOOST_BEING_GIVEN.get(deps);
+  if (cached !== undefined) return cached;
+  const listens = Object.values(deps.abilities).some((definition) => {
+    const trigger = definition.trigger;
+    if (!("on" in trigger) || !trigger.on) return false;
+    const kinds = typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on;
+    return kinds.includes("boostCardBeingGiven");
+  });
+  LISTENS_FOR_BOOST_BEING_GIVEN.set(deps, listens);
+  return listens;
+}
+
+type BoostCardBeingGiven = Extract<TriggerEvent, { kind: "boostCardBeingGiven" }>;
+
+/**
+ * The "would be given a facedown boost card" event of a give about to be made (`TriggerEvent boostCardBeingGiven`,
+ * docs/phase7-wave11-scenarios.md E23; RRG 1.8 "'Would'", p. 48), when an ability could react to it (`heard`); else
+ * null, and the caller gives the card at once, so a game no ability of which can answer keeps its log, state and
+ * replay.
+ */
+export function boostAwaitingInterrupt(
+  ctx: Ctx,
+  enemyId: InstanceId,
+  opts: BoostGiveOptions = {},
+): BoostCardBeingGiven | null {
+  if (!listensForBoostBeingGiven(ctx.deps)) return null;
+  const event = boostCardBeingGivenTo(ctx, enemyId, opts);
+  return heard(ctx.state, ctx.deps, event) ? event : null;
+}
+
+/** How a boost card is given, for its `boostCardBeingGiven` event. */
+export interface BoostGiveOptions {
+  /** A card ability gives it (`TriggerEvent boostCardBeingGiven.outsideActivation`). */
+  readonly outsideActivation?: boolean;
+  /** The chosen card given, not the encounter deck's top card. */
+  readonly named?: InstanceId;
+}
+
+/**
+ * The `boostCardBeingGiven` event of a give about to be made to `enemyId`, read now, heard or not: for a caller that
+ * gives several cards and, once any of them could be answered, gives each by its own event (in order).
+ */
+export function boostCardBeingGivenTo(ctx: Ctx, enemyId: InstanceId, opts: BoostGiveOptions = {}): BoostCardBeingGiven {
+  return {
+    kind: "boostCardBeingGiven",
+    enemyInstanceId: enemyId,
+    ...activationGivingTo(ctx, enemyId),
+    ...(opts.outsideActivation ? { outsideActivation: true as const } : {}),
+    ...(opts.named !== undefined ? { named: { instanceId: opts.named } } : {}),
+  };
+}
+
+/**
+ * Gives `enemyId` the encounter deck's top card as a facedown boost card (`dealBoostCard`), through its "would be
+ * given" interrupt window when an ability could react (`boostAwaitingInterrupt`): the event goes on the stack, its
+ * apply step gives the card, and this returns true, for a caller to wait for that frame. Returns false when the card
+ * was given at once (or there was none to give).
+ */
+export function dealBoostCardOrAnnounce(ctx: Ctx, enemyId: InstanceId, outsideActivation = false): boolean {
+  const event = boostAwaitingInterrupt(ctx, enemyId, { outsideActivation });
+  if (!event) {
+    dealBoostCard(ctx, enemyId, outsideActivation);
+    return false;
+  }
+  pushEvent(ctx, event);
+  return true;
+}
+
+/**
+ * A `boostCardBeingGiven` whose interrupts have resolved (docs/phase7-wave11-scenarios.md E23): the card is given now,
+ * as it would have been with no window. A holder that has left play since is given nothing (a card in play is needed
+ * to hold one, `EffectSpec giveBoostCard`); a named card that has since moved into play, or out of the zones a boost
+ * card can be given from, stays where it is.
+ */
+export function applyBoostCardBeingGiven(ctx: Ctx, event: BoostCardBeingGiven): void {
+  const inPlay = cardsInPlay(ctx.state);
+  if (!inPlay.includes(event.enemyInstanceId)) return;
+  if (!event.named) {
+    dealBoostCard(ctx, event.enemyInstanceId, event.outsideActivation === true);
+    return;
+  }
+  const id = event.named.instanceId;
+  const zone = locateCard(ctx.state, id)?.kind;
+  const givable = zone !== undefined && (BOOST_SOURCE_ZONES.has(zone) || beingRevealed(ctx.state, id));
+  if (givable && !inPlay.includes(id)) dealChosenBoostCard(ctx, event.enemyInstanceId, id);
 }
 
 /**
@@ -228,14 +342,16 @@ function giveBoostStep(
   // "That attack does not get a boost card": no boost card at all, additional ones included.
   if (frame.noBoost || boostWithheld(ctx, frame, activation)) return advance();
   const total = 1 + (activationVars(ctx, frame.eventFrameId).extraBoost ?? 0);
-  if (!listensForBoostGiven(ctx.deps)) {
+  if (!listensForBoostGiven(ctx.deps) && !listensForBoostBeingGiven(ctx.deps)) {
     advance();
     for (let i = 0; i < total; i++) giveBoostCard(ctx, frame.enemyInstanceId);
     return;
   }
   if (given >= total) return advance();
   setFrame(ctx, { ...frame, boostsGiven: given + 1 });
-  giveBoostCard(ctx, frame.enemyInstanceId);
+  // A replaced give (docs/phase7-wave11-scenarios.md E23) still counts as one of the activation's boost cards.
+  if (!getsBoostCard(ctx.state, ctx.deps, frame.enemyInstanceId)) return;
+  dealBoostCardOrAnnounce(ctx, frame.enemyInstanceId);
 }
 
 /**
@@ -401,8 +517,17 @@ function stepBoostCard(
     boost = rest;
     setFrame(ctx, { ...frame, boost: { ...boost, step: "ability" } });
     if (boost.abilityCancelled) emit(ctx, { type: "boostCancelled", instanceId: boost.instanceId, scope: "ability" });
-    else if (!boost.ignored)
-      pushFrames(ctx, gameAbilityFrames(ctx, boost.instanceId, ["boost"], null, undefined, playerId));
+    else if (!boost.ignored) {
+      // Its printed Boost abilities, then those it gains as a boost card ("Each boost card from the Purple Man
+      // encounter set gains: '[star] Boost: …'", docs/phase7-wave11-scenarios.md §S3.6), read now it is faceup. A
+      // gained one is passed as the slots to scan, so the card's own blank does not reach it: engine interpretation
+      // (RRG 1.8 "'Gains'", p. 21, is silent on blanking), the one `RuleSpec gainsAbility` already makes in play.
+      const gained = gainedBoostAbilities(ctx.state, ctx.deps, boost.instanceId).map((g) => ({ id: g.abilityId }));
+      pushFrames(ctx, [
+        ...gameAbilityFrames(ctx, boost.instanceId, ["boost"], null, undefined, playerId),
+        ...(gained.length > 0 ? gameAbilityFrames(ctx, boost.instanceId, ["boost"], null, gained, playerId) : []),
+      ]);
+    }
     return "busy";
   }
   if (boost.step === "ability") {
@@ -417,6 +542,8 @@ function stepBoostCard(
         activation,
         boostIcons: boost.iconsCancelled || boost.ignored ? 0 : (boost.turnedIcons ?? 0),
         playerId,
+        // As on the interrupt frame above: "an enemy attacking you" reads the defender (`EventPattern.youAreIdentity`).
+        ...(frame.kind === "enemyAttack" ? { targetInstanceId: frame.targetInstanceId } : {}),
       });
       pushFrames(ctx, [responses.kind === "event" ? { ...responses, stage: "responses" } : responses]);
       return "busy";
@@ -607,6 +734,9 @@ function announceBasicDefense(ctx: Ctx, defenderId: InstanceId, defenderPlayer: 
     stat: "def",
     playerId: defenderPlayer,
   };
+  // A villainous hero's basic defense is recorded; its boost card resolves after the enemy's, at the end of step 3, its
+  // icons added to its DEF for this attack (docs/phase7-wave11-scenarios.md §S3.7, `resolve/villainous.ts`).
+  pushCharacterBoost(ctx, defenderId, "defense", "def", defenderPlayer);
   if (heard(ctx.state, ctx.deps, using)) announce(ctx, using);
 }
 
@@ -698,17 +828,20 @@ export function declareDefenderByLabeledEffect(
 export function declareDefenderByEffect(ctx: Ctx, defenderId: InstanceId, exhaust: boolean): boolean {
   const defenderPlayer = controllerOf(ctx.state, defenderId);
   if (!defenderPlayer) return false;
-  // "While a player is defending, other players cannot defend against that same attack" (p. 14): no character of
-  // another player's is declared, and it is not exhausted for a declaration that does not happen.
+  // "Exhaust it and declare it the defender" (Mutant Protectors, 32017): effects joined by "and" are resolved as far as
+  // each can be (RRG 1.8 "And", p. 7), so the character is exhausted even when the declaration below cannot happen.
+  // FFG ruling Jul 19, 2023 (post-RRG 1.5 #49, item 4): Mutant Protectors can still be played after Powerful Punch;
+  // its ally just cannot defend.
+  if (exhaust) exhaustCard(ctx, defenderId);
+  // "While a player is defending, other players cannot defend against that same attack" (RRG 1.8 "Defend, Defense",
+  // p. 15): no character of another player's is declared.
   if (defenseBarFor(ctx.state, defenderPlayer) !== null) return false;
   // "While a hero [an ally] is defending against an attack, other friendly characters cannot defend against that
-  // attack" (p. 15). FFG ruling Jul 19, 2023 (post-RRG 1.5 #49): "once one character defends, only that character can
-  // defend the attack unless that character leaves play before the attack finishes." A second declaration does not
-  // replace the defender, and its character is not exhausted for it.
+  // attack" (p. 15). #49: "once one character defends, only that character can defend the attack unless that
+  // character leaves play before the attack finishes." A second declaration does not replace the defender.
   const defending = defendingCharacterOf(ctx.state);
   if (defending !== null && defending !== defenderId) return false;
   const basic = cardOf(ctx.state, defenderId)?.type === "hero_identity";
-  if (exhaust) exhaustCard(ctx, defenderId);
   const procedure = ctx.state.stack.find((f): f is Frame<"enemyAttack"> => f.kind === "enemyAttack" && !f.versusEnemy);
   // The log's `defenderDeclared`, as the Declare Defender step logs its own (RRG 1.8 "Defend, Defense", p. 15: an
   // ability's declaration makes the character the defender just as the step's does), marked `byEffect`.
@@ -913,10 +1046,15 @@ export function applyEnemyAttacksEnemy(
     ...(attackFrame?.kind === "event" ? { vars: attackFrame.vars } : {}),
     targetInstanceId: target,
   });
-  const amount = Math.max(
-    0,
-    profile.atk + (attackFrame?.kind === "event" ? (attackFrame.vars.atkBonus ?? 0) : 0) + (boostIcons ?? 0),
-  );
+  // "Attacks against attached minion deal 2 additional damage" (`attacksDealExtraDamage`,
+  // docs/phase7-wave11-hero-packs.md §H3.15): added once the attack's ATK and boost are totalled.
+  const amount =
+    Math.max(
+      0,
+      profile.atk + (attackFrame?.kind === "event" ? (attackFrame.vars.atkBonus ?? 0) : 0) + (boostIcons ?? 0),
+    ) + attackExtraDamageAgainst(ctx.state, ctx.deps, attacker, target);
+  // Whom the target was engaged with as it was attacked (`characterAttacked.targetEngagedWith`).
+  const targetEngagedWith = mustInstance(ctx.state, target).engagedWith;
   emit(ctx, {
     type: "enemyAttackedEnemy",
     attackerInstanceId: attacker,
@@ -943,6 +1081,7 @@ export function applyEnemyAttacksEnemy(
         targetInstanceId: target,
         playerId: null,
         ...(keywords.includes("ranged") ? { ranged: true } : {}),
+        ...(targetEngagedWith !== null ? { targetEngagedWith } : {}),
       },
     ],
     frameId,
@@ -1148,6 +1287,21 @@ function defenderLeftPlay(ctx: Ctx, frame: Frame<"enemyAttack">): Frame<"enemyAt
   return next;
 }
 
+/**
+ * Who answers the Declare Defender step. Normally the attacked player (the co-op table convention in
+ * `legalDefenders`). But once a player is defending the attack, or has resolved a "(defense)"-labeled ability for it,
+ * only that player's characters can still defend it (RRG 1.8 "Defend, Defense", p. 15: "While a player is defending,
+ * other players cannot defend against that same attack"; "Once a player resolves a defense-labeled ability during an
+ * enemy attack, other players cannot resolve defense-labeled abilities"), and step 2 is "If a player wishes to defend,
+ * that player exhausts a hero or ally" (p. 8): so that player decides, not the attacked player. This covers a
+ * "(defense)" interrupt that redirected an attack aimed at another player (p. 15: "the defending player becomes the
+ * new target of that attack"), where the original target has nothing left to declare.
+ */
+function defenseDecider(state: GameState, frame: Frame<"enemyAttack">): PlayerId {
+  const claim = defenseClaimOf(state);
+  return claim?.defendingPlayerId ?? claim?.labeledPlayerId ?? frame.attackedPlayerId;
+}
+
 export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): void {
   if (endedByLeavingPlay(ctx, frame, "attack")) return;
   switch (frame.stage) {
@@ -1166,7 +1320,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
           emit(ctx, {
             type: "defenseDeclined",
             attackInstanceId: frame.enemyInstanceId,
-            playerId: frame.attackedPlayerId,
+            playerId: defenseDecider(ctx.state, frame),
           });
           setFrame(ctx, { ...frame, answer: null, stage: "flipBoosts" });
           if (frame.defenderInstanceId === null) addFrameVars(ctx, frame.eventFrameId, { undefended: 1 });
@@ -1191,7 +1345,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
           type: "defenderDeclared",
           attackInstanceId: frame.enemyInstanceId,
           defenderInstanceId: defenderId,
-          playerId: frame.attackedPlayerId,
+          playerId: defenseDecider(ctx.state, frame),
           ...(withoutExhausting ? { withoutExhausting: true as const } : {}),
         });
         if (!withoutExhausting) exhaustCard(ctx, defenderId);
@@ -1227,6 +1381,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
         (id) => !frame.defendersNotPaidFor?.includes(id),
       );
       // "Must defend with an ally they control, if able" (Melter): only the engaged player's ready allies, no declining.
+      // Engine reading, untested: after a "(defense)" redirect this still reads the originally attacked player.
       const forcedAllies = mustDefendWithAlly(ctx.state, ctx.deps, frame.enemyInstanceId)
         ? all.filter((id) => isAlly(ctx.state, id) && controllerOf(ctx.state, id) === frame.attackedPlayerId)
         : [];
@@ -1237,7 +1392,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
         return;
       }
       requestChoice(ctx, {
-        playerId: frame.attackedPlayerId,
+        playerId: defenseDecider(ctx.state, frame),
         prompt: {
           kind: "declareDefender",
           attack: {
@@ -1272,6 +1427,8 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       const icons = stepBoostCard(ctx, frame, frame.targetPlayerId, "attack");
       if (icons === "busy") return;
       if (icons === null) {
+        // A villainous hero's basic defense: its own boost card now, after the enemy's (§S3.7, `startDefenderBoost`).
+        if (startDefenderBoost(ctx, frame.eventFrameId)) return;
         setFrame(ctx, { ...frame, stage: "dealDamage" });
         return;
       }
@@ -1592,7 +1749,7 @@ export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): 
       // threat itself and applies either way. The two are deliberately separate keys.
       const sch = profile.sch + (profile.missing.includes("sch") ? 0 : (vars.schBonus ?? 0));
       // RRG 1.8 "Scheme (Enemy Activation)" step 3 places it on the main scheme unless a constant ability redirects it.
-      const schemeInstanceId = schemeActivationDestination(ctx.state, ctx.deps, frame.enemyInstanceId);
+      const schemeInstanceId = schemeActivationDestination(ctx.state, ctx.deps, frame.enemyInstanceId, frame.playerId);
       const threatBonus = vars.threatBonus ?? 0;
       const amount = Math.max(0, sch + frame.boostIcons + threatBonus);
       // "This activation removes threat instead of placing it" (`modifyAttack.removesThreat`, Psychic Manipulation;

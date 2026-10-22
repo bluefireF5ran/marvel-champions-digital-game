@@ -7,17 +7,11 @@
  * re-calling `compose` until it comes back `"done"`, exactly the loop the service's doc comment describes. Nothing
  * half-answered is ever shown as settled: `#pending` is only ever the *current* unanswered question.
  */
+import { openIssueHintOf } from "../../view/campaign-open-hint.js";
 import Phaser from "phaser";
 import type { CampaignChoiceAnswer, CampaignDefinition, CampaignPendingChoice, PlayerSetup } from "@mc/engine";
 import { CAMPAIGN_ACCEPT } from "@mc/engine";
-import {
-  issueNumberOf,
-  issueStoryFor,
-  lineForRoster,
-  setupCallCopyFor,
-  storyFor,
-  type IssueStory,
-} from "../../campaign/story.js";
+import { issueStoryFor, lineForRoster, setupCallCopyFor, storyFor, type IssueStory } from "../../campaign/story.js";
 import {
   bangers,
   drawActionBar,
@@ -68,7 +62,8 @@ import { fadeScreenIn, goToScreen } from "../../ui/transitions.js";
 import type { Rect } from "../../view/layout.js";
 import { formFactorFor } from "../../view/layout.js";
 import { CAMPAIGN_ART, campaignCoverFor } from "../../art/campaign-art.js";
-import { callGridOf } from "../../view/campaign-call-layout.js";
+import { awaitsIssuePick, currentNodeIdOf, issueNumberOfRecord } from "../../view/campaign-issue-pick.js";
+import { callGridOf, callLabelWidthOf } from "../../view/campaign-call-layout.js";
 import { briefingSpeakerOf } from "../../view/campaign-briefing-speaker.js";
 import {
   answersOfAttempt,
@@ -140,7 +135,8 @@ import {
 import { FocusRoute, type FocusStop } from "../focus-route.js";
 import { SCENES } from "../keys.js";
 import { routeUnfoldedGame } from "./unfolded-game-route.js";
-import type { CampaignBriefingData } from "./routes.js";
+import { gameInProgressOf } from "../../campaign/unfolded-game.js";
+import type { CampaignBriefingData, CampaignOpenerData } from "./routes.js";
 
 const cardName = (id: string): string => CARDS_BY_ID.get(id)?.name ?? id;
 /** A seat's hero as the table names it ("Colossus"; "Spider-Man (Peter Parker)" where a name is shared). */
@@ -163,6 +159,13 @@ export class CampaignBriefingScene extends Phaser.Scene {
   #data!: CampaignBriefingData;
   #record: CampaignRecord | null = null;
   #story: IssueStory | null = null;
+  /**
+   * The issue the run was on when this screen opened: null for a `choice` graph (Fear No Evil) still to pick one. The
+   * pick settles the issue mid-Briefing, after the opener would have played, so its comic plays then (`#compose`).
+   */
+  #nodeAtLoad: string | null = null;
+  /** True when this issue's game is already on the table: the CTA continues it instead of opening a new one. */
+  #inProgress = false;
   #definition: CampaignDefinition | null = null;
   #nodeIds: readonly string[] = [];
   #issueNumber = 1;
@@ -252,23 +255,31 @@ export class CampaignBriefingScene extends Phaser.Scene {
       goToScreen(this, SCENES.campaignSaga);
       return;
     }
-    const nodeId = record.attempt?.nodeId ?? record.position.nextNodeId;
-    if (!nodeId) {
+    const definition = service.definitionFor(record);
+    // A `choice` graph (Fear No Evil) has no next node until the group has drawn and picked one, and that draw is
+    // part of composing this briefing: only a finished run has nowhere left to go.
+    if (!currentNodeIdOf(record) && !awaitsIssuePick(definition, record)) {
       goToScreen(this, SCENES.campaignDossier, { runId: record.id });
       return;
     }
     appSession().music?.playInterlude(record.campaignId as string);
+    this.#inProgress =
+      this.#data.replaySeed === undefined && gameInProgressOf(record, await appSession().store.listSaves()) !== null;
+    if (!this.sys.isActive()) return;
     this.#record = record;
-    this.#story = issueStoryFor(record.campaignId, nodeId);
-    const definition = service.definitionFor(record);
     this.#definition = definition;
+    this.#nodeAtLoad = currentNodeIdOf(record);
     this.#nodeIds = definition.graph.nodes.map((node) => node.id);
-    this.#issueNumber = issueNumberOf(
-      definition.graph.nodes.map((node) => node.id),
-      nodeId,
-    );
+    this.#syncIssue(record);
     this.#draw();
     void this.#compose();
+  }
+
+  /** The issue being briefed: its story and number, from the node the record has settled on (none yet, in a choice). */
+  #syncIssue(record: CampaignRecord): void {
+    const nodeId = currentNodeIdOf(record);
+    this.#story = nodeId ? issueStoryFor(record.campaignId, nodeId) : null;
+    if (this.#definition) this.#issueNumber = issueNumberOfRecord(this.#definition, record);
   }
 
   async #compose(): Promise<void> {
@@ -301,8 +312,27 @@ export class CampaignBriefingScene extends Phaser.Scene {
       this.#resetRoleBuild();
     } else {
       this.#record = result.record;
+      this.#syncIssue(result.record);
       this.#pending = null;
       this.#answers = [];
+      // A choice graph's issue was only just picked, so its opener never played: play its comic now, then come back
+      // here (the composed issue is saved, so this screen reopens on it). An issue with no comic needs no detour.
+      const picked = currentNodeIdOf(result.record);
+      if (this.#nodeAtLoad === null && picked !== null && (this.#story?.comicBeats?.length ?? 0) > 0) {
+        this.scale.off("resize", this.#draw, this);
+        goToScreen(this, SCENES.campaignOpener, {
+          runId: result.record.id,
+          nodeId: picked,
+          returnTo: {
+            key: SCENES.campaignBriefing,
+            data: {
+              runId: result.record.id,
+              ...(this.#data.replaySeed === undefined ? {} : { replaySeed: this.#data.replaySeed }),
+            },
+          },
+        } satisfies CampaignOpenerData);
+        return;
+      }
     }
     this.#draw();
   }
@@ -399,10 +429,22 @@ export class CampaignBriefingScene extends Phaser.Scene {
     this.#starting = true;
     this.#startError = null;
     this.#draw();
+    const { store } = appSession();
+    // This issue is already on the table (left by a refresh or Back to title): pick that game up, never deal anew.
+    // Not on Rewind's "Same hands", which deals the issue again on purpose.
+    const playing = this.#data.replaySeed === undefined ? gameInProgressOf(record, await store.listSaves()) : null;
+    if (playing) {
+      await store.resume(playing.id);
+      if (!this.sys.isActive()) return;
+      if (store.state.status !== "failed") {
+        this.scale.off("resize", this.#draw, this);
+        goToScreen(this, store.state.game?.step.phase === "setup" ? SCENES.setupDeal : SCENES.board);
+        return;
+      }
+    }
     const composed = campaignService().launchConfig(record);
     const replaySeed = this.#data.replaySeed;
     const config = replaySeed === undefined ? composed : { ...composed, seed: replaySeed };
-    const { store } = appSession();
     await store.start(config);
     if (!this.sys.isActive()) return;
     if (store.state.status === "failed") {
@@ -760,7 +802,13 @@ export class CampaignBriefingScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: "primary",
-        label: this.#starting ? "Opening…" : blocked ? "Fix a deck first" : `Open issue #${this.#issueNumber} ▸`,
+        label: this.#starting
+          ? "Opening…"
+          : blocked
+            ? "Fix a deck first"
+            : this.#inProgress
+              ? `Continue issue #${this.#issueNumber} ▸`
+              : `Open issue #${this.#issueNumber} ▸`,
         type: typeRole.barTitle,
         rect: openRect,
         onClick: openIssue,
@@ -785,6 +833,30 @@ export class CampaignBriefingScene extends Phaser.Scene {
           .rectangle(0, actionBar.y - stripHeight, width, stripHeight, surface.paper.hex)
           .setOrigin(0, 0);
         strip.setDepth(5);
+        text.setDepth(6).setY(actionBar.y - stripHeight + 6);
+      } else {
+        text.setY(actionBar.y + (actionBar.height - text.height) / 2);
+      }
+    }
+    const hint = openIssueHintOf({
+      issueNumber: this.#issueNumber,
+      pending: !!this.#pending,
+      composing: this.#composing,
+      starting: this.#starting,
+      deckBlocked: blocked,
+    });
+    if (hint) {
+      const reasonWidth = phone ? width - gutter * 2 : editRect.x - gutter - 16;
+      const text = this.add
+        .text(gutter, 0, hint.bar, textStyle({ ...typeRole.label, size: 15 }, accent.heroRed.hex, 1))
+        .setOrigin(0, 0)
+        .setWordWrapWidth(reasonWidth);
+      if (phone) {
+        const stripHeight = text.height + 12;
+        this.add
+          .rectangle(0, actionBar.y - stripHeight, width, stripHeight, surface.paper.hex)
+          .setOrigin(0, 0)
+          .setDepth(5);
         text.setDepth(6).setY(actionBar.y - stripHeight + 6);
       } else {
         text.setY(actionBar.y + (actionBar.height - text.height) / 2);
@@ -1190,6 +1262,20 @@ export class CampaignBriefingScene extends Phaser.Scene {
     let y = ruleHeading(this, rect.x, rect.y, rect.width, "Your call", surface.ink.hex, 20);
     const record = this.#record;
     const header = record ? seatHeaderOf(pending, record.seats, heroNameOf) : null;
+    const callHint = openIssueHintOf({
+      issueNumber: this.#issueNumber,
+      pending: true,
+      composing: false,
+      starting: false,
+      deckBlocked: false,
+    })?.call;
+    if (callHint) {
+      y +=
+        this.add
+          .text(rect.x, y, callHint, textStyle({ ...typeRole.label, size: 15 }, accent.heroRed.hex, 1))
+          .setOrigin(0, 0)
+          .setWordWrapWidth(rect.width).height + 8;
+    }
     if (header) y = this.#drawSeatHeader(rect, y, header, phone);
     const build = record ? this.#roleBuildFor(pending, record) : null;
     if (build) {
@@ -1273,6 +1359,12 @@ export class CampaignBriefingScene extends Phaser.Scene {
     // Options that are all cards carry their picture: a taller cell, the scan on its left (it opens Inspect), the
     // option's own button beside it. Anything else stays the plain button grid.
     const optionCards = this.#cardOptionsFor(pending);
+    const optionLabels = optionLabelsOf(
+      pending.options,
+      (id) => CARDS_BY_ID.get(id),
+      packNameOf,
+      (id) => (record ? issueStoryFor(record.campaignId, id)?.title : undefined),
+    );
     const grid = callGridOf({
       count: pending.options.length,
       x: rect.x,
@@ -1280,9 +1372,10 @@ export class CampaignBriefingScene extends Phaser.Scene {
       width: rect.width,
       maxHeight: Math.max(44, rect.y + rect.height - y - reserved),
       page: this.#callPage,
-      ...(optionCards ? CARD_OPTION_GRID : {}),
+      ...(optionCards
+        ? CARD_OPTION_GRID
+        : { fitWidth: callLabelWidthOf(pending.options.map((id) => optionLabels.get(id) ?? cardName(id))) }),
     });
-    const optionLabels = optionLabelsOf(pending.options, (id) => CARDS_BY_ID.get(id), packNameOf);
     pending.options.slice(grid.firstIndex, grid.firstIndex + grid.rects.length).forEach((optionId, shownIndex) => {
       const index = grid.firstIndex + shownIndex;
       const optionLabel = optionLabels.get(optionId) ?? cardName(optionId);

@@ -19,7 +19,7 @@ import { splitsIntoTwoCards } from "./encounter-sets.ts";
 import { normalizePlayerCard } from "./player-cards.ts";
 import { prepare, type Prepared } from "./prepare.ts";
 import type { SeparateDeckMembership } from "./separate-decks.ts";
-import { amplifyIconsField, PLAYER_TYPES, resourceIcons } from "./values.ts";
+import { amplifyIconsField, PLAYER_TYPES, printedStat, resourceIcons } from "./values.ts";
 
 export function normalizeSingleCards(
   ctx: NormalizeContext,
@@ -90,8 +90,10 @@ export function normalizeSingleCards(
       }
       continue;
     }
-    const { flipSide, flipParts } = readFlipSide(ctx, r);
+    const read = readFlipSide(ctx, r);
+    const { flipParts } = read;
     const p = prepare(ctx, r);
+    const flipSide = read.flipSide && withAllyFlipStats(read.flipSide, r, p, flipParts[0]);
     const parsed = parse(ctx, p);
     const rec = {
       r,
@@ -108,6 +110,30 @@ export function normalizeSingleCards(
 }
 
 /**
+ * A double-sided ally's flip side with its own printed THW / ATK / hit points where they differ from the front's
+ * (`CardFlipSide.thw` / `atk` / `hp`; Typhoid Mary 60210a THW 2 / ATK 1, Bloody Mary 60210b THW 1 / ATK 2), read the
+ * way `normalizePlayerCard` reads the front's. RRG 1.8 "Flip" (p. 20): the new face's characteristics apply.
+ */
+function withAllyFlipStats(
+  flipSide: EncounterCardFlipSide,
+  r: RawCard,
+  p: Prepared,
+  pBack: Prepared | undefined,
+): EncounterCardFlipSide {
+  const back = r.linked_card;
+  if (r.type_code !== "ally" || !back || !pBack) return flipSide;
+  const thw = printedStat(pBack.thwart ?? back.thwart);
+  const atk = printedStat(pBack.attack);
+  const hp = back.health ?? 0;
+  return {
+    ...flipSide,
+    ...(thw !== printedStat(p.thwart ?? r.thwart) ? { thw } : {}),
+    ...(atk !== printedStat(p.attack) ? { atk } : {}),
+    ...(hp !== (r.health ?? 0) ? { hp } : {}),
+  };
+}
+
+/**
  * Double-sided encounter cards that flip between two faces of the same card type (docs/phase7-wave1.md §1.4 —
  * Criminal Enterprise ↔ State of Madness). MarvelCDB nests the back face as a hidden linked record of the same
  * type_code; every other linked-card shape on a non-hero/non-main-scheme/non-villain record is an error.
@@ -120,7 +146,14 @@ function readFlipSide(
     const back = r.linked_card;
     const pBack = prepare(ctx, back);
     const parsedBack = parse(ctx, pBack);
-    expectNoPlayerData(ctx, pBack, parsedBack);
+    // A double-sided player card's back may restate the front's "Max N per player." (Shadowland's Creeping
+    // Corruption 65072b, an encounter-set upgrade printing it on both faces, insert pp. 9 and 14). `flipSide` carries
+    // no restrictions: the front's are the card's, so that one sentence alone is not a play rule on a "non-player" card.
+    const restatesMaxPerPlayer =
+      PLAYER_TYPES.has(r.type_code) &&
+      parsedBack.maxPerDeckText === undefined &&
+      Object.keys(parsedBack.restrictions).every((k) => k === "maxPerPlayer");
+    if (!restatesMaxPerPlayer) expectNoPlayerData(ctx, pBack, parsedBack);
     // A flipped attachment is already attached, so its back face may restate the host ("Permanent. Attach to
     // Juggernaut.", Juggernaut Exposed `next_evol` 40122b). The front face's `attachesTo` is the only attach rule
     // the card carries; `EncounterCardFlipSide` has none, and a back-face attach sentence is not an error.

@@ -16,8 +16,10 @@ import {
   payPayment,
   costResourceRequirement,
   planCost,
-  deckTopCostReduction,
-  deckTopPlayOf,
+  asIfInHandCostReduction,
+  asIfInHandPlayOf,
+  asIfInHandViaBindings,
+  playOriginOf,
   playableFromAttachment,
   playCostContributions,
   priceAfterReductions,
@@ -29,6 +31,7 @@ import {
   upToCounterChoice,
 } from "../actions.js";
 import { inPlayPicksOf, resourcesChoiceOf } from "../abilities.js";
+import { costWithChangeForm } from "../change-form-cost.js";
 import type { ChoiceOption } from "../choices.js";
 import type { CostChoices, CostSelection } from "../commands.js";
 import {
@@ -45,6 +48,7 @@ import {
 import { candidateDefenseBar, windowDefenseBar } from "../defense-claim.js";
 
 import { EngineInvariantError } from "../errors.js";
+import { leaveReplaced } from "../effects.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardOf, deckDiscardStillThere, getInstance, mustPlayer, playerOrder, printedCostOf } from "../query.js";
 import { combineRequirements, requirementTotal, satisfies } from "../resources.js";
@@ -317,6 +321,16 @@ const stillImminent = (ctx: Ctx, frame: Frame<"window">, candidate: TriggerCandi
   if (frame.timing !== "interrupt") return true;
   const on = answered(ctx, frame, candidate);
   if (cancelledFrame(ctx, on.eventFrameId)) return false;
+  // A leaving a "would … instead" interrupt already sent elsewhere (RRG 1.8 "Replacement Effect", p. 37; "'Would'",
+  // p. 48).
+  const now = on.eventFrameId ? findFrame(ctx.state, on.eventFrameId) : undefined;
+  if (
+    now?.kind === "event" &&
+    now.event.kind === "cardLeavesPlay" &&
+    now.event.leaving &&
+    leaveReplaced(now.event.leaving)
+  )
+    return false;
   // An attachment leaving with its host (§4.1 Q32): not if the host's own event here was cancelled and the host stays.
   // An attachment's attachment asks the same of its host's host, and so on up (§4.1 Q50).
   const events = [frame.event, ...(frame.alsoEvents ?? [])];
@@ -635,7 +649,8 @@ function windowEventCost(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCan
   // constant (`playCostModifier` — this path previously read only `costReductionFor`'s older "reduce the next card"
   // lasting-effect mechanism, so a constant cost reduction like Knife Leap's "reduce the cost to play this card by
   // 1 for each vengeance counter on Drax" silently never applied here), then the older reduction, never below 0.
-  // Played from the top of the deck, less its permission's reduction (`playableTopOfDeck`, docs/phase7-wave8.md §3.49).
+  // Played as if from hand from the top of the deck or a tuck, less its permission's reduction (`playableTopOfDeck`,
+  // docs/phase7-wave8.md §3.49; `playableAsIfInHand`, docs/phase7-wave11.md §3.8).
   const reduced = priceAfterReductions(
     ctx.state,
     ctx.deps,
@@ -643,7 +658,7 @@ function windowEventCost(ctx: Ctx, frame: Frame<"window">, candidate: TriggerCan
     candidate.instanceId,
     printed,
     playCostContributions(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId, null).map((e) => e.delta),
-    deckTopCostReduction(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId),
+    asIfInHandCostReduction(ctx.state, ctx.deps, candidate.controllerId, candidate.instanceId),
   );
   // The ability's own resources, a computed X included (`resourcesEqualTo`), as `planCost` will ask for them.
   const abilityCost = costResourceRequirement(
@@ -828,9 +843,12 @@ function askHandDiscard(
   rest: readonly TriggerCandidate[],
 ): boolean {
   const controller = candidate.controllerId;
-  const cost = ctx.deps.abilities[candidate.abilityId]?.cost;
+  if (!controller) return false;
+  // A "change form →" cost's hand discard may be an additional cost to change form (`change-form-cost.ts`).
+  const written = ctx.deps.abilities[candidate.abilityId]?.cost;
+  const cost = costWithChangeForm(ctx.state, ctx.deps, candidate.instanceId, controller, written);
   const discard = cost?.discardFromHand;
-  if (!controller || !discard || (discard.min <= 0 && !discard.combined)) return false;
+  if (!discard || (discard.min <= 0 && !discard.combined)) return false;
   const choices = costChoicesFor(frame, candidate);
   if (choices[HAND_DISCARD_SLOT] !== undefined) return false;
   const candidates = handDiscardCandidates(ctx.state, ctx.deps, candidate.instanceId, controller, cost);
@@ -889,7 +907,11 @@ function withoutHandDiscards(
 function absorbCostPick(ctx: Ctx, frame: Frame<"window">, answer: readonly string[], slot: string | null): void {
   const candidate = frame.paying;
   const { costPicks: _dropped, ...cleared } = { ...frame, answer: null, awaiting: null, paying: null };
-  const cost = candidate ? ctx.deps.abilities[candidate.abilityId]?.cost : undefined;
+  const written = candidate ? ctx.deps.abilities[candidate.abilityId]?.cost : undefined;
+  const cost =
+    candidate?.controllerId != null
+      ? costWithChangeForm(ctx.state, ctx.deps, candidate.instanceId, candidate.controllerId, written)
+      : written;
   // A pick of cards in play, or the hand-discard cost's (`askHandDiscard`), which needs at least one card.
   const pick =
     inPlayPicksOf(cost).find((entry) => entry.pick.slot === slot)?.pick ??
@@ -1118,10 +1140,11 @@ function playWindowEvent(ctx: Ctx, frame: Frame<"window">, answer: readonly stri
   const controller = candidate?.controllerId;
   if (!candidate || !controller) return;
   // Still in hand, still on a host that lets it be played "as if it were in your hand", or still the top card of the
-  // deck under a `playableTopOfDeck` permission not used since it was offered (`inHandCandidates`).
-  const deckTop = deckTopPlayOf(ctx.state, ctx.deps, controller, candidate.instanceId);
+  // deck or a tucked card under a permission (`playableTopOfDeck`, `playableAsIfInHand`) not used since it was
+  // offered (`inHandCandidates`).
+  const asIfInHand = asIfInHandPlayOf(ctx.state, ctx.deps, controller, candidate.instanceId);
   if (
-    !deckTop &&
+    !asIfInHand &&
     !mustPlayer(ctx.state, controller).hand.includes(candidate.instanceId) &&
     !playableFromAttachment(ctx.state, ctx.deps, controller, candidate.instanceId)
   )
@@ -1137,7 +1160,7 @@ function playWindowEvent(ctx: Ctx, frame: Frame<"window">, answer: readonly stri
     costChoicesFor(frame, candidate),
     null,
     undefined,
-    deckTop?.costReduction ?? 0,
+    asIfInHand?.costReduction ?? 0,
     selection,
     answered(ctx, frame, candidate).event,
     // The window's payment choice carries no declaration of its wilds: the play's own frame asks for one when a card
@@ -1145,14 +1168,17 @@ function playWindowEvent(ctx: Ctx, frame: Frame<"window">, answer: readonly stri
     { abilityId: candidate.abilityId },
   );
   if (isPriceFault(priced)) return;
-  const spent = commitPlay(ctx, controller, candidate.instanceId, payment, priced, deckTop);
+  const spent = commitPlay(ctx, controller, candidate.instanceId, payment, priced, asIfInHand);
   pushPlayCardFrame(
     ctx,
     candidate.instanceId,
     controller,
     null,
     { triggeredAbilityId: candidate.abilityId, ...answered(ctx, frame, candidate) },
-    playFrameCost(priced),
+    playFrameCost(priced, { ...priced.plan.bindings, ...asIfInHandViaBindings(asIfInHand) }),
+    controller,
+    undefined,
+    playOriginOf(asIfInHand),
   );
   payCost(ctx, candidate.instanceId, controller, abilityCost, priced.plan);
   announceResourcesSpent(ctx, controller, spent, candidate.instanceId, "playCard");

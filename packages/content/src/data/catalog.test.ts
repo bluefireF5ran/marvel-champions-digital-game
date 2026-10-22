@@ -3,7 +3,7 @@
  * against the catalog: every card the app ships must count as some printed card, or the Title footer's "N / M cards
  * live" could run past M.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -12,9 +12,22 @@ import { catalogOf, printedCodeOf, printedCodesOfCard, type RawCatalogPack } fro
 import { PLAYABLE_CARDS } from "./index.js";
 
 const rawDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "raw", "marvelcdb");
+// Cards MarvelCDB lacks (`raw/hallofheroes/<pack>.json`, generated from `addedRecords`) join the pack of the same name.
+const addedDir = join(rawDir, "..", "hallofheroes");
+const addedNames = new Set(existsSync(addedDir) ? readdirSync(addedDir) : []);
 const packs: RawCatalogPack[] = readdirSync(rawDir)
   .filter((name) => name.endsWith(".json"))
-  .map((name) => JSON.parse(readFileSync(join(rawDir, name), "utf8")) as RawCatalogPack);
+  .map((name) => {
+    const pack = JSON.parse(readFileSync(join(rawDir, name), "utf8")) as RawCatalogPack;
+    if (!addedNames.has(name)) return pack;
+    const added = JSON.parse(readFileSync(join(addedDir, name), "utf8")) as RawCatalogPack;
+    return { ...pack, cards: [...pack.cards, ...added.cards] };
+  });
+// A scan-only pack (raw/hallofheroes file with no MarvelCDB file, e.g. Shadowland) is a pack of its own; it counts what
+// the raw file holds (40 of 70 printed Shadowland cards so far).
+const marvelcdbNames = new Set(readdirSync(rawDir));
+for (const name of [...addedNames].filter((n) => n.endsWith(".json") && !marvelcdbNames.has(n)).sort())
+  packs.push(JSON.parse(readFileSync(join(addedDir, name), "utf8")) as RawCatalogPack);
 const catalog = catalogOf(packs);
 
 describe("card catalog", () => {

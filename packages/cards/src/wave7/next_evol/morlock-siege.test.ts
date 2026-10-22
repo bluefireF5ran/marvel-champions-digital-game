@@ -452,7 +452,11 @@ describe("Mutant Massacre 2B (40078b)", () => {
     const base = stage2();
     expect(discardNames(base)).not.toContain("Hide!");
     const before = deckNames(base).length;
-    const s = drive(base, {}, massacre(base, P1, morlocksOf(base, P1)[0])).state;
+    const run = drive(base, {}, massacre(base, P1, morlocksOf(base, P1)[0]));
+    const s = run.state;
+    // Hide! is a named card, not a whole pile: with none to move there is no shuffle either (RRG 1.8 "Target", p. 42; the
+    // FFG ruling of September 10, 2026, Ruling 1 covers shuffling a whole, possibly empty, pile only).
+    expect(run.events.some((e) => e.type === "deckShuffled")).toBe(false);
     expect(deckNames(s)).toHaveLength(before);
     expect(morlocksOf(s, P1).filter((id) => inst(s, id).exhausted)).toHaveLength(1);
   });
@@ -763,11 +767,9 @@ describe("Morlock (40079)", () => {
     for (const player of base.players) {
       expect(damageOn(run.state, identityOf(run.state, player.playerId))).toBe(0);
     }
-    // 5 and 6 damage on a 5 hit point Morlock each: the attacks landed on them and defeated them (no overkill: the heroes took none).
-    for (const attack of attacks) {
-      expect(attack.damageDealt).toBeGreaterThanOrEqual(5);
-      expect(run.state.victoryDisplay).toContain(attack.targetInstanceId);
-    }
+    // The attacks landed on the Morlocks, not the heroes (4 damage or more each: the first listed option of the villain's
+    // Forced Interrupt is chosen, and since 2026-10-20 none is forced to +2 ATK for want of a target).
+    for (const attack of attacks) expect(attack.damageDealt).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -1060,14 +1062,16 @@ describe("Back in Action (40088)", () => {
     expect(allMorlocks(spend.state).map((id) => damageOn(spend.state, id))).toEqual([0, 0]);
   });
 
-  it("40088.boost: with no resource to spend only the damage is offered (Q8 = A) and is forced (hero form: Peter Parker's alter-ego generates a resource)", () => {
+  it("40088.boost: with no resource to spend the spend is still offered (owner 2026-10-20 reversing Q8); the damage is taken (hero form: Peter Parker's alter-ego generates a resource)", () => {
     const base = table();
     const empty = {
       ...base,
       players: base.players.map((p) => ({ ...p, hand: [], deck: [], discard: [] })),
     };
     const run = round(empty, { boosts: ["40088"], reveals: ["40088"] });
-    expect(run.prompts.flatMap((p) => p.labels).filter((l) => l.startsWith("Spend 1 resource"))).toEqual([]);
+    expect(run.prompts.flatMap((p) => p.labels).filter((l) => l.startsWith("Spend 1 resource"))).toEqual([
+      "Spend 1 resource of any type",
+    ]);
     const boostCard = Object.keys(run.state.instances).find(
       (id) => cardOf(run.state, id as InstanceId) === "40088",
     ) as InstanceId;

@@ -140,9 +140,15 @@ export interface TreatedAsMinion {
   readonly traits: readonly Trait[];
   readonly keepPrintedTraits: boolean;
   /** `"current"`: "SCH is equal to its THW", the ally's THW with its modifiers, not the printed value (wave 7 §3.44). */
-  readonly schFromThw: boolean | "current";
+  readonly schFromThw: boolean | "current" | "base";
   readonly source: InstanceId;
   readonly controllerBefore: PlayerId | null;
+  /**
+   * Set when a `RuleSpec treatAsMinion` on `source` matched the card (Baron Zemo, docs/phase7-wave11-scenarios.md
+   * §S3.9) rather than an attachment on it: it lasts while that rule is active and its query matches the card
+   * (`syncRuleTreatments`). Absent otherwise.
+   */
+  readonly byRule?: true;
 }
 
 /**
@@ -163,6 +169,12 @@ export interface TreatedAsAlly {
   readonly source: InstanceId;
   readonly controller: PlayerId;
   readonly engagedBefore: PlayerId | null;
+  /**
+   * Set when the card's own constant treats it as an ally (`RuleSpec treatSelfAsAlly`, Black Cat; docs/phase7-wave11-
+   * scenarios.md §S3.8): `source` is the card itself, its text box is not blank (its printed abilities and keywords
+   * stay), and `traits` are added to its printed traits rather than replacing them. Absent otherwise.
+   */
+  readonly keepsText?: true;
 }
 
 /**
@@ -361,6 +373,18 @@ export interface PlayerState {
 export interface SeparateDeckState {
   readonly deck: readonly InstanceId[];
   readonly discard: readonly InstanceId[];
+  /**
+   * The identity's `IdentitySeparateDeck.fixedOrder`, copied at setup (docs/phase7-wave11.md §3.1; Daredevil's Sense
+   * deck, MC60 p. 26: "you cannot change the order"). The deck is shuffled at setup and never again: every later shuffle
+   * of it (`shuffleDeck { separateDeck }`, a search, a card shuffled in) leaves the order as it is. Absent otherwise.
+   */
+  readonly fixedOrder?: true;
+  /**
+   * The identity's `IdentitySeparateDeck.ownerMayLookThrough`, copied at setup (MC60 p. 26: "you can look through it at
+   * any time"): its owner, and no other player, may see the whole deck in order (`mayLookThroughSeparateDeck`). Absent
+   * otherwise.
+   */
+  readonly ownerMayLookThrough?: true;
 }
 
 export interface VillainState {
@@ -409,7 +433,14 @@ export interface ScenarioDeckState {
     readonly trait?: string;
     /** Cards that join by id besides the ones the other fields match (Cornered! in the show deck; wave 6 §3.66). */
     readonly cardIds?: readonly string[];
+    /** Encounter sets whose every card joins (`ScenarioSeparateDeck.contents.wholeEncounterSetIds`, the trap deck). */
+    readonly wholeEncounterSetIds?: readonly string[];
   };
+  /**
+   * `ScenarioSeparateDeck.discardByTrait` (the trap deck, MC65 pp. 12-13): a card printing this trait goes to this
+   * deck's discard pile wherever it is discarded from, any other to its encounter discard pile (`discardZoneFor`).
+   */
+  readonly discardByTrait?: string;
   /**
    * `ScenarioSeparateDeck.closedToPlayerCards` (the show deck "cannot be affected by player card effects", MojoMania
    * insert p. 11): a player card's ability never selects, looks at, reorders or moves a card in this deck, nor puts one
@@ -612,6 +643,14 @@ export interface MainSchemeState {
    * resolved by the frames pushed for them. Removed by the `mainSchemeTurnsToB` event. Absent: the B side is faceup.
    */
   readonly faceupSide?: "A";
+  /**
+   * The player whose play area this main scheme is in (docs/phase7-wave11-scenarios.md §S3.1; Protection Racket 1A:
+   * "Each player chooses a single Protection Racket main scheme … places it in their play area"). Set at setup by
+   * `GameSetupConfig.mainSchemeChoice`, on the central scheme and each one beside it. "The main scheme" is then read
+   * by play area (`mainSchemesFor`, MC60 p. 13). Absent: the scheme is in the villain's play area, as in every other
+   * game, so saves are unchanged.
+   */
+  readonly playArea?: PlayerId;
 }
 
 /**
@@ -779,7 +818,15 @@ export type GameStep =
    * II step 12's abilities have fully resolved and before step 14's draw. Reached only by a game that has some.
    */
   | { readonly phase: "setup"; readonly kind: "scenarioSetupInstructions" }
-  | { readonly phase: "setup"; readonly kind: "drawStartingHands" }
+  | {
+      readonly phase: "setup";
+      readonly kind: "drawStartingHands";
+      /**
+       * The players already offered their Starting card (docs/phase7-wave11.md §3.6; `starting.ts`), in player order.
+       * Absent until the first offer: a game whose decks hold no Starting card never sets it.
+       */
+      readonly startingOffered?: readonly PlayerId[];
+    }
   | {
       readonly phase: "setup";
       readonly kind: "mulligan";
@@ -853,8 +900,19 @@ export type GameStep =
       readonly remainingPlayerIds: readonly PlayerId[];
     }
   | { readonly phase: "villain"; readonly kind: "passFirstPlayer" }
-  /** `delayedResolved`: "at the end of the round" delayed effects have been fired (RRG "Lasting Effects"). */
-  | { readonly phase: "villain"; readonly kind: "endOfRound"; readonly delayedResolved?: boolean }
+  /**
+   * `delayedResolved`: "at the end of the round" delayed effects have been fired (RRG "Lasting Effects").
+   * `villainPhaseSkipped`: this round's villain phase was skipped (`EffectSpec skipNextVillainPhase`,
+   * docs/phase7-wave11-hero-packs.md H3.7). The step was reached straight from the player phase's end, steps one to
+   * five never ran, and the round's end is `phaseEnding { phase: "round" }`, not the villain phase's. The step's
+   * `phase` still reads `"villain"`, as the round's end does in every other round.
+   */
+  | {
+      readonly phase: "villain";
+      readonly kind: "endOfRound";
+      readonly delayedResolved?: boolean;
+      readonly villainPhaseSkipped?: true;
+    }
   | { readonly phase: "gameOver"; readonly kind: "gameOver" };
 
 export type GameOutcome =
@@ -942,6 +1000,12 @@ export interface TableRules {
 export interface GameState {
   readonly round: number;
   readonly step: GameStep;
+  /**
+   * "Skip the next villain phase" (`EffectSpec skipNextVillainPhase`, docs/phase7-wave11-hero-packs.md H3.7): how many
+   * of the villain phases to come are skipped. Each player phase's end reads it; above 0, it counts one off and the
+   * round ends with no villain phase (`flow.ts` `finishPlayerPhase`). Absent is 0.
+   */
+  readonly villainPhasesToSkip?: number;
   readonly firstPlayerId: PlayerId;
   /**
    * The number of players who started the scenario, the one count every per player value reads (RRG 1.8 "Per Player
@@ -1323,6 +1387,11 @@ export interface GameState {
    * is present "the villain" may be nobody; it lists, in the order they entered, the villains put into play without
    * being revealed, whose Setup and When Revealed abilities step 12c still owes (the `villainSetupAbilities` step).
    * docs/phase7-wave7.md §3.42.
+   *
+   * Also present, from step 12 on, in a game where an encounter card step 11 put into play has a Setup ability
+   * (`resolveScenarioSetup`; docs/phase7-wave11-scenarios.md §S3.4): it then starts with the villains already in play,
+   * whose step 12c waits for that ability (it can set the face they show), and a villain put into play during step 12
+   * without being revealed is added to it as above.
    */
   readonly villainsEnteringAtSetup?: readonly InstanceId[];
   /**

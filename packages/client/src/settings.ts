@@ -87,6 +87,11 @@ export interface Settings {
   /** The hover popover over a villain card. Defaults on. */
   readonly hoverVillainCard: boolean;
   /**
+   * Ultron's facedown Drones drawn with Hall of Heroes' Drone card art, once earned (Settings ▸ More ▸ Earned items,
+   * `progression/earned-items.ts`; issue #291). Defaults on: earning it is what turns it on.
+   */
+  readonly ultronDroneArt: boolean;
+  /**
    * How the first player token travels to a new first player, on the Set the table screen and around the table
    * (`view/first-player-token-motion.ts`). Defaults to a toss (the owner, 2026-10-16). Reduced motion places it instead.
    */
@@ -108,6 +113,70 @@ export interface Settings {
    * a 30 fps cap. Off plays as usual whatever the device says (the owner, 2026-10-18). Defaults on.
    */
   readonly powerSavingAdjust: boolean;
+  /**
+   * How many device pixels the game draws per CSS pixel (`platform/screen-settings.ts`): "native" for the screen's own
+   * density (1080p on a 1080 x 2400 phone, 1.5x under Windows' 150% scaling), or a lower multiplier that is lighter on
+   * the GPU, memory and battery. Defaults to what this device's hardware is recommended (`platform/device-tier.ts`):
+   * native on a high-end one.
+   */
+  readonly renderScale: RenderScale;
+  /**
+   * The frame rate the game holds to: the screen's own refresh rate (120 Hz on a 120 Hz phone), or a 60 or 30 fps cap.
+   * On Android the app also asks the OS for a matching refresh rate. Defaults to the screen's own, or 60 on a phone the
+   * hardware check rates below high-end; power saving mode defaults it to 30 (`POWER_SAVING_FPS`).
+   */
+  readonly frameRate: FrameRate;
+  /**
+   * How long the "Achievement unlocked" popup stays up (`scenes/achievement-toast.ts`), or "off" for none. Defaults to
+   * 5 s (the owner, 2026-10-20).
+   */
+  readonly achievementPopupTime: AchievementPopupTime;
+  /** Where the "Achievement unlocked" popup shows. Defaults to the title bar (the owner, 2026-10-20: keep it out of the way). */
+  readonly achievementPopupPlace: AchievementPopupPlace;
+  /** How large the "Achievement unlocked" popup is drawn. Defaults to small (the owner, 2026-10-20). Its opened list keeps one size. */
+  readonly achievementPopupSize: AchievementPopupSize;
+}
+
+export type AchievementPopupTime = "off" | "3s" | "5s" | "8s" | "10s";
+export const ACHIEVEMENT_POPUP_TIME_VALUES: readonly AchievementPopupTime[] = ["off", "3s", "5s", "8s", "10s"];
+
+/** Milliseconds an achievement popup holds for a `achievementPopupTime`; 0 for "off". */
+export function achievementPopupHoldMs(time: AchievementPopupTime): number {
+  return time === "off" ? 0 : Number.parseInt(time, 10) * 1000;
+}
+
+/** "titleBar" sits in the screens' top bar strip; the rest are centered across the screen at that height. */
+export type AchievementPopupPlace = "titleBar" | "top" | "middle" | "bottom";
+export type AchievementPopupSize = "small" | "medium" | "large";
+export const ACHIEVEMENT_POPUP_SIZE_VALUES: readonly AchievementPopupSize[] = ["small", "medium", "large"];
+
+/** The scale an `achievementPopupSize` draws the popup at: medium is the size it was designed at. */
+export function achievementPopupScale(size: AchievementPopupSize): number {
+  return size === "small" ? 0.8 : size === "large" ? 1.3 : 1;
+}
+
+export const ACHIEVEMENT_POPUP_PLACE_VALUES: readonly AchievementPopupPlace[] = ["titleBar", "top", "middle", "bottom"];
+
+/** "native": the screen's own pixel density. A multiplier is capped at the screen's own (`renderScaleFactorOf`). */
+export type RenderScale = "native" | "2x" | "1.5x" | "1x";
+export const RENDER_SCALE_VALUES: readonly RenderScale[] = ["native", "2x", "1.5x", "1x"];
+
+/** No phone is denser than this; above it the buffer would cost more than any screen can show. */
+export const MAX_RENDER_SCALE = 4;
+
+/** The device pixels per CSS pixel a `renderScale` draws at on a screen of this density. */
+export function renderScaleFactorOf(choice: RenderScale, devicePixelRatio: number): number {
+  const native = Math.min(MAX_RENDER_SCALE, Math.max(1, devicePixelRatio || 1));
+  return choice === "native" ? native : Math.min(native, Number.parseFloat(choice));
+}
+
+/** "screen": no cap, the screen's own refresh rate. */
+export type FrameRate = "screen" | "60" | "30";
+export const FRAME_RATE_VALUES: readonly FrameRate[] = ["screen", "60", "30"];
+
+/** The game loop's fps limit for a `frameRate`: 0 for none. */
+export function fpsLimitOf(rate: FrameRate): number {
+  return rate === "screen" ? 0 : Number(rate);
 }
 
 export type DisplayMode = "windowed" | "borderless" | "fullscreen";
@@ -228,11 +297,16 @@ export function tableRulesOf(settings: Pick<Settings, "sameNameHeroAllyConflict"
 export interface DeviceConditions {
   /** The device is in power saving mode (`platform/power-saving.ts`). */
   readonly powerSaving?: boolean;
+  /**
+   * The screen settings recommended for this device's hardware (`platform/device-tier.ts`): Render resolution and Frame
+   * rate start there instead of Native and the screen's own rate.
+   */
+  readonly screen?: { readonly renderScale: RenderScale; readonly frameRate: FrameRate };
 }
 
 /**
- * The settings a player who changed nothing gets on this device. Power saving mode turns reduced motion on and text
- * down to 1x while it lasts; a player who set either themselves keeps their own choice (`resolveSettings`).
+ * The settings a player who changed nothing gets on this device. Power saving mode turns reduced motion on, text down
+ * to 1x and the frame rate down to 30 fps while it lasts; a player who set either themselves keeps their own choice (`resolveSettings`).
  */
 export function defaultSettings(device: DeviceConditions = {}): Settings {
   const prefersReduced =
@@ -261,9 +335,15 @@ export function defaultSettings(device: DeviceConditions = {}): Settings {
     cardSize: "standard",
     hoverHeroCard: true,
     hoverVillainCard: true,
+    ultronDroneArt: true,
     firstPlayerTokenMotion: "toss",
     displayMode: "windowed",
     resolution: "native",
     powerSavingAdjust: true,
+    renderScale: device.screen?.renderScale ?? "native",
+    frameRate: powerSaving ? "30" : (device.screen?.frameRate ?? "screen"),
+    achievementPopupTime: "5s",
+    achievementPopupPlace: "titleBar",
+    achievementPopupSize: "small",
   };
 }

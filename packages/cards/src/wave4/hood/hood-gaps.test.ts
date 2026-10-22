@@ -1,3 +1,4 @@
+import { MOJO_CARDS } from "@mc/content";
 import { characterProfile, hasKeyword, keywordTotal, type GameState, type InstanceId } from "@mc/engine";
 import { describe, expect, it } from "vitest";
 import { identityOf, instancesOf, P1, playerOf } from "../../testing/harness.js";
@@ -296,7 +297,8 @@ describe("Citywide Crisis (24059)", () => {
     expect(revealedCodes(events)).toEqual(["24059"]);
   });
 
-  // §4 Q23 (user decision 2026-09-25): only printed When Revealed abilities are resolved and counted.
+  // §4 Q23 as revised 2026-10-20: printed When Revealed abilities, incite and surge are resolved and counted; Beast Mode
+  // has none of them.
   it("24059.when-revealed: the Docks' printed ability resolves and counts; Beast Mode (no When Revealed) adds nothing", () => {
     const base = cleanGame({ fold: ["state_of_emergency", "beasty_boys"] });
     const docks = encounterCardInVillainArea(base, "24056", 3);
@@ -308,6 +310,35 @@ describe("Citywide Crisis (24059)", () => {
     expect(state.instances[docks.id]!.threat).toBe(3);
     expect(state.instances[beastMode.id]!.threat).toBe(4);
     expect(revealedCodes(events)).toEqual(["24059"]);
+  });
+
+  // RRG 1.8 "Resolve" (p. 37); FFG ruling on Citywide Crisis (RRG 1.0-1.4 era): a When Revealed that changes nothing
+  // (Offshore Inferno with no ally, upgrade or support to discard) was not resolved, so 2 threat on each scheme.
+  it("24059.when-revealed: Offshore Inferno with nothing to discard changes nothing, so 2 threat on each scheme", () => {
+    const base = cleanGame({ fold: ["state_of_emergency"] });
+    expect(playerOf(base, P1).playArea).toEqual([]);
+    const inferno = encounterCardInVillainArea(base, "24057", 3);
+    const { state, events, staged } = villainPhaseWith(inferno.state, [BOOST, "24059"]);
+    const card = staged.encounterDecks[deckId(staged)]!.deck[1]!;
+    const placed = eventsFrom(events, card).flatMap((e) =>
+      e.type === "threatPlaced" ? [[e.schemeInstanceId, e.amount]] : [],
+    );
+    expect(placed).toEqual([
+      [base.mainScheme.instanceId, 2],
+      [inferno.id, 2],
+    ]);
+    expect(eventsFrom(events, inferno.id)).toEqual([]);
+    expect(state.instances[inferno.id]!.threat).toBe(5);
+  });
+
+  it("24059.when-revealed: a no-op Offshore Inferno beside the Docks (3 damage): one resolved, so no threat", () => {
+    const base = cleanGame({ fold: ["state_of_emergency"] });
+    const inferno = encounterCardInVillainArea(base, "24057", 3);
+    const docks = encounterCardInVillainArea(inferno.state, "24056", 3);
+    const { events, staged } = villainPhaseWith(docks.state, [BOOST, "24059"]);
+    const card = staged.encounterDecks[deckId(staged)]!.deck[1]!;
+    expect(damageDealt(eventsFrom(events, docks.id))).toEqual([[hero(base), 3]]);
+    expect(eventsFrom(events, card).some((e) => e.type === "threatPlaced")).toBe(false);
   });
 
   it("24059.when-revealed: with no When Revealed on the side schemes in play, 2 threat on each scheme", () => {
@@ -322,6 +353,33 @@ describe("Citywide Crisis (24059)", () => {
       [base.mainScheme.instanceId, 2],
       [ambition.id, 2],
     ]);
+  });
+
+  // FFG ruling, September 22, 2026: surge is a type of When Revealed ability, so "Resolve each 'When Revealed' ability
+  // on each side scheme" includes it (owner decision 2026-10-20, spec §S7 E37, revising §4 Q23, which counted printed
+  // abilities only and so placed the fallback threat here).
+  it("24059.when-revealed: a side scheme with only surge (Fetch Quest) resolves its surge, which counts: no threat", () => {
+    const base = cleanGame({ fold: ["state_of_emergency"] });
+    // Test surgery: Unbridled Ambition's instance re-coded as Fetch Quest (mojo 39045: Surge; its When Defeated, not
+    // registered in wave 4, stripped), a side scheme whose only When Revealed ability is its surge.
+    const fetch = MOJO_CARDS.find((c) => (c.id as string) === "39045")!;
+    const ambition = encounterCardInVillainArea(base, "24011", 4);
+    const staged0: GameState = {
+      ...ambition.state,
+      cardPool: { ...ambition.state.cardPool, [fetch.id]: { ...fetch, abilities: [] } as typeof fetch },
+      instances: {
+        ...ambition.state.instances,
+        [ambition.id]: { ...ambition.state.instances[ambition.id]!, cardId: fetch.id },
+      },
+    };
+    expect(hasKeyword(staged0, ambition.id, "surge", WAVE4_DEPS)).toBe(true);
+    const { events, staged } = villainPhaseWith(staged0, [BOOST, "24059"]);
+    const card = staged.encounterDecks[deckId(staged)]!.deck[1]!;
+    expect(eventsFrom(events, card).some((e) => e.type === "threatPlaced")).toBe(false);
+    const surges = events.flatMap((e) => (e.type === "surgeTriggered" ? [e.instanceId] : []));
+    expect(surges).toEqual([ambition.id]);
+    expect(revealedCodes(events)).toHaveLength(2);
+    expect(revealedCodes(events)[0]).toBe("24059");
   });
 
   it("24059.boost: as The Hood's boost card it resolves its own When Revealed (the Docks deal 3 again)", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { defaultGuidePrefs } from "../guide/guide-prefs.js";
+import { EARNED_ITEMS } from "../progression/earned-items.js";
 import { defaultSettings } from "../settings.js";
 import { guideRowInfoOf, settingsRowInfoOf } from "./settings-rows.js";
 import { settingsSectionsOf, settingsTabsOf } from "./settings-sections.js";
@@ -26,11 +27,15 @@ describe("settingsSectionsOf", () => {
       "unlocks",
       "save-data",
       "rules",
+      "achievement-popup-time",
+      "achievement-popup-place",
+      "achievement-popup-size",
+      ...EARNED_ITEMS.map((item) => item.id),
     ];
     expect([...items].sort()).toEqual([...expected].sort());
   });
 
-  test("the sections read top to bottom: Gameplay, Villain phase, Cards, Animation and display, Sound, Guide, More", () => {
+  test("the sections read top to bottom: Gameplay, Villain phase, Cards, Animation and display, Sound, Guide, More, Achievements, Earned items", () => {
     expect(settingsSectionsOf({ guideRowIds, cardHover: true }).map((s) => s.title)).toEqual([
       "Gameplay",
       "Villain phase",
@@ -39,6 +44,23 @@ describe("settingsSectionsOf", () => {
       "Sound",
       "Guide",
       "More",
+      "Achievements",
+      "Earned items",
+    ]);
+  });
+
+  test("Earned items sits on the More tab, under its own heading (#291)", () => {
+    const more = settingsTabsOf({ guideRowIds, cardHover: true }).find((tab) => tab.id === "more")!;
+    expect(more.sections.map((s) => s.title)).toEqual(["More", "Achievements", "Earned items"]);
+    expect(more.sections[2]!.items).toContain("ultron-drone-art");
+  });
+
+  test("the achievement popup's time and position sit on the More tab, under Achievements", () => {
+    const more = settingsTabsOf({ guideRowIds, cardHover: true }).find((tab) => tab.id === "more")!;
+    expect(more.sections.find((s) => s.id === "achievements")?.items).toEqual([
+      "achievement-popup-time",
+      "achievement-popup-place",
+      "achievement-popup-size",
     ]);
   });
 
@@ -134,5 +156,27 @@ describe("the Sound tab on a narrow rail (#243)", () => {
     const tabs = settingsTabsOf({ guideRowIds, cardHover: false, soundTab: false });
     expect(tabs.map((tab) => tab.label)).toEqual(["Game", "Cards", "Display", "Guide", "More"]);
     expect(tabs.find((t) => t.id === "display")!.sections.map((s) => s.id)).toEqual(["motion", "sound"]);
+  });
+});
+
+describe("the Screen section (#320)", () => {
+  test("it sits on the Display tab before Animation and display, with Render resolution then Frame rate", () => {
+    const display = settingsTabsOf({ guideRowIds, cardHover: false, screenSettings: true }).find(
+      (t) => t.id === "display",
+    )!;
+    expect(display.sections.map((s) => s.id)).toEqual(["screen", "motion"]);
+    expect(display.sections[0]!.items).toEqual(["render-scale", "frame-rate"]);
+  });
+
+  test("in the desktop app it follows the Window section", () => {
+    const display = settingsTabsOf({ guideRowIds, cardHover: true, desktopWindow: true, screenSettings: true }).find(
+      (t) => t.id === "display",
+    )!;
+    expect(display.sections.map((s) => s.id)).toEqual(["window", "screen", "motion"]);
+  });
+
+  test("with ?renderscale=off it is left out", () => {
+    const sections = settingsSectionsOf({ guideRowIds, cardHover: true, screenSettings: false });
+    expect(sections.map((s) => s.id)).not.toContain("screen");
   });
 });

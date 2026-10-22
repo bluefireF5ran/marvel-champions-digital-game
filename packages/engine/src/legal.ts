@@ -12,6 +12,7 @@
  * what to pay with.
  */
 
+import { costWithChangeForm } from "./change-form-cost.js";
 import type { AbilityId, AnyCard, ResourceIconType } from "@mc/content";
 import {
   DEFAULT_DEPS,
@@ -48,8 +49,9 @@ import {
   discardCombinedValue,
   planCost,
   attachmentsPlayableBy,
-  deckTopCostReduction,
-  deckTopPermission,
+  asIfInHandCostReduction,
+  asIfInHandPermissions,
+  neverPlayedFault,
   playableFromDiscard,
   playCostReductionFault,
   playRequirement,
@@ -69,6 +71,7 @@ import { createCtx, perilBarsTrigger } from "./ctx.js";
 import { areaCostReductionFor } from "./effects.js";
 import { applyCommand } from "./engine.js";
 import { attachCostCard, attachCostHosts, dealDamageCostChoices } from "./attach-cost.js";
+import { chooseTargetCostChoices } from "./choose-target-cost.js";
 import { removeThreatCostChoices } from "./remove-threat-cost.js";
 import { encounterSearchCostCandidates } from "./encounter-search-cost.js";
 import { resolveAbilityCostCandidates } from "./resolve-ability-cost.js";
@@ -124,10 +127,12 @@ import { anyThwartCost } from "./thwart-cost.js";
 export type ActionRef =
   /**
    * `from: "deckTop"`: the card is the top card of the player's deck, playable "as if it was in your hand" under a
-   * `playableTopOfDeck` permission (docs/phase7-wave8.md §3.49). Absent for every other card. The command is the same
-   * `playCard`; `playCostOf` gives its reduced price and names the permission's card among the contributions.
+   * `playableTopOfDeck` permission (docs/phase7-wave8.md §3.49). `from: "tucked"`: a card tucked under a card whose
+   * `playableAsIfInHand { tuckedUnder }` permission covers it (docs/phase7-wave11.md §3.8). Absent for every other
+   * card. The command is the same `playCard`; `playCostOf` gives its reduced price and names the permission's card
+   * among the contributions.
    */
-  | { readonly kind: "playCard"; readonly instanceId: InstanceId; readonly from?: "deckTop" }
+  | { readonly kind: "playCard"; readonly instanceId: InstanceId; readonly from?: "deckTop" | "tucked" }
   | { readonly kind: "useAbility"; readonly instanceId: InstanceId; readonly abilityId: AbilityId }
   /** `instanceId` is the attacker. */
   | { readonly kind: "basicAttack"; readonly instanceId: InstanceId }
@@ -319,7 +324,7 @@ function counterRange(
   const counters = [cost?.spendCounters, ...(cost?.either ?? []).map((branch) => branch.spendCounters)].find(
     (component) => component?.upTo,
   );
-  if (!counters) return undefined;
+  if (!counters || typeof counters.amount !== "number") return undefined;
   const holder = counterCostHolder(state, deps, source, playerId, counters.target);
   const held = typeof holder === "string" ? (state.instances[holder]?.counters[counters.counterType] ?? 0) : 0;
   return { min: 1, max: Math.min(counters.amount, held) };
@@ -695,8 +700,10 @@ function discardPicks(
   deps: EngineDeps,
   playerId: PlayerId,
   source: InstanceId,
-  cost: AbilityCost | undefined,
+  written: AbilityCost | undefined,
 ): readonly InstanceId[] {
+  // A "change form →" cost's hand discard may be an additional cost to change form (`change-form-cost.ts`).
+  const cost = costWithChangeForm(state, deps, source, playerId, written);
   const min = cost?.discardFromHand?.min ?? 0;
   const combined = cost?.discardFromHand?.combined;
   if (min === 0 && !combined) return [];
@@ -704,9 +711,11 @@ function discardPicks(
   const context: EffectContext = { selfInstanceId: source, controllerId: playerId, event: null, bindings: {}, deps };
   // A cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, hero-packs H3.19): the user's own cards
   // first, then the other players' in player order, so a helper's card is picked only when the user's run out.
-  const hands = costsPayableByAnyPlayer(state, deps, source)
-    ? [playerId, ...playerOrder(state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
-    : [playerId];
+  // Not a discard folded in from an additional cost to change form: that one is the changing player's own hand.
+  const hands =
+    costsPayableByAnyPlayer(state, deps, source) && !cost?.changeFormFolded?.includes("discardFromHand")
+      ? [playerId, ...playerOrder(state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
+      : [playerId];
   const matching = (owner: PlayerId): InstanceId[] =>
     (getPlayer(state, owner)?.hand ?? [])
       .filter((id) => id !== source)
@@ -814,7 +823,14 @@ function damageChoiceSets(
   cost: AbilityCost | undefined,
   given: readonly CostChoiceSet[],
 ): readonly CostChoiceSet[] {
-  const base = healChoiceSets(state, deps, playerId, source, cost, dealToChoiceSets(state, cost, given));
+  const base = chooseTargetChoiceSets(
+    state,
+    deps,
+    playerId,
+    source,
+    cost,
+    healChoiceSets(state, deps, playerId, source, cost, dealToChoiceSets(state, cost, given)),
+  );
   // "Remove 3 threat from a scheme →" (`AbilityCost.removeThreat.choose`): one variant per card that can pay.
   const threat = cost?.removeThreat;
   const threatCards = threat?.choose ? removeThreatCostChoices(state, deps, source, playerId, threat) : [];
@@ -855,6 +871,29 @@ function healChoiceSets(
   if (candidates.length === 0) return sets;
   return sets.flatMap(({ costChoices, target }) =>
     candidates.map((card) => ({ costChoices: { ...costChoices, [heal.slot]: [card] }, target: target ?? card })),
+  );
+}
+
+/**
+ * "Choose a non-Elite minion" before the arrow (`AbilityCost.chooseTarget`, hero-pack spec H3.5): each variant once per
+ * card the payer may pick, which is the variant's target. A pick the rest of the cost cannot be paid for (a counter
+ * cost read off it) is dropped by the engine's own check (`planCost`). With no candidate the variants are left as they
+ * are, and that check refuses them, so the ability is not offered.
+ */
+function chooseTargetChoiceSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  cost: AbilityCost | undefined,
+  sets: readonly CostChoiceSet[],
+): readonly CostChoiceSet[] {
+  const choose = cost?.chooseTarget;
+  if (!choose) return sets;
+  const candidates = chooseTargetCostChoices(state, deps, source, playerId, choose);
+  if (candidates.length === 0) return sets;
+  return sets.flatMap(({ costChoices, target }) =>
+    candidates.map((card) => ({ costChoices: { ...costChoices, [choose.slot]: [card] }, target: target ?? card })),
   );
 }
 
@@ -915,7 +954,7 @@ function pickChoiceSets(
 ): readonly CostChoiceSet[] {
   const base: CostChoices = {
     ...defaultInPlayPicks(state, deps, source, playerId, cost),
-    ...(cost?.discardFromHand ? { discard: picks } : {}),
+    ...(costWithChangeForm(state, deps, source, playerId, cost)?.discardFromHand ? { discard: picks } : {}),
   };
   const baseChoices = Object.keys(base).length > 0 ? base : undefined;
   // "Choose an ATTACK event in your hand … →" (`chooseCard`, docs/phase7-wave6.md §3.42): one variant per card of the
@@ -1031,17 +1070,19 @@ function evaluate(
  * `LegalAction.abilities` lists the ones that are. Every other card is judged once, with a command that names none.
  */
 /**
- * The top card of the player's deck when a `playableTopOfDeck` permission stands over it (docs/phase7-wave8.md §3.49),
- * as a list: listed legal while the limit is unused, and illegal with `limit_reached` once it is used ("once per
- * phase"). A card that is never played (a resource, an encounter card, a "—" cost) is not listed at all, and with no
- * permission in force (the other form, a blank text box) neither is anything else.
+ * The cards outside the player's hand that an "as if it was in your hand" permission stands over: the top card of their
+ * deck (`playableTopOfDeck`, docs/phase7-wave8.md §3.49) and each covered tucked card (`playableAsIfInHand`,
+ * docs/phase7-wave11.md §3.8), as a list: listed legal while the limit is unused, and illegal with `limit_reached`
+ * once it is used ("once per phase"). A card that is never played (a resource, an encounter card, a "—" cost) is not
+ * listed at all, and with no permission in force (the other form, a blank text box) neither is anything else.
  */
-function deckTopToList(state: GameState, deps: EngineDeps, playerId: PlayerId): readonly InstanceId[] {
-  const permission = deckTopPermission(state, deps, playerId);
-  const card = permission ? cardOf(state, permission.instanceId) : undefined;
-  if (!permission || !card || card.type === "resource" || !("cost" in card)) return [];
-  if ("specialCost" in card && card.specialCost === "dash") return [];
-  return [permission.instanceId];
+function asIfInHandToList(state: GameState, deps: EngineDeps, playerId: PlayerId): readonly InstanceId[] {
+  return asIfInHandPermissions(state, deps, playerId).flatMap(({ instanceId }) => {
+    const card = cardOf(state, instanceId);
+    if (!card || card.type === "resource" || !("cost" in card)) return [];
+    if (neverPlayedFault(card)) return [];
+    return [instanceId];
+  });
 }
 
 function evaluatePlay(state: GameState, deps: EngineDeps, playerId: PlayerId, id: InstanceId): Evaluated | null {
@@ -1148,10 +1189,13 @@ function evaluatePlayOf(
     return variants;
   };
   const variants = variantsOver(hosts);
+  const asIfInHand = getPlayer(state, playerId)?.hand.includes(id)
+    ? undefined
+    : asIfInHandPermissions(state, deps, playerId).find((p) => p.instanceId === id);
   const action: ActionRef = {
     kind: "playCard",
     instanceId: id,
-    ...(deckTopPermission(state, deps, playerId)?.instanceId === id ? { from: "deckTop" as const } : {}),
+    ...(asIfInHand ? { from: asIfInHand.from } : {}),
   };
   const tryWallets = withThwartCostWallets(
     state,
@@ -1509,7 +1553,7 @@ export function legalActions(state: GameState, playerId: PlayerId, deps: EngineD
     ...player.hand,
     ...player.discard.filter((id) => playableFromDiscard(state, deps, playerId, id)),
     ...attached,
-    ...deckTopToList(state, deps, playerId),
+    ...asIfInHandToList(state, deps, playerId),
   ]) {
     // During another player's turn only an event whose play is its Action can be played (RRG 1.8 "Action", p. 6).
     const card = cardOf(state, id);
@@ -1820,7 +1864,7 @@ function payableFor(
             deps,
             host,
             x,
-            deckTopCostReduction(state, deps, playerId, id) +
+            asIfInHandCostReduction(state, deps, playerId, id) +
               Math.max(0, areaCostReductionFor(state, deps, playerId, id, options.into ?? null)),
           )
         : null;

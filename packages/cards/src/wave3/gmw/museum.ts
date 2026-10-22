@@ -21,8 +21,9 @@ import {
   endGame,
   enemyAttack,
   exhaustYourHero,
-  exists,
+  anyIn,
   firstPlayer,
+  firstPlayerPicksFromHand,
   forcedInterrupt,
   forEachPlayer,
   hasStatus,
@@ -128,6 +129,10 @@ const collectorRedirect = (thenPlaceThreat?: number) =>
   );
 
 const CARDS_YOU_CONTROL: TargetQuery = { categories: ["ally", "support", "upgrade"], controller: "you" };
+/** Inconspicuous Box's pool: the lowest-cost of them that can leave play (RRG 1.8 "Permanent", p. 32). */
+const LOWEST_COST_YOU_CONTROL = superlative("lowest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), {
+  leavesPlay: true,
+});
 
 export const MUSEUM = defineAbilities({
   // Collector I — Forced Interrupt: When a card (player or encounter) would be placed into a discard pile from
@@ -197,16 +202,15 @@ export const MUSEUM = defineAbilities({
   "16074.boost": boost(revealCard(self, firstPlayer)),
 
   // Inconspicuous Box — When Revealed: Put the lowest cost card you control faceup into The Collection. If you
-  // cannot, this card gains surge.
+  // cannot, this card gains surge. A permanent card is neither moved nor counted (RRG 1.8 "Permanent", p. 32).
   "16076.when-revealed": whenRevealed(
     ifThen(
-      exists(CARDS_YOU_CONTROL),
+      anyIn(LOWEST_COST_YOU_CONTROL),
       [
-        bindTargets(
-          "lowest",
-          superlative("lowest", each(CARDS_YOU_CONTROL), printedCostOf(chosen("candidate")), { leavesPlay: true }),
-        ),
-        chooseTarget("moved", { inSlot: "lowest" }),
+        bindTargets("lowest", LOWEST_COST_YOU_CONTROL),
+        // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+        // (RRG 1.8 "First Player", p. 19).
+        chooseTarget("moved", { inSlot: "lowest" }, { chooser: firstPlayer }),
         moveCards(cards(chosen("moved")), { scenarioArea: COLLECTION }),
       ],
       surge(),
@@ -224,14 +228,16 @@ export const MUSEUM = defineAbilities({
   // View the Cosmos — When Revealed: Choose one: put the highest cost card from your hand faceup into The
   // Collection; or discard the highest cost card from your hand, then place threat on the main scheme equal to
   // its printed cost. `chooseCards`, not `chooseTarget`: a hand card is never "in play" (wave1/drs/nemesis.ts's
-  // own `discardHighestCostCard` docblock, the same trap).
+  // own `discardHighestCostCard` docblock, the same trap). "Choose one" is printed, so the option is the revealer's;
+  // a tie for the highest cost is the first player's to break, facedown when the hand is not theirs (RRG 1.8 p. 19,
+  // p. 42; owner answer 211, docs/phase7-wave11-scenarios.md §4.1).
   "16077.when-revealed": whenRevealed(
     selectCards("hand", zone("hand", you)),
     bindTargets("costly", superlative("highest", chosen("hand"), printedCostOf(chosen("candidate")))),
     chooseOne(
       option(
         "Put the highest cost card from your hand faceup into The Collection",
-        chooseCards("picked", cards(chosen("costly")), { min: 1, max: 1, chooser: you }),
+        firstPlayerPicksFromHand("picked", cards(chosen("costly"))),
         moveCards(cards(chosen("picked")), { scenarioArea: COLLECTION }),
       ),
       option(
@@ -239,7 +245,7 @@ export const MUSEUM = defineAbilities({
         // RRG 1.8 "Choose (Option)" (p. 12) already excludes this option when the hand is empty, so the required
         // `chooseCards` can't leave the frame pre-then-unresolved today; `andThen` is still the faithful reading
         // of the printed "then" (RRG 1.8 "'Then'", p. 44).
-        chooseCards("discarded", cards(chosen("costly")), { min: 1, max: 1, chooser: you }),
+        firstPlayerPicksFromHand("discarded", cards(chosen("costly"))),
         moveCards(cards(chosen("discarded")), "discard"),
         andThen(placeThreat(printedCostOf(chosen("discarded")), theMainScheme)),
       ),

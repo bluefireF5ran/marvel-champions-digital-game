@@ -127,6 +127,17 @@ describe("stage-completion loss reminder: MainSchemeStage.completionLoses", () =
       "If there are at least 5[per_hero] cards in The Collection or if this stage is completed",
     );
   });
+
+  it('the compound fires with the other clause leading and no second "if" (fne 60151b)', () => {
+    const text =
+      "Forced Response: After an enemy makes an undefended attack against you, choose:\n• Place 2 threat here (3 threat instead in expert mode).\n• Remove 1 stamina counter from a Daily Bugle support you control.\nIf a Daily Bugle support leaves play or this stage is completed, the players lose the game.";
+    const parsed = parseCardText(text, { villainNames: new Set() });
+
+    expect(parsed.completionLoses).toBe(true);
+    expect(parsed.unclassified).toEqual([]);
+    const constant = parsed.abilities.find((a) => a.kind === "constant");
+    expect(constant?.text).toContain("If a Daily Bugle support leaves play or this stage is completed");
+  });
 });
 
 /**
@@ -181,6 +192,22 @@ describe("obligation preamble split: a quoted trigger header (mts 21185 System S
  * attach sentence with "and give it a tough status card", and Targeted for Elimination (32107) attaches to "your
  * identity if a copy of … is not attached to you".
  */
+describe("attach shape: any card (Mitigated Threat 61040, spec H3.11)", () => {
+  it('"Attach to a card." is the anyCard host', () => {
+    const parsed = parseCardText("Attach to a card. Attached card loses each [crisis] icon.", {
+      villainNames: new Set(),
+    });
+    expect(parsed.attachesTo).toEqual({ kind: "anyCard" });
+    expect(parsed.unclassified.filter((u) => u.includes("attach rule"))).toEqual([]);
+  });
+
+  it('"Attach to a card in play." stays unresolved', () => {
+    const parsed = parseCardText("Attach to a card in play.", { villainNames: new Set() });
+    expect(parsed.attachesTo).toBeUndefined();
+    expect(parsed.unclassified.some((u) => u.includes("unrecognized attach rule"))).toBe(true);
+  });
+});
+
 describe("attach shapes: tough status clause and identity without a named attachment", () => {
   it('"Attach to a minion and give it a tough status card." parses the host and keeps the clause as its own sentence', () => {
     const parsed = parseCardText(
@@ -215,6 +242,35 @@ describe("attach shapes: tough status clause and identity without a named attach
     });
     expect(parsed.attachesTo).toEqual({ kind: "qualified", category: "villain", trait: "AVATAR OF LOKI" });
     expect(parsed.unclassified.filter((u) => u.includes("attach rule"))).toEqual([]);
+  });
+
+  it('"Attach to the enemy with the highest ATK without a Vehicle attachment." qualifies by attachment trait (Sports Car, `fne` 60186)', () => {
+    const parsed = parseCardText(
+      "Attach to the enemy with the highest ATK without a Vehicle attachment. Otherwise, this card gains surge.",
+      { villainNames: new Set() },
+    );
+    expect(parsed.attachesTo).toEqual({
+      kind: "superlative",
+      among: "enemy",
+      order: "highest",
+      measure: "atk",
+      withoutAttachmentTrait: "VEHICLE",
+    });
+    expect(parsed.unclassified).toEqual([]);
+  });
+
+  it('"the minion with the highest base hit points and give that minion a tough status card" is printed hit points (Tombstone, `fne` 60195)', () => {
+    const parsed = parseCardText(
+      "Attach to the minion with the highest base hit points and give that minion a tough status card. Otherwise, this card gains surge.",
+      { villainNames: new Set() },
+    );
+    expect(parsed.attachesTo).toEqual({
+      kind: "superlative",
+      among: "minion",
+      order: "highest",
+      measure: "printedHp",
+    });
+    expect(parsed.unclassified).toEqual([]);
   });
 
   it('"Attach to the <villain name> villain." still names the villain, not a trait', () => {

@@ -35,7 +35,9 @@ import {
   type GameEvent,
   type GameState,
 } from "@mc/engine";
+import { POOL_SCENARIOS } from "../content/pool.js";
 import type { SessionConfig } from "../engine/host.js";
+import type { HandledWords } from "../campaign/story.js";
 import { renderLogValue, type CardNameOf } from "./campaign-log-model.js";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -53,10 +55,17 @@ export interface CampaignStepRow {
   readonly effects: readonly string[];
 }
 
+/** A box's own plain sentences for the facts a step shows (`CampaignStory.handledWords`), and its fields' options. */
+export interface StepWords {
+  readonly say: HandledWords;
+  readonly optionsOf: (field: string) => readonly string[] | undefined;
+}
+
 /** Renders a resolved step trace list — `CampaignAttempt.steps` or a `CampaignHistoryEntry.steps` — as rows. */
 export function campaignStepRows(
   steps: readonly CampaignStepTrace[],
   cardName: CardNameOf = (id) => id as string,
+  words?: StepWords,
 ): readonly CampaignStepRow[] {
   return steps.map((step) => ({
     instructionId: step.instructionId,
@@ -64,7 +73,7 @@ export function campaignStepRows(
     citation: step.citation,
     kind: step.kind,
     skipped: step.skipped ?? null,
-    effects: effectsOf(step, cardName),
+    effects: effectsOf(step, cardName, words),
   }));
 }
 
@@ -85,7 +94,7 @@ function titleCase(word: string): string {
   return word.replace(/(^|[\s_-])([a-z])/g, (_m, lead: string, letter: string) => lead + letter.toUpperCase());
 }
 
-function effectsOf(step: CampaignStepTrace, cardName: CardNameOf): readonly string[] {
+function effectsOf(step: CampaignStepTrace, cardName: CardNameOf, words?: StepWords): readonly string[] {
   if (step.skipped) return [];
   const lines: string[] = [];
   // A choice's own line below already says what got picked; a `set` write that records that exact same value into
@@ -108,6 +117,17 @@ function effectsOf(step: CampaignStepTrace, cardName: CardNameOf): readonly stri
   step.writes.forEach((write, index) => {
     const isStrike = write.value.kind === "strikeList";
     if (isStrike && lastStrike.get(`${write.field}|${write.seatNumber}`) !== index) return;
+    const said = words?.say({
+      kind: "write",
+      field: write.field,
+      mode: write.mode,
+      value: write.value,
+      options: words.optionsOf(write.field),
+    });
+    if (said !== undefined) {
+      if (said !== "") lines.push(said);
+      return;
+    }
     // This is a raw trace of the write as it went into the log, not the fold's own delta (`campaign-log-deltas.ts`):
     // `add` stores the field's new running total, not the amount this one write alone contributed, so it's labeled
     // as such rather than read as "added N" the way the Run/Issue/Dossier screens present it.
@@ -132,6 +152,17 @@ function effectsOf(step: CampaignStepTrace, cardName: CardNameOf): readonly stri
     );
   });
   for (const choice of step.choices) {
+    const said = words?.say({
+      kind: "choice",
+      slot: choice.slot,
+      picked: choice.picked,
+      random: choice.random === true,
+      seatNumber: choice.seatNumber,
+    });
+    if (said !== undefined) {
+      if (said !== "") lines.push(said);
+      continue;
+    }
     const who = choice.seatNumber === null ? "The group" : `Seat ${choice.seatNumber}`;
     // `picked` is card ids, node ids or option strings depending on the choice's source (design §5's
     // `CampaignChoiceRecord`); `cardName` is applied to all of them alike, which only matters for a caller that
@@ -221,6 +252,21 @@ export function modularPicksOf(
 }
 
 /**
+ * Protection Racket's "each player chooses a main scheme" (MC60, standard mode) for a campaign issue: seat N takes the
+ * Nth of the scenario's schemes, all different, as quick play's setup does (`setup-draft.ts`) until the Briefing has a
+ * picker. Expert draws them at random in the engine, and every other scenario has one main scheme: none are sent.
+ */
+function campaignMainSchemePicks(
+  scenarioId: string,
+  difficulty: SessionConfig["difficulty"],
+  seats: number,
+): readonly string[] | undefined {
+  const choice = POOL_SCENARIOS.find((scenario) => (scenario.id as string) === scenarioId)?.mainSchemeChoice;
+  if (!choice || difficulty === "expert") return undefined;
+  return choice.cardIds.slice(0, seats).map((id) => id as string);
+}
+
+/**
  * A composed log (`log.attempt` present — `resolveBetweenGames`'s `"done"` result) as the `SessionConfig` the
  * existing host path starts (`session-core.ts`'s `scenarioFor` attaches `config.campaign` to `GameSetupConfig`
  * unchanged, and turns `config.campaignEncounterSets` into the composed sets' actual cards the same way). Throws
@@ -239,9 +285,11 @@ export function campaignLaunchConfig(definition: CampaignDefinition, log: Campai
   const picks = modularPicksOf(definition, log, start.scenarioId);
   // A node's required modular sets (MC40 p. 14) ride along as fixed: the picks come back untouched when it names none.
   const modularSetIds = campaignModularSetIds(start, [], picks.modularSetIds);
+  const difficulty = difficultyOf(start.modes);
+  const mainSchemePicks = campaignMainSchemePicks(start.scenarioId as string, difficulty, start.input.seats.length);
   return {
     scenarioId: start.scenarioId,
-    difficulty: difficultyOf(start.modes),
+    difficulty,
     modes: start.modes,
     players: start.input.seats.map((seat) => ({
       identityCardId: seat.identityCardId,
@@ -253,6 +301,10 @@ export function campaignLaunchConfig(definition: CampaignDefinition, log: Campai
     campaignEncounterSets: start.encounterSets,
     ...picks,
     ...(modularSetIds ? { modularSetIds } : {}),
+    // MC60 p. 9 step 5's villain, recorded by the Briefing (once never sent, so every Fear No Evil
+    // game was built with the scenario's default villain, Hammerhead).
+    ...(start.villain ? { villainSetId: start.villain } : {}),
+    ...(mainSchemePicks ? { mainSchemePicks } : {}),
     ...(log.removedFromCampaign.length > 0
       ? { campaignRemovedCards: log.removedFromCampaign.map((face) => face.cardId) }
       : {}),

@@ -6,6 +6,10 @@
  * - a minion with a `treatHostAsAlly` attachment on it is its controller's ally until that attachment goes (Mind
  *   Control);
  * - a minion a `treatAsAlly` effect took is its controller's ally while the effect's card stays in play (Karma).
+ * - a minion whose own `treatSelfAsAlly` constant holds is the ally of the player a `takeControl` effect named, for as
+ *   long as that constant holds (Black Cat, docs/phase7-wave11-scenarios.md §S3.8; `syncOwnTreatments`).
+ * - an ally a `treatAsMinion` constant's query matches is a minion while the rule is active and still matches it
+ *   (Baron Zemo, "each ally with threat on it", docs/phase7-wave11-scenarios.md §S3.9; `syncRuleTreatments`).
  * - a hero from a collection, an identity card that is no seat's identity, is a minion while a `treatHostAsMinion`
  *   card is attached to it, and is in play only for that long (Reluctant Foe, docs/phase7-wave9.md §3.30): when the
  *   attachment goes and the hero is not leaving play itself, the hero is removed from the game (§4.1 Q39 = A).
@@ -21,8 +25,8 @@ import { type Ctx, emit, moveCard, updateInstance } from "./ctx.js";
 import { leavePlayAtOnce } from "./effects.js";
 import type { InstanceId, PlayerId } from "./ids.js";
 import { cardOf, getInstance, isSeatlessIdentity, locateCard } from "./query.js";
-import { activeAbilityRefs, cardsInPlay, controllerOf } from "./select.js";
-import type { TreatedAs, TreatedAsAlly } from "./state.js";
+import { type ActiveRule, activeAbilityRefs, activeRules, cardsInPlay, controllerOf, matchesQuery } from "./select.js";
+import type { GameState, TreatedAs, TreatedAsAlly } from "./state.js";
 
 /** What the host's own attachments make it, if anything. */
 function fromAttachments(ctx: Ctx, hostId: InstanceId, current: TreatedAs | null): TreatedAs | null {
@@ -91,6 +95,128 @@ export function treatAsAlly(ctx: Ctx, hostId: InstanceId, spec: Omit<TreatedAsAl
   apply(ctx, hostId, null, { kind: "ally", ...spec, engagedBefore: host.engagedWith });
 }
 
+/** The card's own `treatSelfAsAlly` constant, if it is active and its `while` holds now. */
+function ownAllyRule(ctx: Ctx, hostId: InstanceId) {
+  return activeRules(ctx.state, ctx.deps, "treatSelfAsAlly").find((r) => r.context.selfInstanceId === hostId)?.rule;
+}
+
+/**
+ * "Take control of Black Cat as an ally" (`EffectSpec takeControl`; docs/phase7-wave11-scenarios.md §S3.8):
+ * `controller` takes control of a minion in play that its own `treatSelfAsAlly` constant treats as an ally right now
+ * (RRG 1.8 "Card Types", p. 12: "When a player changes a minion to an ally, that player takes control of that ally").
+ * Nothing happens to a minion whose constant does not hold, or one already treated as something by another card
+ * (Karma).
+ */
+export function takeControlAsOwnAlly(ctx: Ctx, hostId: InstanceId, controller: PlayerId): void {
+  const host = getInstance(ctx.state, hostId);
+  if (!host || host.treatedAs || cardOf(ctx.state, hostId)?.type !== "minion") return;
+  if (!cardsInPlay(ctx.state).includes(hostId)) return;
+  const rule = ownAllyRule(ctx, hostId);
+  if (!rule) return;
+  apply(ctx, hostId, null, {
+    kind: "ally",
+    traits: rule.traits ?? [],
+    thwFromSch: rule.thwFromSch === true,
+    consequential: rule.consequential,
+    source: hostId,
+    controller,
+    engagedBefore: host.engagedWith,
+    keepsText: true,
+  });
+}
+
+/**
+ * A card its own constant made an ally (`TreatedAsAlly.keepsText`) is a minion again the moment that constant stops
+ * holding: its threat fell below 4, or its text box was blanked. Checked between frames (`checkStateTriggers`), as a
+ * constant ability's effects "are active anytime the specific condition is met" (RRG 1.8 "Ability", p. 5). It goes
+ * back the way Karma's minion does (`apply`): nobody controls it and it is engaged with the player who controlled it,
+ * with no new engage trigger (docs/phase7-wave4.md §4 Q21); it neither enters nor leaves play, so its threat and
+ * damage stay (ruling Dec 17, 2025 (1) #3: "essentially a status change").
+ */
+export function syncOwnTreatments(ctx: Ctx): void {
+  for (const id of cardsInPlay(ctx.state)) {
+    const treated = getInstance(ctx.state, id)?.treatedAs;
+    if (treated?.kind !== "ally" || treated.keepsText !== true || treated.source !== id) continue;
+    if (ownAllyRule(ctx, id)) continue;
+    apply(ctx, id, treated, null);
+  }
+}
+
+/**
+ * The card as it would be with nothing treating it as another type: an ally its controller controls again. A
+ * `treatAsMinion` query ("each ally with threat on it") is read of this, so the card it made a minion keeps matching.
+ */
+function untreatedView(state: GameState, id: InstanceId): GameState {
+  const instance = state.instances[id];
+  const treated = instance?.treatedAs;
+  if (!instance || treated?.kind !== "minion") return state;
+  return {
+    ...state,
+    instances: { ...state.instances, [id]: { ...instance, treatedAs: null, controllerId: treated.controllerBefore } },
+  };
+}
+
+/** The first active `treatAsMinion` rule (of `source` only, when given) whose query matches the untreated card. */
+function matchingMinionRule(
+  ctx: Ctx,
+  rules: readonly ActiveRule<"treatAsMinion">[],
+  id: InstanceId,
+  source?: InstanceId,
+) {
+  const view = untreatedView(ctx.state, id);
+  return rules.find(
+    ({ rule, context }) =>
+      context.selfInstanceId !== null &&
+      (source === undefined || context.selfInstanceId === source) &&
+      matchesQuery(view, id, rule.cards, context),
+  );
+}
+
+/**
+ * Every ally a `RuleSpec treatAsMinion` matches is a minion while it does (Baron Zemo, `fne` 60145; docs/phase7-wave11-
+ * scenarios.md §S3.9), checked between frames as `syncOwnTreatments` is. First the cards a rule made minions whose rule
+ * no longer matches them go back to being allies (`apply`: under their owner's control, engaged with no one, threat
+ * and damage kept); then each ally card in play that nothing treats as anything and an active rule matches becomes
+ * that rule's minion, keeping its controller as `controllerBefore` (who "its controller" still names while it is a
+ * minion, as for an ally an attachment made a minion). In play order, the first matching rule taking it.
+ */
+export function syncRuleTreatments(ctx: Ctx): void {
+  const rules = activeRules(ctx.state, ctx.deps, "treatAsMinion");
+  const byRule = cardsInPlay(ctx.state).filter((id) => {
+    const treated = getInstance(ctx.state, id)?.treatedAs;
+    return treated?.kind === "minion" && treated.byRule === true;
+  });
+  if (rules.length === 0 && byRule.length === 0) return;
+  for (const id of byRule) {
+    const treated = getInstance(ctx.state, id)?.treatedAs;
+    if (treated?.kind !== "minion") continue;
+    if (matchingMinionRule(ctx, rules, id, treated.source)) continue;
+    apply(ctx, id, treated, null);
+  }
+  if (rules.length === 0) return;
+  // A card something else already treats is skipped (owner Q206 = A, 2026-10-19): an ally that Converted (`fne` 60100)
+  // has made an Influenced minion is no longer an ally, so Zemo's "each ally with threat on it" does not reach it; if
+  // Converted leaves while Zemo stays, it is an ally again and Zemo makes it a Deceived minion. RRG 1.8 p. 4 (a
+  // constant is checked continuously against what the card is now); ruling Dec 17, 2025 (Beguiled: a status change, not
+  // leaving play). The July 8, 2022 ruling (Mind Control vs. Beguiled: the effect that entered play last wins) does not
+  // force a both-or-latest reading here, because Zemo's effect needs an ally and the card is already a minion.
+  for (const id of cardsInPlay(ctx.state)) {
+    const host = getInstance(ctx.state, id);
+    if (!host || host.treatedAs || host.facedownAs || cardOf(ctx.state, id)?.type !== "ally") continue;
+    const found = matchingMinionRule(ctx, rules, id);
+    if (!found?.context.selfInstanceId) continue;
+    apply(ctx, id, null, {
+      kind: "minion",
+      traits: found.rule.traits,
+      keepPrintedTraits: found.rule.keepPrintedTraits === true,
+      schFromThw: found.rule.schFromThw ?? false,
+      source: found.context.selfInstanceId,
+      controllerBefore: host.controllerId,
+      byRule: true,
+    });
+  }
+}
+
 function apply(ctx: Ctx, hostId: InstanceId, current: TreatedAs | null, next: TreatedAs | null): void {
   const host = getInstance(ctx.state, hostId);
   if (!host) return;
@@ -118,8 +244,11 @@ function apply(ctx: Ctx, hostId: InstanceId, current: TreatedAs | null, next: Tr
     if (cardsInPlay(ctx.state).includes(hostId)) leavePlayAtOnce(ctx, hostId, { kind: "removedFromGame" });
     return;
   } else if (current?.kind === "minion") {
-    // The attachment went: an ally again, controlled by whoever controlled it before, in their play area.
-    const controller = current.controllerBefore ?? host.ownerId;
+    // An ally again, in its owner's play area, under its owner's control, whoever controlled it before. MC60 FAQ p. 26
+    // (Baron Zemo leaving play: "allies again, under their owner's control", keeping the threat); RRG 1.8 "Ownership
+    // and Control" (p. 31): a change of control that ends reverts the card to its owner (an attachment that changed
+    // control being removed included). `controllerBefore` is only "its controller" while it is a minion.
+    const controller = host.ownerId ?? current.controllerBefore;
     if (controller) inAreaOf(controller);
     updateInstance(ctx, hostId, (i) => ({ ...i, treatedAs: null, controllerId: controller, engagedWith: null }));
   } else if (current?.kind === "ally") {

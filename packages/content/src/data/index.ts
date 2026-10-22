@@ -756,7 +756,14 @@ export const WAVE9_STARTER_DECKS: readonly StarterDeck[] = [
 // Wave 10 (PLAN.md Phase 7, docs/phase7-wave10.md): cycle 10, Civil War `cw` (MC56, the custom scenario expansion:
 // Tigra and Hulkling, four leaders, sixteen main schemes, sixteen modular sets, Standard PvP). `hercules` and
 // `wonder_man` (the cycle's hero packs, February 20, 2026; no starter decks yet, no source). Declared here (before `PLAYABLE_CARDS`, which reads
-// `WAVE10_CARDS`) for the same source-order reason as the earlier waves. Pool membership is not a claim that a pack is
+// `WAVE10_CARDS`) for the same source-order reason as the earlier waves.
+//
+// `synthezoid` (MC57, the Synthezoid Smackdown scenario pack, December 2025; delivered in the wave 11 PR) is also cycle
+// 10 and sits HERE, not in `WAVE11_*`: it was released after Civil War and before Wonder Man, and the owner's decision
+// (2026-10-19, docs/phase7-synthezoid.md) is that it is never grouped with Fear No Evil (cycle 11, July 2026).
+// `PLAYABLE_CARDS` concatenates `WAVE10_CARDS.slice(CORE_CARDS.length)` before `WAVE11_*`, so the position between
+// `CW_*` and `WONDER_MAN_*` in these arrays is the only one that puts the pack after Civil War and before Wonder Man in
+// the pool order. Nothing in `WAVE11_*` names it. Pool membership is not a claim that a pack is
 // scripted: `unscriptedCards` keeps unscripted precons from being seated. MC56 has no campaign (MC56 p. 3).
 // ---------------------------------------------------------------------------------------------------------------
 export * from "./cw/index.js";
@@ -765,6 +772,11 @@ import { CW_CARDS } from "./cw/cards.js";
 import { CW_ENCOUNTER_SETS } from "./cw/encounterSets.js";
 import { CW_SCENARIOS } from "./cw/scenarios.js";
 import { CW_STARTER_DECKS } from "./cw/starterDecks.js";
+export * from "./synthezoid/index.js";
+
+import { SYNTHEZOID_CARDS } from "./synthezoid/cards.js";
+import { SYNTHEZOID_ENCOUNTER_SETS } from "./synthezoid/encounterSets.js";
+import { SYNTHEZOID_SCENARIOS } from "./synthezoid/scenarios.js";
 export * from "./hercules/index.js";
 
 import { HERCULES_CARDS } from "./hercules/cards.js";
@@ -776,18 +788,25 @@ import { WONDER_MAN_CARDS } from "./wonder_man/cards.js";
 import { WONDER_MAN_ENCOUNTER_SETS } from "./wonder_man/encounterSets.js";
 import { WONDER_MAN_STARTER_DECKS } from "./wonder_man/starterDecks.js";
 
-/** Every card in the wave 10 (cycle 10) pool: Core plus the packs shipped so far (`cw`, `wonder_man`, `hercules`). A sibling pool that starts from Core, like `WAVE9_CARDS`. */
-export const WAVE10_CARDS: readonly AnyCard[] = [...CORE_CARDS, ...CW_CARDS, ...WONDER_MAN_CARDS, ...HERCULES_CARDS];
+/** Every card in the wave 10 (cycle 10) pool: Core plus the packs shipped so far, in release order (`cw`, `synthezoid`, `wonder_man`, `hercules`). A sibling pool that starts from Core, like `WAVE9_CARDS`. */
+export const WAVE10_CARDS: readonly AnyCard[] = [
+  ...CORE_CARDS,
+  ...CW_CARDS,
+  ...SYNTHEZOID_CARDS,
+  ...WONDER_MAN_CARDS,
+  ...HERCULES_CARDS,
+];
 
 /** Every wave 10 encounter set (Core's own villain sets are not included). */
 export const WAVE10_ENCOUNTER_SETS: readonly EncounterSet[] = [
   ...CW_ENCOUNTER_SETS,
+  ...SYNTHEZOID_ENCOUNTER_SETS,
   ...WONDER_MAN_ENCOUNTER_SETS,
   ...HERCULES_ENCOUNTER_SETS,
 ];
 
-/** Every wave 10 scenario: Civil War's four (one per leader). */
-export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS];
+/** Every wave 10 scenario: Civil War's four (one per leader), then Synthezoid Smackdown's two (She-Hulk, Vision). */
+export const WAVE10_SCENARIOS: readonly Scenario[] = [...CW_SCENARIOS, ...SYNTHEZOID_SCENARIOS];
 
 /**
  * Every wave 10 starter deck the playable pool carries: Tigra and Hulkling (`cw`), Wonder Man / Justice (from the
@@ -797,6 +816,74 @@ export const WAVE10_STARTER_DECKS: readonly StarterDeck[] = [
   ...CW_STARTER_DECKS,
   ...WONDER_MAN_STARTER_DECKS,
   ...HERCULES_STARTER_DECKS,
+];
+
+// ---------------------------------------------------------------------------------------------------------------
+// Wave 11 (PLAN.md Phase 7, docs/phase7-wave11.md): cycle 11, Fear No Evil `fne` (MC60, a campaign expansion: Daredevil
+// and Echo, six scenarios, the Kingpin set and the campaign cards). `jj` (Jessica Jones, MC61) and `luke_cage` (Luke Cage, MC62) are
+// emitted. `fne`'s six scenario records (`FNE_SCENARIOS`) and its `Campaign` record (`FNE_CAMPAIGN`) are emitted; `FNE_CAMPAIGN` joins `CAMPAIGNS` with the box's campaign definition in `@mc/cards`. Pool membership is not a claim that a
+// pack is scripted: `unscriptedCards` keeps unscripted precons from being seated.
+// ---------------------------------------------------------------------------------------------------------------
+export * from "./fne/index.js";
+export * from "./jj/index.js";
+export * from "./luke_cage/index.js";
+export * from "./shadowland/index.js";
+
+import { FNE_CAMPAIGN } from "./fne/campaign.js";
+import { FNE_CARDS } from "./fne/cards.js";
+import { FNE_ENCOUNTER_SETS } from "./fne/encounterSets.js";
+import { FNE_SCENARIOS } from "./fne/scenarios.js";
+import { FNE_STARTER_DECKS } from "./fne/starterDecks.js";
+import { JJ_CARDS } from "./jj/cards.js";
+import { JJ_ENCOUNTER_SETS } from "./jj/encounterSets.js";
+import { JJ_SCENARIOS } from "./jj/scenarios.js";
+import { JJ_STARTER_DECKS } from "./jj/starterDecks.js";
+import { LUKE_CAGE_CARDS } from "./luke_cage/cards.js";
+import { LUKE_CAGE_ENCOUNTER_SETS } from "./luke_cage/encounterSets.js";
+import { LUKE_CAGE_SCENARIOS } from "./luke_cage/scenarios.js";
+import { LUKE_CAGE_STARTER_DECKS } from "./luke_cage/starterDecks.js";
+import { SHADOWLAND_CARDS } from "./shadowland/cards.js";
+import { SHADOWLAND_ENCOUNTER_SETS } from "./shadowland/encounterSets.js";
+import { SHADOWLAND_SCENARIOS } from "./shadowland/scenarios.js";
+import { SHADOWLAND_STARTER_DECKS } from "./shadowland/starterDecks.js";
+
+/**
+ * Every card in the wave 11 (cycle 11) pool: Core plus the packs shipped so far (`fne`, `jj`, `luke_cage`). A sibling
+ * pool that starts from Core, like `WAVE10_CARDS`.
+ */
+export const WAVE11_CARDS: readonly AnyCard[] = [
+  ...CORE_CARDS,
+  ...FNE_CARDS,
+  ...JJ_CARDS,
+  ...LUKE_CAGE_CARDS,
+  ...SHADOWLAND_CARDS,
+];
+
+/** Every wave 11 encounter set (Core's own villain sets are not included). */
+export const WAVE11_ENCOUNTER_SETS: readonly EncounterSet[] = [
+  ...FNE_ENCOUNTER_SETS,
+  ...JJ_ENCOUNTER_SETS,
+  ...LUKE_CAGE_ENCOUNTER_SETS,
+  ...SHADOWLAND_ENCOUNTER_SETS,
+];
+
+/** Every wave 11 scenario: none yet (the box's six scenarios are a later task). */
+export const WAVE11_SCENARIOS: readonly Scenario[] = [
+  ...FNE_SCENARIOS,
+  ...JJ_SCENARIOS,
+  ...LUKE_CAGE_SCENARIOS,
+  ...SHADOWLAND_SCENARIOS,
+];
+
+/**
+ * Every wave 11 starter deck the playable pool carries: Daredevil / Justice and Echo / Protection (MC60 p. 25) and
+ * the unverified Jessica Jones / Justice and Luke Cage / Leadership stand-ins.
+ */
+export const WAVE11_STARTER_DECKS: readonly StarterDeck[] = [
+  ...FNE_STARTER_DECKS,
+  ...JJ_STARTER_DECKS,
+  ...LUKE_CAGE_STARTER_DECKS,
+  ...SHADOWLAND_STARTER_DECKS,
 ];
 
 /**
@@ -821,6 +908,7 @@ export const PLAYABLE_CARDS: readonly AnyCard[] = [
   ...WAVE8_CARDS.slice(CORE_CARDS.length),
   ...WAVE9_CARDS.slice(CORE_CARDS.length),
   ...WAVE10_CARDS.slice(CORE_CARDS.length),
+  ...WAVE11_CARDS.slice(CORE_CARDS.length),
 ];
 
 /**
@@ -850,6 +938,7 @@ export const CAMPAIGNS: readonly Campaign[] = [
   NEXT_EVOL_CAMPAIGN,
   AOA_CAMPAIGN,
   AOS_CAMPAIGN,
+  FNE_CAMPAIGN,
 ];
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -879,6 +968,8 @@ export const CAMPAIGNS: readonly Campaign[] = [
  * `next_evol` (docs/phase7-wave7.md); `iceman`, `jubilee`, `ncrawler` and `magneto` (cycle 8) moved into `WAVE8_*` with
  * `aoa` (docs/phase7-wave8.md); `bp`, `silk`, `falcon` and `winter` (cycle 9) moved into `WAVE9_*` with `aos` and `tt`
  * (docs/phase7-wave9.md); `wonder_man` (cycle 10) moved into `WAVE10_*` with `cw` and `hercules` (docs/phase7-wave10.md).
+ * `synthezoid` (cycle 10, December 2025) was never data-only: it joined `WAVE10_*` between `cw` and `wonder_man` when it
+ * landed, with the wave 11 PR (docs/phase7-synthezoid.md).
  */
 export const DATA_ONLY_CARDS: readonly AnyCard[] = [];
 

@@ -41,7 +41,6 @@ import {
   scaled,
   self,
   selectCards,
-  setActiveVillain,
   spend,
   surge,
   theVillain,
@@ -53,12 +52,12 @@ import {
   whenRevealedAlterEgo,
   whenRevealedHero,
   you,
+  firstPlayer,
 } from "../../dsl/index.js";
 import {
   enemyAttackAfterThisNoBoost,
-  leastThreatSideScheme,
-  leastThreatVillain,
-  mostThreatVillain,
+  moveActiveCounterToVillain,
+  pickSideSchemeBy,
   pickVillainBy,
   pickedVillain,
   signatureSideSchemeOf,
@@ -68,6 +67,8 @@ import {
 } from "./local.js";
 
 const WRECKER = query("villain", { name: "Wrecker" });
+
+const pickCrowbarScheme = pickSideSchemeBy("lowest", "crowbar");
 
 /**
  * Wrecker (07002/07003) and his own encounter set: Day of Reckoning (07004), Held Hostage (07005), Magic Crowbar
@@ -131,7 +132,8 @@ export const WRECKER_SET = defineAbilities({
   // scheme with the least threat.
   "07006.magic-crowbar-forced-response": forcedResponse(
     after.enemyAttacks("host"),
-    placeThreat(1, leastThreatSideScheme),
+    pickCrowbarScheme.effects,
+    placeThreat(1, pickCrowbarScheme.scheme),
   ),
   // Hero Action: Exhaust your hero and discard 1 card at random from your hand → discard this card.
   // `discardRandomFromHandCost` (`dsl/abilities.ts`) picks with the game's own seeded RNG, landed for exactly this
@@ -156,7 +158,7 @@ export const WRECKER_SET = defineAbilities({
   // threat. If you are in hero form, that villain attacks you after this attack. That attack does not get a boost
   // card.
   "07009.boost": boost(
-    setActiveVillain(leastThreatVillain),
+    moveActiveCounterToVillain("lowest"),
     ifThen(isHero(), enemyAttackAfterThisNoBoost(theVillain, you)),
   ),
 
@@ -177,7 +179,7 @@ export const WRECKER_SET = defineAbilities({
     revealCard(chosen("looked")),
   ),
   // [star] Boost: Move the active counter to the villain whose side scheme has the least threat.
-  "07010.boost": boost(setActiveVillain(leastThreatVillain)),
+  "07010.boost": boost(moveActiveCounterToVillain("lowest")),
 
   // Chaos In the Prison — When Revealed: Choose to either discard an upgrade you control or place 1 threat on the
   // active villain's side scheme for each upgrade you control. If you do not control any upgrades, this card gains
@@ -188,7 +190,9 @@ export const WRECKER_SET = defineAbilities({
       chooseOne(
         option(
           "Discard an upgrade you control",
-          chooseTarget("discarded-upgrade", query("upgrade", { controller: "you" })),
+          // No "choose": an encounter card targeting one of several eligible cards; the first player selects
+          // (RRG 1.8 "First Player", p. 19).
+          chooseTarget("discarded-upgrade", query("upgrade", { controller: "you" }), { chooser: firstPlayer }),
           discard(chosen("discarded-upgrade")),
         ),
         option(
@@ -202,7 +206,7 @@ export const WRECKER_SET = defineAbilities({
   // [star] Boost: If this attack is undefended, discard an upgrade you control.
   "07011.boost": boost(
     ifThen(undefendedAttack, [
-      chooseTarget("chaos-boost-upgrade", query("upgrade", { controller: "you" })),
+      chooseTarget("chaos-boost-upgrade", query("upgrade", { controller: "you" }), { chooser: firstPlayer }),
       discard(chosen("chaos-boost-upgrade")),
     ]),
   ),
@@ -213,19 +217,25 @@ export const WRECKER_SET = defineAbilities({
   // RRG 1.8 "'Then'", p. 44). Same for the hero side's attack and a stunned Wrecker.
   "07012.when-revealed-alter-ego": whenRevealedAlterEgo(
     enemyScheme(named("Wrecker")),
-    andThen(setActiveVillain(leastThreatVillain)),
+    andThen(moveActiveCounterToVillain("lowest")),
   ),
   // When Revealed (Hero): Wrecker attacks you. Then, move the active villain counter to the villain whose side
   // scheme has the least threat.
   "07012.when-revealed-hero": whenRevealedHero(
     enemyAttack(named("Wrecker"), { against: you }),
-    andThen(setActiveVillain(leastThreatVillain)),
+    andThen(moveActiveCounterToVillain("lowest")),
   ),
 
   // Get Wrecked! — When Revealed (Alter-Ego): The villain whose side scheme has the most threat schemes.
-  "07013.when-revealed-alter-ego": whenRevealedAlterEgo(enemyScheme(mostThreatVillain)),
+  "07013.when-revealed-alter-ego": whenRevealedAlterEgo(
+    pickVillainBy("highest", firstPlayer),
+    enemyScheme(pickedVillain),
+  ),
   // When Revealed (Hero): The villain whose side scheme has the least threat attacks you.
-  "07013.when-revealed-hero": whenRevealedHero(enemyAttack(leastThreatVillain, { against: you })),
+  "07013.when-revealed-hero": whenRevealedHero(
+    pickVillainBy("lowest", firstPlayer),
+    enemyAttack(pickedVillain, { against: you }),
+  ),
 
   // I've Been Waiting For This! — When Revealed: The active villain heals 3 hit points. Give that villain a tough
   // status card. Errata (RRG 1.8 p. 65): "gains" became "heals" — the raw card data already carries the current
@@ -233,7 +243,7 @@ export const WRECKER_SET = defineAbilities({
   "07014.when-revealed": whenRevealed(heal(3, theVillain), giveTough(theVillain)),
   // [star] Boost: Move the active counter to the villain with the least threat on his side scheme. That villain
   // schemes.
-  "07014.boost": boost(setActiveVillain(leastThreatVillain), enemyScheme(theVillain)),
+  "07014.boost": boost(moveActiveCounterToVillain("lowest"), enemyScheme(theVillain)),
 
   // Mystical Link — When Revealed: Place 2 threat on each side scheme.
   "07015.when-revealed": whenRevealed(placeThreat(2, each(query("sideScheme")))),
@@ -248,11 +258,12 @@ export const WRECKER_SET = defineAbilities({
   // You're Dead Meat! — When Revealed: Deal 1 damage to the hero or ally with the fewest remaining hit points. If
   // that character is defeated this way, place 3 threat on Wrecker's side scheme.
   "07016.when-revealed": whenRevealed(
-    dealDamage(
-      1,
-      superlative("lowest", each(FRIENDLY_CHARACTER), remainingHpOf(chosen("candidate")), { ties: "first" }),
-      { bind: "hit" },
+    bindTargets(
+      "dead-meat-fewest",
+      superlative("lowest", each(FRIENDLY_CHARACTER), remainingHpOf(chosen("candidate"))),
     ),
+    chooseTarget("dead-meat-pick", { inSlot: "dead-meat-fewest" }, { chooser: firstPlayer }),
+    dealDamage(1, chosen("dead-meat-pick"), { bind: "hit" }),
     ifThen(varAtLeast("hit.defeated"), placeThreat(3, signatureSideSchemeOf(named("Wrecker")))),
   ),
 });

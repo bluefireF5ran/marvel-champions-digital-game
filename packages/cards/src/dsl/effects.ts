@@ -1,4 +1,5 @@
 import type {
+  BasicPowerTerms,
   CampaignLogValueSpec,
   BoostCardDestination,
   CardDestination,
@@ -26,7 +27,13 @@ import type {
   TargetQuery,
   TargetRef,
 } from "@mc/engine";
-import { abilityId, type EvidenceCombination, type KeywordInstance, type Trait } from "@mc/content";
+import {
+  abilityId,
+  type EvidenceCombination,
+  type KeywordInstance,
+  type Trait,
+  type VillainSideLetter,
+} from "@mc/content";
 import {
   activatingEnemy,
   amount,
@@ -127,11 +134,14 @@ export const dealDamage = (
      */
     readonly additional?: boolean;
     readonly usesAtk?: boolean;
+    /** "N unpreventable damage" (docs/phase7-wave11-hero-packs.md §H3.3): `EffectSpec dealDamage.unpreventable`. */
+    readonly unpreventable?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "dealDamage",
   target,
   amount: amount(n),
+  ...(opts.unpreventable ? { unpreventable: true } : {}),
   ...(opts.additional ? { additional: true as const } : {}),
   ...(opts.fromAttack !== undefined ? { fromAttack: opts.fromAttack } : {}),
   // Not marked on an instruction kept out of the attack: that damage is no attack's.
@@ -144,12 +154,18 @@ export const dealDamage = (
 /**
  * "You take N damage" / "Take N damage": your identity takes it. `taken` (docs/phase7-wave6.md §3.41, §4.1 Q21): no
  * "that event deals N additional damage" bonus (Embiggen!, Cybernetic Arm, Aggressive Energy) adds to it.
+ * `unpreventable`: "take N unpreventable damage" (docs/phase7-wave11-hero-packs.md §H3.3).
  */
-export const takeDamage = (n: Amount, player: PlayerRef = you): EffectSpec => ({
+export const takeDamage = (
+  n: Amount,
+  player: PlayerRef = you,
+  opts: { readonly unpreventable?: boolean } = {},
+): EffectSpec => ({
   kind: "dealDamage",
   target: identityOf(player),
   amount: amount(n),
   taken: true,
+  ...(opts.unpreventable ? { unpreventable: true } : {}),
 });
 /**
  * `ofRemovedThreat`: "place that threat on …" in an interrupt to a removal; when the removal is part of a move, the
@@ -469,12 +485,12 @@ export interface ChoiceOption {
 /**
  * One option of `chooseOne`; `when` limits it to states where it can happen.
  *
- * A `spendResources` written as one of the option's own effects is a spend the player has chosen ("choose to either
- * spend 1 resource of any type or place 1 threat on the main scheme"), so it is made `required` here (engine
- * `EffectSpec spendResources.required`): the option is offered only to a player who can pay it, and once chosen the
- * payment is made in full (RRG 1.8 "Choose (Option)", p. 12, and "Cost", p. 13; for an encounter card the owner's
- * standing default, docs/phase7-wave7.md §4.2 Q8 = A). No `when: canPayResources(…)` is needed for that. A spend
- * nested deeper (inside an `ifThen`, a `forEachPlayer`) is left as written.
+ * A `spendResources` written as one of the option's own effects is made `required` (engine `EffectSpec
+ * spendResources.required`): once chosen, the payment is made in full. Whether an unpayable option is offered is the
+ * engine's call from the source card (`executeChooseOne`): a PLAYER card's is not (RRG 1.8 "Choose (Option)", p. 12), an
+ * ENCOUNTER card's is, since only a missing target bars it (owner decision 2026-10-20 (A), following the February 28,
+ * 2026 Spell Blast ruling; it reverses wave 7 Q8 and wave 9 Q33). A "may spend ... instead" that is a payment tied to a
+ * result keeps `when: canPayResources(...)`. A spend nested deeper (inside an `ifThen`, a `forEachPlayer`) is left as written.
  */
 export const option = (label: string, ...rest: readonly (EffectArg | { readonly when: Predicate })[]): ChoiceOption => {
   const condition = rest.find((r): r is { readonly when: Predicate } => !Array.isArray(r) && "when" in (r as object));
@@ -512,12 +528,49 @@ export const choosePlayer = (
   chooser,
   ...(opts.among ? { among: opts.among } : {}),
 });
-/** "Each player …": the effects run once per player with `thatPlayer`. */
-export const forEachPlayer = (players: PlayerRef, ...effects: readonly EffectArg[]): EffectSpec => ({
-  kind: "forEachPlayer",
-  players,
-  effects: flatten(effects),
-});
+/**
+ * `forEachPlayer` / `forEachPlayerInChosenOrder`'s options, given anywhere among the effects. `bind`: what the passes
+ * did comes back to the ability after the loop, each pass's own binds as `<bind>.<name>` (vars summed across the
+ * players, slots joined), so one effect after the loop acts on them together. "Each player may spend up to 3
+ * [physical] resources … Deal 2 damage to Thanos for each [physical] resource spent this way" (Sanctuary, `mts` 21116)
+ * is one damage instance: `forEachPlayerInChosenOrder(eachPlayer, chooseOneBy(…, setVar("spent", n)), { bind: "all"
+ * })` then `dealDamage(scaled(varOf("all.spent"), { times: 2 }), theVillain)`.
+ */
+export interface ForEachPlayerOptions {
+  readonly bind?: string;
+}
+const isForEachPlayerOptions = (r: unknown): r is ForEachPlayerOptions =>
+  !Array.isArray(r) && typeof r === "object" && r !== null && "bind" in r && !("kind" in r);
+const forEachPlayerOf = (
+  players: PlayerRef,
+  rest: readonly (EffectArg | ForEachPlayerOptions)[],
+  order: { readonly order?: "firstPlayerChooses" },
+): EffectSpec => {
+  const opts = rest.find(isForEachPlayerOptions);
+  return {
+    kind: "forEachPlayer",
+    players,
+    effects: flatten(rest.filter((r): r is EffectArg => !isForEachPlayerOptions(r))),
+    ...order,
+    ...withBind(opts?.bind),
+  };
+};
+/**
+ * "Each player …": the effects run once per player with `thatPlayer`, in player order. Engine reading (authority step
+ * 5): RRG 1.8 "Each Player" p. 17 lets the first player choose the order; use `forEachPlayerInChosenOrder` where it can
+ * change the outcome. Options (`{ bind }`): `ForEachPlayerOptions`.
+ */
+export const forEachPlayer = (players: PlayerRef, ...rest: readonly (EffectArg | ForEachPlayerOptions)[]): EffectSpec =>
+  forEachPlayerOf(players, rest, {});
+/**
+ * "Each player …" where the order the players resolve it in can change the outcome (each player reveals or takes a
+ * card from one shared pile): the first player orders the players first (RRG 1.8 "Each Player", p. 17;
+ * docs/phase7-wave11-scenarios.md §S7 E27). One player is not asked. Otherwise as `forEachPlayer`.
+ */
+export const forEachPlayerInChosenOrder = (
+  players: PlayerRef,
+  ...rest: readonly (EffectArg | ForEachPlayerOptions)[]
+): EffectSpec => forEachPlayerOf(players, rest, { order: "firstPlayerChooses" });
 /**
  * "Choose a/an X" (`count` for "X enemies"). `upTo`: a printed "up to X" — at least one whenever a legal target exists
  * (docs/phase7-wave3.md §4 Q16, decided by the user on 2026-09-23). `optional`: only for a printed "may", which lets the
@@ -561,6 +614,12 @@ export const enemyAttack = (
     readonly bind?: string;
     readonly additionalResolution?: boolean;
     readonly atkBonus?: Amount;
+    /**
+     * "X attacks you. If [condition], X gets +1 ATK for this attack": `atkBonus` is read once the attack's "when X
+     * activates / attacks" interrupts have resolved, not as this effect resolves (`EffectSpec enemyAttack
+     * .statBonusTiming`; FFG ruling #147, Feb 15 2024). Without it the bonus is fixed now.
+     */
+    readonly bonusAfterInterrupts?: boolean;
     /** "…attacks you after this activation": queued behind the activation now resolving rather than nested in it. */
     readonly afterCurrentActivation?: boolean;
     /** "Do not deal any boost cards for that attack." */
@@ -599,9 +658,13 @@ export const enemyAttack = (
   ...(opts.afterCurrentActivation ? { after: "currentActivation" as const } : {}),
   ...(opts.additionalResolution ? { additionalResolution: true } : {}),
   ...(opts.atkBonus !== undefined ? { atkBonus: amount(opts.atkBonus) } : {}),
+  ...bonusTiming(opts),
   ...(opts.keywords && opts.keywords.length > 0 ? { keywords: opts.keywords } : {}),
   ...activationBoost(opts),
 });
+/** `enemyAttack`/`enemyScheme`/`enemyActivates`' `bonusAfterInterrupts`: `EffectSpec enemyAttack.statBonusTiming`. */
+const bonusTiming = (opts: { readonly bonusAfterInterrupts?: boolean }) =>
+  opts.bonusAfterInterrupts ? { statBonusTiming: "afterInterrupts" as const } : {};
 /** `enemyAttack`/`enemyScheme`'s activation-scoped boost changes (docs/phase7-wave5.md §4.1 Q66). */
 const activationBoost = (opts: { readonly extraBoostCards?: Amount; readonly boostIconsEach?: Amount }) => ({
   ...(opts.extraBoostCards !== undefined ? { extraBoostCards: amount(opts.extraBoostCards) } : {}),
@@ -623,6 +686,8 @@ export const enemyScheme = (
     readonly against?: PlayerRef;
     readonly bind?: string;
     readonly schBonus?: Amount;
+    /** `enemyAttack`'s, for `schBonus`: read once the scheme's interrupts have resolved. */
+    readonly bonusAfterInterrupts?: boolean;
     readonly extraBoostCards?: Amount;
     readonly boostIconsEach?: Amount;
     readonly divert?: { readonly amount?: Amount; readonly to: TargetRef; readonly if?: Predicate };
@@ -642,6 +707,7 @@ export const enemyScheme = (
   ...(opts.against ? { against: opts.against } : {}),
   ...withBind(opts.bind),
   ...(opts.schBonus !== undefined ? { schBonus: amount(opts.schBonus) } : {}),
+  ...bonusTiming(opts),
   ...activationBoost(opts),
   ...(opts.divert
     ? {
@@ -673,6 +739,7 @@ export const enemyActivates = (
     readonly atkBonus?: Amount;
     readonly keywords?: readonly AttackKeyword[];
     readonly schBonus?: Amount;
+    readonly bonusAfterInterrupts?: boolean;
     readonly extraBoostCards?: Amount;
     readonly boostIconsEach?: Amount;
   } = {},
@@ -686,6 +753,7 @@ export const enemyActivates = (
   ...(opts.atkBonus !== undefined ? { atkBonus: amount(opts.atkBonus) } : {}),
   ...(opts.keywords && opts.keywords.length > 0 ? { keywords: opts.keywords } : {}),
   ...(opts.schBonus !== undefined ? { schBonus: amount(opts.schBonus) } : {}),
+  ...bonusTiming(opts),
   ...activationBoost(opts),
 });
 /**
@@ -713,6 +781,13 @@ export const treatAsAlly = (target: TargetRef, traits: readonly Trait[], consequ
   consequential,
 });
 /**
+ * "If there is 4 threat here, take control of Black Cat as an ally." (Black Cat, `fne` 60169): you take control of
+ * each target minion its own constant (`constant(treatSelfAsAlly(…))`) treats as an ally right now; nothing
+ * happens to one whose constant does not hold. `ifThen(threatAtLeast(self, 4), takeControl(self))`.
+ * docs/phase7-wave11-scenarios.md §S3.8.
+ */
+export const takeControl = (target: TargetRef): EffectSpec => ({ kind: "takeControl", target });
+/**
  * "When a boost card on an enemy attacking you would be turned faceup, discard it instead." (Defiance, `vision`
  * 26018): the boost card resolving now is discarded, its Boost ability and icons never applied. docs/phase7-wave4.md
  * §3.35.
@@ -734,14 +809,27 @@ export const friendlyCharacterAttacks = (
  * patrol and "cannot" rules hold, a stunned or confused character loses the status card instead, "basic" triggers hear
  * it, an ally takes its consequential damage. `bonus` is on that character for that use only. Not optional; with no
  * legal use nothing happens, so gate the ability and the player choice with `canUseBasicPower`.
+ *
+ * `terms` (engine `BasicPowerTerms`, docs/phase7-wave11-hero-packs.md §H3.14): "make a basic thwart without exhausting
+ * (even if you are exhausted). For this thwart, your hero gets +1 THW and ignores the patrol keyword and any crisis
+ * icons in play." (Grapnel Launcher, `jj` 61023) is `basicPowerBy(you, ["thwart"], { bonus: { thw: 1 }, terms: {
+ * character: "identity", withoutExhausting: true, ignores: ["patrol", "crisis"] } })`, gated with the same terms
+ * (`canUseBasicPower(["thwart"], you, terms)`).
  */
 export const basicPowerBy = (
   player: PlayerRef,
   powers: readonly ("attack" | "thwart")[],
-  opts: { readonly bonus?: { readonly thw?: number; readonly atk?: number } } = {},
+  opts: { readonly bonus?: { readonly thw?: number; readonly atk?: number }; readonly terms?: BasicPowerTerms } = {},
 ): EffectSpec => {
   if (powers.length === 0) throw new Error("basicPowerBy needs at least one power");
-  return { kind: "basicPowerBy", player, powers, ...(opts.bonus ? { bonus: opts.bonus } : {}) };
+  if (opts.terms?.ignores && !powers.includes("thwart")) throw new Error("basicPowerBy ignores are for a thwart");
+  return {
+    kind: "basicPowerBy",
+    player,
+    powers,
+    ...(opts.bonus ? { bonus: opts.bonus } : {}),
+    ...(opts.terms ? { terms: opts.terms } : {}),
+  };
 };
 export const enemyAttacksEnemy = (
   attacker: TargetRef,
@@ -991,6 +1079,17 @@ export const atEndOfAttack = (...effects: readonly EffectArg[]): EffectSpec => (
   kind: "atEndOfAttack",
   effects: flatten(effects),
 });
+/**
+ * "When a character thwarts attached scheme, … If that thwart defeats attached scheme, place 2 evidence counters."
+ * (Stakeout `jj` 61014; docs/phase7-wave11-hero-packs.md H3.12): effects held on the innermost thwart and resolved as
+ * it finishes, before its responses, with that thwart's results readable (`eventDealt("defeated")`,
+ * `eventResult("threatRemoved")`). Set up from the interrupt, so it resolves even after the card left play with the
+ * defeated scheme.
+ */
+export const atEndOfThwart = (...effects: readonly EffectArg[]): EffectSpec => ({
+  kind: "atEndOfThwart",
+  effects: flatten(effects),
+});
 export const atEndOfRound = (...effects: readonly EffectArg[]): EffectSpec => ({
   kind: "atEndOfRound",
   effects: flatten(effects),
@@ -1046,6 +1145,12 @@ export const preventDamage = (n?: Amount, opts: { readonly bind?: string } = {})
  * character's ATK"). The mirror of `preventDamage`. docs/phase7-wave4.md §3.52.
  */
 export const increaseDamage = (n: Amount): EffectSpec => ({ kind: "increaseDamage", amount: amount(n) });
+/**
+ * "When damage would be dealt to Luke Cage, … reduce that damage by 1" (Metal Bracer, `luke_cage` 62010): the damage
+ * dealt goes down by N, and the amount taken with it, so it can be 0 dealt (ruling August 26, 2026 - Ruling 2). Pair it
+ * with `wouldBeDealt` on the interrupt so it resolves before a tough status card. Not a prevention (`preventDamage`).
+ */
+export const reduceDamage = (n: Amount): EffectSpec => ({ kind: "reduceDamage", amount: amount(n) });
 /**
  * "… If [condition], repeat this effect" (Out for Blood, `hood` 24023): `effects` resolve, then `condition` is read with
  * what they bound, and while it holds they resolve again, each time with their own bindings cleared.
@@ -1175,11 +1280,10 @@ export const gainTraitUntil = (t: Trait, target: TargetRef, until: LastingUntil)
  * granted, read live (they follow the source's trait changes), never its keywords or text. `source` is fixed as this
  * resolves.
  *
- * `{ whileAttached }` is the owner's decision §4.1 Q28, "Rogue's copied traits are live, for as long as Touched stays
- * on that character": the grant also ends once that card is no longer attached to `source` (or to `to`, when given),
- * whichever of that and `until` comes first. Rogue's two cards, after the attach that binds the host to slot `host`
- * and Touched to slot `touched`:
- * `gainTraitsOfUntil(chosen("host"), yourIdentity, "endOfRound", { whileAttached: chosen("touched") })`.
+ * The grant ends at `until` or when `source` leaves play (FFG ruling October 9, 2026 - Ruling 1, which revises wave 6
+ * Q28): Rogue's cards use `gainTraitsOfUntil(chosen("host"), yourIdentity, "endOfRound")`, and Touched moving does not
+ * end it. `{ whileAttached }` is an optional generic extra bound (no card uses it now): the grant also ends once that
+ * card is no longer attached to `source` (or to `to`, when given).
  */
 export const gainTraitsOfUntil = (
   source: TargetRef,
@@ -1224,10 +1328,25 @@ export const blankTextBoxUntil = (target: TargetRef, until: LastingUntil): Effec
  * `"endOfPaidFor"` is "that attack" on a resource ability: the rule lasts until the ability or card the payment paid
  * for (slot `paidFor`) finishes resolving, so a later use is untouched (docs/phase7-wave6.md §3.30; see
  * `thatAttackGainsKeywords`).
+ *
+ * `"nextVillainPhaseBegins"` is "until the start of the next (unskipped) villain phase" (Run Them to Ground 61020;
+ * docs/phase7-wave11-hero-packs.md H3.8): the rule ends as the next villain phase played begins, and a skipped one
+ * (`skipNextVillainPhase`) never begins, so it lasts through it.
+ *
+ * `"endOfPlayerPhase"` is "until the end of the player phase" (docs/phase7-wave11-hero-packs.md H3.9): the end of the
+ * player phase in progress, or of the next one when made in the villain phase.
  */
 export const applyRuleUntil = (
   rule: RuleSpec,
-  until: "endOfPhase" | "endOfRound" | "endOfTurn" | "endOfNextTurn" | "endOfAttack" | "endOfPaidFor",
+  until:
+    | "endOfPhase"
+    | "endOfRound"
+    | "endOfTurn"
+    | "endOfNextTurn"
+    | "endOfAttack"
+    | "endOfPaidFor"
+    | "nextVillainPhaseBegins"
+    | "endOfPlayerPhase",
   player?: PlayerRef,
   options: { readonly attack?: "current" | "initiated" } = {},
 ): EffectSpec => ({
@@ -1498,10 +1617,20 @@ export const victoryDisplayCards = (filter?: TargetQuery, opts: { readonly rando
  */
 export const addToVictoryDisplay = (from: CardSelector, bind?: string): EffectSpec =>
   moveCards(from, "victoryDisplay", bind);
-export const setAside = (player: PlayerRef = you, filter?: TargetQuery): CardSelector => ({
+/**
+ * A player's set-aside area; "your set-aside nemesis set" is `setAside(you, { nemesisSetOf: you })`. `opts.random`:
+ * that many of the matching cards, picked by the game's seeded RNG, fewer when fewer are there ("Reveal a random card
+ * from your set-aside nemesis set", Bag of Tricks, `fne` 60175).
+ */
+export const setAside = (
+  player: PlayerRef = you,
+  filter?: TargetQuery,
+  opts: { readonly random?: Amount } = {},
+): CardSelector => ({
   kind: "setAside",
   player,
   ...(filter ? { filter } : {}),
+  ...(opts.random !== undefined ? { random: amount(opts.random) } : {}),
 });
 /**
  * The cards in a scenario out-of-play area, e.g. "The Collection" (docs/phase7-wave3.md §3.14): `scenarioArea(name)`
@@ -1695,13 +1824,14 @@ export const moveCards = (
   from: CardSelector,
   to: CardDestination,
   bind?: string,
-  options: { readonly takenAwayNotCounted?: true } = {},
+  options: { readonly takenAwayNotCounted?: true; readonly shuffleEvenIfEmpty?: true } = {},
 ): EffectSpec => ({
   kind: "moveCards",
   cards: from,
   to,
   ...withBind(bind),
   ...(options.takenAwayNotCounted ? { takenAwayNotCounted: true as const } : {}),
+  ...(options.shuffleEvenIfEmpty ? { shuffleEvenIfEmpty: true as const } : {}),
 });
 /**
  * "Each player shuffles 1 copy of Shawarma into their deck" (Save the Shawarma Place, `mts` 21182a): `from` is an
@@ -1746,6 +1876,8 @@ export const chooseCards = (
     readonly chooser?: PlayerRef;
     readonly distinctNames?: boolean;
     readonly maxTotalPrintedCost?: number;
+    /** Another player's hand cards are offered facedown (`EffectSpec chooseCards.hiddenHands`; owner answer 211). */
+    readonly hiddenHands?: boolean;
   },
 ): EffectSpec => ({
   kind: "chooseCards",
@@ -1758,7 +1890,15 @@ export const chooseCards = (
   ...(opts.maxTotalPrintedCost !== undefined
     ? { maxTotal: { of: "printedCost" as const, atMost: opts.maxTotalPrintedCost } }
     : {}),
+  ...(opts.hiddenHands ? { hiddenHands: true as const } : {}),
 });
+/**
+ * "Discard the [superlative] card in your hand" on an encounter card, among `from` (the tied cards): the first player
+ * picks one (RRG 1.8 "First Player", p. 19), shown facedown when the hand is not theirs (p. 42, "Table Talk"; owner
+ * answer 211, docs/phase7-wave11-scenarios.md §4.1). One tied card is taken with no prompt.
+ */
+export const firstPlayerPicksFromHand = (slot: string, from: CardSelector): EffectSpec =>
+  chooseCards(slot, from, { min: 1, max: 1, chooser: { kind: "firstPlayer" }, hiddenHands: true });
 /** "Any number of …" as a `chooseCards` `max`: no printed choice comes near it. */
 export const ANY_NUMBER = 99;
 export const shuffleDeck = (player: PlayerRef = you): EffectSpec => ({ kind: "shuffleDeck", player });
@@ -1836,18 +1976,20 @@ export const resolveSpecialsOf = (
 /**
  * "Resolve this card's 'When Revealed' ability" (`of: self`; the boost of Out for Blood, Double Trouble, Sandslide),
  * "Resolve each 'When Revealed' ability on each side scheme in play" (`of: each(query("sideScheme"))`; Citywide Crisis,
- * `hood` 24059). Printed When Revealed abilities only, by default (the user's reading of Citywide Crisis, §4 Q23);
- * `includeKeywords` also resolves incite and surge (RRG 1.8: each is "equivalent to" a When Revealed ability). `bind`:
- * `<bind>.count`, how many were resolved. docs/phase7-wave4.md §3.56.
+ * `hood` 24059). Each card's incite and surge resolve too, as the When Revealed abilities they are, in the order the
+ * first player chooses among them and the printed ones (FFG ruling, September 22, 2026; owner decision 2026-10-20, revising
+ * docs/phase7-wave4.md §4 Q23). `excludeKeywords` leaves keywords out: "Resolve this card's non-surge 'When Revealed'
+ * ability" (FFG's announced erratum to Change of Venue, same ruling) is `{ excludeKeywords: ["surge"] }`. `bind`:
+ * `<bind>.count`, how many were resolved, incite and surge included. docs/phase7-wave4.md §3.56.
  */
 export const resolveWhenRevealedOf = (
   ref: TargetRef,
-  opts: { readonly bind?: string; readonly includeKeywords?: boolean } = {},
+  opts: { readonly bind?: string; readonly excludeKeywords?: readonly ("incite" | "surge")[] } = {},
 ): EffectSpec => ({
   kind: "resolveSpecials",
   of: ref,
   trigger: "whenRevealed",
-  ...(opts.includeKeywords ? { includeKeywords: true } : {}),
+  ...(opts.excludeKeywords && opts.excludeKeywords.length > 0 ? { excludeKeywords: opts.excludeKeywords } : {}),
   ...withBind(opts.bind),
 });
 /**
@@ -2015,6 +2157,10 @@ export const putIntoPlay = (
      * play. `controller` is then only who the entry is attributed to.
      */
     readonly into?: { readonly scenarioPlayArea: string };
+    /** "Into play Failed side faceup" (MC60 p. 9 step 12): a `flipSide` card enters on that face, not flipping. */
+    readonly otherFace?: boolean;
+    /** "Resolve the 'Setup' abilities on each of these cards" (MC60 p. 9 step 12), after the entries resolve. */
+    readonly resolveSetup?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "putIntoPlay",
@@ -2023,6 +2169,17 @@ export const putIntoPlay = (
   ...withBind(opts.bind),
   ...(opts.facedown ? { facedown: true as const } : {}),
   ...(opts.into ? { into: opts.into } : {}),
+  ...(opts.otherFace ? { otherFace: true as const } : {}),
+  ...(opts.resolveSetup ? { resolveSetup: true as const } : {}),
+});
+/**
+ * "Resolve the 'Setup' abilities on each of these cards" (MC60 p. 9 step 12) for cards already in play, placed by
+ * earlier effects: the first player orders those of two or more cards. `controller` is "you" for a card nobody controls.
+ */
+export const resolveSetups = (cards: TargetRef, controller: PlayerRef = you): EffectSpec => ({
+  kind: "resolveSetups",
+  cards,
+  controller,
 });
 /**
  * "Setup: Put [your permanent card] into play" (RRG 1.8 "Permanent", p. 32: permanent cards are set aside before setup
@@ -2158,16 +2315,19 @@ export const lookAtAndRearrange = (
  * that reveals. While that card is being revealed every per player icon on it multiplies by 1: its starting threat,
  * its hinder, and a `perHero` / `scaled` value in its own When Revealed. Other cards read the real number of players,
  * and so does a later ability of the same card (the owner's answer to question 19 = A, provisional).
+ *
+ * `fromEncounterDeck`: the reveal counts as "from the encounter deck" (`EffectSpec revealCard.fromEncounterDeck`).
  */
 export const revealCard = (
   target: TargetRef,
   player: PlayerRef = you,
-  opts: { readonly perPlayerAs?: number } = {},
+  opts: { readonly perPlayerAs?: number; readonly fromEncounterDeck?: true } = {},
 ): EffectSpec => ({
   kind: "revealCard",
   cards: target,
   player,
   ...(opts.perPlayerAs !== undefined ? { perPlayerAs: opts.perPlayerAs } : {}),
+  ...(opts.fromEncounterDeck ? { fromEncounterDeck: true as const } : {}),
 });
 /**
  * "Reveal and attach the remaining set-aside Thunderbolt minion faceup here." (Justice, Like Lightning, `aos` 50131a;
@@ -2273,8 +2433,15 @@ export const replaceAttachHost = (to: TargetRef, opts: { readonly villainAlias?:
  * was (`printedCostOf(eventTarget)`), and a `then(...)` after it resolves only when the card will be tucked: not for
  * a Victory X or "instead of discarding it" defeat, nor a leaving another card already sent elsewhere.
  * `validateDefinition` rejects it anywhere else.
+ *
+ * `{ separateDeck: "Sense", at: "bottom" }` (docs/phase7-wave11.md §3.3; 60001a/b "Forced Interrupt: When a Sense
+ * upgrade would leave play, place it on the bottom of the Sense deck instead."): the bottom of the leaving card's
+ * owner's separate deck of that name, whatever made it leave and wherever it was going (the victory display and
+ * removal from the game included), and for an attachment leaving with its host too.
  */
-export const replaceLeaveDestination = (to: { readonly tuckedUnder: TargetRef }): EffectSpec => ({
+export const replaceLeaveDestination = (
+  to: { readonly tuckedUnder: TargetRef } | { readonly separateDeck: string; readonly at: "bottom" },
+): EffectSpec => ({
   kind: "replaceLeaveDestination",
   to,
 });
@@ -2303,7 +2470,15 @@ export const dealPoolOneAtATime = (
   sequential: true,
   ...withBind(opts.bind),
 });
-export const dealEncounterCard = (player: PlayerRef = you): EffectSpec => ({ kind: "dealEncounterCard", player });
+/**
+ * "Deal N facedown encounter cards to [player]". `count`: how many each player is dealt (default 1); for "each player"
+ * the first player orders the deals (RRG 1.8 "Each Player", p. 17).
+ */
+export const dealEncounterCard = (player: PlayerRef = you, opts: { readonly count?: Amount } = {}): EffectSpec => ({
+  kind: "dealEncounterCard",
+  player,
+  ...(opts.count !== undefined ? { count: amount(opts.count) } : {}),
+});
 /**
  * "Deal that card to yourself as a facedown encounter card" (You Dare Oppose Me?, `ron` 90005): deals the card(s)
  * `cards` names, already identified, rather than the encounter deck's top card (docs/phase7-wave3.md §3.47). A card in
@@ -2377,6 +2552,37 @@ export const addAccelerationToken = (target?: TargetRef, count?: Amount): Effect
   ...(target ? { target } : {}),
   ...(count !== undefined ? { count: amount(count) } : {}),
 });
+/**
+ * One acceleration token off `from` (the first card it names: a main scheme stage or a card holding an `acceleration`
+ * counter), or, with `from` absent, the legacy default: the central main scheme only (`EffectSpec
+ * removeAccelerationToken`). Card scripts use `removeAnAccelerationToken` for "remove an acceleration token"; this is
+ * for a card that names the holder itself.
+ */
+export const removeAccelerationToken = (from?: TargetRef): EffectSpec => ({
+  kind: "removeAccelerationToken",
+  ...(from ? { from } : {}),
+});
+/**
+ * "Skip the next villain phase." (Run Them to Ground 61020; docs/phase7-wave11-hero-packs.md H3.7): the next villain
+ * phase does not happen and the round ends straight after the player phase (engine `EffectSpec skipNextVillainPhase`;
+ * Q101 open, default A: the first player token stays). Cards dealt meanwhile wait for the next villain phase played.
+ */
+export const skipNextVillainPhase = (): EffectSpec => ({ kind: "skipNextVillainPhase" });
+/**
+ * "Remove an acceleration token from play" (De-escalation 60024): the chooser (default the ability's controller) picks
+ * a card in play holding one, any main scheme stage, in any game area, or an `acceleration` counter on another card,
+ * bound as `slot`, and one token comes off it; nothing is asked and nothing removed when no card holds one. The card's
+ * instruction overrides RRG 1.8 "Acceleration Token" (p. 5) under the Golden Rules (p. 4) and "Cannot" (p. 11).
+ */
+export const removeAnAccelerationToken = (
+  opts: { readonly chooser?: PlayerRef; readonly slot?: string } = {},
+): EffectSpec[] => {
+  const slot = opts.slot ?? "accelerationToken";
+  return [
+    chooseTarget(slot, { hasAccelerationToken: true }, opts.chooser ? { chooser: opts.chooser } : {}),
+    removeAccelerationToken(chosen(slot)),
+  ];
+};
 /**
  * "During the Resolve Mulligans step of game setup, each player may take 1 additional mulligan" (MC27 p. 22 reputation
  * node 5, RRG 1.8 p. 67 erratum; docs/phase7-wave5.md §3.27): a campaign instruction resolved at `beforeStartingHands`.
@@ -2921,11 +3127,19 @@ export const playFromDeckIgnoringCost = (
 export const playFromDeckReducingCost = (
   n: Amount,
   player: PlayerRef = you,
-  opts: { readonly filter?: TargetQuery; readonly optional?: boolean } = {},
+  opts: {
+    readonly filter?: TargetQuery;
+    readonly optional?: boolean;
+    /**
+     * "Play it as if it were in your hand" (Calling in Favors 61008; hero-pack spec H3.16, owner answer Q102 = A): the
+     * same play, logged `cardPlayed` `from: "deck", countsAsFrom: "hand"`.
+     */
+    readonly asIfInHand?: boolean;
+  } = {},
 ): EffectSpec => ({
   kind: "playFromHand",
   player,
-  from: "deck",
+  from: opts.asIfInHand ? { deck: "search", asIfInHand: true } : "deck",
   costReduction: amount(n),
   ...(opts.filter ? { filter: opts.filter } : {}),
   ...(opts.optional ? { optional: true } : {}),
@@ -2954,6 +3168,41 @@ export const playTuckedCard = (
   from: { tuckedUnder: opts.under ?? self },
   ...(opts.ignoreCost ? { ignoreCost: true as const } : {}),
   ...(opts.entersExhausted ? { entersExhausted: true as const } : {}),
+  ...(opts.filter ? { filter: opts.filter } : {}),
+  ...(opts.optional ? { optional: true } : {}),
+});
+
+/**
+ * "Play the top card of the Sense deck as if it were in your hand (paying its cost)." (Daredevil 60001a) is
+ * `playFromSeparateDeck("Sense", "top", { asIfInHand: true })`; "You may choose any upgrade from the Sense deck and
+ * play it, ignoring its resource cost." (Deposition 60009) is `playFromSeparateDeck("Sense", "any", { ignoreCost:
+ * true, filter: query("upgrade"), optional: true })` (docs/phase7-wave11.md §3.2). A play from the player's own
+ * separate deck: cost and play restrictions apply, an upgrade's host is asked when it has several, and `"any"`
+ * shuffles the deck afterwards unless it is in fixed order. Required by default, so an action made only of a `"top"`
+ * play cannot be initiated while that card could not be played and paid for.
+ */
+export const playFromSeparateDeck = (
+  name: string,
+  position: "top" | "any",
+  opts: {
+    readonly filter?: TargetQuery;
+    readonly ignoreCost?: boolean;
+    readonly costReduction?: Amount;
+    readonly optional?: boolean;
+    readonly player?: PlayerRef;
+    /**
+     * "As if it were in your hand" (60001a): counted as played from the hand, `cardPlayed.countsAsFrom: "hand"`, so a
+     * "from your hand" response answers it; a "from hand" cost reduction cannot reach an effect's play today
+     * (unreachable, not ruled).
+     */
+    readonly asIfInHand?: boolean;
+  } = {},
+): EffectSpec => ({
+  kind: "playFromHand",
+  player: opts.player ?? you,
+  from: { separateDeck: name, position, ...(opts.asIfInHand ? { asIfInHand: true as const } : {}) },
+  ...(opts.ignoreCost ? { ignoreCost: true as const } : {}),
+  ...(opts.costReduction !== undefined ? { costReduction: amount(opts.costReduction) } : {}),
   ...(opts.filter ? { filter: opts.filter } : {}),
   ...(opts.optional ? { optional: true } : {}),
 });
@@ -3112,6 +3361,16 @@ export const changeVillainForm = (
   villain,
   toFaceWithTrait,
   ...(options.reveal === false ? { reveal: false as const } : {}),
+});
+/**
+ * "Setup: Put the villain into play on a random side (and reveal it)" (Disturbed Psyche, `fne` 60112;
+ * docs/phase7-wave11-scenarios.md §S3.4): the face the villain is put into play on, `"random"` drawn from the game's
+ * seed. Not a flip; step 12c reveals the face it lands on. A face change during the game is `flipCard`.
+ */
+export const setVillainSide = (villain: TargetRef, side: "random" | VillainSideLetter): EffectSpec => ({
+  kind: "setVillainSide",
+  villain,
+  side,
 });
 /**
  * "Flip [card]" (RRG 1.8 "Flip"). `{ reveal: true }`: "Flip this card and reveal it" / "flip this card and reveal
@@ -3281,6 +3540,24 @@ export const placeThreatOnSharedScheme = (count: Amount, cause: SharedThreatCaus
  * leaves play. Follow a search with `shuffleSeparateDeck` / `shuffleDeck`.
  */
 export const swapCards = (a: TargetRef, b: TargetRef): EffectSpec => ({ kind: "swapCards", a, b });
+/**
+ * "Swap your main scheme with a random set-aside main scheme. Place the threat from the previous scheme on the new
+ * scheme." (Change of Venue, `fne` 60141; docs/phase7-wave11-scenarios.md §S3.2): bind the set-aside card first
+ * (`selectCards(slot, encounterSetAside(query("mainScheme"), { random: 1 }))`), then `swapMainScheme(yourMainScheme,
+ * chosen(slot), { placePreviousThreat: true })`. The new scheme takes the old one's place at its first stage, B side
+ * faceup; the old one is set aside with its attachments discarded (MC60 p. 26 FAQ). Nothing is placed when the swap
+ * cannot be completed (no set-aside main scheme).
+ */
+export const swapMainScheme = (
+  scheme: TargetRef,
+  setAside: TargetRef,
+  options: { readonly placePreviousThreat?: boolean } = {},
+): EffectSpec => ({
+  kind: "swapCards",
+  a: scheme,
+  b: setAside,
+  ...(options.placePreviousThreat ? { placePreviousThreat: true as const } : {}),
+});
 /**
  * "When Loki is defeated, advance to a random set-aside Loki villain" (All Hail King Loki 1B): from a forced interrupt
  * to the villain's defeat, `advanceToSetAsideVillain(eventTarget)` (docs/phase7-wave4.md §3.7).

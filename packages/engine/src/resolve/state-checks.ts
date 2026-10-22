@@ -62,6 +62,7 @@ import {
   usesCountersOnEntering,
 } from "./enter-play.js";
 import { abilityFrame, eventFrame } from "./frames.js";
+import { syncOwnTreatments, syncRuleTreatments } from "../treat-as.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
 
 const registriesWithChecks = new WeakMap<AbilityRegistry, boolean>();
@@ -108,6 +109,12 @@ function hasStateChecks(registry: AbilityRegistry): boolean {
  * (at once for a card entering play, ahead of that event's windows); the rest only have their value recorded. Returns true when it pushed a frame.
  */
 export function checkStateTriggers(ctx: Ctx): boolean {
+  // A card its own constant made an ally is a minion again once that constant stops holding (Black Cat; docs/phase7-
+  // wave11-scenarios.md §S3.8). First, so the limits below count it as what it now is.
+  if (hasRuleKind(ctx.deps.abilities, "treatSelfAsAlly")) syncOwnTreatments(ctx);
+  // Each ally a `treatAsMinion` query matches is a minion while it matches (Baron Zemo; docs/phase7-wave11-scenarios.md
+  // §S3.9), and an ally again the moment it stops.
+  if (hasRuleKind(ctx.deps.abilities, "treatAsMinion")) syncRuleTreatments(ctx);
   // A continuous rule rather than an ability, checked in the same place and for the same reason: RRG 1.8 "Ally
   // Limit" (p. 7) applies the moment a player "ever" controls too many allies. Asking for the discard is the result.
   if (checkAllyLimits(ctx)) return true;
@@ -385,9 +392,16 @@ function applyHostedUpgradeControl(ctx: Ctx): void {
  * already ignores it from the moment the card moves (`lastingReaches`); this only records it.
  */
 function endDetachedLastingEffects(ctx: Ctx): void {
+  const inPlay = new Set(cardsInPlay(ctx.state));
   for (const effect of [...ctx.state.lastingEffects]) {
     if (effect.whileAttached && !attachmentHolds(ctx.state, effect.whileAttached)) {
       endLastingEffect(ctx, effect.id, "detached");
+      continue;
+    }
+    // Copied traits follow the chosen character and end when it leaves play (FFG ruling October 9, 2026 - Ruling 1,
+    // which revises wave 6 Q28), whatever happens to Touched.
+    if (effect.kind === "traitGrant" && effect.copiedFrom && !effect.copiedFrom.some((id) => inPlay.has(id))) {
+      endLastingEffect(ctx, effect.id, "targetLeftPlay");
     }
   }
 }

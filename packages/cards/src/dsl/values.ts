@@ -11,7 +11,9 @@ import {
   UNRESOLVED_VAR,
 } from "@mc/engine";
 import type {
+  AttachCategory,
   BasicPowerName,
+  BasicPowerTerms,
   CardIcon,
   CharacterNames,
   Form,
@@ -27,6 +29,7 @@ import type {
   TargetCategory,
   TargetQuery,
   TargetRef,
+  TriggerEventKind,
   TypedResource,
   ValueSpec,
   GroupRef,
@@ -225,6 +228,12 @@ export const theMainScheme: TargetRef = { kind: "mainScheme" };
  */
 export const centralMainScheme: TargetRef = { kind: "mainScheme", of: "central" };
 /**
+ * "Your main scheme" (Change of Venue, `fne` 60141; docs/phase7-wave11-scenarios.md §S3.2): with a main scheme per
+ * player, the one in your play area, also from a Boost ability on the villain (you are the defending or schemed-against
+ * player); in any other game, the main scheme.
+ */
+export const yourMainScheme: TargetRef = { kind: "mainScheme", of: "yours" };
+/**
  * "Each face down [card] under this stage/card" (Kang's Wrath 4A, 11013a): the cards tucked under what `of` names,
  * still out of play (RRG 1.8 "Tuck", p. 45) — the `TargetRef` sibling of the `tuckedUnder` `CardSelector` (`dsl/
  * effects.ts`), needed anywhere a ref is required (`revealCard`'s `cards`, above all) rather than a selector.
@@ -265,6 +274,11 @@ export const paidCards: TargetRef = { kind: "slot", slot: PAID_CARDS_SLOT };
 export const PAID_CARDS = PAID_CARDS_SLOT;
 /** The card that caused the triggering event ("that enemy" after it attacks). */
 export const eventSource: TargetRef = { kind: "eventSource" };
+/**
+ * The character a card acts for (RRG 1.8 "You, Your", p. 49): `actingCharacter(eventSource)` is the character that
+ * caused the event, the identity for an event card, a resource or an upgrade on it; nobody for a support.
+ */
+export const actingCharacter = (of: TargetRef): TargetRef => ({ kind: "actingCharacter", of });
 /** The card the triggering event happened to ("that minion", "the attacked enemy"). */
 export const eventTarget: TargetRef = { kind: "eventTarget" };
 /**
@@ -364,9 +378,13 @@ export const canAttachTo = (host: TargetRef): Pick<TargetQuery, "canAttachTo"> =
  * `query("upgrade", canAttachToCategory("ally"))`. The upgrade's own printed "attach to" allows an ally, read from card
  * data with no card in play consulted (§4.1 Q30 = A), so it matches with no ally in play; an upgrade with no "attach
  * to" text (it goes by its controller's identity) does not. `canAttachTo(ref)` asks about named cards in play instead.
+ * Several categories are "any of them": "an upgrade in your hand that can attach to a minion or side scheme"
+ * (Contingency Planning, `fne` 60030; docs/phase7-wave11.md §3.11) is `canAttachToCategory("minion", "sideScheme")`.
  */
-export const canAttachToCategory = (category: "ally"): Pick<TargetQuery, "canAttachToCategory"> => ({
-  canAttachToCategory: category,
+export const canAttachToCategory = (
+  ...categories: readonly [AttachCategory, ...AttachCategory[]]
+): Pick<TargetQuery, "canAttachToCategory"> => ({
+  canAttachToCategory: categories.length === 1 ? categories[0] : categories,
 });
 /**
  * "… chooses 1 set-aside SPECIALIZATION upgrade and puts it into play under their control" (`x23` 43021), as a choice
@@ -405,11 +423,12 @@ export const notMatching = (excluded: TargetQuery): Pick<TargetQuery, "not"> => 
 /**
  * "A character that can be given a [stunned / confused / tough] status card": one given to it now would be placed,
  * which is the check the give itself makes (RRG 1.8 "Status Cards", p. 41: one of each type, a second stunned or
- * confused for steady, none of those for stalwart or under a "cannot be stunned" rule, a `statusLimit` for tough). An
- * encounter card's "choose: • Confuse a character you control. • …" offers that option only if it can be carried out
- * in full (docs/phase7-wave7.md §4.1 Q8 = A): with `const able = query("character", { controller: "you",
- * ...canTakeStatus("confused") })`, the option is `option("…", { when: exists(able) }, chooseTarget("target", able),
- * confuse(chosen("target")))`. For "that cannot take one", wrap it in `notMatching`. docs/phase7-wave7.md §3.11.
+ * confused for steady, none of those for stalwart or under a "cannot be stunned" rule, a `statusLimit` for tough). A
+ * target is valid only if the ability can affect it (RRG 1.8 "Target", p. 42), so an encounter card's "choose: •
+ * Confuse a character you control. • …" uses it as the TARGET filter, not a `when` gate: `chooseTarget("target",
+ * query("character", { controller: "you", ...canTakeStatus("confused") }))`, and the engine bars the option when no
+ * character qualifies (`optionLacksValidTarget`, p. 12; owner 2026-10-20 revising wave 7 Q8). For "that cannot take
+ * one", wrap it in `notMatching`. docs/phase7-wave7.md §3.11.
  */
 export const canTakeStatus = (status: StatusName): Pick<TargetQuery, "canTakeStatus"> => ({ canTakeStatus: status });
 /**
@@ -489,6 +508,23 @@ export const printsAbility = (
   return { printsAbility: { kinds: [...kinds], form } };
 };
 /**
+ * "If the discarded card has a 'Boost' ability" (Sidewinder 62033; docs/phase7-wave11-hero-packs.md H3.21): a query
+ * fragment for a card that prints one, read from the card data wherever it is. The printed boost-area star (RRG 1.8
+ * "Boost, Boost Icon", p. 11), less a card whose star stands for a Boost another card grants (Purple Man's set,
+ * `boostGrantedBy`): a granted Boost is not printed text. For the star itself, `{ starIcon: true }`.
+ */
+export const hasPrintedBoostAbility: Pick<TargetQuery, "printsBoostAbility"> = { printsBoostAbility: true };
+/**
+ * "Each **boost card** from the Purple Man encounter set gains: '[star] Boost: …'" (60097–60099;
+ * docs/phase7-wave11-scenarios.md §S3.6) → `constant(gainsAbility(GRANTED_BOOST_ID, { to: boostCardsFromSet(id) }))`,
+ * the granted ability a `boost` trigger: a card in an enemy's boost area of that encounter set, read as it is turned
+ * faceup. The same cards in play, in a deck or in a discard pile are not boost cards and gain nothing.
+ */
+export const boostCardsFromSet = (setId: string): Pick<TargetQuery, "boostCard" | "inEncounterSet"> => ({
+  boostCard: true,
+  inEncounterSet: setId,
+});
+/**
  * "Each Spell card in your play area" (Ebony Maw I–III, `mts` 21071–21073): a query fragment for cards in that player's
  * play area, controlled by them or not (docs/phase7-wave4.md §3.16).
  */
@@ -515,6 +551,15 @@ export const encounterCard = (rest: Omit<TargetQuery, "categories" | "controller
   query(ENCOUNTER_CARD_CATEGORIES, { controller: "encounter", ...rest });
 export const ENCOUNTER_CARD: TargetQuery = encounterCard();
 
+/**
+ * "A player side scheme" / "an encounter side scheme" by card type, not by controller (`TargetQuery playerSideScheme`;
+ * RRG 1.8 "Player Side Scheme", p. 34): a player side scheme no player controls (the NeXt Evolution campaign's, one in
+ * a scenario play area) is still a player side scheme, and `controller: "encounter"` would count it as an encounter
+ * one. Spread `{ ...PLAYER_SIDE_SCHEME, withoutKeyword: "permanent" }` or `query("sideScheme", { playerSideScheme:
+ * false, … })` for more.
+ */
+export const PLAYER_SIDE_SCHEME: TargetQuery = query("sideScheme", { playerSideScheme: true });
+export const ENCOUNTER_SIDE_SCHEME: TargetQuery = query("sideScheme", { playerSideScheme: false });
 /** "Friendly character": any identity or ally (every player's, RRG "Friendly"). */
 export const FRIENDLY_CHARACTER: TargetQuery = query(["identity", "ally"]);
 /** "Your hero": your identity while it is in hero form. */
@@ -556,6 +601,20 @@ export const teamUpCharacters = (index?: 0 | 1): TargetRef => each(teamUpCharact
 export const ofTeamUpSet = (index?: 0 | 1): Pick<TargetQuery, "identitySetTitled"> => ({
   identitySetTitled: teamUpNames(index),
 });
+/**
+ * "An ally named by that card's Team-Up keyword" (Dynamic Duo 62022; docs/phase7-wave11-hero-packs.md H3.20): a query
+ * fragment for a character named by the Team-Up keyword of the card(s) `of` names, usually a card a search bound
+ * earlier in the same ability (`chosen("teamUp")`), not this card. Read wherever both cards are, so it filters a deck
+ * and discard pile search: an ally matches by its title or subtitle (RRG 1.8 "Team-Up", p. 43), Iron Fist 62012
+ * (subtitle Danny Rand) for "Team-Up (Iron Fist and Luke Cage)". With nothing bound it names no one and matches
+ * nothing. `index` picks one of the keyword's two names. `zone(["deck", "discard"], you, { filter: query("ally",
+ * namedByTeamUpOf(chosen("teamUp"))) })`.
+ */
+export const namedByTeamUpOf = (of: TargetRef, index?: 0 | 1): Pick<TargetQuery, "titled"> => ({
+  titled: { teamUpOf: of, ...(index === undefined ? {} : { index }) },
+});
+/** "A Team-Up card": a query fragment for a card with the Team-Up keyword (RRG 1.8 "Team-Up", p. 43). */
+export const TEAM_UP_CARD: Pick<TargetQuery, "withKeyword"> = { withKeyword: "teamUp" };
 /** A character named by a title written out, for a card that names one without the Team-Up keyword. */
 /**
  * "A friendly character of your choice" as the new target of the player attack in progress (`retargetPlayerAttack`;
@@ -730,6 +789,11 @@ export const boostAreaIconsOn = (cards: TargetRef): ValueSpec => sum(boostIconsO
 export const printedBoostAreaIconsOn = (cards: TargetRef): ValueSpec =>
   sum({ kind: "boostIcons", of: cards, printed: true }, starIconsOn(cards));
 export const remainingHpOf = (of: TargetRef): ValueSpec => ({ kind: "remainingHp", of });
+/**
+ * A card's hit points, its modified maximum whatever damage it has (`ValueSpec hitPoints`): "heal it to 1 remaining hit
+ * point" (Valkyrie 62014) heals `damage(of)` minus (`hitPointsOf(of)` minus 1).
+ */
+export const hitPointsOf = (of: TargetRef): ValueSpec => ({ kind: "hitPoints", of });
 /**
  * "A minion with fewer remaining hit points than M" (M, `magneto` 49012): `query("minion", remainingHpCompare("lt",
  * remainingHpOf(self)))`. The card's remaining hit points against a value re-read every check; a card with no hit
@@ -989,6 +1053,17 @@ export const whileOnChosenMainScheme = (condition: Predicate): Predicate => ({
   kind: "onChosenMainScheme",
   of: condition,
 });
+/**
+ * "The highest SCH or THW among characters in play" (Purple Man, 61031; docs/phase7-wave11-hero-packs.md H3.10):
+ * `highestStatAmong(["sch", "thw"])`. Each card is measured by the larger of its current `stats`; the card whose stat
+ * this modifier is part of, alter-egos and printed "—" stats never count, and nothing measured is 0 (engine `ValueSpec highestStat`).
+ * `among` defaults to every character in play. As "his SCH is equal to …" it is a base: `gets("sch",
+ * highestStatAmong(["sch", "thw"]), { self: true }, { setBase: true })`, so modifiers on the card apply on top.
+ */
+export const highestStatAmong = (
+  stats: readonly [StatName, ...StatName[]],
+  among: TargetRef = { kind: "each", query: { categories: ["character"] } },
+): ValueSpec => ({ kind: "highestStat", stats, among });
 /** "N (M instead if …)". */
 export const ifElse = (condition: Predicate, then: Amount, otherwise: Amount): ValueSpec => ({
   kind: "conditional",
@@ -1042,6 +1117,12 @@ export const theAffectedCard: TargetQuery = { inSlot: "affected" };
  */
 export const playedVia = (card: TargetQuery): Predicate => ({ kind: "playedVia", card });
 /**
+ * "After you thwart and exactly defeat a side scheme" (Stealth Training 60028; docs/phase7-wave11.md §3.7): a response's
+ * `while` on a `schemeDefeated` pattern. True when a thwart's removal defeated the scheme attempting no more threat than
+ * it had (MC60 p. 4). Schemes only: a character's exact defeat reads `attackExcessAsDealt` (hero-pack spec H3.19).
+ */
+export const exactlyDefeated: Predicate = { kind: "exactlyDefeated" };
+/**
  * "If Gambit's 'Throw de Card' ability removed at least: • 1 counter, this attack gains ranged. • 2 counters, …"
  * (Charged Card 37006; docs/phase7-wave6.md §3.52): the play of the card resolving carries the note `name`
  * (`modifyCardEffect(…, { note })`, written by an interrupt to that play) of at least `atLeast`.
@@ -1079,6 +1160,11 @@ export const inAdditionalForm = (formType: string, name?: string, player: Player
 });
 export const isAlterEgo = (player: PlayerRef = you): Predicate => inForm("alterEgo", player);
 export const exists = (q: TargetQuery): Predicate => ({ kind: "exists", query: q });
+/**
+ * True when `ref` names at least one card right now. With a superlative marked `leavesPlay`, "If you cannot" reads the
+ * same pool the removal does, so a player whose only matching cards are permanent "cannot" (RRG 1.8 "Permanent", p. 32).
+ */
+export const anyIn = (ref: TargetRef): Predicate => valueAtLeast(refCount(ref), 1);
 /** "If Bomb Scare is in play" (exact printed name). */
 export const inPlay = (name: string): Predicate => exists({ name });
 export const not = (of: Predicate): Predicate => ({ kind: "not", of });
@@ -1213,19 +1299,38 @@ export const paidType = (resource: TypedResource, of?: TargetRef): Predicate => 
  * (engine `canUseBasicPower`, docs/phase7-wave8.md §3.64): a ready hero-form identity or ally of theirs has a legal
  * target, read as `basicPowerBy` will offer it. `canUseBasicPower(["attack", "thwart"], eachPlayer)` is the condition
  * of an ability that chooses the player as a cost; `playersWhere(canUseBasicPower([...], thatPlayer))` is the players
- * who can, for `choosePlayer(slot, you, { among })`.
+ * who can, for `choosePlayer(slot, you, { among })`. `terms` are the ones `basicPowerBy` makes it with
+ * (`BasicPowerTerms`, docs/phase7-wave11-hero-packs.md §H3.14): with `withoutExhausting` an exhausted hero can.
  */
-export const canUseBasicPower = (powers: readonly ("attack" | "thwart")[], player: PlayerRef = you): Predicate => ({
+/**
+ * `player` could play a card from their hand right now, paying its costs, as `playFromHand` with the same `filter` and
+ * cost reduction would offer it (engine `canPlayFromHand`): legal, with a legal place and host, and affordable. Gates
+ * an option such as Suggestion 61033's "play a card that has a printed [energy] icon (paying its costs)":
+ * `option("Play …", { when: canPlayFromHand(filter) }, playFromHand(…))`.
+ */
+export const canPlayFromHand = (filter?: TargetQuery, player: PlayerRef = you, reduction?: ValueSpec): Predicate => ({
+  kind: "canPlayFromHand",
+  player,
+  ...(filter ? { filter } : {}),
+  ...(reduction ? { reduction } : {}),
+});
+export const canUseBasicPower = (
+  powers: readonly ("attack" | "thwart")[],
+  player: PlayerRef = you,
+  terms?: BasicPowerTerms,
+): Predicate => ({
   kind: "canUseBasicPower",
   player,
   powers,
+  ...(terms ? { terms } : {}),
 });
 /**
  * `player` could pay `spendResources(resources, …, player, { distinctTypes })` right now, from the hand cards and
  * resource abilities that spend would offer them, priced as the spend prices it (engine `canPayResources`). Gates an
  * option on the payment: `option("Spend …", { when: canPayResources({ energy: 1 }) }, spendResources({ energy: 1 },
- * "spent"))`. RRG 1.8 "Choose (Option)" (p. 12) bars a player card's option with "a cost the player cannot pay"; an
- * encounter card's spend option uses it by the pending default Q51 (docs/phase7-wave6.md §3.69).
+ * "spent"))`. For a "may spend ... instead" payment tied to a result (Carjacking, Sinister Disguise). An option's own
+ * spend needs no gate: the engine bars an unpayable one on a player card only (RRG 1.8 "Choose (Option)", p. 12; owner
+ * 2026-10-20 reversing Q8/Q33 for encounter cards).
  */
 export const canPayResources = (
   resources: ResourceRequirement,
@@ -1383,6 +1488,16 @@ export const basicPowerStatIs = (...stat: readonly StatName[]): Predicate => ({
 });
 /** A result of the triggering event ("if this attack dealt damage" → `eventDealt("damage")`). */
 export const eventDealt = (key: string, n = 1): Predicate => ({ kind: "eventResultAtLeast", key, amount: n });
+/**
+ * The triggering event is of (one of) these kinds. An ability that answers two kinds of event (a list `on`, or
+ * `anyOf`) and does something different for each uses it to pick the branch, inside `instead` too. Traffic Jam (`fne`
+ * 60189): `instead(ifThen(eventKindIs("placeThreat"), placeThreat(eventAmount, self), removeThreat(eventAmount, self,
+ * { by: eventPlayer })))`.
+ */
+export const eventKindIs = (...kinds: readonly [TriggerEventKind, ...TriggerEventKind[]]): Predicate => ({
+  kind: "eventKindIs",
+  event: kinds.length === 1 ? kinds[0] : kinds,
+});
 /**
  * "If no 'Preparation' ability was resolved [during this attack]" → `not(attackResolvedLabeled("preparation"))`
  * (Black Widow's Gauntlet, `aos` 50068; docs/phase7-wave9.md §3.4): at least `atLeast` abilities of that label were
@@ -1543,6 +1658,8 @@ export const characterDidThisPhase = (character: TargetQuery, did: "attack" | "t
  * in this effect's own game area is defeated (eliminated). False outside a separate game area.
  */
 export const areaPlayersDefeated: Predicate = { kind: "areaPlayersDefeated" };
+/** "If … any player is eliminated" (the Protection Racket 1B cards): any player, not one who sat the scenario out. */
+export const anyPlayerEliminated: Predicate = { kind: "anyPlayerEliminated" };
 /** "During the player phase" (Falcon 53001a): any step of it, whoever's turn it is. */
 export const duringPlayerPhase: Predicate = { kind: "gameStep", phase: "player" };
 /** "During step one of the villain phase". */
