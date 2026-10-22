@@ -4,7 +4,7 @@ import { POOL_DEPS } from "../content/pool.js";
 import { LocalEngineHost } from "../engine/local-host.js";
 import { SessionStore } from "../store/session-store.js";
 import { villainRecapOf } from "./villain-recap.js";
-import { appendWalkthrough, emptyWalkthrough } from "./villain-walkthrough.js";
+import { appendWalkthrough, choiceHiddenBy, emptyWalkthrough } from "./villain-walkthrough.js";
 
 async function breakout(): Promise<GameState> {
   const store = new SessionStore(new LocalEngineHost());
@@ -71,5 +71,31 @@ describe("an activation an encounter card starts", () => {
     expect(rows.map((row) => row.kind)).toEqual(["card", "activation"]);
     expect(rows[0]!.effects).toEqual([]);
     expect(rows[1]!.detail).toBe("SCH 2 + boost 1 = 3 → Breakout");
+  });
+});
+
+describe("HIDE pressed before the replay reaches a decision (missed interrupts)", () => {
+  test("puts nothing away, so the decision brings the rail back when the replay gets there", () => {
+    expect(choiceHiddenBy("c7", false)).toBeNull();
+  });
+  test("puts away a decision already on screen, so the rail stays hidden for it", () => {
+    expect(choiceHiddenBy("c7", true)).toBe("c7");
+    expect(choiceHiddenBy(null, true)).toBeNull();
+  });
+});
+
+describe("a boost card discarded while still facedown (Defiance, issue #348)", () => {
+  test("is listed on its activation as discarded, though it was never flipped", async () => {
+    const game = await breakout();
+    const p1 = game.players[0]!.playerId;
+    const enemy = game.villains[0]!.instanceId;
+    const boost = game.villains[2]!.instanceId;
+    const events = [
+      { type: "stepChanged", from: game.step, to: { phase: "villain", kind: "enemyActivations" } },
+      { type: "enemyActivated", enemyInstanceId: enemy, activation: "attack", playerId: p1 },
+      { type: "boostCancelled", instanceId: boost, scope: "discarded" },
+    ] as unknown as GameEvent[];
+    const walkthrough = appendWalkthrough(emptyWalkthrough(1), events, game, p1, POOL_DEPS);
+    expect(walkthrough.activation?.boosts).toEqual([{ instanceId: boost, boostIcons: 0, cancelled: "discarded" }]);
   });
 });
