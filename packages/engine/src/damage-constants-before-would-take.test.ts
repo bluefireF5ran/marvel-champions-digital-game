@@ -53,6 +53,8 @@ const CAP4 = constant("cap4", { kind: "maxDamageTakenPerAttack", target: VILLAIN
 const LESS = constant("less", { kind: "reduceDamageTaken", target: VILLAIN, amount: 1, fromAttack: true });
 /** "Increase the damage [the villain] takes from each attack by 1." */
 const MORE = constant("more", { kind: "increaseDamageTaken", target: VILLAIN, amount: 1, fromAttack: true });
+/** "Double the amount of damage [the villain] takes." */
+const DOUBLE = constant("double", { kind: "doubleDamageTaken", target: VILLAIN });
 /** Step 1: "When damage would be dealt to [the villain], prevent 3 of it." */
 const SHAVE = interrupt("shave", [{ kind: "preventDamage", amount: n(3) }], true);
 /** Step 3, Magnetic Bubble's shape: "When [the villain] would take any amount of damage, place it here instead." */
@@ -62,10 +64,12 @@ const BUBBLE = interrupt("bubble", [
     with: [{ kind: "addCounters", target: self, counterType: "absorbed", amount: { kind: "eventAmount" } }],
   },
 ]);
+/** Step 3: "When [the villain] would take any amount of damage, prevent 1 of that damage." */
+const TRIM = interrupt("trim", [{ kind: "preventDamage", amount: n(1) }]);
 /** Step 3: "When [the villain] would take any amount of damage, increase that damage by 3." */
 const PUMP = interrupt("pump", [{ kind: "increaseDamage", amount: n(3) }]);
 
-const ABILITIES = { CAP2, CAP4, LESS, MORE, SHAVE, BUBBLE, PUMP };
+const ABILITIES = { CAP2, CAP4, LESS, MORE, DOUBLE, SHAVE, BUBBLE, TRIM, PUMP };
 type Name = keyof typeof ABILITIES;
 const SUPPORTS = Object.fromEntries(
   Object.entries(ABILITIES).map(([name, ability]) => [
@@ -136,6 +140,17 @@ describe("constant modifiers to the damage taken come before 'would take' interr
     // 6 dealt, 3 prevented at step 1: 3 left, over a cap of 2, so 2.
     const over = start(["SHAVE", "CAP2", "BUBBLE"]);
     expect(absorbed(playFree(over.state, deps, HITS[1].card.id).state, over.ids["BUBBLE"])).toBe(2);
+  });
+
+  it("a known limit: with a doubling rule nothing applies early, so the interrupt sees the amount before the constants", () => {
+    // Deliberate (`damageConstantsBeforeWouldTake`): with doubling, RRG 1.8 "Modifiers" (p. 29) has an interrupt's
+    // increase added before the doubling (docs/phase7-wave6.md §4 Q40), so the whole calculation waits for the damage
+    // step. The Bubble shape receives the 5 dealt, not 5 x 2 capped at 2.
+    const bubbled = start(["DOUBLE", "CAP2", "BUBBLE"]);
+    expect(absorbed(playFree(bubbled.state, deps, HITS[0].card.id).state, bubbled.ids["BUBBLE"])).toBe(5);
+    // The cap still has the last word at take time: (5 - 1) x 2 = 8, capped at 2.
+    const trimmed = start(["DOUBLE", "CAP2", "TRIM"]);
+    expect(villainDamage(playFree(trimmed.state, deps, HITS[0].card.id).state)).toBe(2);
   });
 
   it("an interrupt that increases the capped damage: the cap still has the last word when it is taken", () => {

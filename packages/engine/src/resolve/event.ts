@@ -1465,10 +1465,11 @@ export function toughEndsDamageWindow(ctx: Ctx, eventFrameId: FrameId | null): b
  * instead" moves, is the modified one. That is the increases and the reductions (lingering ones too), then the
  * per-attack, sustained and per-phase caps, in `damageTakenBreakdown`'s order (a cap last: "cannot" is absolute, RRG
  * 1.8 p. 13). Doubling is the exception noted below. RRG 1.8 "Abilities" (p. 5) and FAQ p. 57: constant abilities
- * have timing priority over status cards, which have it over triggered abilities. FFG rulings June 6, 2024 (post RRG 1.5), Ruling 205: "Constant abilities that
- * reduce damage will be applied before interrupt abilities that reduce damage" (Titanium Exoskeleton reduces the
- * damage to 2, then Magnetic Bubble places 2); Ruling 206: Boarding Party is "a damage-reducing constant ability that
- * is taken into account before any interrupts". Constants on the damage dealt stay in the dealt stage.
+ * have timing priority over status cards, which have it over triggered abilities. FFG rulings June 6, 2024 (post RRG
+ * 1.5), Ruling 205: "Constant abilities that reduce damage will be applied before interrupt abilities that reduce
+ * damage" (Titanium Exoskeleton reduces the damage to 2, then Magnetic Bubble places 2); Ruling 206: Boarding Party is
+ * "a damage-reducing constant ability that is taken into account before any interrupts". Constants on the damage dealt
+ * stay in the dealt stage.
  *
  * The event is marked `constantsApplied`, so the damage step does not apply the modifiers again; it re-checks only the
  * caps, which keep the last word over an interrupt that changed the amount since ("increase that damage by 1").
@@ -1506,10 +1507,12 @@ export function damageConstantsBeforeWouldTake(
   );
   // Not when a doubling rule applies (Dragon's "double the amount of damage this minion takes"): the whole amount is
   // left to the damage step, as before, so an interrupt's "increase that damage by 1" (Wild Wild Mojo) is still added
-  // before the doubling. CONFLICT, flagged rather than settled: docs/phase7-wave6.md §4 Q40 (RRG 1.8 "Modifiers", p.
-  // 29: (3 + 1) x 2 = 8, `wave6/mojo/fantasy.test.ts`) against Ruling 205's constants-before-interrupts order, which
-  // would double first (3 x 2 + 1 = 7). Q40 is the recorded owner default, so it holds until a ruling or the owner
-  // says otherwise.
+  // before the doubling: (3 + 1) x 2 = 8 (docs/phase7-wave6.md §4 Q40, `wave6/mojo/fantasy.test.ts`). RRG 1.8
+  // "Modifiers" (p. 29: "all additive and subtractive modifiers are calculated before doubling and/or halving") is rank
+  // 1 in the authority order and settles it over Ruling 205's constants-before-interrupts order (rank 4), which would
+  // double first (3 x 2 + 1 = 7); the two are in tension only here. A deliberate, known limit: with doubling, nothing
+  // else applies early either, so a "would take" interrupt sees the amount before the constants (a cap included), and
+  // the cap has its last word only at take time (`damage-constants-before-would-take.test.ts`).
   if (breakdown.doubledBy.length > 0) return null;
   const allowance = damageTakenAllowance(ctx.state, ctx.deps, event.targetInstanceId);
   const taken = allowance === null ? breakdown.taken : Math.min(breakdown.taken, allowance);
@@ -1872,6 +1875,7 @@ export function applyDamage(
   // to 0 keeps the tough card (RRG 1.8 FAQ p. 58; docs/phase7-wave3.md §3.15).
   // Already applied as the damage reached its "would take" interrupts (`damageConstantsBeforeWouldTake`): only the
   // per-attack cap is read again (the sustained and per-phase ones are below), over what an interrupt changed since.
+  // The constants are frozen at step 3 (FFG ruling June 6, 2024, Ruling 205); only the caps are re-read at take time.
   const reapplyCap = (amount: number): number => {
     const cap = perAttackDamageCap(ctx.state, ctx.deps, event.targetInstanceId, event.fromAttack);
     return cap === null ? amount : Math.min(amount, cap);

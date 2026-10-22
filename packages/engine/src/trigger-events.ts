@@ -89,7 +89,9 @@ export type TriggerEventBody =
       /**
        * The damage this event is still to deal: what it was created with, less what "prevent N of that damage"
        * interrupts have prevented and plus what "increase that damage" interrupts have added. 0 as the event is
-       * created is 0 damage as it would be dealt, which opens no window at all (owner ruling 2026-10-06).
+       * created is 0 damage as it would be dealt, which opens no window at all (owner ruling 2026-10-06). While its
+       * "would take" interrupts resolve (`constantsApplied`), it also has the constant modifiers to the damage taken in
+       * it, so that is what they answer (`eventAmount`); the resolved event takes them out again.
        */
       readonly amount: number;
       /**
