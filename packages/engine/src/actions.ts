@@ -293,6 +293,7 @@ import {
   describeFrame,
   PAID_CARDS_SLOT,
   paidAsVars,
+  PRINTED_COST_PAID_SLOT,
   type Bindings,
   type ReportTarget,
   type UndeclaredWilds,
@@ -3419,6 +3420,7 @@ export function planCost(
     const printed = printedCostOf(state, card, pick);
     requirement = combineRequirements(requirement, printed);
     bindings[slot] = [pick];
+    if (entersPlay) bindings[PRINTED_COST_PAID_SLOT] = [pick];
     payingFor = pick;
   }
   // "Choose an ATTACK event in your hand … →" (`AbilityCost.chooseCard`, docs/phase7-wave6.md §3.42).
@@ -7444,6 +7446,24 @@ export function dividedBasicPowerValue(
     });
   }
   return characterProfile(reading.state, characterId, deps)?.[stat] ?? 0;
+}
+
+/**
+ * What the shares of a divided basic `power` must total when `characterId` divides it among `targets`, in order: the
+ * attacker's ATK, or the thwarter's THW, its ATK when any of the schemes has assault, as the command reads them
+ * (`basicAttackPaying`, `basicThwartWith`). For a client's divide picker; the command still checks the division.
+ */
+export function basicPowerDivisionTotal(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  characterId: InstanceId,
+  power: "attack" | "thwart",
+  targets: readonly InstanceId[],
+): number {
+  const assault = power === "thwart" && targets.some((id) => hasKeyword(state, id, "assault", deps));
+  const stat = power === "attack" || assault ? "atk" : "thw";
+  return dividedBasicPowerValue(state, deps, playerId, characterId, power, stat, targets);
 }
 
 export function basicRecover(ctx: Ctx, command: Command & { type: "basicRecover" }): EngineError | null {
