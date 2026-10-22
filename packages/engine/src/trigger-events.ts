@@ -531,6 +531,23 @@ export type TriggerEventBody =
       readonly named?: { readonly instanceId: InstanceId };
     }
   /**
+   * A facedown boost card is about to be turned faceup during an enemy's activation: "When a boost card … would be
+   * turned faceup" (Defiance 26018). Interrupt only, and the card is still facedown while its window is open: FFG ruling
+   * (Alex Werner, RRG 1.0-1.4 rulings, "Is there any meaningful difference between 'is' and 'would be' for interrupts?")
+   * says Defiance discards the card without turning it faceup, while Preemptive Strike's "is turned face up" sees it.
+   * Not announced for a villainous ally's or hero's own boost card (Defiance's "on an enemy", §S3.7).
+   */
+  | {
+      readonly kind: "boostCardTurningFaceup";
+      readonly enemyInstanceId: InstanceId;
+      readonly boostInstanceId: InstanceId;
+      readonly activation: "attack" | "scheme";
+      /** "You": the player the activation is against. */
+      readonly playerId: PlayerId;
+      /** An attack's target character (the defender, once declared), as on `boostCardTurnedFaceup`. */
+      readonly targetInstanceId?: InstanceId;
+    }
+  /**
    * A boost card was turned faceup during an activation (RRG 1.8 "Boost", p. 11), before its "Boost" ability resolves
    * and its icons are added: "When a boost card is turned faceup" (Attacrobatics, an interrupt) and "After a boost card is
    * turned faceup" (Target Acquired, a response). `boostIcons` is what it would add now, 0 once cancelled.
@@ -887,6 +904,19 @@ export type TriggerEventBody =
    */
   | {
       readonly kind: "encounterCardRevealing";
+      readonly instanceId: InstanceId;
+      readonly playerId: PlayerId;
+      readonly from?: "encounterDeck";
+    }
+  /**
+   * An encounter card is about to be revealed and is still facedown: "When you would reveal an encounter card"
+   * (Scarlet Spider 30020, Spider-Tingle 31020). RRG 1.8 "Interrupt" (p. 25): a "would" interrupt resolves before its
+   * triggering condition initiates, and "Reveal" (p. 38) step 1 turns the card faceup, so the player answers without
+   * seeing the card. Interrupt only; announced only when an ability could answer it. `from` as on
+   * `encounterCardRevealing`.
+   */
+  | {
+      readonly kind: "encounterCardBeingRevealed";
       readonly instanceId: InstanceId;
       readonly playerId: PlayerId;
       readonly from?: "encounterDeck";
@@ -2334,6 +2364,8 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     case "characterAttacked":
     case "characterDefeated":
     case "encounterCardRevealing":
+    // "When you would reveal an encounter card": the reveal is still to come.
+    case "encounterCardBeingRevealed":
     case "boostCardTurnedFaceup":
     // "When boost icons on an encounter card would be counted" (docs/phase7-wave2.md §3.6): the count is still to come.
     case "boostIconsCounting":
@@ -2360,6 +2392,8 @@ export function isAnnouncement(event: TriggerEvent): boolean {
     case "encounterCardBeingDealt":
     // "When an enemy would be given a facedown boost card" (docs/phase7-wave11-scenarios.md E23): the give is to come.
     case "boostCardBeingGiven":
+    // "When a boost card … would be turned faceup" (Defiance): the flip is still to come.
+    case "boostCardTurningFaceup":
     // "Forced Interrupt: When your turn begins, …" (The Poison, `gmw` 16125). A turn beginning is a timing point like a
     // phase beginning (below): RRG 1.8 "Interrupt" (p. 25) resolves an interrupt "immediately before that triggering
     // condition resolves", and nothing in the RRG makes a "begins" timing point response-only. The turn's state
@@ -2483,6 +2517,7 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
     case "cardBeingPlayed":
     case "cardRevealed":
     case "encounterCardRevealing":
+    case "encounterCardBeingRevealed":
     // "That treachery" is `eventTarget`; "you" (the player who resolved it) the player subject.
     case "encounterCardResolved":
       return of([event.instanceId], [event.instanceId], [event.playerId]);
@@ -2551,6 +2586,7 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
     case "cardReadied":
       return of([], [event.instanceId], []);
     case "boostCardTurnedFaceup":
+    case "boostCardTurningFaceup":
       return of([event.enemyInstanceId], [event.boostInstanceId], [event.playerId]);
     case "countersRemoved":
       return of([], [event.instanceId], []);
