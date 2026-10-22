@@ -1613,6 +1613,9 @@ export function damageTakenBeforeSustainedCap(
  * `unpreventable` (docs/phase7-wave11-hero-packs.md §H3.3, the MC62 insert's "cannot be reduced or prevented"): no
  * reduction applies, live or lingering; the increases, doubling and the per-attack cap do. A cap is a "cannot" (RRG 1.8
  * "Cannot", p. 13, absolute), and capped damage is neither taken nor prevented (docs/phase7-wave6.md §4.1 Q9).
+ *
+ * `perAttackCap` false leaves the per-attack cap out, so a caller can tell whether a cap is what holds the damage
+ * down (`capDamageBeforeWouldTake`).
  */
 export function damageTakenBreakdown(
   state: GameState,
@@ -1623,6 +1626,7 @@ export function damageTakenBreakdown(
   consequential?: ConsequentialDamage,
   source?: DamageSourceInfo,
   unpreventable = false,
+  perAttackCap = true,
 ): { readonly taken: number; readonly beforeDoubling: number; readonly doubledBy: readonly (InstanceId | null)[] } {
   let taken = amount;
   // "Increase all damage Venom takes by 1" (docs/phase7-wave5.md §3.8), summed with the reductions (RRG 1.8
@@ -1664,7 +1668,7 @@ export function damageTakenBreakdown(
       doubledBy.push(context.selfInstanceId);
     }
   }
-  if (fromAttack) {
+  if (fromAttack && perAttackCap) {
     for (const { rule, context } of activeRules(state, deps, "maxDamageTakenPerAttack")) {
       if (rule.per === "phase") continue;
       if (matchesQuery(state, targetId, rule.target, context)) taken = Math.min(taken, rule.amount);

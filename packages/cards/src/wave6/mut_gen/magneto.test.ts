@@ -1077,7 +1077,7 @@ describe("'Cannot be confused' stops new status cards only (FFG ruling Feb 15, 2
 // Titanium Exoskeleton (cap 2) and Boarding Party (sustained cap) reduce the damage taken first, then Magnetic Bubble
 // places what is left.
 describe("Constant damage limits come before 'would take' interrupts (rulings June 6, 2024, Rulings 205 and 206)", () => {
-  it.fails("Boarding Party's remaining allowance (3) is what Magnetic Bubble receives, not the full 8", () => {
+  it("Boarding Party's remaining allowance (3) is what Magnetic Bubble receives, not the full 8", () => {
     const base = withoutDealtCards(finish(run(magnetoGame(), toHero(P1)), firstLegal));
     const v = base.villains[0]!.instanceId;
     const armed = attachToHost(base, "32149", v);
@@ -1093,10 +1093,31 @@ describe("Constant damage limits come before 'would take' interrupts (rulings Ju
       play(P1, kick.ids[0]!, payWith(kick.state, P1, 3, kick.ids)),
     );
     const placed = result.events.filter((e) => e.type === "damagePlaced").map((e) => (e as { amount: number }).amount);
-    expect(placed).toEqual([3]); // actual: [8], and the Bubble is discarded
+    expect(placed).toEqual([3]);
   });
 
-  it.fails("Titanium Exoskeleton's cap (2) is what Magnetic Bubble receives from an 8-damage attack", () => {
+  it("at Boarding Party's cap, the capped damage is 0 and Magnetic Bubble does not trigger", () => {
+    const base = withoutDealtCards(finish(run(magnetoGame(), toHero(P1)), firstLegal));
+    const v = base.villains[0]!.instanceId;
+    const armed = attachToHost(base, "32149", v);
+    const full = patchInstance(armed.state, v, {
+      damage: 6,
+      statuses: { ...inst(armed.state, v).statuses, tough: 0 },
+    });
+    const kick = moveToHand(full, P1, "01005");
+    const result = driveEventsPicking(
+      WAVE6_DEPS,
+      kick.state,
+      firstLegal,
+      play(P1, kick.ids[0]!, payWith(kick.state, P1, 3, kick.ids)),
+    );
+    expect(result.events.filter((e) => e.type === "damagePlaced")).toEqual([]);
+    expect(result.events.some((e) => e.type === "damageCapped" && e.amount === 8)).toBe(true);
+    expect(inst(result.state, v).damage).toBe(6);
+    expect(inst(result.state, armed.id).damage).toBe(0);
+  });
+
+  it("Titanium Exoskeleton's cap (2) is what Magnetic Bubble receives from an 8-damage attack", () => {
     let s = rhino();
     const v = s.activeVillainId as InstanceId;
     s = patchInstance(s, v, { statuses: { ...inst(s, v).statuses, tough: 0 } });
@@ -1122,6 +1143,6 @@ describe("Constant damage limits come before 'would take' interrupts (rulings Ju
       play(P1, kick.ids[0]!, payWith(kick.state, P1, 3, kick.ids)),
     );
     const placed = result.events.filter((e) => e.type === "damagePlaced").map((e) => (e as { amount: number }).amount);
-    expect(placed).toEqual([2]); // actual: [8]
+    expect(placed).toEqual([2]);
   });
 });

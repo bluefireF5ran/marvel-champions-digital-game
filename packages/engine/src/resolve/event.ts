@@ -313,9 +313,15 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       }
       // Piercing discards the tough cards before any "would deal/take damage" interrupt triggers: "keywords have
       // timing priority over triggered abilities" (ruling January 17, 2026 (3) #2, on RRG 1.8 "Piercing", p. 32).
-      const opened =
+      const pierced =
         interrupts && frame.event.kind === "dealDamage" ? pierceBeforeInterrupts(ctx, frame.event) : frame.event;
-      if (opened !== frame.event) setFrame(ctx, { ...frame, stage: "apply", event: opened });
+      if (pierced !== frame.event) setFrame(ctx, { ...frame, stage: "apply", event: pierced });
+      // With no "would deal / be dealt" interrupt to run first, the window opens at step 3 ("would take"): the
+      // constant caps on the damage taken have held it down by then (`capDamageBeforeWouldTake`).
+      const opened =
+        interrupts && pierced.kind === "dealDamage" && !answeredAsWouldBeDealt(ctx, pierced)
+          ? (capDamageBeforeWouldTake(ctx, frame.frameId) ?? pierced)
+          : pierced;
       if (interrupts)
         pushWindow(
           ctx,
@@ -1449,6 +1455,82 @@ export function toughEndsDamageWindow(ctx: Ctx, eventFrameId: FrameId | null): b
   if (!toughResolvesFirst(ctx, frame.event, frame.frameId)) return false;
   emit(ctx, { type: "interruptsPreempted", event: frame.event, reason: "tough" });
   return true;
+}
+
+/**
+ * RRG 1.8 "Damage" (p. 14), step 3, as its "would take" interrupts are about to be gathered: a constant cap on the
+ * damage the character takes ("cannot take more than 2 damage from a single attack", `maxDamageTakenPerAttack`;
+ * "cannot have more than 6[per_hero] sustained damage", `maxSustainedDamage`; a per-phase cap) has already held the
+ * damage down, so the pending amount those interrupts answer, and that "place it here instead" moves, is the capped
+ * one. RRG 1.8 FAQ (p. 57): constant abilities have timing priority over status cards, which have it over triggered
+ * abilities; FFG rulings June 6, 2024 (post RRG 1.5), Rulings 205 and 206: Titanium Exoskeleton reduces the damage to
+ * 2, then Magnetic Bubble places 2, and Boarding Party is "a damage-reducing constant ability that is taken into
+ * account before any interrupts".
+ *
+ * Only a cap changes the amount here; constant reductions and increases still apply as the damage is taken
+ * (`applyDamage`), so the amount kept is the least damage that still comes to what the caps allow once they apply
+ * (with no reduction or increase, exactly the capped amount). The rest is dealt but not taken (`dealt` keeps the
+ * amount dealt): the per-attack cap's part is logged as reduced, as `applyDamage` logs it, the sustained and per-phase
+ * caps' part as `damageCapped` (docs/phase7-wave6.md §4.1 Q9). Damage capped to 0 answers no interrupt
+ * (`nothingToAnswer`). Damage that cannot be taken or is prevented outright is left alone (`applyDamage` stops it
+ * first). Returns the event as it now stands on its frame, or null when no cap changed it.
+ */
+export function capDamageBeforeWouldTake(
+  ctx: Ctx,
+  eventFrameId: FrameId | null,
+): Extract<TriggerEvent, { kind: "dealDamage" }> | null {
+  if (eventFrameId === null) return null;
+  const frame = findFrame(ctx.state, eventFrameId);
+  if (frame?.kind !== "event" || frame.cancelled || frame.event.kind !== "dealDamage") return null;
+  const event = frame.event;
+  if (event.amount <= 0 || !cardsInPlay(ctx.state).includes(event.targetInstanceId)) return null;
+  if (damageCannotBeTaken(ctx, event)) return null;
+  const unpreventable = event.unpreventable === true;
+  const consequential = consequentialDamageOf(ctx, event, frame.frameId);
+  if (!unpreventable && damagePreventerOf(ctx.state, ctx.deps, event.targetInstanceId, consequential) !== null)
+    return null;
+  if (event.fromAttack && !unpreventable && preventedByAttackFlag(ctx, event)) return null;
+  const source = damageSourceInfo(ctx, event);
+  const allowance = damageTakenAllowance(ctx.state, ctx.deps, event.targetInstanceId);
+  const takenFrom = (amount: number, perAttackCap = true): number =>
+    damageTakenBreakdown(
+      ctx.state,
+      ctx.deps,
+      event.targetInstanceId,
+      amount,
+      event.fromAttack,
+      consequential,
+      source,
+      unpreventable,
+      perAttackCap,
+    ).taken;
+  const withAllowance = (taken: number): number => (allowance === null ? taken : Math.min(taken, allowance));
+  const uncapped = takenFrom(event.amount, false);
+  const perAttack = takenFrom(event.amount);
+  const capped = withAllowance(perAttack);
+  if (capped >= uncapped) return null;
+  // The damage taken never falls as the damage dealt rises, so the first amount that comes to it is the least.
+  const least = (target: number, read: (amount: number) => number): number => {
+    for (let amount = 0; amount < event.amount; amount++) if (read(amount) >= target) return amount;
+    return event.amount;
+  };
+  const afterPerAttack = perAttack < uncapped ? least(perAttack, (amount) => takenFrom(amount)) : event.amount;
+  const kept = least(capped, (amount) => withAllowance(takenFrom(amount)));
+  if (kept >= event.amount) return null;
+  if (afterPerAttack < event.amount) {
+    emit(ctx, {
+      type: "damagePrevented",
+      targetInstanceId: event.targetInstanceId,
+      amount: event.amount - afterPerAttack,
+      reason: "reduced",
+    });
+  }
+  if (kept < afterPerAttack) {
+    emit(ctx, { type: "damageCapped", targetInstanceId: event.targetInstanceId, amount: afterPerAttack - kept });
+  }
+  const next = { ...event, amount: kept, dealt: event.dealt ?? event.amount };
+  setFrame(ctx, { ...frame, event: next });
+  return next;
 }
 
 /**
