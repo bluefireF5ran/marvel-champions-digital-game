@@ -108,6 +108,15 @@ export type TriggerEventBody =
        * always equal to its `results.amount` (absent there when 0). "After X takes damage" reads it.
        */
       readonly taken?: number;
+      /**
+       * The constant modifiers to the damage taken (increases, reductions and the caps; not doubling) are already in
+       * `amount`: set as the damage reaches its "would take" interrupts (RRG 1.8 "Damage", p. 14, step 3;
+       * `damageConstantsBeforeWouldTake`), so those interrupts answer the modified amount and the damage step re-checks
+       * only the caps, which have the last word over what an interrupt changed since. `removed` is what the modifiers
+       * took off (negative when they added): the resolved event adds it back, so its `amount` reads as it does for
+       * damage that opened no window (the amount before the constants, less what interrupts prevented).
+       */
+      readonly constantsApplied?: { readonly removed: number };
       readonly sourceInstanceId: InstanceId | null;
       /** Damage from an attack; defense, retaliate and overkill key off this. */
       readonly fromAttack: boolean;

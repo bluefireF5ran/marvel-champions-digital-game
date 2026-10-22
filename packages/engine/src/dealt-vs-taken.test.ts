@@ -323,7 +323,9 @@ describe("damage dealt and not taken: 'is dealt damage' answers, 'takes damage' 
     const s = setup({ x: 3, tough: 1, also: [ARMOR] });
     const { state, events, session } = play(s, HIT_X);
     expect(of(events, "damagePrevented")).toMatchObject([{ targetInstanceId: s.hero, amount: 3, reason: "reduced" }]);
-    expect(seen(state, s.hero)).toEqual({ would: 1, ...DEALT_NOT_TAKEN });
+    // The constant applies before "would take" interrupts (FFG ruling June 6, 2024, Ruling 205; RRG 1.8 p. 5): 0 is
+    // left to take, which no "would take any amount of damage" interrupt answers.
+    expect(seen(state, s.hero)).toEqual({ would: 0, ...DEALT_NOT_TAKEN });
     expect(resolved(events)).toEqual([{ target: s.hero, amount: 3, dealt: 3, taken: 0, result: 0 }]);
     expect(mustInstance(state, s.hero)).toMatchObject({ damage: 0, statuses: { tough: 1 } });
     expectReplays(session);

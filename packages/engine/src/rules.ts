@@ -1613,9 +1613,6 @@ export function damageTakenBeforeSustainedCap(
  * `unpreventable` (docs/phase7-wave11-hero-packs.md §H3.3, the MC62 insert's "cannot be reduced or prevented"): no
  * reduction applies, live or lingering; the increases, doubling and the per-attack cap do. A cap is a "cannot" (RRG 1.8
  * "Cannot", p. 13, absolute), and capped damage is neither taken nor prevented (docs/phase7-wave6.md §4.1 Q9).
- *
- * `perAttackCap` false leaves the per-attack cap out, so a caller can tell whether a cap is what holds the damage
- * down (`capDamageBeforeWouldTake`).
  */
 export function damageTakenBreakdown(
   state: GameState,
@@ -1626,7 +1623,6 @@ export function damageTakenBreakdown(
   consequential?: ConsequentialDamage,
   source?: DamageSourceInfo,
   unpreventable = false,
-  perAttackCap = true,
 ): { readonly taken: number; readonly beforeDoubling: number; readonly doubledBy: readonly (InstanceId | null)[] } {
   let taken = amount;
   // "Increase all damage Venom takes by 1" (docs/phase7-wave5.md §3.8), summed with the reductions (RRG 1.8
@@ -1668,13 +1664,29 @@ export function damageTakenBreakdown(
       doubledBy.push(context.selfInstanceId);
     }
   }
-  if (fromAttack && perAttackCap) {
-    for (const { rule, context } of activeRules(state, deps, "maxDamageTakenPerAttack")) {
-      if (rule.per === "phase") continue;
-      if (matchesQuery(state, targetId, rule.target, context)) taken = Math.min(taken, rule.amount);
-    }
-  }
+  const cap = perAttackDamageCap(state, deps, targetId, fromAttack);
+  if (cap !== null) taken = Math.min(taken, cap);
   return { taken: Math.max(0, taken), beforeDoubling, doubledBy };
+}
+
+/**
+ * The lowest per-attack `maxDamageTakenPerAttack` cap on this character for damage from an attack ("cannot take more
+ * than 2 damage from a single attack"), or null (none, or not attack damage).
+ */
+export function perAttackDamageCap(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+  fromAttack: boolean,
+): number | null {
+  if (!fromAttack) return null;
+  let cap: number | null = null;
+  for (const { rule, context } of activeRules(state, deps, "maxDamageTakenPerAttack")) {
+    if (rule.per === "phase") continue;
+    if (matchesQuery(state, targetId, rule.target, context))
+      cap = cap === null ? rule.amount : Math.min(cap, rule.amount);
+  }
+  return cap;
 }
 
 /** Whether this enemy's attacks deal indirect damage (`attacksDealIndirectDamage`; docs/phase7-wave3.md §3.16). */

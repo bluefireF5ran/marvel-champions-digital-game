@@ -1145,4 +1145,38 @@ describe("Constant damage limits come before 'would take' interrupts (rulings Ju
     const placed = result.events.filter((e) => e.type === "damagePlaced").map((e) => (e as { amount: number }).amount);
     expect(placed).toEqual([2]);
   });
+
+  it("Titanium Exoskeleton's cap (2) comes before Jetpack's interrupt: a 3-boost discard reduces the 2 to 0", () => {
+    // FFG ruling June 6, 2024, Ruling 205 (2): "TE reduces the damage taken to 2, then Jetpack's interrupt triggers,
+    // and in your example the enemy takes 0 damage." Jetpack's host (a minion in print) does not change the timing.
+    let s = rhino();
+    const v = s.activeVillainId as InstanceId;
+    s = patchInstance(s, v, { statuses: { ...inst(s, v).statuses, tough: 0 } });
+    const attach = (state: GameState, code: string, from: number) => {
+      const pile = activeEncounterDeck(state);
+      const id = pile.deck[from]!;
+      const next: GameState = {
+        ...patchInstance(state, id, { cardId: cardId(code), faceup: true, attachedTo: v }),
+        encounterDecks: {
+          ...state.encounterDecks,
+          [activeEncounterDeckId(state)]: { deck: pile.deck.filter((i) => i !== id), discard: pile.discard },
+        },
+      };
+      return { state: patchInstance(next, v, { attachments: [...inst(next, v).attachments, id] }), id };
+    };
+    s = attach(s, "40091", 26).state;
+    s = attach(s, "24039", 25).state;
+    // The top card of the encounter deck has 3 boost icons (Sonic Converter, 01118).
+    const top = activeEncounterDeck(s).deck[0]!;
+    s = patchInstance(s, top, { cardId: cardId("01118") });
+    const kick = moveToHand(s, P1, "01005"); // Swinging Web Kick, 8 damage
+    const result = driveEventsPicking(
+      DEPS,
+      kick.state,
+      firstLegal,
+      play(P1, kick.ids[0]!, payWith(kick.state, P1, 3, kick.ids)),
+    );
+    expect(activeEncounterDeck(result.state).discard).toContain(top);
+    expect(inst(result.state, v).damage).toBe(0);
+  });
 });

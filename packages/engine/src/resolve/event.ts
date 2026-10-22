@@ -52,6 +52,7 @@ import {
   damageTakenAfterConstants,
   damageTakenAllowance,
   damageTakenBreakdown,
+  perAttackDamageCap,
   damageSourceCard,
   type DamageAttackInfo,
   type DamageSourceInfo,
@@ -317,10 +318,10 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         interrupts && frame.event.kind === "dealDamage" ? pierceBeforeInterrupts(ctx, frame.event) : frame.event;
       if (pierced !== frame.event) setFrame(ctx, { ...frame, stage: "apply", event: pierced });
       // With no "would deal / be dealt" interrupt to run first, the window opens at step 3 ("would take"): the
-      // constant caps on the damage taken have held it down by then (`capDamageBeforeWouldTake`).
+      // constant modifiers to the damage taken have applied by then (`damageConstantsBeforeWouldTake`).
       const opened =
         interrupts && pierced.kind === "dealDamage" && !answeredAsWouldBeDealt(ctx, pierced)
-          ? (capDamageBeforeWouldTake(ctx, frame.frameId) ?? pierced)
+          ? (damageConstantsBeforeWouldTake(ctx, frame.frameId) ?? pierced)
           : pierced;
       if (interrupts)
         pushWindow(
@@ -712,11 +713,12 @@ const resolvedAmount = (event: TriggerEvent, vars: Vars): TriggerEvent =>
  * event's `dealt` when an interrupt prevented any of it, else its `amount`; taken is the frame's `amount` result, which
  * only damage actually placed on the target writes (`recordDamageTaken`, a `damageGroup` member's vars).
  */
-const damageDealtAndTaken = (event: DamageEvent, vars: Vars): DamageEvent => ({
-  ...event,
-  dealt: event.dealt ?? event.amount,
-  taken: vars.amount ?? 0,
-});
+const damageDealtAndTaken = (event: DamageEvent, vars: Vars): DamageEvent => {
+  // The constants applied before its "would take" interrupts are added back (`damageConstantsBeforeWouldTake`).
+  const { constantsApplied, ...rest } = event;
+  const amount = constantsApplied ? Math.max(0, event.amount + constantsApplied.removed) : event.amount;
+  return { ...rest, amount, dealt: event.dealt ?? amount, taken: vars.amount ?? 0 };
+};
 
 const withResults = (event: TriggerEvent, vars: Vars): TriggerEvent =>
   Object.keys(vars).length === 0 ? event : { ...event, results: vars };
@@ -1458,24 +1460,25 @@ export function toughEndsDamageWindow(ctx: Ctx, eventFrameId: FrameId | null): b
 }
 
 /**
- * RRG 1.8 "Damage" (p. 14), step 3, as its "would take" interrupts are about to be gathered: a constant cap on the
- * damage the character takes ("cannot take more than 2 damage from a single attack", `maxDamageTakenPerAttack`;
- * "cannot have more than 6[per_hero] sustained damage", `maxSustainedDamage`; a per-phase cap) has already held the
- * damage down, so the pending amount those interrupts answer, and that "place it here instead" moves, is the capped
- * one. RRG 1.8 FAQ (p. 57): constant abilities have timing priority over status cards, which have it over triggered
- * abilities; FFG rulings June 6, 2024 (post RRG 1.5), Rulings 205 and 206: Titanium Exoskeleton reduces the damage to
- * 2, then Magnetic Bubble places 2, and Boarding Party is "a damage-reducing constant ability that is taken into
- * account before any interrupts".
+ * RRG 1.8 "Damage" (p. 14), step 3, as its "would take" interrupts are about to be gathered: every constant modifier
+ * to the damage taken has applied by then, so the pending amount those interrupts answer, and that "place it here
+ * instead" moves, is the modified one. That is the increases and the reductions (lingering ones too), then the
+ * per-attack, sustained and per-phase caps, in `damageTakenBreakdown`'s order (a cap last: "cannot" is absolute, RRG
+ * 1.8 p. 13). Doubling is the exception noted below. RRG 1.8 "Abilities" (p. 5) and FAQ p. 57: constant abilities
+ * have timing priority over status cards, which have it over triggered abilities. FFG rulings June 6, 2024 (post RRG 1.5), Ruling 205: "Constant abilities that
+ * reduce damage will be applied before interrupt abilities that reduce damage" (Titanium Exoskeleton reduces the
+ * damage to 2, then Magnetic Bubble places 2); Ruling 206: Boarding Party is "a damage-reducing constant ability that
+ * is taken into account before any interrupts". Constants on the damage dealt stay in the dealt stage.
  *
- * Only a cap changes the amount here; constant reductions and increases still apply as the damage is taken
- * (`applyDamage`), so the amount kept is the least damage that still comes to what the caps allow once they apply
- * (with no reduction or increase, exactly the capped amount). The rest is dealt but not taken (`dealt` keeps the
- * amount dealt): the per-attack cap's part is logged as reduced, as `applyDamage` logs it, the sustained and per-phase
- * caps' part as `damageCapped` (docs/phase7-wave6.md §4.1 Q9). Damage capped to 0 answers no interrupt
- * (`nothingToAnswer`). Damage that cannot be taken or is prevented outright is left alone (`applyDamage` stops it
- * first). Returns the event as it now stands on its frame, or null when no cap changed it.
+ * The event is marked `constantsApplied`, so the damage step does not apply the modifiers again; it re-checks only the
+ * caps, which keep the last word over an interrupt that changed the amount since ("increase that damage by 1").
+ * `dealt` keeps the amount dealt. The log entries (the reduction as `damagePrevented` "reduced", the sustained and
+ * per-phase caps' `damageCapped`) are written here, before the window, when one opens, and otherwise at take time by
+ * `applyDamage`, as Piercing's are. Damage brought to 0 answers no interrupt (`nothingToAnswer`). Damage
+ * that cannot be taken or is prevented outright is left alone (`applyDamage` stops it first). Returns the event as it
+ * now stands on its frame, or null when nothing changed it.
  */
-export function capDamageBeforeWouldTake(
+export function damageConstantsBeforeWouldTake(
   ctx: Ctx,
   eventFrameId: FrameId | null,
 ): Extract<TriggerEvent, { kind: "dealDamage" }> | null {
@@ -1483,6 +1486,7 @@ export function capDamageBeforeWouldTake(
   const frame = findFrame(ctx.state, eventFrameId);
   if (frame?.kind !== "event" || frame.cancelled || frame.event.kind !== "dealDamage") return null;
   const event = frame.event;
+  if (event.constantsApplied) return null;
   if (event.amount <= 0 || !cardsInPlay(ctx.state).includes(event.targetInstanceId)) return null;
   if (damageCannotBeTaken(ctx, event)) return null;
   const unpreventable = event.unpreventable === true;
@@ -1490,45 +1494,44 @@ export function capDamageBeforeWouldTake(
   if (!unpreventable && damagePreventerOf(ctx.state, ctx.deps, event.targetInstanceId, consequential) !== null)
     return null;
   if (event.fromAttack && !unpreventable && preventedByAttackFlag(ctx, event)) return null;
-  const source = damageSourceInfo(ctx, event);
+  const breakdown = damageTakenBreakdown(
+    ctx.state,
+    ctx.deps,
+    event.targetInstanceId,
+    event.amount,
+    event.fromAttack,
+    consequential,
+    damageSourceInfo(ctx, event),
+    unpreventable,
+  );
+  // Not when a doubling rule applies (Dragon's "double the amount of damage this minion takes"): the whole amount is
+  // left to the damage step, as before, so an interrupt's "increase that damage by 1" (Wild Wild Mojo) is still added
+  // before the doubling. CONFLICT, flagged rather than settled: docs/phase7-wave6.md §4 Q40 (RRG 1.8 "Modifiers", p.
+  // 29: (3 + 1) x 2 = 8, `wave6/mojo/fantasy.test.ts`) against Ruling 205's constants-before-interrupts order, which
+  // would double first (3 x 2 + 1 = 7). Q40 is the recorded owner default, so it holds until a ruling or the owner
+  // says otherwise.
+  if (breakdown.doubledBy.length > 0) return null;
   const allowance = damageTakenAllowance(ctx.state, ctx.deps, event.targetInstanceId);
-  const takenFrom = (amount: number, perAttackCap = true): number =>
-    damageTakenBreakdown(
-      ctx.state,
-      ctx.deps,
-      event.targetInstanceId,
-      amount,
-      event.fromAttack,
-      consequential,
-      source,
-      unpreventable,
-      perAttackCap,
-    ).taken;
-  const withAllowance = (taken: number): number => (allowance === null ? taken : Math.min(taken, allowance));
-  const uncapped = takenFrom(event.amount, false);
-  const perAttack = takenFrom(event.amount);
-  const capped = withAllowance(perAttack);
-  if (capped >= uncapped) return null;
-  // The damage taken never falls as the damage dealt rises, so the first amount that comes to it is the least.
-  const least = (target: number, read: (amount: number) => number): number => {
-    for (let amount = 0; amount < event.amount; amount++) if (read(amount) >= target) return amount;
-    return event.amount;
-  };
-  const afterPerAttack = perAttack < uncapped ? least(perAttack, (amount) => takenFrom(amount)) : event.amount;
-  const kept = least(capped, (amount) => withAllowance(takenFrom(amount)));
-  if (kept >= event.amount) return null;
-  if (afterPerAttack < event.amount) {
+  const taken = allowance === null ? breakdown.taken : Math.min(breakdown.taken, allowance);
+  if (taken === event.amount) return null;
+  // The same entries, in the same order, as `applyDamage` writes for damage that opens no window.
+  if (breakdown.taken < event.amount) {
     emit(ctx, {
       type: "damagePrevented",
       targetInstanceId: event.targetInstanceId,
-      amount: event.amount - afterPerAttack,
+      amount: event.amount - breakdown.taken,
       reason: "reduced",
     });
   }
-  if (kept < afterPerAttack) {
-    emit(ctx, { type: "damageCapped", targetInstanceId: event.targetInstanceId, amount: afterPerAttack - kept });
+  if (taken < breakdown.taken) {
+    emit(ctx, { type: "damageCapped", targetInstanceId: event.targetInstanceId, amount: breakdown.taken - taken });
   }
-  const next = { ...event, amount: kept, dealt: event.dealt ?? event.amount };
+  const next = {
+    ...event,
+    amount: taken,
+    dealt: event.dealt ?? event.amount,
+    constantsApplied: { removed: event.amount - taken },
+  };
   setFrame(ctx, { ...frame, event: next });
   return next;
 }
@@ -1867,16 +1870,24 @@ export function applyDamage(
   // Constant reductions and caps on the damage taken ("Reduce the amount of damage Nebula takes from each attack by 1",
   // "cannot take more than 5 damage from a single attack"): constants come before a tough status, so one that brings it
   // to 0 keeps the tough card (RRG 1.8 FAQ p. 58; docs/phase7-wave3.md §3.15).
-  const breakdown = damageTakenBreakdown(
-    ctx.state,
-    ctx.deps,
-    event.targetInstanceId,
-    event.amount,
-    event.fromAttack,
-    consequential,
-    damageSourceInfo(ctx, event),
-    unpreventable,
-  );
+  // Already applied as the damage reached its "would take" interrupts (`damageConstantsBeforeWouldTake`): only the
+  // per-attack cap is read again (the sustained and per-phase ones are below), over what an interrupt changed since.
+  const reapplyCap = (amount: number): number => {
+    const cap = perAttackDamageCap(ctx.state, ctx.deps, event.targetInstanceId, event.fromAttack);
+    return cap === null ? amount : Math.min(amount, cap);
+  };
+  const breakdown = event.constantsApplied
+    ? { taken: reapplyCap(event.amount), beforeDoubling: event.amount, doubledBy: [] }
+    : damageTakenBreakdown(
+        ctx.state,
+        ctx.deps,
+        event.targetInstanceId,
+        event.amount,
+        event.fromAttack,
+        consequential,
+        damageSourceInfo(ctx, event),
+        unpreventable,
+      );
   const uncapped = breakdown.taken;
   // "Double the amount of damage this minion takes from …" (§3.68), logged before any cap trims it.
   if (breakdown.doubledBy.length > 0) {
