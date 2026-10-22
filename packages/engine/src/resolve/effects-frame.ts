@@ -937,7 +937,10 @@ function executePlayFromHand(
   const [chosenHost] = frame.bindings["_play.host"] ?? [];
   if (!paying) {
     finish();
-    grantWhileResolving(playIgnoringCost(ctx, playerId, card, from, playBindings, action, timing, into, chosenHost));
+    grantWhileResolving(
+      playIgnoringCost(ctx, playerId, card, from, playBindings, action, timing, into, chosenHost),
+      card,
+    );
     return;
   }
   const attachTo = chosenHost ?? hostForEffectPlay(ctx, playerId, card) ?? null;
