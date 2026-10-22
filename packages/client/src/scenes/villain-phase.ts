@@ -421,8 +421,8 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     });
 
     // The desktop hover popover over the phase's own cards (the enemy, the revealed card, the interrupt card, the
-    // recap's thumbnails), as on the table: the cards' rects are noted as they are drawn (`noteHoverCard`).
-    resetHoverCards(this);
+    // recap's thumbnails), as on the table: the cards' rects are noted as they are drawn (`noteHoverCard`). The first
+    // draw, which `store.subscribe` above already ran, noted them, and each draw resets them itself: no reset here.
     this.#hover = new HoverPreview(this, {
       // One entry per picture: the recap shows the villain once per attack, and its steps scroll without a redraw.
       hits: () => hoverCardHitsOf(this),
