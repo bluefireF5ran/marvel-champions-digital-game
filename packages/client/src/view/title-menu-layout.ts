@@ -30,6 +30,7 @@ import { hit } from "../tokens.js";
 import type { Rect } from "./layout.js";
 import { setupMetrics } from "./setup-metrics.js";
 import { GAME_ROW_GAP, GAME_ROW_HEIGHT } from "./games-list-model.js";
+import { NOTICE_BAR_HEIGHTS } from "./shadowland-notice.js";
 
 const TITLE_BLOCK_RATIO = 1.35;
 /** The red divider's own width, and the left art panel's share of a split screen. */
@@ -148,6 +149,11 @@ export interface TitleMenuLayoutInput {
   readonly quit?: boolean;
   /** How many games the list shows (`shouldShowGamesList` decides whether it is offered at all; 0 draws neither). */
   readonly games?: number;
+  /**
+   * Temporary (`view/shadowland-notice.ts`): a full-width notice bar across the top of the screen. Everything else is
+   * laid out in the height left under it.
+   */
+  readonly noticeBar?: boolean;
 }
 
 export interface TitleMenuLayout {
@@ -198,6 +204,8 @@ export interface TitleMenuLayout {
   /** "Quit to desktop", under Settings; null outside the desktop app. */
   readonly quit: Rect | null;
   readonly footer: Rect;
+  /** The temporary notice bar across the top (`noticeBar`), or null. */
+  readonly noticeBar: Rect | null;
 }
 
 export function titleMenuLayoutRects(layout: TitleMenuLayout): readonly Rect[] {
@@ -217,6 +225,7 @@ export function titleMenuLayoutRects(layout: TitleMenuLayout): readonly Rect[] {
     layout.rankBadge,
     ...(layout.quit ? [layout.quit] : []),
     layout.footer,
+    ...(layout.noticeBar ? [layout.noticeBar] : []),
   ];
 }
 
@@ -235,9 +244,43 @@ const TITLE_STEP = 4;
  * time to their floors. Touch targets never shrink.
  */
 export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
+  if (input.noticeBar !== true) return titleMenuLayoutUnder(input);
+  // The notice bar takes the top strip; the menu is laid out in the rest and moved down under it. On a screen too short
+  // for the full bar (a 1024x600 tablet) it slims down rather than push a menu that fits without it off the bottom.
+  // A menu that only just fits at its compact floor (a 360x640 phone with Continue, Civil War! and games in progress)
+  // has no room for any bar, so it goes without: Settings stays on screen. A menu that overflows anyway keeps the bar.
+  const plain = titleMenuLayoutUnder(input);
+  if (bottomOf(plain) > input.height) return underNoticeBar(input, NOTICE_BAR_HEIGHTS[0]!);
+  for (const inset of NOTICE_BAR_HEIGHTS) {
+    const layout = underNoticeBar(input, inset);
+    if (bottomOf(layout) <= input.height) return layout;
+  }
+  return plain;
+}
+
+function underNoticeBar(input: TitleMenuLayoutInput, inset: number): TitleMenuLayout {
+  const below = titleMenuLayoutUnder({ ...input, height: input.height - inset });
+  const shift = (rect: Rect): Rect => ({ ...rect, y: rect.y + inset });
+  const shifted = Object.fromEntries(
+    Object.entries(below).map(([key, value]) => [key, isRect(value) ? shift(value) : value]),
+  ) as unknown as TitleMenuLayout;
+  return { ...shifted, noticeBar: { x: 0, y: 0, width: input.width, height: inset } };
+}
+
+const bottomOf = (layout: TitleMenuLayout): number =>
+  Math.max(...titleMenuLayoutRects(layout).map((rect) => rect.y + rect.height));
+
+/** Top-level `Rect` fields only: a future field holding rects in an array or a nested object would need its own shift. */
+const isRect = (value: unknown): value is Rect =>
+  typeof value === "object" && value !== null && "x" in value && "y" in value && "width" in value && "height" in value;
+
+function titleMenuLayoutUnder(input: TitleMenuLayoutInput): TitleMenuLayout {
   const { width, height } = input;
   const { gap } = setupMetrics(width, height);
-  const tightened = (badgeUp: boolean, compact = false): TitleMenuLayout & { readonly fits: boolean } => {
+  const tightened = (
+    badgeUp: boolean,
+    compact = false,
+  ): Omit<TitleMenuLayout, "noticeBar"> & { readonly fits: boolean } => {
     const gapFloor = compact ? COMPACT_GAP_FLOOR : GAP_FLOOR;
     const titleFloor = compact ? COMPACT_TITLE_SIZE_FLOOR : TITLE_SIZE_FLOOR;
     let tight = { gap, titleSize: null as number | null };
@@ -261,7 +304,7 @@ export function titleMenuLayout(input: TitleMenuLayoutInput): TitleMenuLayout {
     if (compact.fits) layout = compact;
   }
   const { fits: _fits, ...rest } = layout;
-  return rest;
+  return { ...rest, noticeBar: null };
 }
 
 function titleMenuLayoutAt(
@@ -270,7 +313,7 @@ function titleMenuLayoutAt(
   titleOverride: number | null,
   badgeUp: boolean,
   compact = false,
-): TitleMenuLayout & { readonly fits: boolean } {
+): Omit<TitleMenuLayout, "noticeBar"> & { readonly fits: boolean } {
   const primary = compact ? hit.target : hit.primary;
   const { width, height } = input;
   const { phone, short, pad } = setupMetrics(width, height);
