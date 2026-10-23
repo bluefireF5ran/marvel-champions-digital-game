@@ -375,6 +375,18 @@ export type GameEvent =
       readonly instanceId: InstanceId;
       readonly cardId: CardId;
       readonly areaId: GameAreaId | null;
+      /**
+       * A villain card already in play as a minion became one of the game's villains when nothing treated it as a
+       * minion any more (`promoteLooseVillain`, Whisper in the Dark): a status change, it did not enter play.
+       */
+      readonly asStatusChange?: true;
+    }
+  /** `EffectSpec discardTokens`: the damage and threat tokens discarded from a card (not a heal). */
+  | {
+      readonly type: "tokensDiscarded";
+      readonly instanceId: InstanceId;
+      readonly damage: number;
+      readonly threat: number;
     }
   /** A villain was removed from the game without being defeated (`removeVillain`). */
   | { readonly type: "villainRemoved"; readonly instanceId: InstanceId }
@@ -1933,9 +1945,16 @@ export type GameEvent =
   /**
    * A "choose one" resolved. `onlyOption`: nobody was asked, because every other option could not be chosen (an
    * exhausted character cannot be exhausted, Security Cameras `aos` 50097; RRG 1.8 "Choose (Option)", p. 12), so the
-   * log can say why the remaining one happened on its own (issue 182).
+   * log can say why the remaining one happened on its own (issue 182). `tag`: the option's name, when it has one
+   * (`EffectSpec chooseOne` option `tag`).
    */
-  | { readonly type: "optionChosen"; readonly label: string; readonly index: number; readonly onlyOption?: true }
+  | {
+      readonly type: "optionChosen";
+      readonly label: string;
+      readonly index: number;
+      readonly onlyOption?: true;
+      readonly tag?: string;
+    }
   /**
    * `EffectSpec basicPowerBy` (docs/phase7-wave8.md §3.64): the card `sourceInstanceId` had `playerId` make a basic
    * power, and this is the one they chose. Logged just before the power is declared; what the power then does is

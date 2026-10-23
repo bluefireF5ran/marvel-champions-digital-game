@@ -118,19 +118,25 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     // `&scenario=<id>&deck=<precon deck id>`: which scenario/precon this dev jump seats, for screenshotting a
     // specific setup screen (Standard II/Expert II, The Hood's own modular choice) without clicking through
     // Scenario select/Seats by hand. Falls back to the original fixed Rhino/first-precon draft when either param
-    // is absent or names something the pool doesn't have.
+    // is absent or names something the pool doesn't have. `&seed=<n>` (below) fixes the deal too.
     const params = new URLSearchParams(location.search);
     const scenario = POOL_SCENARIOS.find((s) => s.id === params.get("scenario")) ?? POOL_SCENARIOS[0]!;
     const decks = preconDecks(POOL_VERSION);
     const deck = decks.find((d) => (d.id as string) === params.get("deck")) ?? decks[0]!;
     // `&players=<2-4>` seats the next precons too, for the first player row with more than one seat.
     const players = Math.min(4, Math.max(1, Number(params.get("players")) || 1));
+    // `&seed=<n>` deals a fixed game, for a spec that plays on past the deal (as `board`'s own `&seed=` does).
+    const seed = Number(params.get("seed"));
     const draft = decks
       .filter((d) => d !== deck)
       .slice(0, players - 1)
       .reduce(
         (seated, extra) => addSeat(seated, extra.id as string),
-        initialSetupDraft({ scenarioId: scenario.id as string, seatDeckId: deck.id as string, seed: rollSeed() }),
+        initialSetupDraft({
+          scenarioId: scenario.id as string,
+          seatDeckId: deck.id as string,
+          seed: Number.isFinite(seed) && params.get("seed") ? seed : rollSeed(),
+        }),
       );
     if (screen === "scenario-select")
       return { key: SCENES.scenarioSelect, data: { draft } satisfies ScenarioSelectData };
@@ -248,6 +254,9 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
   // `?screen=extras-reader&book=book:rrg`: one rulebook in the Extras reader.
   if (screen === "extras-reader")
     return { key: SCENES.extrasReader, data: { bookId: params.get("book") ?? "book:rrg" } };
+  // `?screen=side-story&story=thor-she-hulk-badlands-date`: a side story in its comic reader.
+  if (screen === "side-story")
+    return { key: SCENES.sideStoryReader, data: { storyId: params.get("story") ?? "thor-she-hulk-badlands-date" } };
 
   // `?screen=board&guidedemo=1`: G5a's `TUTORIAL_CONFIG` game, for G4c's spotlight/tag keyboard demo
   // (`scenes/guide-spotlight-demo.ts`, → / Space / ← to cycle, Esc to hide) — screenshottable well ahead of G5c's
@@ -311,6 +320,27 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     return { key: SCENES.board, data: {} };
   }
 
+  // `&fixture=drones`: a two-seat Ultron game at the first turn, each seat with its own facedown Drone, in hero form
+  // (the attack target picker's Drone labels, issue #357; `view/targeting-panel.test.ts` plays the same game).
+  if (screen === "board" && params.get("fixture") === "drones") {
+    const { store } = appSession();
+    if (!gameRunning(store)) {
+      await store.start({
+        scenarioId: "ultron",
+        difficulty: "standard",
+        players: [{ starterDeckId: "core-spider-man-justice" }, { starterDeckId: "core-she-hulk-aggression" }],
+        seed: 1,
+      });
+      for (let step = 0; step < 12 && store.state.legal?.actions.kind === "choice"; step++) {
+        const { choice } = store.state.legal.actions;
+        await store.resolveChoice(choice.options.slice(0, choice.minSelections).map((option) => option.optionId));
+      }
+      const turn = store.state.legal?.actions;
+      const flip = turn?.kind === "turn" ? turn.legal.find((entry) => entry.action.kind === "changeForm") : undefined;
+      if (flip) await store.dispatch(flip.example);
+    }
+    return { key: SCENES.board, data: {} };
+  }
   // `&fixture=crowded`: three seats (Doctor Strange first) with the table full, for the Card size QA
   // (`store/dev-crowded-game.ts`).
   if (screen === "board" && params.get("fixture") === "crowded") {
@@ -319,6 +349,18 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
       const { startCrowdedGame } = await import("../store/dev-crowded-game.js");
       await startCrowdedGame(store);
     }
+    return { key: SCENES.board, data: {} };
+  }
+
+  // `&fixture=shadowland[&corruption=N][&traps=N][&flip=1]`: Shadow Labyrinth's trap deck and discard, Creeping Corruption
+  // with counters and The Streets Below in the villain area, as a preset board state (`store/dev-shadowland-game.ts`).
+  if (screen === "board" && params.get("fixture") === "shadowland") {
+    const { startDevShadowlandGame } = await import("../store/dev-shadowland-game.js");
+    await startDevShadowlandGame({
+      corruption: intParam(params.get("corruption"), 4),
+      traps: intParam(params.get("traps"), 5),
+      flip: params.get("flip") === "1",
+    });
     return { key: SCENES.board, data: {} };
   }
 
@@ -466,6 +508,15 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     return { key: SCENES.board, data: {} };
   }
 
+  // `?screen=villain-threat-interrupt`: a real Spider-Man game paused at villain step one on Great Responsibility's
+  // window ("When any amount of threat would be placed on a scheme"), whose caption names the scheme and the amount (#371).
+  if (screen === "villain-threat-interrupt") {
+    const finish = await startDevThreatInterruptGame();
+    // As with the boost window: the walkthrough only collects beats while Board is mounted.
+    window.setTimeout(() => void finish(), 1500);
+    return { key: SCENES.board, data: {} };
+  }
+
   // `?screen=villain-decision`: a real Spider-Man game whose round-one villain phase reveals an encounter card that asks
   // the player to choose (`chooseOption`, seed 17), for the decision docked beside the table (#231).
   if (screen === "villain-decision") {
@@ -511,6 +562,31 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     return { key: SCENES.campaignBriefing, data: { runId: record.id } };
   }
 
+  // `?screen=saga`: the Saga shelf. `?screen=campaign-opener&campaign=shadowland&node=heart-of-shadow`: that issue's opener
+  // read from Extras (no run needed), for checking a story's pictures. Dev builds only.
+  if (screen === "saga" && import.meta.env.DEV) return { key: SCENES.campaignSaga, data: {} };
+  if (screen === "campaign-opener" && import.meta.env.DEV) {
+    return {
+      key: SCENES.campaignOpener,
+      data: {
+        campaignId: params.get("campaign") ?? "shadowland",
+        nodeId: params.get("node") ?? "shadows-in-the-night",
+      },
+    };
+  }
+
+  // `?screen=shadowland-dossier[&view=briefing][&expert=1][&fresh=1]`: Shadowland (Daredevil and Echo) after scenario 1 on the
+  // Dossier (its log sheet), or on the Briefing before scenario 1 (`&fresh=1`, `&view=briefing`). Dev builds only.
+  if (screen === "shadowland-dossier" && import.meta.env.DEV) {
+    const fixtures = await import("../campaign/dev-fixtures.js");
+    const fresh = params.get("fresh") === "1";
+    const record = await fixtures.seedShadowlandRun(campaignService(), fresh ? "fresh" : "afterIssue1", {
+      expertCampaign: params.get("expert") === "1",
+    });
+    if (params.get("view") === "briefing" || fresh) return { key: SCENES.campaignBriefing, data: { runId: record.id } };
+    return { key: SCENES.campaignDossier, data: { runId: record.id } };
+  }
+
   // `?screen=campaign-market[&units=N]`: The Galaxy's Most Wanted (Groot and Rocket) after issue #1, on the Market
   // before issue #2. `units` sets both wallets so the whole shelf can be priced as affordable. Dev builds only.
   if (screen === "campaign-market" && import.meta.env.DEV) {
@@ -532,6 +608,12 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
   }
 
   return null;
+}
+
+/** A whole-number query parameter, or `fallback` when it is absent or not a number (`?corruption=abc`). */
+function intParam(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 /**
@@ -707,6 +789,41 @@ async function startDevBoostInterruptGame(seed: number): Promise<() => Promise<v
   const end = turn?.kind === "turn" ? turn.legal.find((entry) => entry.action.kind === "endTurn") : undefined;
   if (end) await store.dispatch(end.example);
   return answerUntilBoostCount;
+}
+
+/**
+ * A seeded solo Rhino/Spider-Man (Justice) game in hero form with its turn ended, stopped on the end-of-turn discard.
+ * The returned function answers that with the fewest picks and stops on Great Responsibility's `chooseTriggers` for the
+ * main scheme's step-one threat (traced with seed 3).
+ */
+async function startDevThreatInterruptGame(): Promise<() => Promise<void>> {
+  const { store } = appSession();
+  const answerUntilThreat = async (): Promise<void> => {
+    for (let step = 0; step < 20; step++) {
+      const actions = store.state.legal?.actions;
+      if (actions?.kind !== "choice") return;
+      const prompt = actions.choice.prompt;
+      if (prompt.kind === "chooseTriggers" && prompt.event.kind === "placeThreat") return;
+      await store.resolveChoice(actions.choice.options.slice(0, actions.choice.minSelections).map((o) => o.optionId));
+    }
+  };
+  if (gameRunning(store)) return answerUntilThreat;
+  await store.start({
+    scenarioId: "rhino",
+    difficulty: "standard",
+    players: [{ starterDeckId: "core-spider-man-justice" }],
+    seed: 3,
+  });
+  if (store.state.game?.pendingChoice) await store.resolveChoice([]);
+  const legal = store.state.legal?.actions;
+  if (legal?.kind === "turn") {
+    const flip = legal.legal.find((entry) => entry.action.kind === "changeForm");
+    if (flip) await store.dispatch(flip.example);
+  }
+  const turn = store.state.legal?.actions;
+  const end = turn?.kind === "turn" ? turn.legal.find((entry) => entry.action.kind === "endTurn") : undefined;
+  if (end) await store.dispatch(end.example);
+  return answerUntilThreat;
 }
 
 /**

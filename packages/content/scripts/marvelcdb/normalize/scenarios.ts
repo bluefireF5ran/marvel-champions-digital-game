@@ -113,6 +113,8 @@ export function normalizeScenarios(
       whenEmpty: d.whenEmpty,
       ...(d.closedToPlayerCards ? { closedToPlayerCards: true as const } : {}),
       ...(d.topCardInPlay ? { topCardInPlay: true as const } : {}),
+      ...(d.discardByTrait ? { discardByTrait: d.discardByTrait } : {}),
+      ...(d.buildAtSetup ? { buildAtSetup: true as const } : {}),
     }));
 
     // Several villains at once (docs/phase7-wave1.md §1.1 — The Wrecking Crew; docs/phase7-wave4.md §1.6 — Tower
@@ -193,6 +195,43 @@ export function normalizeScenarios(
         };
       });
       villainOptions = { options, defaultSetId: brand("encounterSet", s.villainSetCode) };
+    }
+
+    // Shadowland: the villain as a card-keyed option (the options share one set), each with its linked cards.
+    const vco = s.villainCardOptions;
+    if (vco) {
+      if (s.villainOptionSetCodes) errors.push(`scenario ${s.id}: villainCardOptions excludes villainOptionSetCodes`);
+      const cardById = new Map(ctx.cards.map((c) => [c.id as string, c]));
+      const options: VillainOption[] = vco.options.map((o) => {
+        const vid = resolveCardCode(o.villainCardCode, `scenario ${s.id} villainCardOptions villain`);
+        const card = vid ? cardById.get(vid) : undefined;
+        const set = card && "encounterSetIds" in card ? (card.encounterSetIds as readonly string[])[0] : undefined;
+        if (card && card.type !== "villain")
+          errors.push(`scenario ${s.id}: option ${o.villainCardCode} is not a villain card`);
+        if (!set) errors.push(`scenario ${s.id}: option ${o.villainCardCode} has no encounter set`);
+        const linked = o.linkedCardCodes
+          .map((c) => resolveCardCode(c, `scenario ${s.id} villainCardOptions linked`))
+          .filter((id): id is string => id !== undefined)
+          .map((id) => brand("card", id));
+        const stages = o.villainStages ?? s.villainStages;
+        return {
+          villainSetId: brand("encounterSet", set ?? ""),
+          villainCardId: brand("card", vid ?? ""),
+          villainStages: { standard: stages.standard, expert: stages.expert },
+          ...(linked.length > 0 ? { linkedCardIds: linked } : {}),
+        };
+      });
+      const defaultId = resolveCardCode(vco.defaultCardCode, `scenario ${s.id} villainCardOptions defaultCardCode`);
+      const defaultOption = options.find((o) => o.villainCardId === defaultId);
+      if (!defaultOption) errors.push(`scenario ${s.id}: villainCardOptions defaultCardCode is not an option`);
+      villainOptions = {
+        options,
+        defaultSetId: defaultOption?.villainSetId ?? brand("encounterSet", ""),
+        keyedBy: "card",
+        defaultCardId: brand("card", defaultId ?? ""),
+        ...(vco.selection ? { selection: vco.selection } : {}),
+        ...(vco.chosenVillain ? { chosenVillain: vco.chosenVillain } : {}),
+      };
     }
 
     // docs/phase7-wave11-scenarios.md §S3.1: a main scheme per player, chosen among the listed cards.

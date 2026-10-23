@@ -12,6 +12,7 @@ import {
   extrasNewsBetween,
   extrasProgressOf,
   musicEntriesOf,
+  sideStoryEntriesOf,
   unlockHint,
   withEndedGame,
   type ExtrasEntry,
@@ -52,10 +53,14 @@ describe("extras progress", () => {
     expect(progress.lostScenarioIds).toEqual(["klaw"]);
   });
 
-  it("doesn't count a game still in progress, or one that can't be loaded", () => {
+  it("doesn't count a game still in progress (however many are), a lesson, or a game that can't be loaded", () => {
     const progress = extrasProgressOf(
       [
         save("active", "rhino", [{ starterDeckId: spiderManPrecon }]),
+        {
+          ...save("won", "ultron", [{ starterDeckId: spiderManPrecon }]),
+          guided: { kind: "mechanic" },
+        },
         save("incompatible", "klaw", [{ identityCardId: "01010a", deck: [] }]),
       ],
       [],
@@ -160,6 +165,23 @@ describe("what opens what", () => {
 });
 
 describe("the catalog", () => {
+  it("opens the Thor and She-Hulk side story with its achievement only, read in the comic reader", () => {
+    const story = entry("side:thor-she-hulk-badlands-date");
+    expect(story.tab).toBe("side");
+    expect(story.unlock).toEqual({ kind: "achievement", achievementId: "worthy-of-a-second-date" });
+    expect(open({}).isOpen(story.unlock)).toBe(false);
+    expect(open({ earnedAchievementIds: ["teamup-first-card"] }).isOpen(story.unlock)).toBe(false);
+    expect(open({ earnedAchievementIds: ["worthy-of-a-second-date"] }).isOpen(story.unlock)).toBe(true);
+    expect(unlockHint(story.unlock)).toBe("Earn the Worthy of a Second Date? achievement");
+    expect(story.content).toEqual({ kind: "comic", storyId: "thor-she-hulk-badlands-date" });
+    expect(story.thumb?.key).toBe("side-story-art:thor-she-hulk-badlands-date/page-06.jpg");
+  });
+
+  it("leaves a side story with no pages off the shelf", () => {
+    const story = { id: "nobody", title: "T", subtitle: "S", achievementId: "a", credit: "", pages: [] };
+    expect(sideStoryEntriesOf([story], new Map())).toEqual([]);
+  });
+
   it("shows the loose pictures of art/extras/ as always-open artwork", () => {
     const entry = EXTRAS_ENTRIES.art.find((e) => e.id === "art:extras-art:psylocke-and-angel.png")!;
     expect(entry.title).toBe("Psylocke and Angel");
@@ -171,7 +193,9 @@ describe("the catalog", () => {
 
   it("has a file for every hero and every scenario in the pool", () => {
     expect(EXTRAS_ENTRIES.heroes.map((e) => e.id)).toEqual(UNLOCK_HEROES.map((h) => `hero:${h.identityCardId}`));
-    expect(EXTRAS_ENTRIES.villains.map((e) => e.id)).toEqual(POOL_SCENARIOS.map((s) => `villain:${s.id as string}`));
+    expect(EXTRAS_ENTRIES.villains.map((e) => e.id)).toEqual(
+      POOL_SCENARIOS.filter((s) => (s.packCode as string) !== "shadowland").map((s) => `villain:${s.id as string}`),
+    );
   });
 
   it("has every issue of every campaign story, in Saga order", () => {

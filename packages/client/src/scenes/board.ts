@@ -491,6 +491,8 @@ export class BoardScene extends Phaser.Scene {
         this.scene.isActive(SCENES.teamUpInfo) ||
         this.scene.isActive(SCENES.evidence) ||
         this.scene.isActive(SCENES.pileView) ||
+        // Device sync's "which copy?" question owns the keyboard and pad (`conflictPromptOwnsInput`).
+        this.scene.isActive(SCENES.syncConflict) ||
         // "Hold on!" owns Escape (it dismisses with nothing sent); without this the board's own Escape opened Pause
         // on top of it.
         this.scene.isActive(SCENES.holdOn),
@@ -514,6 +516,13 @@ export class BoardScene extends Phaser.Scene {
       this.input.keyboard?.on(`keydown-${key}`, () => {
         const option = this.#controller.abilityChoice()?.options[index];
         if (option && !binding.blocked()) void this.#controller.chooseEventAbility(option.abilityId);
+      });
+    });
+    // 1 and 2 answer "Thwart with?" (THW or ATK against The Red House).
+    ["ONE", "TWO"].forEach((key, index) => {
+      this.input.keyboard?.on(`keydown-${key}`, () => {
+        const option = this.#controller.thwartStatChoice()?.options[index];
+        if (option && !binding.blocked()) void this.#controller.chooseThwartStat(option.useAtk);
       });
     });
     // 1 and 2 answer "Where does it go?" (an ally that may enter the mission area as well as the player's own).
@@ -1176,7 +1185,7 @@ export class BoardScene extends Phaser.Scene {
         { length: pad.minions },
         (_unused, index) =>
           model.minions[index] ?? {
-            ...model.villain,
+            ...(model.villain ?? model.me),
             instanceId: `padm-${index}` as InstanceId,
             name: `Minion ${index + 1}`,
           },
