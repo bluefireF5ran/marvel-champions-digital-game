@@ -149,6 +149,15 @@ export interface TreatedAsMinion {
    * (`syncRuleTreatments`). Absent otherwise.
    */
   readonly byRule?: true;
+  /**
+   * The card keeps its own text box (`RuleSpec treatHostAsMinion.keepsText`): "Treat attached villain as an Elite minion
+   * with 6 printed hit points" (Whisper in the Dark, Shadowland 65040) blanks nothing, so the face it shows keeps its
+   * printed abilities and keywords (RRG 1.8 "Card Types", p. 12: it "functions as would any card of the new card
+   * type"; the card says nothing of a blank text box). Absent otherwise.
+   */
+  readonly keepsText?: true;
+  /** Its printed hit points, as the attachment states them ("with 6 printed hit points"). Absent: as printed. */
+  readonly printedHp?: number;
 }
 
 /**
@@ -1339,6 +1348,14 @@ export interface GameState {
    * only as its hidden pile is turned faceup. **Absent** until an accusation is made.
    */
   readonly accusation?: Accusation;
+  /**
+   * "The chosen villain" (`GameSetupConfig.villainChoice`): the villain card setup chose among a scenario's options, as
+   * an instance, whether it started as the villain (`chosenVillain: "inPlay"`) or set aside for card text to bring in
+   * (`"setAside"`; Shadow Labyrinth 1A, "keep the chosen villain set aside"). Written once, by `createGame`, and read by
+   * `TargetQuery chosenVillain` and `chosenVillainOf`. The instance keeps its id when it enters play. **Absent** in a
+   * game set up without a villain choice.
+   */
+  readonly chosenVillainId?: InstanceId;
   /**
    * The Epic Multiplayer pod this game is one group of (docs/phase7-wave9.md §3.64): its group id, who coordinates the
    * pod, the three counts fixed at setup, and the group's copy of the pod's shared villain and scheme. Written by setup

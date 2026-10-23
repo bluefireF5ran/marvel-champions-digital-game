@@ -76,11 +76,13 @@ import { accent, border, hit, ink, minType, signal, surface, typeRole } from "..
 import { caseOf, cssOf, textStyle } from "../ui/theme.js";
 import { McButton, McScrollPanel, fitText, label, paintDotGrid } from "../ui/widgets.js";
 import { McScrollRegion } from "../ui/scroll-region.js";
+import { onTap, tapId } from "../ui/tap.js";
 import { estimateWrappedLines, formFactorFor, isTabbed, type Rect } from "../view/layout.js";
 import { pointInRect } from "../view/drag-gesture.js";
 import {
   SHEET_CONTENT_PAD,
   thumbSizeFor,
+  stackedScanSize,
   cardFaceContentHeight,
   DESKTOP_ART_ASPECT,
   cardFaceLayout,
@@ -512,13 +514,18 @@ export class InspectOverlay extends Phaser.Scene {
     // Two passes for panels mode: the first learns each panel's own (content-independent) width; the second, after
     // measuring both panels' natural content height at that width, gets the final centered rect pair
     // (`view/inspect-layout.ts`'s own header comment on why the pure layout functions can't do this in one call).
-    const provisional = inspectLayout({ x: 0, y: 0, width, height: layoutHeight }, { expanded: this.#expanded });
+    const inspectCard = appSession().settings.inspectCard;
+    const provisional = inspectLayout(
+      { x: 0, y: 0, width, height: layoutHeight },
+      { expanded: this.#expanded, inspectCard },
+    );
     const layout: InspectLayout =
       provisional.mode === "panels"
         ? inspectLayout(
             { x: 0, y: 0, width, height: layoutHeight },
             {
               expanded: this.#expanded,
+              inspectCard,
               cardContentHeight: cardFaceContentHeight(
                 provisional.card.width,
                 this.#cardFaceContent(model, provisional.card.width),
@@ -571,7 +578,7 @@ export class InspectOverlay extends Phaser.Scene {
       // within the same frame, so the player never sees the first one.
       const hugged = inspectLayout(
         { x: 0, y: 0, width, height: layoutHeight },
-        { expanded: this.#expanded, sheetContentHeight: contentHeight },
+        { expanded: this.#expanded, sheetContentHeight: contentHeight, inspectCard },
       );
       if (hugged.mode === "sheet" && hugged.sheet.height !== layout.sheet.height) {
         // `#drawSheet` assigned the region; the compiler still has it narrowed to the `null` set at the top.
@@ -1463,9 +1470,9 @@ export class InspectOverlay extends Phaser.Scene {
    * `RULES_SECTION_GAP` before whatever comes next, the same convention every other section here follows.
    * Deliberately raw graphics rather than `McButton` per chip: the design's chip is a transparent outline, and
    * every widget skin (`ui/theme.ts#skin`) fills its control — a `McButton` chip would read as a small filled block
-   * instead. Each chip still gets its own `PressArm` so a chip that appears mid-rebuild is never accidentally
-   * activated by the release of the gesture that opened this sheet (the exact hazard `#dismissArm`'s own comment
-   * documents for the scrim).
+   * instead. Each chip still answers only a tap (`onTap`, its own press and release), so a chip that appears
+   * mid-rebuild is never accidentally activated by the release of the gesture that opened this sheet (the exact
+   * hazard `#dismissArm`'s own comment documents for the scrim).
    */
   #drawChips(rect: Rect, top: number, inner: number, heading: string, items: readonly ChipItem[]): number {
     if (items.length === 0) return top;
@@ -1492,15 +1499,16 @@ export class InspectOverlay extends Phaser.Scene {
       this.children.bringToTop(text);
       if (item.glossaryId || item.onTap) {
         const glossaryId = item.glossaryId ?? null;
-        const arm = new PressArm();
         const zone = this.add.zone(x, y, chipWidth, 22).setOrigin(0, 0).setInteractive({ useHandCursor: true });
-        zone.on("pointerdown", () => arm.down());
-        zone.on("pointerout", () => arm.cancel());
-        zone.on("pointerup", () => {
-          if (!arm.up()) return;
-          if (item.onTap) item.onTap();
-          else if (glossaryId) this.#openRulesAt(glossaryId, item.text);
-        });
+        // A tap, not any release: press and release both on the chip (`ui/tap.ts`).
+        onTap(
+          zone,
+          () => {
+            if (item.onTap) item.onTap();
+            else if (glossaryId) this.#openRulesAt(glossaryId, item.text);
+          },
+          tapId("inspect-chip", { x, y, width: chipWidth, height: 22 }, item.text),
+        );
       }
       x += chipWidth + 7;
     }
@@ -1623,21 +1631,20 @@ export class InspectOverlay extends Phaser.Scene {
     box.lineStyle(border.object, surface.ink.hex, 1).strokeRect(x, y, width, height);
     for (const part of [heading, body, link, underline]) this.children.bringToTop(part);
 
-    const arm = new PressArm();
     // The tap target is the full hit height, centred on the link and spilling into the box's padding, so the box
     // itself stays as tight as its text.
-    const zone = this.add
-      .zone(x, ty - linkHeight / 2 - hit.target / 2, width, hit.target)
-      .setOrigin(0, 0)
-      .setInteractive({ useHandCursor: true });
-    zone.on("pointerdown", () => arm.down());
-    zone.on("pointerout", () => arm.cancel());
-    zone.on("pointerup", (pointer: Phaser.Input.Pointer) => {
-      if (!arm.up()) return;
-      const rect = clip?.() ?? null;
-      if (rect && !pointInRect(pointer.x, pointer.y, rect)) return;
-      this.#openRulesAt(notice.rulesQuery, notice.linkLabel);
-    });
+    const zoneY = ty - linkHeight / 2 - hit.target / 2;
+    const zone = this.add.zone(x, zoneY, width, hit.target).setOrigin(0, 0).setInteractive({ useHandCursor: true });
+    // A tap, not any release: press and release both on the link (`ui/tap.ts`).
+    onTap(
+      zone,
+      (pointer) => {
+        const rect = clip?.() ?? null;
+        if (rect && !pointInRect(pointer.x, pointer.y, rect)) return;
+        this.#openRulesAt(notice.rulesQuery, notice.linkLabel);
+      },
+      tapId("inspect-notice", { x, y: zoneY, width, height: hit.target }, notice.linkLabel),
+    );
     return y + height;
   }
 
@@ -1681,7 +1688,7 @@ export class InspectOverlay extends Phaser.Scene {
     const pill = this.add.graphics();
     pill.fillStyle(surface.ink.hex, 0.35).fillRect(handlePill.x, handlePill.y, handlePill.width, handlePill.height);
 
-    const contentHeight = this.#drawSheetContent(content, model);
+    const contentHeight = this.#drawSheetContent(content, model, layout.stacked);
     this.#drawSheetFooter(footer, footerPrimaryRow, footerQuietRow, model);
     return contentHeight;
   }
@@ -1701,16 +1708,21 @@ export class InspectOverlay extends Phaser.Scene {
    * screen position, then move it into the masked/translated layer" trick `table-setup.ts#captureInto` already
    * uses for the identical widget.
    */
-  #drawSheetContent(rect: Rect, model: InspectModel): number {
+  #drawSheetContent(rect: Rect, model: InspectModel, stacked: boolean): number {
     const before = this.children.list.length;
     const pad = SHEET_CONTENT_PAD;
-    const column = sheetTextColumn(rect.width);
+    // Portrait phone (#358): the scan spans the sheet and the text runs full width beneath it.
+    const column = stacked ? { x: pad, width: Math.max(1, rect.width - pad * 2) } : sheetTextColumn(rect.width);
     const textLeft = rect.x + column.x;
     const textWidth = column.width;
 
     const key = cardArt(this).request(this, model.art);
     const scan = key && this.textures.exists(key) ? this.textures.get(key).getSourceImage() : null;
-    const thumb: Rect = { x: rect.x + pad, y: rect.y, ...thumbSizeFor(scan) };
+    const thumb: Rect = {
+      x: rect.x + pad,
+      y: rect.y,
+      ...(stacked ? stackedScanSize(rect.width, scan) : thumbSizeFor(scan)),
+    };
     const frame = this.add.graphics();
     frame.fillStyle(surface.parchment.hex, 1).fillRect(thumb.x, thumb.y, thumb.width, thumb.height);
     frame.lineStyle(border.object, surface.ink.hex, 1).strokeRect(thumb.x, thumb.y, thumb.width, thumb.height);
@@ -1728,7 +1740,7 @@ export class InspectOverlay extends Phaser.Scene {
 
     // Name: "fit to width" (a shrinking single line, `fitText`), not a wrap — the same treatment the panels' card
     // panel gives its own name, for a name too long to fit even a hero's own longest printed one.
-    let ty = rect.y;
+    let ty = stacked ? thumb.y + thumb.height + SHEET_ROW_GAP : rect.y;
     const name = this.add
       .text(textLeft, ty, caseOf(typeRole.barTitle, model.name), {
         ...textStyle(typeRole.barTitle, surface.ink.hex),
@@ -1864,8 +1876,16 @@ export class InspectOverlay extends Phaser.Scene {
 
     const contentHeight = Math.max(1, y - rect.y);
     const added = this.children.list.slice(before);
-    this.#sheetRegion = new McScrollRegion(this, { rect, heights: [contentHeight], scroll: this.#sheetScroll });
+    this.#sheetRegion = new McScrollRegion(this, {
+      rect,
+      heights: [contentHeight],
+      scroll: this.#sheetScroll,
+      clipInteractive: true,
+    });
     this.#sheetRegion.content.add(added);
+    // The chips and the campaign link hold still unless wholly inside the viewport, so one scrolled up under the
+    // handle never swallows the tap that dismisses the sheet.
+    this.#sheetRegion.syncInteractivity();
     return contentHeight;
   }
 
@@ -1898,17 +1918,18 @@ export class InspectOverlay extends Phaser.Scene {
       this.children.bringToTop(text);
       if (chip.glossaryId || chip.onTap) {
         const glossaryId = chip.glossaryId ?? null;
-        const arm = new PressArm();
         const zone = this.add.zone(cx, cy, chipWidth, 18).setOrigin(0, 0).setInteractive({ useHandCursor: true });
-        zone.on("pointerdown", () => arm.down());
-        zone.on("pointerout", () => arm.cancel());
-        zone.on("pointerup", (pointer: Phaser.Input.Pointer) => {
-          if (!arm.up()) return;
-          const clip = this.#sheetRegion?.rect ?? null;
-          if (clip && !pointInRect(pointer.x, pointer.y, clip)) return;
-          if (chip.onTap) chip.onTap();
-          else if (glossaryId) this.#openRulesAt(glossaryId, chip.text);
-        });
+        // A tap, not any release: press and release both on the chip (`ui/tap.ts`).
+        onTap(
+          zone,
+          (pointer) => {
+            const clip = this.#sheetRegion?.rect ?? null;
+            if (clip && !pointInRect(pointer.x, pointer.y, clip)) return;
+            if (chip.onTap) chip.onTap();
+            else if (glossaryId) this.#openRulesAt(glossaryId, chip.text);
+          },
+          tapId("inspect-sheet-chip", { x: cx, y: cy, width: chipWidth, height: 18 }, chip.text),
+        );
       }
       cx += chipWidth + 6;
     }

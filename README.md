@@ -4,7 +4,7 @@
 
 # Marvel Champions: Digital Edition (Unofficial Fan Game)
 
-[![Latest release](https://img.shields.io/badge/version-v0.33.0-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.33.0)
+[![Latest release](https://img.shields.io/badge/version-v0.34.0-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.34.0)
 [![Tests and build on main](https://img.shields.io/github/actions/workflow/status/quincarter/marvel-champions-digital-game/netlify-deploy.yml?branch=main&event=push&label=tests%20%26%20build&logo=github)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/netlify-deploy.yml?query=branch%3Amain)
 [![Release](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml/badge.svg?branch=main)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml?query=branch%3Amain)
 [![Netlify Status](https://api.netlify.com/api/v1/badges/487c224e-254f-42a0-a2b3-a6192b9e70c8/deploy-status)](https://app.netlify.com/projects/marvel-champions-digital-game/deploys)
@@ -20,14 +20,14 @@ to be a genuinely playable video game driven by a deterministic rules engine.
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.33.0/MarvelChampions-0.33.0-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.33.0/MarvelChampions-0.33.0-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.33.0/MarvelChampions-0.33.0-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.34.0/MarvelChampions-0.34.0-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.34.0/MarvelChampions-0.34.0-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.34.0/MarvelChampions-0.34.0-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.33.0/MarvelChampions-0.33.0-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.33.0/MarvelChampions-0.33.0-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.34.0/MarvelChampions-0.34.0-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.34.0/MarvelChampions-0.34.0-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
   <a href="https://github.com/quincarter/marvel-champions-digital-game/releases"><img src=".github/assets/readme/all-releases.svg" alt="View all releases" height="48"></a>
 </p>
 
@@ -103,29 +103,28 @@ How the packages fit together, and how to run the game locally, is in [Architect
 
 ## Roadmap
 
-| Phase | What it covers                                                                                                | Status                                                                                                       |
-| ----- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 0     | Foundations: monorepo, card schema, tech stack                                                                | ✅ Done                                                                                                      |
-| 1     | Headless rules engine: state machine, turn structure, timing windows, keywords, replayable command log        | ✅ Done                                                                                                      |
-| 2     | Card content pipeline and the Core Set: MarvelCDB ingestion, the ability DSL, all 233 Core Set cards scripted | ✅ Done                                                                                                      |
-| 3     | Encounter and villain AI: villain phase automation, boost, decisions routed to the player the rules name      | ✅ Done                                                                                                      |
-| 4     | Client: the Phaser 4 tabletop on desktop, tablet and phone                                                    | 🟡 Playable end to end; accessibility pass and remaining design-canvas screens in progress                   |
-| 5     | Online multiplayer: 2–4 players over a network, reconnects, Epic Multiplayer for Loki                         | ⬜ Planned                                                                                                   |
-| 6     | Rules QA: ruling-by-ruling tests, replay fixtures, drift detection on new errata                              | 🟡 Ongoing: per-wave rules audits, random-deck soaks, MarvelCDB decklist games, a Rules Reference v1.8 audit |
-| 7     | Content beyond the Core Set, in release order                                                                 | 🟡 Through cycle 10 (Civil War); Fear No Evil in progress                                                    |
-| 8     | Polish: onboarding, settings, audio, packaging, undo, hero AI                                                 | 🟡 Guided mode, settings, music, desktop and Android builds and undo landed; hero AI planned                 |
-| 9     | Decks: precons, MarvelCDB import, in-app deck builder                                                         | ✅ Done                                                                                                      |
+Every released Marvel Champions product, from the Core Set through Shadowland (October 16, 2026), is playable end to
+end.
+
+| Phase | What it covers                                                                                                | Status                                                                                                                                                                                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | Foundations: monorepo, card schema, tech stack                                                                | ✅ Done                                                                                                                                                                                                                                                                                                                                   |
+| 1     | Headless rules engine: state machine, turn structure, timing windows, keywords, replayable command log        | ✅ Done                                                                                                                                                                                                                                                                                                                                   |
+| 2     | Card content pipeline and the Core Set: MarvelCDB ingestion, the ability DSL, all 233 Core Set cards scripted | ✅ Done                                                                                                                                                                                                                                                                                                                                   |
+| 3     | Encounter and villain AI: villain phase automation, boost, decisions routed to the player the rules name      | ✅ Done                                                                                                                                                                                                                                                                                                                                   |
+| 4     | Client: the Phaser 4 tabletop on desktop, tablet and phone                                                    | ✅ Done, with ongoing improvements: playable end to end on desktop, tablet and phone                                                                                                                                                                                                                                                      |
+| 5     | Online multiplayer: 2–4 players over a network, reconnects, Epic Multiplayer for Loki                         | 🟡 In progress: cross-platform saves and device sync done ([#340](https://github.com/quincarter/marvel-champions-digital-game/pull/340), [#343](https://github.com/quincarter/marvel-champions-digital-game/pull/343), [#354](https://github.com/quincarter/marvel-champions-digital-game/pull/354)); the live relay for 2–4 players next |
+| 6     | Rules QA: ruling-by-ruling tests, replay fixtures, drift detection on new errata                              | 🟡 Ongoing: per-wave rules audits, random-deck soaks, MarvelCDB decklist games, a Rules Reference v1.8 audit                                                                                                                                                                                                                              |
+| 7     | Content beyond the Core Set, in release order                                                                 | ✅ Done: every released product through Shadowland (cycle 11)                                                                                                                                                                                                                                                                             |
+| 8     | Polish: onboarding, settings, audio, packaging, undo                                                          | ✅ Done, with ongoing improvements: Guided mode, settings, music, desktop and Android builds and undo                                                                                                                                                                                                                                     |
+| 9     | Decks: precons, MarvelCDB import, in-app deck builder                                                         | ✅ Done                                                                                                                                                                                                                                                                                                                                   |
 
 Next up:
 
-- **Fear No Evil (cycle 11), in progress** in
-  [#251](https://github.com/quincarter/marvel-champions-digital-game/pull/251): the card data for the box and the
-  Jessica Jones and Luke Cage packs is in, and the heroes are being scripted. The six-scenario campaign and the
-  client come after.
-- **Civil War leftovers**: everything in the Civil War box and the Wonder Man and Hercules packs is playable. Still
-  to come are the separate Synthezoid Smackdown scenario pack (December 2025), held for its own pull request, and
-  competitive (team versus team) mode, which the game marks as coming soon.
-- **Hero AI** to fill seats with computer-controlled heroes, then **online multiplayer** (Phase 5).
+1. **Online multiplayer** (Phase 5): live 2–4 player games over the network, built on the save sync that already
+   carries games between devices. About two-thirds done.
+2. **Civil War's competitive mode** (team versus team), which the game marks as coming soon.
+3. **Hero AI** to fill seats with computer-controlled heroes.
 
 What you can play today is in [Current status](docs/project/current-status.md). The detailed plan, decisions and per-wave specs are in [PLAN.md](PLAN.md) and [`docs/`](docs).
 
@@ -162,7 +161,8 @@ They see everything. Reporters and feature requesters with at least two issues t
 
 <!-- credits:reporters:start -->
 <table>
-<tr><td align="center"><a href="https://github.com/PermaKarma"><img src="https://github.com/PermaKarma.png?size=128" width="64" height="64" alt="PermaKarma"><br><sub><b>PermaKarma</b></sub></a></td><td align="center"><a href="https://github.com/zackburnley"><img src="https://github.com/zackburnley.png?size=128" width="64" height="64" alt="Zack Burnley"><br><sub><b>Zack Burnley</b></sub></a></td><td align="center"><a href="https://github.com/Lemantia"><img src="https://github.com/Lemantia.png?size=128" width="64" height="64" alt="Lemantia"><br><sub><b>Lemantia</b></sub></a></td><td align="center"><a href="https://github.com/dwballance"><img src="https://github.com/dwballance.png?size=128" width="64" height="64" alt="dwballance"><br><sub><b>dwballance</b></sub></a></td><td align="center"><a href="https://github.com/Joelstrd"><img src="https://github.com/Joelstrd.png?size=128" width="64" height="64" alt="Joelstrd"><br><sub><b>Joelstrd</b></sub></a></td><td align="center"><a href="https://github.com/macrouldba"><img src="https://github.com/macrouldba.png?size=128" width="64" height="64" alt="macrouldba"><br><sub><b>macrouldba</b></sub></a></td></tr>
+<tr><td align="center"><a href="https://github.com/PermaKarma"><img src="https://github.com/PermaKarma.png?size=128" width="64" height="64" alt="PermaKarma"><br><sub><b>PermaKarma</b></sub></a></td><td align="center"><a href="https://github.com/Lemantia"><img src="https://github.com/Lemantia.png?size=128" width="64" height="64" alt="Lemantia"><br><sub><b>Lemantia</b></sub></a></td><td align="center"><a href="https://github.com/zackburnley"><img src="https://github.com/zackburnley.png?size=128" width="64" height="64" alt="Zack Burnley"><br><sub><b>Zack Burnley</b></sub></a></td><td align="center"><a href="https://github.com/AlecHolland1582"><img src="https://github.com/AlecHolland1582.png?size=128" width="64" height="64" alt="AlecHolland1582"><br><sub><b>AlecHolland1582</b></sub></a></td><td align="center"><a href="https://github.com/benhgomez"><img src="https://github.com/benhgomez.png?size=128" width="64" height="64" alt="benhgomez"><br><sub><b>benhgomez</b></sub></a></td><td align="center"><a href="https://github.com/dwballance"><img src="https://github.com/dwballance.png?size=128" width="64" height="64" alt="dwballance"><br><sub><b>dwballance</b></sub></a></td></tr>
+<tr><td align="center"><a href="https://github.com/Joelstrd"><img src="https://github.com/Joelstrd.png?size=128" width="64" height="64" alt="Joelstrd"><br><sub><b>Joelstrd</b></sub></a></td><td align="center"><a href="https://github.com/macrouldba"><img src="https://github.com/macrouldba.png?size=128" width="64" height="64" alt="macrouldba"><br><sub><b>macrouldba</b></sub></a></td></tr>
 </table>
 <!-- credits:reporters:end -->
 

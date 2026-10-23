@@ -41,6 +41,7 @@ const KEY_BRANDS: Readonly<Record<string, BrandFn>> = {
   // `HostQualifiers.trait`/`withoutTrait` (`AttachmentHost`'s `qualified`/`superlative` kinds, wave 2).
   trait: "trait",
   withoutTrait: "trait",
+  discardByTrait: "trait",
   withoutAttachmentTrait: "trait",
   // `OffAspectAllowance.anyTrait` (Gamora's Skilled Tactician deckbuilding, wave 3, docs/phase7-wave3.md §1.5).
   anyTrait: "trait",
@@ -54,6 +55,9 @@ const KEY_BRANDS: Readonly<Record<string, BrandFn>> = {
   villainSetId: "encounterSetId",
   defaultSetId: "encounterSetId",
   expertVillainCardId: "cardId",
+  // `VillainOption.linkedCardIds` and `villainOptions.defaultCardId` (Shadowland's card-keyed Dark Protégé choice).
+  linkedCardIds: "cardId",
+  defaultCardId: "cardId",
   // `ScenarioVillain.sideBCardId` (wave 8, Four Horsemen: each horseman is a two-card villain).
   sideBCardId: "cardId",
   // `Scenario.setAsideVillainCardIds` and `Scenario.expertVillains.setAsideVillainCardIds` (wave 2 — Kang).

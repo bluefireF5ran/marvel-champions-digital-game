@@ -62,6 +62,7 @@ export {
   WAVE11_GAME_ENCOUNTER_SETS,
   buildWave11Scenario,
   scenarioWithVillain,
+  villainChoiceOf,
   villainOptionOf,
   wave11Scenario,
   wave11ScenarioRecord,
@@ -81,6 +82,7 @@ export { UNSCRIPTED_ENCOUNTER_SET_IDS } from "./playable/unscripted.js";
 // Apocalypse start, threat on Gene Pool): what a setup screen asks before it draws a control.
 export {
   INFINITES_GENE_POOL_THREAT_MAX,
+  RANDOM_VILLAIN,
   checkPlayableDifficultySets,
   civilWarGameModes,
   civilWarModularSets,
@@ -134,6 +136,7 @@ export {
   AOS_CAMPAIGN_DEFINITION,
   CAMPAIGNS,
   campaignDefinitionOf,
+  campaignModularPickProblem,
   cardsOfComposedSets,
   GMW_CAMPAIGN_DEFINITION,
   MOJO_CAMPAIGN_DEFINITION,
@@ -141,6 +144,7 @@ export {
   mojoModularSetPicks,
   MTS_CAMPAIGN_DEFINITION,
   NEXT_EVOL_CAMPAIGN_DEFINITION,
+  SHADOWLAND_CAMPAIGN_DEFINITION,
   SM_CAMPAIGN_DEFINITION,
   TRORS_CAMPAIGN_DEFINITION,
 } from "./campaigns/index.js";

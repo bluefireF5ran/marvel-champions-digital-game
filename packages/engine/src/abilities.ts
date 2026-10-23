@@ -1000,6 +1000,22 @@ export type RuleSpec =
    */
   | { readonly kind: "cannotRecover"; readonly player: PlayerRef; readonly while?: Predicate }
   /**
+   * "While Iron Monk is engaged with you, you cannot choose the 'Avoid' effect on Trap! cards" (`shadowland` 65047):
+   * `player` cannot choose an option of a "choose one" (`EffectSpec chooseOne`) whose `tag` is one of `tags`, on an
+   * ability of a card `sources` matches (any card when absent; read with this rule's card as "self"). The option is
+   * not offered (RRG 1.8 "'Cannot'", p. 11), so the remaining ones are chosen among as RRG 1.8 "Choose (Option)" (p.
+   * 12) has it: one left resolves without asking, none left resolves to nothing. `player` resolves like
+   * `cannotRecover`'s; a ref naming nobody (the minion engaged with no one) bars nobody. An option without a tag is
+   * never barred.
+   */
+  | {
+      readonly kind: "cannotChooseOption";
+      readonly player: PlayerRef;
+      readonly tags: readonly string[];
+      readonly sources?: TargetQuery;
+      readonly while?: Predicate;
+    }
+  /**
    * "Attached minion cannot activate" (Mental Paralysis, `phoenix` 34008; docs/phase7-wave6.md §3.34, §4.1 Q19). A
    * matching enemy's attack or scheme activation does not begin, wherever it would (RRG 1.8 "Activation", p. 6:
    * "Whenever an enemy attacks or schemes, it is considered to have activated"): the villain phase's, an effect's "X
@@ -2474,6 +2490,15 @@ export type RuleSpec =
       readonly keepPrintedTraits?: boolean;
       /** `"base"`: "SCH is equal to its base THW" (Converted, `fne` 60100), as `RuleSpec treatAsMinion` reads it. */
       readonly schFromThw?: boolean | "current" | "base";
+      /**
+       * The host keeps its own text box (`TreatedAsMinion.keepsText`): the treatment says nothing of a blank text box.
+       * "Treat attached villain as an Elite minion with 6 printed hit points" (Whisper in the Dark, Shadowland 65040),
+       * on a villain card that is not one of the game's villains (`isLooseVillainCard`): it is a minion with the ATK
+       * and SCH of the stage it shows, that stage's traits, keywords and abilities, and `traits` besides.
+       */
+      readonly keepsText?: true;
+      /** "With 6 printed hit points": its printed hit points, unscaled (`TreatedAsMinion.printedHp`). */
+      readonly printedHp?: number;
     }
   /**
    * On any card, of every ally a query matches: "Treat each ally with threat on it as a [Deceived] minion with a blank

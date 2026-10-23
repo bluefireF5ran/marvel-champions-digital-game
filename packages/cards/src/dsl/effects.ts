@@ -479,11 +479,21 @@ export const andThen = (...effects: readonly EffectArg[]): EffectSpec => ({ kind
 
 export interface ChoiceOption {
   readonly label: string;
+  /** The option's name as other cards refer to it (engine `EffectSpec chooseOne` option `tag`); never shown. */
+  readonly tag?: string;
   readonly condition?: Predicate;
   readonly effects: readonly EffectSpec[];
 }
 /**
- * One option of `chooseOne`; `when` limits it to states where it can happen.
+ * The settings of one `option`: `when` limits it to states where it can happen; `tag` names it for other cards ("the
+ * 'Avoid' effect on a Trap! card": `on.optionChosen`, `cannotChooseOption`), so they never read the display label.
+ */
+export interface OptionSettings {
+  readonly when?: Predicate;
+  readonly tag?: string;
+}
+/**
+ * One option of `chooseOne`; `when` limits it to states where it can happen, `tag` names it (`OptionSettings`).
  *
  * A `spendResources` written as one of the option's own effects is made `required` (engine `EffectSpec
  * spendResources.required`): once chosen, the payment is made in full. Whether an unpayable option is offered is the
@@ -492,12 +502,17 @@ export interface ChoiceOption {
  * 2026 Spell Blast ruling; it reverses wave 7 Q8 and wave 9 Q33). A "may spend ... instead" that is a payment tied to a
  * result keeps `when: canPayResources(...)`. A spend nested deeper (inside an `ifThen`, a `forEachPlayer`) is left as written.
  */
-export const option = (label: string, ...rest: readonly (EffectArg | { readonly when: Predicate })[]): ChoiceOption => {
-  const condition = rest.find((r): r is { readonly when: Predicate } => !Array.isArray(r) && "when" in (r as object));
-  const effects = rest.filter((r): r is EffectArg => Array.isArray(r) || !("when" in (r as object)));
+export const option = (label: string, ...rest: readonly (EffectArg | OptionSettings)[]): ChoiceOption => {
+  // An effect always has a `kind`; the settings object never does.
+  const isSettings = (r: EffectArg | OptionSettings): r is OptionSettings => !Array.isArray(r) && !("kind" in r);
+  const all = rest.filter(isSettings);
+  if (all.length > 1) throw new Error(`option "${label}": give its settings ({ when, tag }) in one object`);
+  const settings = all[0];
+  const effects = rest.filter((r): r is EffectArg => !isSettings(r));
   return {
     label,
-    ...(condition ? { condition: condition.when } : {}),
+    ...(settings?.tag !== undefined ? { tag: settings.tag } : {}),
+    ...(settings?.when ? { condition: settings.when } : {}),
     // Not a "spend X" (`spendXResources`): its X is the player's to set, 0 included, as it resolves.
     effects: flatten(effects).map((effect) =>
       effect.kind === "spendResources" && !effect.x ? { ...effect, required: true as const } : effect,
@@ -2649,6 +2664,13 @@ export const chooseCardType = (bind: string, player: PlayerRef = you): EffectSpe
   player,
   bind,
 });
+/** "Name an encounter card type" (Nervous Jitters, `shadowland` 65046): `chooseCardType` among the eight encounter types. */
+export const chooseEncounterCardType = (bind: string, player: PlayerRef = you): EffectSpec => ({
+  kind: "chooseCardType",
+  player,
+  bind,
+  of: "encounter",
+});
 /**
  * "Search your collection for 1 WEAPON upgrade from any aspect" (Armed to the Teeth, `deadpool` 44009;
  * docs/phase7-wave7.md §3.81; RRG 1.8 "Search", p. 39): `player` may pick one card of the game's card pool that
@@ -2704,13 +2726,24 @@ export const heroNoCharacterIsTitledAs: CollectionSearchFilter = { heroTitleNotI
  */
 export const putIntoPlayAsHost = (
   card: TargetRef,
-  opts: { readonly attachment?: TargetRef; readonly engagedWith?: PlayerRef; readonly bind?: string } = {},
+  opts: {
+    readonly attachment?: TargetRef;
+    readonly engagedWith?: PlayerRef;
+    readonly bind?: string;
+    /**
+     * For a set-aside villain card that is not one of the game's villains: the side it shows ("put the set-aside
+     * chosen villain into play engaged with you, side A faceup, with this card attached", Whisper in the Dark,
+     * Shadowland 65040; its constant carries `treatAttachedVillainAsMinion`). Absent: its starting side.
+     */
+    readonly villainSide?: "A" | "B";
+  } = {},
 ): EffectSpec => ({
   kind: "putIntoPlayAsHost",
   card,
   attachment: opts.attachment ?? self,
   engagedWith: opts.engagedWith ?? you,
   ...withBind(opts.bind),
+  ...(opts.villainSide ? { villainSide: opts.villainSide } : {}),
 });
 /**
  * A fact from outside the game that is known only when the card resolves (docs/phase7-wave7.md §3.83): `player` is
@@ -3280,14 +3313,34 @@ export const endGame = (
  */
 export const addVillain = (
   villain: TargetRef,
-  opts: { readonly reveal?: boolean; readonly bind?: string; readonly row?: "shuffled" } = {},
+  opts: {
+    readonly reveal?: boolean;
+    readonly bind?: string;
+    readonly row?: "shuffled";
+    /** A villain already in play is revealed where it is (`EffectSpec addVillain.inPlay`). */
+    readonly inPlay?: "reveal";
+  } = {},
 ): EffectSpec => ({
   kind: "addVillain",
   villain,
   ...(opts.reveal ? { reveal: true } : {}),
   ...(opts.bind ? { bind: opts.bind } : {}),
   ...(opts.row ? { row: opts.row } : {}),
+  ...(opts.inPlay ? { inPlay: opts.inPlay } : {}),
 });
+/**
+ * "Discard each status card, token, and attached card from it" (Chamber of Vile Secrets 2A, Shadowland 65039a): its
+ * stunned, confused and tough status cards, its counters, its damage and threat tokens (`EffectSpec discardTokens`, not
+ * a heal) and each card attached to it. A card with none of them is left as it is.
+ */
+export const discardStatusesTokensAndAttachments = (target: TargetRef): readonly EffectSpec[] => [
+  removeStatus(target, "stunned"),
+  removeStatus(target, "confused"),
+  removeStatus(target, "tough"),
+  removeAllCountersFrom(target),
+  { kind: "discardTokens", target },
+  discard({ kind: "each", query: { host: target } }),
+];
 /**
  * "Set this villain aside." (the Sinister Six's When Defeated, MC27 p. 15): back to the set-aside area as a new copy,
  * where `addVillain` can bring it back. docs/phase7-wave5.md §3.1.
@@ -3386,6 +3439,10 @@ export const setVillainSide = (villain: TargetRef, side: "random" | VillainSideL
  * that flips to its attachment face holds its secret counters (MC50 pp. 11 and 19; Chief Medical Officer, `aos`
  * 50181a): `flipCard(self, { keepCounters: ["secret"] })`. An attachment face finds its host by its own "Attach to"
  * text, with no reveal. An empty list is the plain flip.
+ *
+ * `{ resolveToughness: true }`: a villain's new face gives its tough status card (`EffectSpec flipCard`). A villain's
+ * flip gives none by default (RRG 1.8 "Toughness", p. 45; docs/phase7-shadowland.md §5.1 question 10 = B); set it only
+ * where product rules or the card text say the new face's keyword resolves (Typhoid Mary, MC60 p. 26 FAQ).
  */
 export const flipCard = (
   target: TargetRef,
@@ -3393,6 +3450,7 @@ export const flipCard = (
     readonly reveal?: boolean;
     readonly controller?: PlayerRef;
     readonly keepCounters?: readonly string[];
+    readonly resolveToughness?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "flipCard",
@@ -3400,6 +3458,7 @@ export const flipCard = (
   ...(options.reveal ? { reveal: true } : {}),
   ...(options.controller ? { controller: options.controller } : {}),
   ...(options.keepCounters && options.keepCounters.length > 0 ? { keepCounters: [...options.keepCounters] } : {}),
+  ...(options.resolveToughness ? { resolveToughness: true as const } : {}),
 });
 /**
  * "Change to Gamma energy form" → `changeAdditionalForm("energy", { toName: "Gamma" })`; "flip that card faceup to change

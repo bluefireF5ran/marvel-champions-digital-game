@@ -82,6 +82,7 @@ import {
   undefeatedVillains,
   villainOf,
   villainStageOf,
+  looseVillainStage,
   isPlayerCardType,
   scenarioPlayAreaOf,
   isOwnedEncounterCard,
@@ -638,8 +639,14 @@ function printedTraitsOf(state: GameState, id: InstanceId): readonly Trait[] {
   }
   if (treated) {
     if (treated.kind === "ally") return treated.traits;
-    // A hero treated as a minion keeps its hero side's traits (docs/phase7-wave9.md §4.1 Q41 = A).
-    const printed = card.type === "ally" ? card.traits : card.type === "hero_identity" ? foeHeroFace(card).traits : [];
+    // A hero treated as a minion keeps its hero side's traits (docs/phase7-wave9.md §4.1 Q41 = A); a villain card the
+    // traits of the stage it shows (`looseVillainStage`).
+    const printed =
+      card.type === "ally"
+        ? card.traits
+        : card.type === "hero_identity"
+          ? foeHeroFace(card).traits
+          : (looseVillainStage(state, id)?.traits ?? []);
     return treated.keepPrintedTraits ? [...treated.traits, ...printed] : treated.traits;
   }
   const face = encounterFace(state, id);
@@ -1396,6 +1403,10 @@ export function explainQuery(
   // docs/phase7-wave9.md §3.29 (b): the accused or the mole of the game's accusation, a card named by its printed id
   // (either face), so the exclusion is the one `printedId` gives.
   if (query.accusation !== undefined && !isAccusationBoardMember(state, id, query.accusation)) return "wrongPrintedId";
+  // "The chosen villain": the card setup recorded (`GameState.chosenVillainId`), by instance. Reported as
+  // "wrongPrintedId", as the accusation is: a card named by the game rather than by its traits, and a new reason
+  // would need a word in every client's exhaustive reason table for no difference a player sees.
+  if (query.chosenVillain && state.chosenVillainId !== id) return "wrongPrintedId";
   if (query.controller) {
     const controller = controllerOf(state, id);
     if (query.controller === "encounter" && controller !== null) return "wrongController";
@@ -3538,6 +3549,10 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
       const [id] = resolveRef(state, predicate.of, context);
       return id ? currentName(state, id) === predicate.name : false;
     }
+    case "villainSide": {
+      const [id] = resolveRef(state, predicate.of, context);
+      return id ? villainOf(state, id)?.side === predicate.side : false;
+    }
     case "paidWithCard":
       return (paidVarsOf(state, predicate.of, context)[`paid.cards.${predicate.cardType}`] ?? 0) > 0;
     case "paidType":
@@ -4397,7 +4412,7 @@ export function unblankedAbilityRefs(state: GameState, id: InstanceId): readonly
     return identityFace(state, player).face.abilities;
   }
   if (card.type === "villain") {
-    return isVillain(state, id) ? villainStageOf(state, id).abilities : [];
+    return isVillain(state, id) ? villainStageOf(state, id).abilities : (looseVillainStage(state, id)?.abilities ?? []);
   }
   if (card.type === "main_scheme") {
     const scheme = mainSchemeStateOf(state, id);

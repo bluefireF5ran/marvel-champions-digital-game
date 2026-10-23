@@ -37,8 +37,10 @@ import {
   maxHitPoints,
   activeEncounterDeck,
   activeVillain,
+  isLooseVillainCard,
   isVillain,
   villainOf,
+  villainSideShowing,
   minionsEngagedWith,
   playCostOf,
   playableOutsideHand,
@@ -747,9 +749,11 @@ export interface BoardModel {
   /**
    * The active villain's panel — "the villain" everywhere a screen only ever meant one (PLAN.md Phase 7's own
    * scenarios). Kept as its own field, identical to `villains.find((v) => v.active)!.panel`, so every consumer
-   * from before The Wrecking Crew's four villains keeps working unchanged.
+   * from before The Wrecking Crew's four villains keeps working unchanged. Null when no villain is in play: Shadow
+   * Labyrinth's 2A with its chosen villain gone from the game leaves only the defeated Shifting Corridors, set aside
+   * (`villainIsOut`), and a set-aside card is no panel.
    */
-  readonly villain: CharacterPanel;
+  readonly villain: CharacterPanel | null;
   /**
    * Every villain of the scenario, printed order, defeated ones included (`state.villains`). One entry for every
    * scenario so far; four for The Wrecking Crew's Breakout, where they used to be invisible — the board built only
@@ -1066,6 +1070,11 @@ export function areaLabelOf(state: GameState, id: InstanceId): string | null {
   return `vs ${names.join(" + ")}`;
 }
 
+/** A villain set aside or removed from the game is not on the table (Shadow Labyrinth's 2A with no chosen villain to reveal). */
+function villainIsOut(state: GameState, id: InstanceId): boolean {
+  return state.encounterSetAside.includes(id) || state.removedFromGame.includes(id);
+}
+
 /**
  * Every villain of the scenario, printed order, defeated ones included — The Wrecking Crew's Breakout has four;
  * every other scenario so far has one. Built from `state.villains`/`state.activeVillainId` directly rather than
@@ -1084,6 +1093,7 @@ function villainPanels(state: GameState, deps: EngineDeps): readonly VillainPane
   return (
     ordered
       .filter((villain) => !tucked.has(villain.instanceId))
+      .filter((villain) => !villainIsOut(state, villain.instanceId))
       // A `bySetup` scenario (God of Lies, On the Run) starts with a placeholder villain its main scheme's Setup then
       // replaces: defeated and never turned faceup, it was never on the table, so it gets no tile in the row.
       .filter((villain) => !(villain.defeated && getInstance(state, villain.instanceId)?.faceup === false))
@@ -1146,7 +1156,9 @@ export function boardModel(
     meOut: outStatusOf(me),
     firstPlayerId: state.firstPlayerId,
     perspectiveId,
-    villain: characterPanel(state, activeVillain(state).instanceId, deps),
+    villain: villainIsOut(state, activeVillain(state).instanceId)
+      ? null
+      : characterPanel(state, activeVillain(state).instanceId, deps),
     villains: villainPanels(state, deps),
     mainScheme: withAreaNotes(schemePanel(state, state.mainScheme.instanceId, deps, true), scenarioAreas),
     extraMainSchemes: otherMainSchemes.map((scheme) => schemePanel(state, scheme.instanceId, deps, true)),
@@ -1293,6 +1305,15 @@ function liveStepLabel(state: GameState, perspectiveId: PlayerId): string {
     default:
       return "Game over";
   }
+}
+
+/**
+ * The enemies in the left-to-right order the table draws them: the villains (in their row's order), then the minions
+ * (`minionsOf`). A list of targets sorted by this reads in the same order as the board (issue #357), so two facedown
+ * Drones can be told apart by where they sit.
+ */
+export function enemyTableOrder(state: GameState, deps: EngineDeps): readonly InstanceId[] {
+  return [...villainPanels(state, deps).map((villain) => villain.panel.instanceId), ...minionsOf(state)];
 }
 
 /** Enemies in the villain area and engaged with a player, villain excluded. */
@@ -1484,6 +1505,12 @@ export function faceOf(state: GameState, instanceId: InstanceId, view?: ViewerCo
       return formIndex > 0 ? { kind: "heroForm", index: formIndex } : { kind: "hero" };
     }
     case "villain": {
+      // A villain card that is no `VillainState` (Whisper in the Dark's chosen villain, in play as an Elite minion)
+      // shows its own first stage on the side that is up, never the active villain's.
+      if (isLooseVillainCard(state, instanceId)) {
+        const side = villainSideShowing(card, instance.flipped === true);
+        return { kind: "villainStage", sideIndex: Math.max(0, card.sides.indexOf(side)), stageIndex: 0 };
+      }
       const villain = villainOf(state, instanceId) ?? activeVillain(state);
       return {
         kind: "villainStage",
@@ -1587,6 +1614,8 @@ function subtitleOf(state: GameState, instance: CardInstance, card: AnyCard | un
   if (!card) return "";
   switch (card.type) {
     case "villain": {
+      if (isLooseVillainCard(state, instance.instanceId))
+        return instance.treatedAs?.kind === "minion" ? "Minion (treated as)" : foeWord(card);
       // The pod's neutral villain (Loki, God of Lies) is no `VillainState`: it has no stage of its own to number.
       if (state.pod?.neutral?.villainInstanceId === instance.instanceId) return "Neutral villain";
       const villain = villainOf(state, instance.instanceId) ?? activeVillain(state);
@@ -1889,6 +1918,8 @@ export interface ScenarioDeckPanel {
   /** Faceup, like every discard pile (`view/visibility.ts`). Null with an empty pile. */
   readonly discardTopInstanceId: InstanceId | null;
   readonly discardTopArt: ArtSource | null;
+  /** Every card in the discard pile, top first, so a tap fans out through the pile as the encounter discard does. */
+  readonly discard: readonly InstanceId[];
 }
 
 /** Every scenario deck in play, by name, in `GameState.scenarioDecks`' own (insertion) order. */
@@ -1902,6 +1933,7 @@ export function scenarioDeckPanels(state: GameState): readonly ScenarioDeckPanel
       hasDiscard: deck.discardPile !== "none",
       discardTopInstanceId: topId,
       discardTopArt: topId ? artFor(cardOf(state, topId), faceOf(state, topId)) : null,
+      discard: deck.discard,
     };
   });
 }
@@ -2039,7 +2071,13 @@ function neutralCard(state: GameState, id: InstanceId, deps: EngineDeps): Scenar
 export function environmentPanel(state: GameState, id: InstanceId, deps: EngineDeps): EnvironmentPanel {
   const card = cardOf(state, id);
   const damage = getInstance(state, id)?.damage ?? 0;
-  const note = damageNote(damage, breakPointOf(state, id, deps));
+  const damageAt = breakPointOf(state, id, deps);
+  // Damage leads the counter chips ("1/9 DAMAGE", the count drawn big) rather than riding in the subtitle's small
+  // print: Avengers Tower's whole scenario is that number, on every board size (issue #356).
+  const damageEntry =
+    damageAt !== null || damage > 0
+      ? [{ name: "damage", count: damage, ...(damageAt !== null ? { limit: damageAt } : {}) }]
+      : [];
   const tucked = tuckedCardsUnder(state, id);
   const limits = counterLimitsOf(state, id, deps);
   const held = countersOf(state, id);
@@ -2060,6 +2098,7 @@ export function environmentPanel(state: GameState, id: InstanceId, deps: EngineD
   const goalNote =
     goal?.outcome === "loss" ? `Lose at ${goal.goal}` : goal?.outcome === "flip" ? `Flips at ${goal.goal}` : null;
   const counters = [
+    ...damageEntry,
     ...threatEntry,
     ...held.map((counter) => (counter.name in limits ? { ...counter, limit: limits[counter.name]! } : counter)),
     ...Object.entries(limits)
@@ -2070,8 +2109,7 @@ export function environmentPanel(state: GameState, id: InstanceId, deps: EngineD
     instanceId: id,
     // `currentName`, not `card.name`: a flipped card is a different card as far as the table is concerned.
     name: currentName(state, id) ?? card?.name ?? "Environment",
-    // "Environment · 4/9 damage": Avengers Tower flips at 9[per_hero], and the table should see how close it is.
-    subtitle: [goalNote ?? "Environment", note].filter((part) => part !== null).join(" · "),
+    subtitle: goalNote ?? "Environment",
     counters,
     art: artFor(card, faceOf(state, id)),
     damage,

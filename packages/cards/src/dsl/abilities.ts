@@ -988,6 +988,23 @@ export const cannotThwart = (
 export const cannotRecover = (player: PlayerRef, opts: { readonly while?: Predicate } = {}): ConstantPart =>
   rule({ kind: "cannotRecover", player, ...(opts.while ? { while: opts.while } : {}) });
 /**
+ * "You cannot choose the 'Avoid' effect on Trap! cards" (Iron Monk, `shadowland` 65047): `player` is not offered an
+ * option of a "choose one" whose `tag` is one of `tags`, on an ability of a card `sources` matches (any card when
+ * absent). The engine's `RuleSpec cannotChooseOption`.
+ */
+export const cannotChooseOption = (
+  player: PlayerRef,
+  tags: readonly string[],
+  opts: { readonly sources?: TargetQuery; readonly while?: Predicate } = {},
+): ConstantPart =>
+  rule({
+    kind: "cannotChooseOption",
+    player,
+    tags,
+    ...(opts.sources ? { sources: opts.sources } : {}),
+    ...(opts.while ? { while: opts.while } : {}),
+  });
+/**
  * "Attached minion cannot activate" (Mental Paralysis, `phoenix` 34008; docs/phase7-wave6.md §3.34, §4.1 Q19) →
  * `constant(cannotActivate(query("minion", { hostOfSelf: true })))`. A matching enemy's attacks and schemes do not
  * begin: the villain phase's, an effect's "X attacks/schemes", quickstrike and teamwork. Its other abilities still
@@ -1770,6 +1787,30 @@ export const treatAsMinion = (
  */
 export const treatAttachedHeroAsMinion = (traits: readonly Trait[]): ConstantPart => ({
   rules: [{ kind: "treatHostAsMinion", traits, schFromThw: true, keepPrintedTraits: true }],
+});
+/**
+ * "Treat attached villain as an Elite minion with 6 printed hit points." (Whisper in the Dark, Shadowland 65040) →
+ * `treatAttachedVillainAsMinion([ELITE], { printedHp: 6 })`. The host is a villain card that is not one of the game's
+ * villains, put into play by `putIntoPlayAsHost`: a minion (never "the villain"), with the ATK and SCH of the stage it
+ * shows, its printed traits beside `traits`, and its own text box, keywords and abilities kept (the card blanks
+ * nothing; RRG 1.8 "Card Types", p. 12: a card whose type changes "functions as would any card of the new card type").
+ * `printedHp`: the hit points the attachment prints for it, unscaled (absent: the stage's). What it "gains" is
+ * `gainsKeyword` / `gainsAbility` with `to: { hostOfSelf: true }` beside this. When the attachment leaves without the
+ * minion leaving play, the card stays in play as one of the game's villains (`promoteLooseVillain`).
+ */
+export const treatAttachedVillainAsMinion = (
+  traits: readonly Trait[],
+  opts: { readonly printedHp?: number } = {},
+): ConstantPart => ({
+  rules: [
+    {
+      kind: "treatHostAsMinion",
+      traits,
+      keepPrintedTraits: true,
+      keepsText: true,
+      ...(opts.printedHp !== undefined ? { printedHp: opts.printedHp } : {}),
+    },
+  ],
 });
 /**
  * "Nebula ignores the guard keyword, the patrol keyword, and the crisis icon" (Evasive Maneuvering, `nebu` 22005; Wasp,
@@ -3980,6 +4021,22 @@ export const on = {
    * needed to say which one — the same reading `on.mainSchemeCompleted` gives a scenario with one main scheme.
    */
   villainSwapped: (): EventPattern => pattern("villainSwapped"),
+  /**
+   * "When **you** choose the 'Avoid' effect or the 'Trip' effect on a Trap! card" (`TriggerEvent optionChoosing`): a
+   * player chose an option of a "choose one" whose `tag` is one of `tags`, on an ability of a card `source` matches
+   * (any card when absent). Written with `forcedInterrupt`, it resolves after the choice and before the option (RRG
+   * 1.8 "Interrupt", p. 25). `anyPlayer`: "when **a player** chooses …".
+   */
+  optionChosen: (
+    tags: readonly string[],
+    opts: { readonly source?: TargetQuery; readonly anyPlayer?: boolean } = {},
+  ): EventPattern =>
+    pattern(
+      "optionChoosing",
+      opts.anyPlayer ? {} : { playerIs: "controller" },
+      { eventIs: { tag: tags } },
+      opts.source ? { sourceIs: opts.source } : {},
+    ),
   /**
    * "After **you** resolve [a named procedure or ability]": the moment a script raises with `raiseMoment(name, player)`
    * (docs/phase7-wave8.md §3.39), "you" being the player it was raised for. "Forced Response: After you resolve a

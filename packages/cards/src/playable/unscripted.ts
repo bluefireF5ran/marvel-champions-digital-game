@@ -14,31 +14,15 @@
 import type { Scenario } from "@mc/content";
 
 export const UNSCRIPTED_ENCOUNTER_SET_IDS: ReadonlySet<string> = new Set<string>([
-  // Shadowland (MC65, cycle 11): locked until its missing scans are posted (owner, 2026-10-20). About 30 faces,
-  // including every main scheme, have no scan yet; docs/phase7-shadowland.md §2.1 lists them and how to fetch them
-  // (Hall of Heroes first). Delete these ids once the pack is transcribed, scripted and QA'd.
-  "black_flower",
-  "dark_protege",
-  "deadly_contraptions",
-  "heart_of_shadow",
-  "ninja_swarm",
-  "shadow_labyrinth",
-  "shadows_in_the_night",
+  // Empty: Shadowland (MC65, cycle 11) was the last gated pack and was unlocked as a whole on 2026-10-22, once it was
+  // scripted, its campaign existed and QA had played it (docs/phase7-shadowland.md section 2.1).
 ]);
 
 /**
  * Gated sets whose every ability is scripted but which are held back for another reason, each with that reason. The
  * "fully scripted: remove it" check skips these; delete an entry with its reason gone, then un-gate the set above.
- * Black Flower is held back because no card of it is transcribed yet (it has no ability ref to script).
  */
-export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {
-  black_flower: "Shadowland is mid-transcription: this set has no cards transcribed yet, so there is nothing to script",
-  dark_protege: "Shadowland is mid-transcription: its transcribed cards are scripted, the rest await scans",
-  heart_of_shadow: "Shadowland is mid-transcription: its transcribed cards are scripted, the rest await scans",
-  ninja_swarm: "Shadowland is mid-transcription: its transcribed cards are scripted, the rest await scans",
-  shadow_labyrinth: "Shadowland is mid-transcription: its transcribed cards are scripted, the rest await scans",
-  shadows_in_the_night: "Shadowland is mid-transcription: its transcribed cards are scripted, the rest await scans",
-};
+export const GATED_THOUGH_SCRIPTED: Readonly<Record<string, string>> = {};
 
 /** Whether a scenario is playable: none of its own sets (or its villains' own sets) is gated. */
 export function scenarioIsScripted(scenario: Pick<Scenario, "encounterSetIds" | "multipleVillains">): boolean {
