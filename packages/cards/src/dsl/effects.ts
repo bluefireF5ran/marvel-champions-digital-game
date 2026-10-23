@@ -2176,6 +2176,11 @@ export const putIntoPlay = (
     readonly otherFace?: boolean;
     /** "Resolve the 'Setup' abilities on each of these cards" (MC60 p. 9 step 12), after the entries resolve. */
     readonly resolveSetup?: boolean;
+    /**
+     * The text states who controls it ("under your/their control"), so an any-player-control card asks no one (RRG
+     * 1.8 p. 32: "Unless otherwise stated by the 'put into play' effect").
+     */
+    readonly controllerStated?: boolean;
   } = {},
 ): EffectSpec => ({
   kind: "putIntoPlay",
@@ -2183,6 +2188,7 @@ export const putIntoPlay = (
   controller,
   ...withBind(opts.bind),
   ...(opts.facedown ? { facedown: true as const } : {}),
+  ...(opts.controllerStated ? { controllerStated: true as const } : {}),
   ...(opts.into ? { into: opts.into } : {}),
   ...(opts.otherFace ? { otherFace: true as const } : {}),
   ...(opts.resolveSetup ? { resolveSetup: true as const } : {}),
