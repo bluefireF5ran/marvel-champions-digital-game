@@ -9,6 +9,8 @@
  *
  * - **Stories:** a campaign issue opens once a run has reached it (signing a run opens issue #1; each issue won
  *   opens the next). Rereading one goes through the campaign's own opener, told to the box's own cast.
+ * - **Side stories:** a short comic apart from the campaigns (`content/side-stories.ts`) opens with the Trophy Room
+ *   achievement it belongs to: Thor and She-Hulk's Badlands date with "Worthy of a Second Date?".
  * - **Heroes:** a hero's file (their artwork, both faces' names, traits and flavor) opens once a game played as that
  *   hero has ended, in a campaign or on its own.
  * - **Villains:** a villain's file opens once a game against that scenario has ended. Its "villain loses" scene
@@ -32,16 +34,19 @@ import { ART_CATALOG } from "../art/scenario-art.js";
 import { CAMPAIGN_ART } from "../art/campaign-art.js";
 import { HERO_ART } from "../art/hero-art.js";
 import { EXTRAS_ART, extrasArtTitle } from "../art/extras-art.js";
+import { SIDE_STORY_ART } from "../art/side-stories-art.js";
 import { TITLE_ART } from "../art/title-art.js";
 import type { Picture } from "../art/pictures.js";
 import { MUSIC_CATALOG, type MusicCatalog, type Track } from "../audio/music-catalog.js";
 import { SAGA_VOLUMES, storyFor } from "../campaign/story.js";
 import { CARDS_BY_ID, POOL_PACKS, POOL_SCENARIOS, POOL_STARTER_DECKS } from "../content/pool.js";
 import { BOOKS } from "../content/books.js";
+import { SIDE_STORIES, type SideStory } from "../content/side-stories.js";
 import { CAMPAIGN_RECORDS } from "../campaign/campaign-service.js";
 import { UNLOCK_HEROES, villainLabelOf } from "./unlocks.js";
 import { isLessonSave } from "../engine/game-storage.js";
 import { ACHIEVEMENTS } from "./achievements.js";
+import { SHADOWLAND_COMIC_CREDIT, SHADOWLAND_EXTRAS } from "./shadowland-extras.js";
 
 /** What the player has done, as far as Extras cares, read from storage by `extrasProgressOf`. */
 export interface ExtrasProgress {
@@ -70,7 +75,10 @@ export const NO_EXTRAS_PROGRESS: ExtrasProgress = {
   earnedAchievementIds: [],
 };
 
-/** The save statuses of a game that has ended. An `active` game is still being played; `incompatible` never loads. */
+/**
+ * The save statuses of a game that has ended. An `active` game is still being played, however many are (#276), so it
+ * opens nothing yet: Game over announces the files a game opens when it ends. `incompatible` never loads.
+ */
 const ENDED = new Set(["won", "lost", "abandoned"]);
 
 const unique = (ids: readonly string[]): string[] => [...new Set(ids)].sort();
@@ -177,13 +185,14 @@ export type ExtrasUnlock =
   /** One track filed in several slots (the same song as a campaign finale and a pack's victory theme). */
   | { readonly kind: "any"; readonly of: readonly ExtrasUnlock[] };
 
-export type ExtrasTab = "stories" | "books" | "heroes" | "villains" | "art" | "music";
+export type ExtrasTab = "stories" | "side" | "books" | "heroes" | "villains" | "art" | "music";
 
-/** `short` is a phone's tab label, where six tabs share 390px. */
+/** `short` is a phone's tab label, where seven tabs share 390px. */
 export const EXTRAS_TABS: readonly { readonly id: ExtrasTab; readonly label: string; readonly short: string }[] = [
-  { id: "stories", label: "Stories", short: "Stories" },
+  { id: "stories", label: "Stories", short: "Story" },
+  { id: "side", label: "Side Stories", short: "Side" },
   { id: "books", label: "Rulebooks", short: "Rules" },
-  { id: "heroes", label: "Heroes", short: "Heroes" },
+  { id: "heroes", label: "Heroes", short: "Hero" },
   { id: "villains", label: "Villains", short: "Foes" },
   { id: "art", label: "Artwork", short: "Art" },
   { id: "music", label: "Music", short: "Music" },
@@ -203,7 +212,9 @@ export type ExtrasContent =
   | { readonly kind: "gallery"; readonly slides: readonly ExtrasSlide[]; readonly lines: readonly string[] }
   | { readonly kind: "track"; readonly track: Track }
   /** A rulebook, read in the Extras reader (`content/books.ts`). */
-  | { readonly kind: "book"; readonly bookId: string };
+  | { readonly kind: "book"; readonly bookId: string }
+  /** A side story, read beat by beat in the side-story reader (`content/side-stories.ts`). */
+  | { readonly kind: "comic"; readonly storyId: string };
 
 export interface ExtrasEntry {
   readonly id: string;
@@ -222,6 +233,18 @@ const packName = (code: string): string => POOL_PACKS.find((pack) => (pack.code 
 const campaignName = (campaignId: string): string =>
   SAGA_VOLUMES.find((volume) => volume.campaignId === campaignId)?.name ?? campaignId;
 
+/**
+ * What a scenario-keyed hint calls the scenario: its own name when its villain is chosen per game (`villainOptions`: a
+ * random draw in Shadowland's Dark Protégé, a player's pick in Fear No Evil) or the box's win is not a villain's defeat
+ * (Shadow Labyrinth is won on the scheme), where "Beat <villain>" would name a card the player may never meet. Null
+ * keeps the villain's label.
+ */
+function scenarioNamedHint(scenarioId: string): string | null {
+  const scenario = POOL_SCENARIOS.find((s) => (s.id as string) === scenarioId);
+  if (!scenario) return null;
+  return scenario.villainOptions || (scenario.packCode as string) === "shadowland" ? scenario.name : null;
+}
+
 /** How to open something, in the same "Beat Rhino" voice as the unlock path's own hints. */
 export function unlockHint(unlock: ExtrasUnlock): string {
   switch (unlock.kind) {
@@ -229,12 +252,18 @@ export function unlockHint(unlock: ExtrasUnlock): string {
       return "Open from the start";
     case "heroPlayed":
       return `Finish a game as ${cardName(unlock.identityCardId)}`;
-    case "scenarioPlayed":
-      return `Finish a game against ${villainLabelOf(unlock.scenarioId)}`;
-    case "scenarioWon":
-      return `Beat ${villainLabelOf(unlock.scenarioId)}`;
-    case "scenarioLost":
-      return `Lose to ${villainLabelOf(unlock.scenarioId)}`;
+    case "scenarioPlayed": {
+      const named = scenarioNamedHint(unlock.scenarioId);
+      return named ? `Finish a game of ${named}` : `Finish a game against ${villainLabelOf(unlock.scenarioId)}`;
+    }
+    case "scenarioWon": {
+      const named = scenarioNamedHint(unlock.scenarioId);
+      return named ? `Win ${named}` : `Beat ${villainLabelOf(unlock.scenarioId)}`;
+    }
+    case "scenarioLost": {
+      const named = scenarioNamedHint(unlock.scenarioId);
+      return named ? `Lose ${named}` : `Lose to ${villainLabelOf(unlock.scenarioId)}`;
+    }
     case "packWon":
       return `Win a scenario from ${packName(unlock.packCode)}`;
     case "packLost":
@@ -249,8 +278,10 @@ export function unlockHint(unlock: ExtrasUnlock): string {
         : `Reach issue #${unlock.issue} of ${campaignName(unlock.campaignId)}`;
     case "campaignStarted":
       return `Start ${campaignName(unlock.campaignId)}`;
-    case "campaignWon":
-      return `Complete ${campaignName(unlock.campaignId)}`;
+    case "campaignWon": {
+      const name = campaignName(unlock.campaignId);
+      return `Complete ${name.startsWith("The ") ? "" : "the "}${name} campaign`;
+    }
     case "achievement":
       return `Earn the ${ACHIEVEMENTS.find((a) => a.id === unlock.achievementId)?.name ?? unlock.achievementId} achievement`;
     case "any":
@@ -613,6 +644,28 @@ export function storyEntriesOf(): ExtrasEntry[] {
   });
 }
 
+/** Every side story whose pages are in `art/side-stories/`, opened by its achievement and read in the comic reader. */
+export function sideStoryEntriesOf(
+  stories: readonly SideStory[] = SIDE_STORIES,
+  art: ReadonlyMap<string, readonly Picture[]> = SIDE_STORY_ART,
+): ExtrasEntry[] {
+  return stories.flatMap((story): ExtrasEntry[] => {
+    const pages = art.get(story.id) ?? [];
+    if (pages.length === 0) return [];
+    return [
+      {
+        id: `side:${story.id}`,
+        tab: "side",
+        title: story.title,
+        subtitle: story.subtitle,
+        thumb: pages[0]!,
+        unlock: { kind: "achievement", achievementId: story.achievementId },
+        content: { kind: "comic", storyId: story.id },
+      },
+    ];
+  });
+}
+
 /** A card's traits and flavor as a hero or villain file's lines, skipping whatever the card doesn't print. */
 function faceLines(face: {
   readonly faceName?: string;
@@ -651,41 +704,45 @@ export function heroEntriesOf(): ExtrasEntry[] {
 
 /** Every scenario in the pool, in pool order: the villain's artwork and its victory and defeat scenes. */
 export function villainEntriesOf(): ExtrasEntry[] {
-  return POOL_SCENARIOS.map((scenario: Scenario): ExtrasEntry => {
-    const scenarioId = scenario.id as string;
-    const villain = CARDS_BY_ID.get(scenario.villainCardId as string);
-    const name = villain?.name ?? scenario.name;
-    const art = ART_CATALOG.scenarios.get(scenarioId);
-    const played: ExtrasUnlock = { kind: "scenarioPlayed", scenarioId };
-    const slides: ExtrasSlide[] = [
-      ...(art?.villain ?? []).map((picture) => ({ picture, caption: name, unlock: played })),
-      ...(art?.["villain-loses"] ?? []).map((picture) => ({
-        picture,
-        caption: `${name} falls`,
-        unlock: { kind: "scenarioWon", scenarioId } as const,
-      })),
-      ...(art?.["villain-wins"] ?? []).map((picture) => ({
-        picture,
-        caption: `${name} wins`,
-        unlock: { kind: "scenarioLost", scenarioId } as const,
-      })),
-    ];
-    const stage = villain?.type === "villain" ? villain.sides[0]?.stages[0] : undefined;
-    const traits = (stage?.traits ?? []).join(" · ");
-    return {
-      id: `villain:${scenarioId}`,
-      tab: "villains",
-      title: name,
-      subtitle: name === scenario.name ? packName(scenario.packCode as string) : scenario.name,
-      thumb: art?.villain[0] ?? null,
-      unlock: played,
-      content: {
-        kind: "gallery",
-        slides,
-        lines: [...(traits ? [traits] : []), `Scenario: ${scenario.name} (${packName(scenario.packCode as string)})`],
-      },
-    };
-  });
+  // Shadowland's scenarios have no villain of their own to file (the Dark Protégé is drawn at random, Shadow Labyrinth
+  // is won on its scheme), and their `villain.png` is box art that Artwork already gates on a win.
+  return POOL_SCENARIOS.filter((scenario) => (scenario.packCode as string) !== "shadowland").map(
+    (scenario: Scenario): ExtrasEntry => {
+      const scenarioId = scenario.id as string;
+      const villain = CARDS_BY_ID.get(scenario.villainCardId as string);
+      const name = villain?.name ?? scenario.name;
+      const art = ART_CATALOG.scenarios.get(scenarioId);
+      const played: ExtrasUnlock = { kind: "scenarioPlayed", scenarioId };
+      const slides: ExtrasSlide[] = [
+        ...(art?.villain ?? []).map((picture) => ({ picture, caption: name, unlock: played })),
+        ...(art?.["villain-loses"] ?? []).map((picture) => ({
+          picture,
+          caption: `${name} falls`,
+          unlock: { kind: "scenarioWon", scenarioId } as const,
+        })),
+        ...(art?.["villain-wins"] ?? []).map((picture) => ({
+          picture,
+          caption: `${name} wins`,
+          unlock: { kind: "scenarioLost", scenarioId } as const,
+        })),
+      ];
+      const stage = villain?.type === "villain" ? villain.sides[0]?.stages[0] : undefined;
+      const traits = (stage?.traits ?? []).join(" · ");
+      return {
+        id: `villain:${scenarioId}`,
+        tab: "villains",
+        title: name,
+        subtitle: name === scenario.name ? packName(scenario.packCode as string) : scenario.name,
+        thumb: art?.villain[0] ?? null,
+        unlock: played,
+        content: {
+          kind: "gallery",
+          slides,
+          lines: [...(traits ? [traits] : []), `Scenario: ${scenario.name} (${packName(scenario.packCode as string)})`],
+        },
+      };
+    },
+  );
 }
 
 /** One picture as its own gallery entry. */
@@ -695,6 +752,7 @@ function pictureEntry(
   subtitle: string,
   picture: Picture,
   unlock: ExtrasUnlock,
+  lines: readonly string[] = [],
 ): ExtrasEntry {
   return {
     id,
@@ -703,7 +761,7 @@ function pictureEntry(
     subtitle,
     thumb: picture,
     unlock,
-    content: { kind: "gallery", slides: [{ picture, caption: title, unlock }], lines: [] },
+    content: { kind: "gallery", slides: [{ picture, caption: title, unlock }], lines },
   };
 }
 
@@ -744,7 +802,23 @@ export function artEntriesOf(): ExtrasEntry[] {
           ]
         : [];
     }),
+    ...shadowlandArtEntriesOf(),
   ];
+}
+
+/** Shadowland's panels and comic pages, each opened by the scenario win (or the campaign win) it belongs to. */
+export function shadowlandArtEntriesOf(): ExtrasEntry[] {
+  return SHADOWLAND_EXTRAS.flatMap((extra) => {
+    const picture =
+      extra.kind === "page"
+        ? CAMPAIGN_ART.pages.get(`shadowland/${extra.file}`)
+        : CAMPAIGN_ART.artboards.get(`shadowland/${extra.file}`)?.[0];
+    // A comic page's credit is also a line of its entry, so the full-size viewer (which draws lines) shows it.
+    const lines = extra.kind === "page" ? [SHADOWLAND_COMIC_CREDIT] : [];
+    return picture
+      ? [pictureEntry(`art:${picture.key}`, extra.title, extra.subtitle, picture, extra.unlock, lines)]
+      : [];
+  });
 }
 
 /**
@@ -779,6 +853,7 @@ export function bookEntriesOf(): ExtrasEntry[] {
 /** Every extra, by tab. Built once: the catalogs are build-time globs and the pool never changes at runtime. */
 export const EXTRAS_ENTRIES: Readonly<Record<ExtrasTab, readonly ExtrasEntry[]>> = {
   stories: storyEntriesOf(),
+  side: sideStoryEntriesOf(),
   books: bookEntriesOf(),
   heroes: heroEntriesOf(),
   villains: villainEntriesOf(),

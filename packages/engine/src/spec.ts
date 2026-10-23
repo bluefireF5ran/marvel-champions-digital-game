@@ -205,6 +205,12 @@ export interface TargetQuery {
    * state, so an ability on another card, resolving later, names the same card.
    */
   readonly accusation?: "accused" | "mole";
+  /**
+   * "The chosen villain" (`GameState.chosenVillainId`, written by setup's `GameSetupConfig.villainChoice`): that card
+   * and no other, in play or set aside. Nothing matches in a game without a villain choice. Shadow Labyrinth's Whisper
+   * in the Dark, "put the set-aside chosen villain into play", is `addVillain(find({ chosenVillain: true }))`.
+   */
+  readonly chosenVillain?: true;
   /** Exact printed card name ("the Breakin' & Takin' side scheme", "the Ultron Drones environment"). */
   readonly name?: string;
   /**
@@ -1692,6 +1698,8 @@ export type Predicate =
    * encounter card's other face.
    */
   | { readonly kind: "faceNamed"; readonly of: TargetRef; readonly name: string }
+  /** "The villain is on side A / B" (Shadows in the Night 65001b: "defeated on side A"): the side `of` has up. */
+  | { readonly kind: "villainSide"; readonly of: TargetRef; readonly side: VillainSideLetter }
   /**
    * "If you paid for this card using only [physical] resources" (Hulk Smash): something was paid, and every resource was
    * that type or a wild declared as it. FAQ "Unstoppable Force (#6)" (p. 60): at a cost of 0 it fails. `of` as for
@@ -3120,6 +3128,13 @@ export type EffectSpec =
       readonly chooser: PlayerRef;
       readonly options: readonly {
         readonly label: string;
+        /**
+         * The option's name as other cards refer to it, never shown: the TRAP! cards' "Avoid", "Disarm" and "Trip"
+         * effects (`avoid`, `disarm`, `trip`; MC65 pp. 12-13). Carried on `TriggerEvent optionChoosing` ("When you
+         * choose the 'Avoid' effect on a Trap! card") and read by `RuleSpec cannotChooseOption`, so neither reads the
+         * display `label`. Absent, the option has no name and neither hears nor bars it.
+         */
+        readonly tag?: string;
         readonly condition?: Predicate;
         readonly effects: readonly EffectSpec[];
       }[];
@@ -3648,8 +3663,11 @@ export type EffectSpec =
    * shape every "choose from a fixed list" effect shares (`chosenFromList`), so it is gone when the ability finishes
    * and no other ability sees it. `player` naming several players asks the first; inside `forEachPlayer` each player
    * chooses for themselves. No such player: nobody is asked, nothing is bound and `<bind>.made` is 0.
+   *
+   * `of: "encounter"`: "name an **encounter** card type" (Nervous Jitters, `shadowland` 65046): only the eight types
+   * RRG 1.8 "Card Types" (p. 12) lists as encounter card types are offered (`ENCOUNTER_CARD_TYPES`).
    */
-  | { readonly kind: "chooseCardType"; readonly player: PlayerRef; readonly bind: string }
+  | { readonly kind: "chooseCardType"; readonly player: PlayerRef; readonly bind: string; readonly of?: "encounter" }
   /**
    * "Search your collection for 1 …" (docs/phase7-wave7.md §3.81; RRG 1.8 "Search", p. 39): `player` "looks through all
    * of their Marvel Champions cards outside of the current game for the specified card. They become the owner of that
@@ -4796,6 +4814,12 @@ export type EffectSpec =
    * identity (`cardType`), and when the attachment could not be attached or does not treat the card as a minion
    * (`noLegalHost`): the card is then removed from the game, as it is when that attachment leaves play (§4.1 Q39).
    * `bind`: the card, when it entered play (`<bind>.count` 1 or 0).
+   *
+   * The same for a set-aside villain card that is not one of the game's villains (`isLooseVillainCard`): "put the
+   * set-aside chosen villain into play engaged with you, side A faceup, with this card attached. Treat attached villain
+   * as an Elite minion with 6 printed hit points" (Whisper in the Dark, Shadowland 65040). It must be in the encounter
+   * set-aside area; it is a minion, never "the villain" or "a villain" (it gets no `VillainState`), showing the first
+   * stage of `villainSide` (absent: its starting side). Refused, it stays set aside (`hostOnlyReleaseZone`).
    */
   | {
       readonly kind: "putIntoPlayAsHost";
@@ -4803,6 +4827,7 @@ export type EffectSpec =
       readonly attachment: TargetRef;
       readonly engagedWith: PlayerRef;
       readonly bind?: string;
+      readonly villainSide?: "A" | "B";
     }
   /**
    * "Deal an encounter card to each player" / "Deal 2 encounter cards to each player" (Green Goblin II). Cards come
@@ -5043,7 +5068,24 @@ export type EffectSpec =
        * docs/phase7-wave5.md §3.1, the `putIntoPlay.bind` shape (docs/phase7-wave4.md §3.59).
        */
       readonly bind?: string;
+      /**
+       * `"reveal"`: a named villain already in play is revealed where it is ("Find the chosen Dark Protege villain ...
+       * Reveal its side A", Chamber of Vile Secrets 2A, Shadowland 65039a, when Whisper in the Dark's minion has become
+       * that villain): it does not enter play again, its When Revealed resolves when `reveal` is set, and it takes the
+       * active counter when the villain holding it is out of play. Absent: a villain already in play is left alone.
+       *
+       * Out of play, `villain` is found where a "find" looks (RRG 1.8 "Find", p. 19): the encounter set-aside area,
+       * and for a villain card an encounter discard pile or deck too (a deck searched is shuffled after).
+       */
+      readonly inPlay?: "reveal";
     }
+  /**
+   * "Discard each status card, token, and attached card from it" (Chamber of Vile Secrets 2A, Shadowland 65039a): the
+   * tokens half. Each target's damage and threat tokens are discarded (not a heal: nothing a "when healed" ability
+   * answers, and "cannot be healed" does not stop it), logged `tokensDiscarded`. Its counters and status cards are
+   * `removeCounters` and `removeStatus`, its attachments `discardFromPlay`.
+   */
+  | { readonly kind: "discardTokens"; readonly target: TargetRef }
   /**
    * "Set this villain aside." (the Sinister Six villains' When Defeated, `sm` 27094–27099; MC27 p. 15): the villain leaves
    * play (or, already defeated, stays out of it) and returns to the set-aside area, where `addVillain` can bring it back.
@@ -5198,6 +5240,15 @@ export type EffectSpec =
    * still discarded: attachments, tucked cards, status cards, damage, threat and every counter type not named. Kept
    * counters are not placed, so no `countersPlaced` follows. A flip to the same card type keeps everything anyway,
    * and no other kind of flip reads this.
+   *
+   * `resolveToughness` (villain flips only): the new face's toughness keyword gives the villain a tough status card.
+   * By default a villain's flip gives none: RRG 1.8 "Toughness" (p. 45) places the card "when a character with the
+   * toughness keyword enters play", and a villain turning over is the same card staying in play (owner decision,
+   * docs/phase7-shadowland.md §5.1 question 10 = B, 2026-10-22, PR #355). Set where a product's rules or the card text
+   * make the new face's keyword resolve: Typhoid Mary's flip (MC60 p. 26 FAQ, "the ability or keyword on her new
+   * faceup side resolves"; the owner confirmed she keeps it, Quin, 2026-10-22, PR #355 question 10), or card text that reveals a villain on that face in place of the other (Shadow Labyrinth
+   * 2A, "Reveal the chosen villain's side A (side B instead in expert mode)"). A new villain stage is a different case and
+   * always resolves it (`defeatVillainStage`, `revealNextVillainStage`).
    */
   | {
       readonly kind: "flipCard";
@@ -5205,6 +5256,7 @@ export type EffectSpec =
       readonly reveal?: boolean;
       readonly controller?: PlayerRef;
       readonly keepCounters?: readonly string[];
+      readonly resolveToughness?: true;
     }
   /**
    * "Change to Gamma energy form" / "flip that card faceup to change to that energy form" / "change energy forms" /

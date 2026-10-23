@@ -249,21 +249,21 @@ export const CREDITS: readonly CreditEntry[] = [
     id: "shadowland-comic",
     group: "story",
     title: "Shadowland (2010): comic pages",
-    shownIn: "Not shown yet; kept for the Shadowland story and Extras",
+    shownIn: "Shadowland campaign story (the aftermath reads between issues); Extras artwork",
     credit:
       "Six lettered pages from Marvel's Shadowland (2010) #1-5, the possessed Daredevil and the Hand (the owner, 2026-10-20), some from #5. Written by Andy Diggle; pencils by Billy Tan. The issue each page comes from is not recorded.",
     url: "https://www.marvel.com/comics/series/9934/shadowland_2010",
     notice: MARVEL,
-    folders: ["art/scenarios/_pending/shadowland"],
+    folders: ["art/campaigns/shadowland"],
   },
   {
     id: "shadowland-panels",
     group: "story",
-    title: "Shadowland story panels",
-    shownIn: "Not shown yet; raw material for the Shadowland scenario intro",
-    // The owner, 2026-10-20, from their library entry for the issue.
+    title: "Shadowland (MC65) story panels",
+    shownIn: "Shadowland campaign cover, issue openers and scenario tile; Extras artwork",
     credit:
-      "Five panel pictures from Shadowland #5 (of 5) (Marvel Comics, 2010), found at the foot of Hall of Heroes' Shadowland page. Written by Andy Diggle; pencils by Billy Tan; inks by Victor Olazaba; colors by Guru eFX; cover by John Cassaday.",
+      "Five panel pictures of Marvel Champions: Shadowland (MC65) promotional art, from the foot of Hall of Heroes' Shadowland page (the owner, 2026-10-20). The artist is not recorded yet.",
+    gap: true,
     notice: MARVEL,
     url: "https://hallofheroeslcg.com/shadowland/",
   },
@@ -271,12 +271,12 @@ export const CREDITS: readonly CreditEntry[] = [
     id: "avengers-11",
     group: "story",
     title: 'Avengers (2018) #11, "Worthy of a Second Date?": four pages',
-    shownIn: "Not shown yet; the earned mini comic for the Thor and She-Hulk Team-Up achievement",
+    shownIn: "Extras ▸ Side Stories, opened by the Worthy of a Second Date? achievement",
     credit:
       "Marvel Comics, released December 12, 2018 (cover-dated January 2019). Written by Jason Aaron; pencils by Cory Smith, Ed McGuinness and Karl Kesel; cover by Ed McGuinness. Pages 6, 11, 16 and 17. Inkers, colorist and letterer are not listed in the owner's library entry, so they are not recorded yet.",
     notice: MARVEL,
     url: "https://www.marvel.com/comics/issue/67768/avengers_2018_11",
-    folders: ["art/extras/_pending/thor-she-hulk-badlands-date"],
+    folders: ["art/side-stories"],
     gap: true,
   },
 
