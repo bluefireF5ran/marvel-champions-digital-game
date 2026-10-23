@@ -1,4 +1,4 @@
-import { cardId, trait, type Trait } from "@mc/content";
+import { cardId, trait, type Trait, type VillainSideLetter } from "@mc/content";
 import {
   ATTACK_DAMAGE_RESULT,
   attackPreventedVars,
@@ -253,6 +253,12 @@ export const find = (q: TargetQuery, opts: { readonly owner?: PlayerRef } = {}):
   query: q,
   ...(opts.owner ? { owner: opts.owner } : {}),
 });
+/**
+ * "The chosen villain" (docs/phase7-shadowland.md §4.1): the villain card setup chose for a card-keyed villain choice
+ * (`GameState.chosenVillainId`), whether it is the villain or still set aside. Whisper in the Dark, "put the set-aside
+ * chosen villain into play", is `addVillain(chosenVillain)`. Nothing in a game without such a choice.
+ */
+export const chosenVillain: TargetRef = find({ chosenVillain: true });
 /** A player's identity, in whichever form it is ("you take 2 damage", "your hero", "Peter Parker"). */
 export const identityOf = (player: PlayerRef = you): TargetRef => ({ kind: "identityOf", player });
 export const yourIdentity: TargetRef = identityOf(you);
@@ -1398,6 +1404,12 @@ export const youHaveTrait = (t: Trait): Predicate => hasTrait(yourIdentity, t);
  * ("When Revealed (Face Name)", docs/phase7-wave1.md §3.3). A title names one face only (RRG 1.8 "Identity", p. 23).
  */
 export const faceNamed = (of: TargetRef, name: string): Predicate => ({ kind: "faceNamed", of, name });
+/** "The villain is on side A / B": the side of a double-sided villain that is up. */
+export const villainOnSide = (side: VillainSideLetter, of: TargetRef = theVillain): Predicate => ({
+  kind: "villainSide",
+  of,
+  side,
+});
 /** "If you are [Archangel]" / "in [Archangel] form" (docs/phase7-wave7.md §3.62): your identity's face showing. */
 export const youAreNamed = (name: string): Predicate => faceNamed(yourIdentity, name);
 /**
