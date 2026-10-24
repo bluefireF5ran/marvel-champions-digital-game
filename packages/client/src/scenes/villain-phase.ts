@@ -162,9 +162,11 @@ import {
   activationHeadline,
   activationHiddenFace,
   breakdownLineOf,
+  breakdownTotalFirstOf,
   breakdownOf,
   type Breakdown,
 } from "../view/villain-breakdown.js";
+import { preventionPreviewOf } from "../view/interrupt-prevention.js";
 import { activeVillainWording } from "../view/villain-active-change.js";
 import { decisionNoticeOf, soleAnswerOf } from "../view/villain-decision-notice.js";
 import { villainPhaseLayout } from "../view/villain-phase-layout.js";
@@ -192,6 +194,7 @@ import {
   readyToAutoClose,
   recapPlacementFor,
   choiceHiddenBy,
+  dealtByBeat,
   type ActivationBeat,
   type RecapPlacement,
   type InlineInterruptOption,
@@ -667,6 +670,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         state.game,
         state.perspectiveId,
         POOL_DEPS,
+        state.lastStates,
       );
       const after = totalBeatsOf(this.#walkthrough);
       // A fresh villain phase clears the previous one's beats (the walkthrough
@@ -980,6 +984,15 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       hasCloseTimer: this.#closeTimer !== null,
       reducedMotion: appSession().settings.reducedMotion,
       presentation: this.#presentation,
+      // "N OF M" as the strip shows it, and the "+N WAITING" count (#386).
+      encounterStrip: this.#latest?.game
+        ? (this.#encounterStrip(
+            revealOf(this.#walkthrough, this.#revealed),
+            this.#latest.game,
+            this.#latest.perspectiveId,
+          )?.tiles.map((tile) => tile.status) ?? [])
+        : [],
+      waiting: this.#flipState()?.waiting ?? null,
     };
   }
 
@@ -1168,8 +1181,13 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         .map((beat) => beat.encounterInstanceId ?? null),
     );
     // The same player's cards not yet up, in the order dealt (RRG p. 47: they are revealed one at a time in that order).
+    // Only those dealt as far as the screen has got: a surge's card is not waiting before the surge (issue #386).
     const waiting = dealt.filter(
-      (entry) => entry.playerId === owner && entry.instanceId !== card && !shown.has(entry.instanceId),
+      (entry) =>
+        entry.playerId === owner &&
+        entry.instanceId !== card &&
+        !shown.has(entry.instanceId) &&
+        dealtByBeat(entry, this.#revealed),
     ).length;
     return { card, elapsedMs: gate !== null ? null : this.time.now - this.#flip!.startedAt, waiting };
   }
@@ -2792,10 +2810,13 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     // Before START, even the player's own interrupt waits: the gate takes the window's place.
     const gate = this.#gate(game, viewer, subject);
     if (gate?.kind === "start") inline = null;
+    // What the first option on offer would prevent of the damage about to be dealt (#394).
+    const prevention = inline?.[0] ? preventionPreviewOf(game, POOL_DEPS, inline[0]) : null;
     const input = {
       panel,
       revealing,
       interruptOptions: inline?.length ?? (gate ? 1 : 0),
+      interruptHpLine: prevention?.hp != null,
       cardScale: cardSizeFactor(appSession().settings.cardSize),
     };
     const layout =
@@ -2863,6 +2884,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
           ? {
               options: inline,
               pause,
+              prevention,
               ...this.#inlineAnswers(game, inline),
             }
           : null,
@@ -2898,6 +2920,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         startRect: () => stops.get("start")?.rect ?? null,
         answerRect: () => stops.get("answer")?.rect ?? null,
         boostedBeat: () => happeningDebug.boosted,
+        breakdownBeat: () => happeningDebug.breakdown,
       };
     }
     // Slides in from its edge as the phase begins (the right on desktop, the top on a tablet in landscape, the bottom
@@ -2935,6 +2958,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       };
     }
     const breakdown = breakdownLineOf(activation, game);
+    const totalFirst = breakdownTotalFirstOf(activation, game);
     const defender = defenderLineOf(game, activation);
     const hiddenFace = activationHiddenFace(activation);
     // While a window on one boost card is open, that card: the one being counted (Chaos Control, Scarlet Witch's Crest;
@@ -2946,6 +2970,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       ...(hiddenFace ? { enemyFace: hiddenFace } : {}),
       headline: activationHeadline(activation, game, viewer),
       text: [breakdown ?? (paused ? "" : (reveal.current?.text ?? "")), defender ?? ""].filter(Boolean).join(" "),
+      ...(totalFirst ? { cutText: [totalFirst, defender ?? ""].filter(Boolean).join(" ") } : {}),
       boostLine: activationBoostLineOf(activation, counted, game),
       boosts: activation.boosts.map((boost) => boost.instanceId),
       countedBoostId: counted?.instanceId ?? null,

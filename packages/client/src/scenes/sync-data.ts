@@ -34,6 +34,7 @@ import {
   NO_STATUS,
   RECOVERY_PLACEHOLDER,
   SETUP_HELP,
+  SETUP_LOCK_NOTICE,
   SHOW_CODE_HELP,
   SYNC_OFF_INTRO,
   SYNC_ON_INTRO,
@@ -235,7 +236,14 @@ export class SyncDataOverlay extends Phaser.Scene {
   #copy(text: string): void {
     const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
     const done = (status: SaveDataStatus): void => {
-      if (this.sys.isActive()) this.#set(this.#step, status);
+      if (!this.sys.isActive()) return;
+      const step = this.#step;
+      // A copied recovery code counts as saved: the ✕ and Escape unlock.
+      const copied =
+        status === COPIED_STATUS && step.kind === "setup" && typeof step.phase === "object"
+          ? { ...step, phase: { ...step.phase, copied: true } }
+          : step;
+      this.#set(copied, status);
     };
     if (!clipboard?.writeText) {
       done(COPY_FAILED_STATUS);
@@ -378,6 +386,13 @@ export class SyncDataOverlay extends Phaser.Scene {
           stops,
           order,
         );
+        if (syncStepMustAcknowledge(step)) {
+          const notice = this.add
+            .text(x, y + 14, SETUP_LOCK_NOTICE, textStyle(typeRole.body, signal.caution.hex, 0.95))
+            .setFontSize(12)
+            .setWordWrapWidth(rowWidth);
+          y = notice.y + notice.height;
+        }
         break;
       case "show-code":
         y = this.#drawCode(
