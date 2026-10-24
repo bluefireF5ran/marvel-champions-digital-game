@@ -1,4 +1,4 @@
-export const ENGINE_VERSION = "0.34.0";
+export const ENGINE_VERSION = "0.36.2";
 
 export type { PlayerId, InstanceId, ChoiceId, EncounterDeckId, FrameId, GroupId, TeamId } from "./ids.js";
 export { playerId, instanceId, choiceId, encounterDeckId, frameId, groupId, teamId } from "./ids.js";
@@ -637,7 +637,15 @@ export {
   mainSchemeStageIndexesProblem,
 } from "./setup.js";
 
-export type { CommandResult, GameLog, GameSession, ReplayResult, SessionResult } from "./engine.js";
+export type {
+  ApplyOptions,
+  CommandResult,
+  EventState,
+  GameLog,
+  GameSession,
+  ReplayResult,
+  SessionResult,
+} from "./engine.js";
 export { appendCommand, applyCommand, applyCommands, createLog, replay, sessionApply, startSession } from "./engine.js";
 
 export type { CharacterKind, CharacterProfile, HeroFaceWithTraits } from "./query.js";

@@ -72,7 +72,9 @@ test("set up shows the recovery code once and needs the acknowledge; the status 
   await waitForSyncText(page, grouped);
   await shot(page, phone, "2-setup-code");
 
-  // The code was shown once: Escape and the close button leave it up until the player says they have saved it.
+  // The code was shown once: Escape and the close button leave it up until the player says they have saved it, and the
+  // screen says so (a locked ✕ with no word read as a dialog that could not be closed).
+  expect(await hasText(page, "To close this, copy your code or press I've saved my code.", SYNC_DATA)).toBe(true);
   await pressKey(page, "Escape");
   await settle(page, { quietMs: 300, maxMs: 1500 });
   expect(await activeScenes(page)).toContain(SYNC_DATA);
@@ -83,6 +85,7 @@ test("set up shows the recovery code once and needs the acknowledge; the status 
 
   await press(page, SYNC_DATA, "ack");
   await waitForSyncText(page, "Sync is on");
+  expect(await hasText(page, "To close this", SYNC_DATA)).toBe(false);
   await waitForSyncText(page, "Status: Synced");
   await shot(page, phone, "3-sync-on");
   expect(cloud.spaces.size).toBe(1);
