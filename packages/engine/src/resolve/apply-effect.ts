@@ -2336,7 +2336,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           instanceId: id,
           playerId: attached.includes(id) ? (controllerOf(ctx.state, id) ?? underOf(id)) : underOf(id),
         }));
-      const frames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
+      const enteredFrames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
       const keywords: StackFrame[] = [];
       for (const id of entering) {
         const quickstrike = quickstrikeFrame(ctx, id);
@@ -2348,9 +2348,10 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         if (teamwork) keywords.push(teamwork);
       }
       // After the keywords: "After you engage a minion" (ruling, Jan 17, 2026 (3) answer 2). In a pass of an "each
-      // time" loop both wait for the whole loop (ruling 38, Drang III; `keywordFramesFor`).
+      // time" loop the keywords and every response to the minions entering play or engaging wait for the whole loop
+      // (ruling 38, Drang III; `keywordFramesFor`).
       const engagements = entering.flatMap((id) => engagedEvent(ctx, id).map((event) => eventFrame(ctx, event)));
-      frames.push(...keywordFramesFor(ctx, keywords, engagements));
+      const frames = [...keywordFramesFor(ctx, keywords, engagements, enteredFrames)];
       // "If no minion was put into play this way" (docs/phase7-wave4.md §3.59): only what is in play now entered.
       if (effect.bind) {
         const inPlay = cardsInPlay(ctx.state);
@@ -2428,15 +2429,10 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       bound([id]);
       // Announced as the minion it now is (§4.1 Q43 = A), in the order `putIntoPlay` announces a minion.
       const entered: TriggerEvent[] = [{ kind: "cardEntersPlay", instanceId: id, playerId }];
-      const frames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
+      const enteredFrames: StackFrame[] = entered.map((event) => eventFrame(ctx, event));
       const keywords = [quickstrikeFrame(ctx, id), teamworkFrame(ctx, id)].filter((f): f is StackFrame => f !== null);
-      frames.push(
-        ...keywordFramesFor(
-          ctx,
-          keywords,
-          engagedEvent(ctx, id).map((event) => eventFrame(ctx, event)),
-        ),
-      );
+      const engagements = engagedEvent(ctx, id).map((event) => eventFrame(ctx, event));
+      const frames = [...keywordFramesFor(ctx, keywords, engagements, enteredFrames)];
       frames.push(
         ...attached
           .filter((event) => announcesAttaching(event, (e) => heard(ctx.state, ctx.deps, e)))

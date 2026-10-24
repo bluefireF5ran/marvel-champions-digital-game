@@ -591,13 +591,11 @@ export function rotateEngagement(ctx: Ctx): readonly InstanceId[] {
  * only when an optional response answers the same engagement.
  */
 export function engagedInPlayFrames(ctx: Ctx, id: InstanceId): readonly StackFrame[] {
-  const frames: StackFrame[] = [];
   const engaged = engagementFrame(ctx, id);
-  if (engaged) frames.push(engaged);
   const quickstrike = quickstrikeFrame(ctx, id);
-  // In a pass of an "each time" loop the attack waits for the whole loop (ruling 38; `keywordFramesFor`).
-  if (quickstrike) frames.push(...keywordFramesFor(ctx, [quickstrike]));
-  return frames;
+  // In a pass of an "each time" loop the attack and the engagement's responses wait for the whole loop, as they do for
+  // a minion put into play (ruling 38; `keywordFramesFor`).
+  return keywordFramesFor(ctx, quickstrike ? [quickstrike] : [], [], engaged ? [engaged] : []);
 }
 
 type MinionEngaged = Extract<TriggerEvent, { kind: "minionEngaged" }>;

@@ -429,7 +429,7 @@ describe("Drang III (16060) discards minions into play (FFG ruling 38, Nov 19, 2
     expect(enteredPlay(second!)).toBeLessThan(attackedBy(first!));
   });
 
-  it("no quickstrike attack initiates, and no 'when … attacks' window opens, before the last minion engages", () => {
+  it("no quickstrike attack initiates before the last minion engages", () => {
     const config = wave3Scenario("brotherhood-of-badoon", {
       difficulty: "expert",
       players: [{ starterDeckId: "groot-protection" }],
@@ -463,9 +463,9 @@ describe("Drang III (16060) discards minions into play (FFG ruling 38, Nov 19, 2
     const initiated = events.findIndex(
       (e) => e.type === "triggerEvent" && e.phase === "initiated" && e.event.kind === "enemyAttack",
     );
-    const attackWindow = events.findIndex((e) => e.type === "windowOpened" && e.event.kind === "enemyAttack");
     expect(initiated).toBeGreaterThan(lastEngaged);
-    if (attackWindow >= 0) expect(attackWindow).toBeGreaterThan(lastEngaged);
+    // Nothing in this game answers "when … attacks", so no such window opens here: that a window opens only after the
+    // loop is proven with a stub interrupt in `packages/engine/src/initiated-activation.test.ts`.
   });
 });
 

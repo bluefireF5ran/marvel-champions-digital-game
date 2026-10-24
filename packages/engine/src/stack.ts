@@ -337,10 +337,18 @@ export type StackFrame =
       readonly stepsAfterAbility?: FrameId;
       /**
        * With `stepsAfterAbility`: initiated, and waiting beneath that ability's root frame for it to finish. While it
-       * waits it is not "this activation" to `currentActivationFrameId`. Cleared, with `stepsAfterAbility`, as its
-       * steps begin.
+       * waits it is still "this attack" to `currentActivationFrameId` and attacking to `attackInProgress` (ruling 147),
+       * but no defense lookup reads it (`awaitingAbility`, the shared predicate): it has no attack procedure yet.
+       * Cleared, with `stepsAfterAbility`, as its steps begin.
        */
       readonly awaitingAbility?: true;
+      /**
+       * An announcement that waits beneath the ability's root frame `heldForAbility`, after the keyword activations
+       * waiting there: the responses to a minion entering play or engaging that answer after its quickstrike or
+       * teamwork, which counts as resolved only once its activation has fully resolved (RRG 1.8 "Activation", p. 6;
+       * FFG ruling 38; `resolve/initiated-activation.ts`).
+       */
+      readonly heldForAbility?: FrameId;
       /**
        * With `attackOf`: the attack's target was changed in its "when … attacks" window (`EffectSpec retargetAttack`),
        * off `from` (the enemy it was made against) onto `to`. The event's own target is `to` from then on. Kept on the
@@ -1154,6 +1162,14 @@ export const attackPreventedVars = (
  * attack", "this activation"): the topmost `attack` / `enemyAttack` /
  * `enemyScheme` event on the stack.
  */
+/**
+ * A keyword's enemy activation initiated and waiting beneath its ability for that ability to finish
+ * (`Frame<"event">.awaitingAbility`, `resolve/initiated-activation.ts`). It has no attack procedure yet, so the lookups
+ * of an attack's defense (the defender, the defense bar, the attacked player or character) skip it and read the attack
+ * around it, if any.
+ */
+export const awaitingAbility = (frame: StackFrame): boolean => frame.kind === "event" && frame.awaitingAbility === true;
+
 export function currentActivationFrameId(stack: readonly StackFrame[]): FrameId | null {
   for (const frame of stack) {
     if (frame.kind !== "event") continue;
@@ -1161,9 +1177,9 @@ export function currentActivationFrameId(stack: readonly StackFrame[]): FrameId 
     // ability's later instructions name what they named before it waited, the activation around it if there is one.
     // The flag is cleared as the attack starts to finish, so its retaliate and "after … attacks" abilities name it.
     if (frame.attackWaiting) continue;
-    // A keyword's activation initiated and waiting for the ability around it (`awaitingAbility`): that ability's later
-    // instructions name what they named before it was initiated.
-    if (frame.awaitingAbility) continue;
+    // A keyword's activation initiated and waiting for the ability around it (`awaitingAbility`) is "this attack" to
+    // that ability's later instructions (ruling February 15, 2024 - Ruling 147: "dependent" effects resolve with the
+    // initiated activation).
     const kind = frame.event.kind;
     // `enemyAttacksEnemy` is an attack, so "this attack" names it, though not an activation (docs/phase7-wave3.md §3.23).
     if (

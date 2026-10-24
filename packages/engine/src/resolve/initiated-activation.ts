@@ -12,8 +12,11 @@
  * the model: ruling 129 (December 8, 2023: "Teamwork causes the minions to initiate their activations, and abilities
  * triggered by the initiations resolve before the activations do") and ruling 147 (February 15, 2024: "the character
  * enters play, their keyword resolves (resulting in an activation initiation), Interrupts to the activation and/or
- * Responses to them entering play resolve, then the activation resolves"). RRG 1.8 p. 4 ("resolve the ability one
- * sentence at a time") and "Quickstrike" (p. 36) / "Teamwork (Trait)" (p. 43) do not say otherwise.
+ * Responses to them entering play resolve, then the activation resolves"). Quickstrike initiates the attack; the
+ * attack's steps resolve after the enclosing ability (ruling Feb 15, 2024 #147; May 23, 2024 #194). The keyword counts
+ * as resolved only once the attack has fully resolved (RRG 1.8 'Activation', p. 6): what answers after the keyword (the
+ * responses to its minion entering play or engaging that wait above the ability's root) moves beneath the waiting
+ * activation as it parks (`answersAfterKeyword`, `Frame<"event">.heldForAbility`), so it resolves after the attack.
  *
  * How. A quickstrike attack or teamwork activation made while an ability resolves carries that ability's root effects
  * frame (`Frame<"event">.stepsAfterAbility`; `enclosingAbilityRoot`: the innermost effects frame of an ability on the
@@ -35,11 +38,13 @@
  *   effect alone (`sentence-hold.ts`). So "reveal the top card of the encounter deck" and nothing else keeps the
  *   order of a villain-phase reveal (FAQ "Widow's Bite (#10)", RRG 1.8 p. 60; the owner's answers 30B and 32B).
  * - "Each time" loops (ruling 38, Drang III: "after they've all engaged, resolve all Quickstrike and Teamwork
- *   abilities on those minions, then any Response abilities"): a keyword made in a pass of the loop is held by the
- *   frame running the loop (`keywordFramesFor`), with the announcement of its minion's engagement, and initiates only
- *   once every pass has resolved (`releaseLoopFrames`), so no "when … attacks" window opens mid-loop. Only the
- *   `forEachDiscarded` loop is marked (`Frame<"effects">.eachTimePass`). The rules expert's model A (2026-10-24),
- *   pending the owner's confirmation.
+ *   abilities on those minions, then any Response abilities"; RRG 1.8 p. 38 agrees): a keyword made in a pass of the
+ *   loop is held by the frame running the loop (`keywordFramesFor`), with every response to its minion entering play or
+ *   engaging (the `cardEntersPlay` frame keeps only its interrupts and its apply step, `responsesLater`), and
+ *   initiates only once every pass has resolved (`releaseLoopFrames`), so no "when … attacks" window opens mid-loop.
+ *   Two or more held keywords are ordered by the first player (`orderLoopKeywords`, discard order by default). The
+ *   loop is the innermost ability's own (`loopOwner`); only `forEachDiscarded` is marked (`eachTimePass`). The rules
+ *   expert's model A (2026-10-24), pending the owner's confirmation.
  * - While a cost is being paid nothing waits (`payingCost`): RRG 1.8 "Initiating Abilities" (p. 24) and "Cost Arrow
  *   Icon" (p. 14); ruling February 28, 2026 - Ruling 1 (Come Get Me, Bub!).
  * - A stunned status card given after the attack initiated does not cancel it: the stun replaces an attack that
@@ -50,16 +55,23 @@
  *   will occur before Vendetta enters play"): Vendetta now enters play before the attack's steps. Its answer still
  *   holds: amplify adds icons to boost cards turned faceup (RRG 1.8 "Amplify Icon", p. 7), and a minion's attack is
  *   dealt none, so Vendetta's amplify does not change Blackjack O'Hare's attack.
- * - While it waits the activation is not "this activation" to `currentActivationFrameId`. Ruling 147's "dependent"
- *   effects ("this attack gains …" in a later sentence of the same ability) are not modelled for keyword activations;
- *   no printed card needs them.
+ * - While it waits the activation is "this attack" to `currentActivationFrameId` (ruling 147: a later sentence's
+ *   "dependent" effects resolve with the initiated activation) and attacking to `attackInProgress` and "the attacking
+ *   enemy" (RRG 1.8 FAQ "Nova (#12)", p. 59; ruling August 7, 2025). Engine reading awaiting the owner: a later,
+ *   non-dependent sentence's "the attacking enemy" names it too. The defense lookups (`currentEnemyAttackFrame`, the
+ *   defender, the attacked player and character) skip it (`awaitingAbility` in `stack.ts`): it has no attack procedure
+ *   yet, and an outer attack in progress is the one being defended.
  */
 
-import { type Ctx, emit, pushFrames, setFrame, updateFrame } from "../ctx.js";
-import type { FrameId } from "../ids.js";
+import { type Ctx, emit, pushFrames, requestChoice, setFrame, updateFrame } from "../ctx.js";
+import type { FrameId, InstanceId } from "../ids.js";
+import { getInstance } from "../query.js";
+import { cardsInPlay } from "../select.js";
 import type { StackFrame } from "../stack.js";
 import type { GameState } from "../state.js";
-import type { Frame } from "./frames.js";
+import { simultaneousOrderer } from "../villain/authority.js";
+import { displayNameOf } from "../visibility.js";
+import { base, type Frame } from "./frames.js";
 import { abilityRootFrameId } from "./thwart-session.js";
 
 /** The root effects frame of the innermost ability resolving on the stack, or undefined when none is. */
@@ -91,58 +103,135 @@ function payingCost(state: GameState, root: FrameId): boolean {
   return state.stack.slice(0, at + 1).some((f) => f.kind === "effects" && f.costEffectsPending !== undefined);
 }
 
+/** Whether `f` is an effects frame of the same ability resolution as `of`. */
+const sameAbility = (f: StackFrame | undefined, of: Frame<"effects">): f is Frame<"effects"> =>
+  f?.kind === "effects" && f.abilityId === of.abilityId && f.selfInstanceId === of.selfInstanceId;
+
 /**
- * The frame running the "each time" loop a pass of which is resolving now (`Frame<"effects">.eachTimePass`): the
- * frame beneath the passes. Undefined outside such a loop.
+ * The frame running the "each time" loop of the innermost ability resolving now, while one of the loop's passes
+ * resolves (`Frame<"effects">.eachTimePass`): the frame of that ability beneath the passes. Undefined when the innermost
+ * ability is not in such a loop: a response ability resolving inside a pass of another ability's loop holds nothing on
+ * that loop.
  */
 function loopOwner(state: GameState): Frame<"effects"> | undefined {
   const stack = state.stack;
-  let at = stack.findIndex((f) => f.kind === "effects" && f.eachTimePass === true);
-  if (at < 0) return undefined;
-  while (at < stack.length) {
-    const f = stack[at];
-    if (f?.kind !== "effects" || f.eachTimePass !== true) break;
-    at++;
-  }
+  const innermostAt = stack.findIndex((f) => f.kind === "effects" && f.abilityId !== undefined);
+  const innermost = stack[innermostAt];
+  if (innermost?.kind !== "effects") return undefined;
+  let at = innermostAt;
+  while (sameAbility(stack[at], innermost) && (stack[at] as Frame<"effects">).eachTimePass !== true) at++;
+  if (!sameAbility(stack[at], innermost)) return undefined;
+  while (sameAbility(stack[at], innermost) && (stack[at] as Frame<"effects">).eachTimePass === true) at++;
   const owner = stack[at];
-  return owner?.kind === "effects" ? owner : undefined;
+  return sameAbility(owner, innermost) ? owner : undefined;
+}
+
+/** A minion's entering play engaged with a player, or an in-play minion's engagement. */
+function answersAMinion(state: GameState, frame: StackFrame): boolean {
+  if (frame.kind !== "event") return false;
+  if (frame.event.kind === "minionEngaged") return true;
+  return frame.event.kind === "cardEntersPlay" && getInstance(state, frame.event.instanceId)?.engagedWith != null;
 }
 
 /**
- * The quickstrike and teamwork frames of a minion put into play or engaged now (`keywords`), and the announcements of
- * its engagement (`after`). Inside a pass of an "each time" loop they are held by the frame running the loop, which
- * pushes them once every pass has resolved (`releaseLoopFrames`; FFG ruling 38, November 19, 2024, Drang III: the
- * minions' interrupts resolve "immediately after they engage a player; and after they've all engaged, resolve all
- * Quickstrike and Teamwork abilities on those minions, then any Response abilities"), and nothing is returned.
- * Otherwise they are returned, in that order, to be pushed where they are. A cost being paid holds nothing.
+ * An event frame split for an "each time" loop: the part resolved in the pass (its interrupt window and its apply
+ * step, `responsesLater`) and the part held for the end of the loop (its responses, as a frame of the same event at
+ * `stage: "responses"`). A frame that is only an announcement is held whole.
+ */
+function splitResponses(ctx: Ctx, frame: StackFrame): { readonly now?: StackFrame; readonly later?: StackFrame } {
+  if (!answersAMinion(ctx.state, frame)) return { now: frame };
+  if (frame.kind !== "event" || frame.stage !== "interrupts") return { later: frame };
+  const { responsesLater: _later, ...rest } = frame;
+  return { now: { ...frame, responsesLater: true }, later: { ...rest, ...base(ctx), stage: "responses" } };
+}
+
+/**
+ * The frames that follow a minion put into play or engaged now: `entered` (its `cardEntersPlay`, or an in-play
+ * minion's engagement, each carrying its interrupts and its responses), `keywords` (its quickstrike and teamwork) and
+ * `after` (the announcements of its engagement, "after you engage a minion"). Returns the frames to push now, in that
+ * order.
  *
- * Engine reading: the responses to each minion's entering play still resolve in its own pass, with its
- * `cardEntersPlay` (one event frame carries its interrupts and responses); only the announcements of the engagement
- * ("after you engage a minion") wait for the loop.
+ * Inside a pass of an "each time" loop (`loopOwner`) only the interrupts and the entering itself resolve in the pass;
+ * the keywords, and every response to the minion entering play or engaging, are held by the frame running the loop and
+ * pushed once every pass has resolved (`releaseLoopFrames`). FFG ruling 38, November 19, 2024, Drang III: "you will
+ * resolve any 'Interrupt' abilities on the minions immediately after they engage a player; and after they've all
+ * engaged, resolve all Quickstrike and Teamwork abilities on those minions, then any Response abilities". RRG 1.8
+ * "Reveal" (p. 38) holds a revealed card's responses the same way. A cost being paid holds nothing.
  */
 export function keywordFramesFor(
   ctx: Ctx,
   keywords: readonly StackFrame[],
   after: readonly StackFrame[] = [],
+  entered: readonly StackFrame[] = [],
 ): readonly StackFrame[] {
-  const owner = keywords.length + after.length > 0 ? loopOwner(ctx.state) : undefined;
-  if (!owner || owner.costEffectsPending !== undefined) return [...keywords, ...after];
+  const owner = loopOwner(ctx.state);
+  if (!owner || owner.costEffectsPending !== undefined) return [...entered, ...keywords, ...after];
+  if (keywords.length + after.length === 0 && !entered.some((f) => answersAMinion(ctx.state, f))) return entered;
+  const split = entered.map((frame) => splitResponses(ctx, frame));
   const held = owner.heldLoopFrames ?? { keywords: [], after: [] };
+  const later = [...split.flatMap((part) => (part.later ? [part.later] : [])), ...after];
   updateFrame(ctx, owner.frameId, (f) =>
     f.kind === "effects"
-      ? { ...f, heldLoopFrames: { keywords: [...held.keywords, ...keywords], after: [...held.after, ...after] } }
+      ? { ...f, heldLoopFrames: { keywords: [...held.keywords, ...keywords], after: [...held.after, ...later] } }
       : f,
   );
-  return [];
+  return split.flatMap((part) => (part.now ? [part.now] : []));
 }
 
-/** `frame` resumes with frames its loop held (`keywordFramesFor`): they are pushed, keywords first, and true is returned. */
+/** The minion a held keyword frame belongs to: a quickstrike attack's enemy, a teamwork step's minion. */
+function keywordMinion(frame: StackFrame): InstanceId | null {
+  if (frame.kind === "event" && frame.event.kind === "enemyAttack") return frame.event.enemyInstanceId;
+  if (frame.kind === "effects") return frame.selfInstanceId;
+  return null;
+}
+
+/** "Quickstrike" or "Teamwork", for the order prompt. */
+const keywordLabel = (frame: StackFrame): string => (frame.kind === "event" ? "Quickstrike" : "Teamwork");
+
+/**
+ * `frame` resumes with frames its loop held (`keywordFramesFor`): its keywords, then the responses. Two or more keywords
+ * are ordered by the first player (RRG 1.8 "Simultaneous Resolution", p. 40; "Activation", p. 6: "If multiple
+ * activations are initiated this way, the first player decides the order"; ruling December 8, 2023 - Ruling 129:
+ * teamwork activations initiate simultaneously and resolve one at a time "in the order that you choose"); the options
+ * are listed in the order the minions were discarded, the default. A response held for a card that did not enter play
+ * after all (its entering was cancelled) is dropped. True when it pushed or asked.
+ */
 export function releaseLoopFrames(ctx: Ctx, frame: Frame<"effects">): boolean {
   const held = frame.heldLoopFrames;
   if (!held) return false;
+  let keywords = held.keywords;
+  if (keywords.length >= 2) {
+    if (!frame.answer) {
+      requestChoice(ctx, {
+        playerId: simultaneousOrderer(ctx.state),
+        authority: "firstPlayerOrders",
+        prompt: { kind: "orderLoopKeywords" },
+        options: keywords.map((f, index) => {
+          const minion = keywordMinion(f);
+          return {
+            optionId: String(index),
+            label: minion ? `${keywordLabel(f)}: ${displayNameOf(ctx.state, minion)}` : keywordLabel(f),
+            ref: minion ? ({ kind: "card", instanceId: minion } as const) : ({ kind: "none" } as const),
+          };
+        }),
+        minSelections: keywords.length,
+        maxSelections: keywords.length,
+        frameId: frame.frameId,
+        ordered: true,
+      });
+      return true;
+    }
+    const picked = frame.answer.map(Number).filter((i) => Number.isInteger(i) && keywords[i] !== undefined);
+    const order = [...new Set(picked)];
+    keywords = [...order.map((i) => keywords[i]!), ...keywords.filter((_, i) => !order.includes(i))];
+  }
+  const inPlay = cardsInPlay(ctx.state);
+  const after = held.after.filter(
+    (f) => f.kind !== "event" || f.event.kind !== "cardEntersPlay" || inPlay.includes(f.event.instanceId),
+  );
   const { heldLoopFrames: _held, ...rest } = frame;
-  setFrame(ctx, rest);
-  pushFrames(ctx, [...held.keywords, ...held.after]);
+  setFrame(ctx, { ...rest, answer: null });
+  pushFrames(ctx, [...keywords, ...after]);
   return true;
 }
 
@@ -165,6 +254,27 @@ function abilityHasMore(stack: readonly StackFrame[], at: number, rootAt: number
     );
 }
 
+/** A keyword activation, or an "(attack)" ability's attack, waiting beneath the root frame `root`. */
+const waitingActivation = (f: StackFrame | undefined, root: FrameId): boolean =>
+  f?.kind === "event" &&
+  ((f.awaitingAbility === true && f.stepsAfterAbility === root) || (f.attackWaiting === true && f.attackOf === root));
+
+/** An announcement held beneath the root frame `root` after its keyword activations (`heldForAbility`). */
+const heldFor = (f: StackFrame | undefined, root: FrameId): boolean => f?.kind === "event" && f.heldForAbility === root;
+
+/**
+ * A response frame not yet begun that answers the minion `enemy` entering play or engaging: what follows its keywords
+ * (`keywordFramesFor`'s held responses, the announcement of its engagement).
+ */
+function answersAfterKeyword(f: StackFrame, enemy: InstanceId): boolean {
+  if (f.kind !== "event" || f.stage !== "responses" || f.heldForAbility !== undefined) return false;
+  const event = f.event;
+  return (
+    (event.kind === "minionEngaged" && event.minionInstanceId === enemy) ||
+    (event.kind === "cardEntersPlay" && event.instanceId === enemy)
+  );
+}
+
 /**
  * The apply step of an activation marked `stepsAfterAbility`. While its ability is still on the stack it moves beneath
  * the ability's root frame and true is returned: nothing more of it resolves until it is on top again. Otherwise (it
@@ -180,20 +290,28 @@ export function awaitEnclosingAbility(ctx: Ctx, frame: Frame<"event">): true | F
     setFrame(ctx, cleared);
     return cleared;
   }
-  const rest = stack.filter((f) => f.frameId !== frame.frameId);
-  let place = rest.findIndex((f) => f.frameId === root) + 1;
+  // What answers after this keyword, waiting above the root: the minion's responses to entering play or engaging
+  // (held from an "each time" loop, or the announcement of its engagement). The keyword counts as resolved only once its
+  // activation has fully resolved (RRG 1.8 "Activation", p. 6), so they move beneath it, after every activation
+  // waiting for this ability (`heldForAbility`).
+  const enemy =
+    frame.event.kind === "enemyAttack" || frame.event.kind === "enemyScheme" ? frame.event.enemyInstanceId : null;
+  const between = stack.slice(at + 1, rootAt);
+  const answering = between.filter((f): f is Frame<"event"> => enemy !== null && answersAfterKeyword(f, enemy));
+  const rest = stack.filter((f) => f.frameId !== frame.frameId && !answering.includes(f as Frame<"event">));
   // After the activations, and an "(attack)" ability's attacks, already waiting for the same ability.
-  while (place < rest.length) {
-    const below = rest[place];
-    if (below?.kind !== "event") break;
-    const waiting =
-      (below.awaitingAbility === true && below.stepsAfterAbility === root) ||
-      (below.attackWaiting === true && below.attackOf === root);
-    if (!waiting) break;
-    place++;
-  }
+  let place = rest.findIndex((f) => f.frameId === root) + 1;
+  while (place < rest.length && waitingActivation(rest[place], root!)) place++;
   const waiting: Frame<"event"> = { ...frame, awaitingAbility: true };
-  ctx.state = { ...ctx.state, stack: [...rest.slice(0, place), waiting, ...rest.slice(place)] };
+  const held = answering.map((f): Frame<"event"> => ({ ...f, heldForAbility: root! }));
+  // The activation at `place`, then the announcements already held there, then these.
+  const withActivation = [...rest.slice(0, place), waiting, ...rest.slice(place)];
+  let heldAt = place + 1;
+  while (heldAt < withActivation.length && heldFor(withActivation[heldAt], root!)) heldAt++;
+  ctx.state = {
+    ...ctx.state,
+    stack: [...withActivation.slice(0, heldAt), ...held, ...withActivation.slice(heldAt)],
+  };
   const event = frame.event;
   if (event.kind === "enemyAttack" || event.kind === "enemyScheme")
     emit(ctx, {

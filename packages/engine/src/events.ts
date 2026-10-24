@@ -992,16 +992,6 @@ export type GameEvent =
       readonly reason: "dashedStat" | "leftPlay";
     }
   /**
-   * An "(attack)" ability's attack has dealt its own damage and now waits for the rest of its ability (RRG 1.8 "Attack
-   * (Player Ability Type)", p. 10: the ability is a single attack; `resolve/attack-ability.ts`). From here until the
-   * ability's last effect, damage it deals to enemies is this attack's, and the attack finishes after it: each enemy
-   * attacked (retaliate), "after … attacks", "at the end of this attack".
-   *
-   * `begun`: the attack began with its ability, before the `attack` instruction that deals its damage (owner decision,
-   * 2026-10-08, docs/phase7-wave8.md §4.1 row 73). It has dealt nothing yet and waits for that instruction, which is
-   * logged as `attackResumed`; the attack then waits again (a second `attackAwaitsAbility`, without `begun`).
-   */
-  /**
    * A keyword's enemy activation (quickstrike's attack, teamwork's activation) was initiated while an ability was
    * resolving: its status check and its "when … attacks / schemes" interrupt window are done, and it now waits beneath
    * that ability's root frame `abilityFrameId` until the ability has finished, then resolves its steps
@@ -1015,6 +1005,16 @@ export type GameEvent =
       readonly enemyInstanceId: InstanceId;
       readonly activation: "attack" | "scheme";
     }
+  /**
+   * An "(attack)" ability's attack has dealt its own damage and now waits for the rest of its ability (RRG 1.8 "Attack
+   * (Player Ability Type)", p. 10: the ability is a single attack; `resolve/attack-ability.ts`). From here until the
+   * ability's last effect, damage it deals to enemies is this attack's, and the attack finishes after it: each enemy
+   * attacked (retaliate), "after … attacks", "at the end of this attack".
+   *
+   * `begun`: the attack began with its ability, before the `attack` instruction that deals its damage (owner decision,
+   * 2026-10-08, docs/phase7-wave8.md §4.1 row 73). It has dealt nothing yet and waits for that instruction, which is
+   * logged as `attackResumed`; the attack then waits again (a second `attackAwaitsAbility`, without `begun`).
+   */
   | {
       readonly type: "attackAwaitsAbility";
       readonly attackFrameId: FrameId;
