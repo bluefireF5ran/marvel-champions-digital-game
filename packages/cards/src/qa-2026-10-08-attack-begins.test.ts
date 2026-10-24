@@ -189,6 +189,8 @@ describe("Tackle (05015): 'Stun an enemy. If you paid for this card using a [phy
     expect(inst(done.state, minion.id).statuses.stunned).toBe(1);
   });
 
+  // Regression cover: Tackle's stun choice is already `anAttackableEnemy`, so this held before ruling 197's guard check;
+  // the Unlikely Duo case below is the one the check changes.
   it("a guard minion engaged: the stun goes to the minion, the villain is no target (RRG 1.8 p. 10, Q49)", () => {
     const engaged = engageMinion(rhino(), MERCENARY, P1);
     const given = tackle(engaged.state, false);

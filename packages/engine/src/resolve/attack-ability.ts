@@ -1051,9 +1051,10 @@ function chosenTargets(frame: Frame<"effects">, cursor: number, context: EffectC
  * they name on their own (`abilityAttackDamage`); this covers the enemies a choice targets for anything else (a status
  * card, a stat change). Such a choice does not offer an enemy the attacker may not attack (guard; RRG 1.8 p. 10,
  * owner ruling Q49, `attackTargetAllowed`), so a chosen enemy that cannot be attacked is skipped here only if guard
- * came into play after the choice. Interpretations: nothing is recorded while no attack waits (the attack's own `attack` instruction has not made it yet) or once it was cancelled;
- * an enemy the attack's window moved it off is replaced by the character it was moved onto (`attackRetarget`). Enemies
- * an instruction names without a choice ("stun the villain") are not covered: no shipped label-only instruction needs it.
+ * came into play after the choice. Interpretations: nothing is recorded while no attack waits (the attack's own
+ * `attack` instruction has not made it yet) or once it was cancelled; an enemy the attack's window moved it off is
+ * replaced by the character it was moved onto (`attackRetarget`). Enemies an instruction names without a choice ("stun
+ * the villain") are not covered: no shipped label-only instruction needs it.
  */
 function noteTargetedByAbility(ctx: Ctx, frame: Frame<"effects">, context: EffectContext): void {
   const attack = abilityAttackOf(ctx.state, ctx.deps, frame);

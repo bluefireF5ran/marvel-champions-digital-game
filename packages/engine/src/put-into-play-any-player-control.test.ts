@@ -86,6 +86,8 @@ function play(state: GameState, card: AnyCard, controlTo: PlayerId | null, playe
     const choice = current.pendingChoice;
     if (choice?.prompt.kind === "choosePlayer" && choice.prompt.slot === "putIntoPlayController") {
       asked.push({ playerId: choice.playerId, options: choice.options.map((o) => o.optionId) });
+      // The question names the card it places ("Who controls Boot Camp?").
+      expect(current.instances[choice.prompt.cardInstanceId!]?.cardId).toBe(CAMP.id);
       if (controlTo !== null) return [controlTo];
     }
     return defaultPick(current);

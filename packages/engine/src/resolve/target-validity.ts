@@ -385,7 +385,8 @@ function attackInstructions(value: unknown, found: Extract<EffectSpec, { kind: "
  * does not offer a guarded villain. Unlike `slotTargetValid` this is not "valid if any effect can affect it": whatever
  * the ability does to the chosen enemy, it may not be attacked. The attacker is the one an effect attacking through
  * the slot names (`attacksThroughSlot`); for a slot nothing attacks through, the attacker of the ability's `attack`
- * instructions that follow, else the controller's identity (`labeledAttacker`, as `noteTargetedByAbility` records it).
+ * instructions that follow (the controller's identity while their attacker is not chosen yet), else the controller's
+ * identity (`labeledAttacker`, as `noteTargetedByAbility` records it).
  * Anything that is not an enemy and an unlabeled ability are always allowed.
  */
 export function attackTargetAllowed(
@@ -403,7 +404,7 @@ export function attackTargetAllowed(
       ? through.map((effect) =>
           effect.kind === "attack" ? attackerOf(state, effect, context) : labeledAttacker(state, context),
         )
-      : attackInstructions(rest).map((effect) => attackerOf(state, effect, context));
+      : attackInstructions(rest).map((effect) => attackerOf(state, effect, context) ?? labeledAttacker(state, context));
   if (attackers.length === 0) attackers.push(labeledAttacker(state, context));
   return attackers.every((attacker) => attacker === null || canAttack(state, attacker, id, deps));
 }
