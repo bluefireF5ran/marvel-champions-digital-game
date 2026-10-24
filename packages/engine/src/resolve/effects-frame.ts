@@ -568,7 +568,7 @@ function askPutIntoPlayController(
     if (frame.answer === null) {
       requestChoice(ctx, {
         playerId: putter,
-        prompt: { kind: "choosePlayer", slot: "putIntoPlayController" },
+        prompt: { kind: "choosePlayer", slot: "putIntoPlayController", cardInstanceId: id },
         options: players.map((p) => ({
           optionId: p.playerId,
           label: p.playerId,
