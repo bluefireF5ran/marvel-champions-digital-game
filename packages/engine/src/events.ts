@@ -1001,6 +1001,20 @@ export type GameEvent =
    * 2026-10-08, docs/phase7-wave8.md §4.1 row 73). It has dealt nothing yet and waits for that instruction, which is
    * logged as `attackResumed`; the attack then waits again (a second `attackAwaitsAbility`, without `begun`).
    */
+  /**
+   * A keyword's enemy activation (quickstrike's attack, teamwork's activation) was initiated while an ability was
+   * resolving: its status check and its "when … attacks / schemes" interrupt window are done, and it now waits beneath
+   * that ability's root frame `abilityFrameId` until the ability has finished, then resolves its steps
+   * (`resolve/initiated-activation.ts`; FFG rulings 137 and 194). No `framePushed` or `framePopped` is logged for the
+   * move: the frame never left the stack.
+   */
+  | {
+      readonly type: "activationAwaitsAbility";
+      readonly activationFrameId: FrameId;
+      readonly abilityFrameId: FrameId;
+      readonly enemyInstanceId: InstanceId;
+      readonly activation: "attack" | "scheme";
+    }
   | {
       readonly type: "attackAwaitsAbility";
       readonly attackFrameId: FrameId;

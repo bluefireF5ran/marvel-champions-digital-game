@@ -1,7 +1,7 @@
 /** Keywords and limits that resolve as a card enters play. */
 
 import { displayNameOf } from "../visibility.js";
-import { type Ctx, emit, moveCard, requestChoice, updateInstance } from "../ctx.js";
+import { type Ctx, emit, moveCard, requestChoice, setFrame, updateInstance } from "../ctx.js";
 import { addCounters, applyToughness, leavingPlayPending, permanentStopsLeaving } from "../effects.js";
 import type { Trait } from "@mc/content";
 import type { InstanceId, PlayerId } from "../ids.js";
@@ -53,6 +53,7 @@ import type { TriggerEvent } from "../trigger-events.js";
 import { announce, base, eventFrame, pushEvent } from "./frames.js";
 import { eachTimeEffectsFor, hasCandidates, heard } from "./triggers.js";
 import { holdToughnessForReveal } from "./reveal-hold.js";
+import { stepsAfterEnclosingAbility } from "./initiated-activation.js";
 
 /**
  * The keywords that resolve as a card enters play: toughness places a tough
@@ -462,7 +463,9 @@ export function quickstrikeFrame(ctx: Ctx, id: InstanceId): StackFrame | null {
   const attack = quickstrikeAttack(ctx, id);
   if (!attack) return null;
   const frame = eventFrame(ctx, attack);
-  return frame.kind === "event" ? { ...frame, statusReplaces: true } : frame;
+  // Initiated now, its steps resolved once the ability putting the minion into play or revealing it has finished
+  // (rulings 137 and 194, `resolve/initiated-activation.ts`).
+  return stepsAfterEnclosingAbility(ctx.state, frame.kind === "event" ? { ...frame, statusReplaces: true } : frame);
 }
 
 /*
@@ -531,7 +534,16 @@ export function resolveTeamwork(ctx: Ctx, id: InstanceId): void {
   const activation = teamworkActivation(ctx, id);
   if (!activation) return;
   emit(ctx, { type: "keywordResolved", keyword: "teamwork", instanceId: id, ...activation });
+  const before = ctx.state.stack[0]?.frameId;
   activateEnemy(ctx, id, activation.playerId);
+  // Initiated now, its steps resolved once the ability that put the minion into play or revealed it has finished
+  // (ruling 129, Dec 8, 2023; ruling 147, Feb 15, 2024; `resolve/initiated-activation.ts`). Engine reading: an
+  // activation that an interrupt to "when it would activate" announces first (`enemyActivating`) is not deferred.
+  const pushed = ctx.state.stack[0];
+  if (pushed && pushed.frameId !== before) {
+    const deferred = stepsAfterEnclosingAbility(ctx.state, pushed);
+    if (deferred !== pushed) setFrame(ctx, deferred);
+  }
 }
 
 /**

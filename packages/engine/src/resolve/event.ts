@@ -169,6 +169,7 @@ import {
   waitBeneathAbility,
 } from "./attack-ability.js";
 import { cancelThwartSession, foldThwartInstance, openThwartSession, thwartSessionOf } from "./thwart-session.js";
+import { awaitEnclosingAbility } from "./initiated-activation.js";
 
 export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
   switch (frame.stage) {
@@ -335,6 +336,13 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       return;
     }
     case "apply": {
+      // A keyword's activation initiated while an ability resolves: its steps wait for that ability to finish
+      // (`resolve/initiated-activation.ts`; FFG rulings 137 and 194).
+      if (frame.stepsAfterAbility !== undefined) {
+        const awaited = awaitEnclosingAbility(ctx, frame);
+        if (awaited !== true) executeEventFrame(ctx, awaited);
+        return;
+      }
       if (frame.group) {
         // A simultaneous damage group's member, or one of several characters defeated together (§4.1 Q49 of wave 5):
         // its interrupts are done, and the group applies it with the others.

@@ -329,6 +329,19 @@ export type StackFrame =
        */
       readonly attackWaiting?: true;
       /**
+       * An enemy activation a keyword initiated while an ability was resolving (quickstrike, teamwork): the root
+       * effects frame of that ability. The activation is initiated where it is (its status check and its "when …
+       * attacks / schemes" interrupt window), and its steps resolve once that ability has finished
+       * (`resolve/initiated-activation.ts`; FFG rulings 129, 137, 147 and 194).
+       */
+      readonly stepsAfterAbility?: FrameId;
+      /**
+       * With `stepsAfterAbility`: initiated, and waiting beneath that ability's root frame for it to finish. While it
+       * waits it is not "this activation" to `currentActivationFrameId`. Cleared, with `stepsAfterAbility`, as its
+       * steps begin.
+       */
+      readonly awaitingAbility?: true;
+      /**
        * With `attackOf`: the attack's target was changed in its "when … attacks" window (`EffectSpec retargetAttack`),
        * off `from` (the enemy it was made against) onto `to`. The event's own target is `to` from then on. Kept on the
        * frame because the damage of an "(attack)" ability's attack is also dealt by the ability's instructions, which
@@ -1134,6 +1147,9 @@ export function currentActivationFrameId(stack: readonly StackFrame[]): FrameId 
     // ability's later instructions name what they named before it waited, the activation around it if there is one.
     // The flag is cleared as the attack starts to finish, so its retaliate and "after … attacks" abilities name it.
     if (frame.attackWaiting) continue;
+    // A keyword's activation initiated and waiting for the ability around it (`awaitingAbility`): that ability's later
+    // instructions name what they named before it was initiated.
+    if (frame.awaitingAbility) continue;
     const kind = frame.event.kind;
     // `enemyAttacksEnemy` is an attack, so "this attack" names it, though not an activation (docs/phase7-wave3.md §3.23).
     if (
