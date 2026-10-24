@@ -16,13 +16,21 @@ import { currentEnemyAttackFrame } from "./defense-claim.js";
 import type { GameEvent } from "./events.js";
 import { playerId, type InstanceId } from "./ids.js";
 import { activeEncounterDeck, mustInstance, mustPlayer } from "./query.js";
-import { resolveRef } from "./select.js";
-import type { EffectSpec } from "./spec.js";
-import { awaitingAbility } from "./stack.js";
+import { DEFENDER_SLOT, resolvePlayers, resolveRef } from "./select.js";
+import type { EffectSpec, TargetRef } from "./spec.js";
+import { awaitingAbility, type StackFrame } from "./stack.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility, type StubAbility } from "./testing/abilities.js";
 import { runCommandsPicking } from "./testing/drive.js";
-import { stubEvent, stubMainScheme, stubMinion, stubSupport, stubTreachery, stubVillain } from "./testing/fixtures.js";
+import {
+  stubAlly,
+  stubEvent,
+  stubMainScheme,
+  stubMinion,
+  stubSupport,
+  stubTreachery,
+  stubVillain,
+} from "./testing/fixtures.js";
 import { defaultPick, DEFAULT_DECK, giveCard, newGame, withEncounterPiles } from "./testing/scenario.js";
 
 const p1 = playerId("p1");
@@ -141,25 +149,117 @@ const BITE = stubSupport({
   ],
 });
 /**
- * "Forced Interrupt: When an enemy attacks you, put the minions of the encounter deck into play engaged with you.
- * Choose a number. Leave a mark." The number is a probe: the test reads the state while it is asked.
+ * "Forced Interrupt: When the villain attacks you, put the minions of the encounter deck into play engaged with you.
+ * Declare your hero the defender. Choose a number. Leave a mark." The number is a probe: the test reads the state while it is asked.
  */
 const CALL = stubSupport({
   id: "call",
   cost: 0,
   abilities: [
     ability("call.interrupt", {
-      trigger: { kind: "interrupt", forced: true, on: { on: "enemyAttack", playerIs: "controller" } },
+      trigger: {
+        kind: "interrupt",
+        forced: true,
+        on: { on: "enemyAttack", playerIs: "controller", sourceIs: { categories: ["villain"] } },
+      },
       effects: [
         ...putTopMinion,
+        { kind: "declareDefender", character: { kind: "identityOf", player: you } },
         { kind: "chooseNumber", player: you, max: { kind: "const", value: 1 }, bind: "probe" },
         mark("called"),
       ],
     }),
   ],
 });
+/** "Forced Interrupt (defense): When the villain attacks you, put the minions … into play. Declare <who> the defender." */
+const labeledDefense = (id: string, defender: TargetRef) =>
+  stubSupport({
+    id,
+    cost: 0,
+    abilities: [
+      ability(`${id}.interrupt`, {
+        trigger: {
+          kind: "interrupt",
+          forced: true,
+          on: { on: "enemyAttack", playerIs: "controller", sourceIs: { categories: ["villain"] } },
+        },
+        label: ["defense"],
+        effects: [
+          ...putTopMinion,
+          { kind: "declareDefender", character: defender },
+          { kind: "chooseNumber", player: you, max: { kind: "const", value: 1 }, bind: "probe" },
+        ],
+      }),
+    ],
+  });
+const BODYGUARD = stubAlly({ id: "bodyguard", cost: 0, atk: 1, thw: 1, hp: 3 });
+const ALLY_DEFENSE = labeledDefense("ally-defense", { kind: "named", name: "bodyguard" });
+const HERO_DEFENSE = labeledDefense("hero-defense", { kind: "identityOf", player: you });
+/** A minion that answers any minion entering play, its own entering included: "Forced Response: After a minion enters
+ * play, leave a mark." */
+const LOOKOUT = stubMinion({
+  id: "lookout",
+  atk: 0,
+  sch: 0,
+  hp: 5,
+  boostIcons: 0,
+  abilities: [
+    ability("lookout.response", {
+      trigger: { kind: "response", forced: true, on: { on: "cardEntersPlay", targetIs: { categories: ["minion"] } } },
+      effects: [mark("lookout")],
+    }),
+  ],
+});
+/** "Forced Response: After a character defends, leave a mark." */
+const GUARDED = stubSupport({
+  id: "guarded",
+  cost: 0,
+  abilities: [
+    ability("guarded.response", {
+      trigger: { kind: "response", forced: true, on: { on: "defended" } },
+      effects: [mark("defends")],
+    }),
+  ],
+});
+/** "Forced Interrupt: When a minion enters play, cancel that." */
+const BAR = stubSupport({
+  id: "bar",
+  cost: 0,
+  abilities: [
+    ability("bar.interrupt", {
+      trigger: { kind: "interrupt", forced: true, on: { on: "cardEntersPlay", targetIs: { categories: ["minion"] } } },
+      effects: [{ kind: "cancelTriggeringEvent" }],
+    }),
+  ],
+});
+/** "Forced Interrupt: When a minion enters play, deal 5 damage to it." */
+const TRAP = stubSupport({
+  id: "trap",
+  cost: 0,
+  abilities: [
+    ability("trap.interrupt", {
+      trigger: { kind: "interrupt", forced: true, on: { on: "cardEntersPlay", targetIs: { categories: ["minion"] } } },
+      effects: [{ kind: "dealDamage", target: { kind: "eventTarget" }, amount: { kind: "const", value: 5 } }],
+    }),
+  ],
+});
 
-const PLAYER_CARDS: readonly AnyCard[] = [AMBUSH_THEN, AMBUSH, AMBUSH_KILL, AMBUSH_END, LOOP, WATCH, CALL, BITE];
+const PLAYER_CARDS: readonly AnyCard[] = [
+  AMBUSH_THEN,
+  AMBUSH,
+  AMBUSH_KILL,
+  AMBUSH_END,
+  LOOP,
+  WATCH,
+  CALL,
+  BITE,
+  GUARDED,
+  BAR,
+  TRAP,
+  ALLY_DEFENSE,
+  HERO_DEFENSE,
+  BODYGUARD,
+];
 const deps: EngineDeps = depsOf(...abilities);
 
 /** p1's turn in hero form, `top` on top of the encounter deck (blanks beneath), `inPlay` engaged with p1. */
@@ -170,7 +270,7 @@ function game(top: AnyCard | readonly AnyCard[], inPlay: readonly AnyCard[] = []
     villain: VILLAIN,
     mainScheme: SCHEME,
     deps,
-    extraCards: [SENTRY, RAIDER, DECKHAND, MATE, ...PLAYER_CARDS, BLANK],
+    extraCards: [SENTRY, RAIDER, DECKHAND, MATE, LOOKOUT, ...PLAYER_CARDS, BLANK],
     encounterDeck: [...tops.map((card) => card.id), ...inPlay.map((card) => card.id), ...copies(BLANK.id, 15)],
     deck: [...DEFAULT_DECK, ...PLAYER_CARDS.map((card) => card.id)],
   });
@@ -291,25 +391,76 @@ describe("a keyword's activation initiates now and resolves after the ability ar
   });
 
   it("inside an outer villain attack the defense lookups read the outer attack; 'the attacking enemy' names the parked one", () => {
-    const withCall = play(game(SENTRY), CALL).state;
+    const withCall = play(play(game(SENTRY), CALL).state, GUARDED).state;
     const villain = withCall.villains[0]!.instanceId;
-    const seen: { defended: InstanceId | null; attacking: readonly InstanceId[] }[] = [];
+    const hero = mustPlayer(withCall, p1).identity.instanceId;
+    const seen: Record<string, unknown>[] = [];
     const probe = (state: GameState): readonly string[] => {
       if (state.pendingChoice?.prompt.kind === "chooseNumber" && state.stack.some(awaitingAbility)) {
+        const context = { selfInstanceId: null, controllerId: p1, event: null, bindings: {}, deps };
         const outer = currentEnemyAttackFrame(state);
+        const parked = state.stack.find(awaitingAbility);
         seen.push({
           defended: outer?.event.kind === "enemyAttack" ? outer.event.enemyInstanceId : null,
-          attacking: resolveRef(
-            state,
-            { kind: "attackingEnemy" },
-            { selfInstanceId: null, controllerId: p1, event: null, bindings: {}, deps },
-          ),
+          // The effect's declared defender went onto the outer attack, not the parked one.
+          outerDefender: outer?.slots[DEFENDER_SLOT] ?? [],
+          parkedDefender: parked?.kind === "event" ? (parked.slots[DEFENDER_SLOT] ?? []) : null,
+          defending: resolveRef(state, { kind: "defendingCharacter" }, context),
+          attackedCharacter: resolveRef(state, { kind: "attackedCharacter" }, context),
+          attackedPlayer: resolvePlayers(state, { kind: "attackedPlayer" }, context),
+          attacking: resolveRef(state, { kind: "attackingEnemy" }, context),
         });
       }
       return defaultPick(state);
     };
-    const { state } = runCommandsPicking(withCall, deps, probe, { type: "endTurn", playerId: p1 });
-    expect(seen).toEqual([{ defended: villain, attacking: [idOf(state, SENTRY)] }]);
+    const { state, events } = runCommandsPicking(withCall, deps, probe, { type: "endTurn", playerId: p1 });
+    expect(seen).toEqual([
+      {
+        defended: villain,
+        outerDefender: [hero],
+        parkedDefender: [],
+        defending: [hero],
+        attackedCharacter: [hero],
+        attackedPlayer: [p1],
+        attacking: [idOf(state, SENTRY)],
+      },
+    ]);
+    // "After a character defends" waits for the end of the outer attack, not of the parked one (RRG 1.8 p. 16).
+    expect(marked(events, "defends")).toBeGreaterThan(attack(events, "resolved", villain));
+  });
+});
+
+describe('a "(defense)" ability inside the outer attack\'s window does not reach the parked attack', () => {
+  it.each([
+    ["an ally", ALLY_DEFENSE],
+    ["the hero", HERO_DEFENSE],
+  ] as const)("declaring %s the defender marks the outer attack only", (_who, card) => {
+    const withAlly = play(play(game(SENTRY), BODYGUARD).state, card).state;
+    const villain = withAlly.villains[0]!.instanceId;
+    const seen: { readonly outer: InstanceId | null; readonly outerMarks: number; readonly parkedMarks: number }[] = [];
+    // What a labeled defense writes on the attack's event frame: the defender, the hero it was labeled for, the label.
+    const marksOf = (f: StackFrame | undefined): number =>
+      f?.kind !== "event"
+        ? -1
+        : (f.slots[DEFENDER_SLOT]?.length ?? 0) +
+          (f.slots["labeledDefenseHero"]?.length ?? 0) +
+          (f.vars.labeledDefense ?? 0);
+    const probe = (state: GameState): readonly string[] => {
+      if (state.pendingChoice?.prompt.kind === "chooseNumber" && state.stack.some(awaitingAbility)) {
+        const outer = currentEnemyAttackFrame(state);
+        seen.push({
+          outer: outer?.event.kind === "enemyAttack" ? outer.event.enemyInstanceId : null,
+          outerMarks: marksOf(outer ?? undefined),
+          parkedMarks: marksOf(state.stack.find(awaitingAbility)),
+        });
+      }
+      return defaultPick(state);
+    };
+    runCommandsPicking(withAlly, deps, probe, { type: "endTurn", playerId: p1 });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.outer).toBe(villain);
+    expect(seen[0]!.outerMarks).toBeGreaterThanOrEqual(2);
+    expect(seen[0]!.parkedMarks).toBe(0);
   });
 });
 
@@ -341,6 +492,29 @@ describe("an 'each time' loop holds its minions' keywords and responses until it
     const sentry = idOf(state, SENTRY);
     expect(marked(events, "bite")).toBeGreaterThan(discards(events)[2]!);
     expect(marked(events, "bite")).toBeGreaterThan(attack(events, "resolved", sentry));
+  });
+
+  it("a minion whose entering play was cancelled loses its held responses, keywords and engagement announcement", () => {
+    const guarded = play(play(game(SENTRY), BITE).state, BAR).state;
+    const { state, events } = play(guarded, LOOP);
+    const sentry = idOf(state, SENTRY);
+    expect(marked(events, "bite")).toBe(-1);
+    expect(attack(events, "initiated", sentry)).toBe(-1);
+    expect(events.some((e) => e.type === "activationSkipped" && e.enemyInstanceId === sentry)).toBe(false);
+    expect(damageOn(state)).toBe(0);
+  });
+
+  it("a minion that entered play and then left in its pass keeps its held responses (RRG 1.8 p. 45)", () => {
+    const trapped = play(play(game(SENTRY), BITE).state, TRAP).state;
+    const { state, events } = play(trapped, LOOP);
+    expect(marked(events, "bite")).toBeGreaterThan(discards(events)[2]!);
+    expect(damageOn(state)).toBe(0);
+  });
+
+  it("a minion entering play in a later pass is not offered an earlier minion's held response (entered-since)", () => {
+    const { events } = play(game([SENTRY, LOOKOUT]), LOOP);
+    // The lookout answers its own entering, once; the sentry's entering occurred before the lookout was in play.
+    expect(events.filter((e) => e.type === "counterAdded" && e.counterType === "lookout")).toHaveLength(1);
   });
 
   it("the first player may order the second minion's quickstrike first", () => {

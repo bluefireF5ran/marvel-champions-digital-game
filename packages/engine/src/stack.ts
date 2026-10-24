@@ -350,6 +350,13 @@ export type StackFrame =
        */
       readonly heldForAbility?: FrameId;
       /**
+       * A responses frame held by an "each time" loop for the event of the frame `responsesFor`, which resolved its
+       * interrupts and apply step in the loop's pass (`responsesLater`; `resolve/initiated-activation.ts`).
+       */
+      readonly responsesFor?: FrameId;
+      /** With `responsesFor`: that frame has applied, so the event has occurred (`refreshHeldResponses`). */
+      readonly heldOccurred?: true;
+      /**
        * With `attackOf`: the attack's target was changed in its "when … attacks" window (`EffectSpec retargetAttack`),
        * off `from` (the enemy it was made against) onto `to`. The event's own target is `to` from then on. Kept on the
        * frame because the damage of an "(attack)" ability's attack is also dealt by the ability's instructions, which
@@ -699,7 +706,12 @@ export type StackFrame =
        * they've all engaged, resolve all Quickstrike and Teamwork abilities on those minions, then any Response
        * abilities"; `resolve/initiated-activation.ts`).
        */
-      readonly heldLoopFrames?: { readonly keywords: readonly StackFrame[]; readonly after: readonly StackFrame[] };
+      readonly heldLoopFrames?: {
+        readonly keywords: readonly StackFrame[];
+        readonly after: readonly StackFrame[];
+        /** The first player has been asked to order the keywords (`orderLoopKeywords`): the frame's answer is theirs. */
+        readonly asked?: true;
+      };
       /**
        * On a `sentence` frame: the response windows raised while one of its effects before the last was resolving,
        * oldest first, each the conditions of one occurrence in the order `pushWindow` lists them (the window's own
@@ -1169,6 +1181,16 @@ export const attackPreventedVars = (
  * around it, if any.
  */
 export const awaitingAbility = (frame: StackFrame): boolean => frame.kind === "event" && frame.awaitingAbility === true;
+
+/**
+ * The activation a defense is declared against: `currentActivationFrameId`, but never a keyword's attack waiting for its
+ * ability (`awaitingAbility`), which has no attack procedure yet. The defense bar reads the same attack
+ * (`currentEnemyAttackFrame`), so a defender declared, and "after … defends" held, while such an attack waits go to the
+ * attack around it.
+ */
+export function defendedActivationFrameId(stack: readonly StackFrame[]): FrameId | null {
+  return currentActivationFrameId(stack.filter((frame) => !awaitingAbility(frame)));
+}
 
 export function currentActivationFrameId(stack: readonly StackFrame[]): FrameId | null {
   for (const frame of stack) {

@@ -66,12 +66,12 @@
 import { type Ctx, emit, pushFrames, requestChoice, setFrame, updateFrame } from "../ctx.js";
 import type { FrameId, InstanceId } from "../ids.js";
 import { getInstance } from "../query.js";
-import { cardsInPlay } from "../select.js";
 import type { StackFrame } from "../stack.js";
 import type { GameState } from "../state.js";
 import { simultaneousOrderer } from "../villain/authority.js";
 import { displayNameOf } from "../visibility.js";
 import { base, type Frame } from "./frames.js";
+import { quickstrikeAttack, teamworkWouldActivate } from "./enter-play.js";
 import { abilityRootFrameId } from "./thwart-session.js";
 
 /** The root effects frame of the innermost ability resolving on the stack, or undefined when none is. */
@@ -142,7 +142,75 @@ function splitResponses(ctx: Ctx, frame: StackFrame): { readonly now?: StackFram
   if (!answersAMinion(ctx.state, frame)) return { now: frame };
   if (frame.kind !== "event" || frame.stage !== "interrupts") return { later: frame };
   const { responsesLater: _later, ...rest } = frame;
-  return { now: { ...frame, responsesLater: true }, later: { ...rest, ...base(ctx), stage: "responses" } };
+  // Linked to the frame resolved in the pass (`responsesFor`), which refreshes it once applied, after its interrupts
+  // (`refreshHeldResponses`), or drops it if the event did not occur (`dropHeldResponses`), as a boost card's later
+  // responses frame is built from the state after its window (`resolve/enemy-activation.ts`).
+  return {
+    now: { ...frame, responsesLater: true },
+    later: { ...rest, ...base(ctx), stage: "responses", responsesFor: frame.frameId },
+  };
+}
+
+/** Every held `after` frame in the stack's "each time" loops, updated by `change` (undefined drops it). */
+function updateHeld(
+  ctx: Ctx,
+  change: (
+    f: StackFrame,
+    held: NonNullable<Frame<"effects">["heldLoopFrames"]>,
+  ) => NonNullable<Frame<"effects">["heldLoopFrames"]>,
+): void {
+  for (const f of ctx.state.stack) {
+    if (f.kind !== "effects" || !f.heldLoopFrames) continue;
+    const next = change(f, f.heldLoopFrames);
+    if (next !== f.heldLoopFrames) setFrame(ctx, { ...f, heldLoopFrames: next });
+  }
+}
+
+/**
+ * The frame `now`, split by `splitResponses`, has applied: its held responses read the event as it occurred, after its
+ * interrupts (an interrupt that changed it, the results its apply step recorded), and count as having occurred, so a
+ * card entering play from here on is not offered them (`entered-since.ts`).
+ */
+export function refreshHeldResponses(ctx: Ctx, now: Frame<"event">): void {
+  updateHeld(ctx, (_f, held) => {
+    if (!held.after.some((f) => f.kind === "event" && f.responsesFor === now.frameId)) return held;
+    return {
+      ...held,
+      after: held.after.map((f) =>
+        f.kind === "event" && f.responsesFor === now.frameId
+          ? { ...f, event: now.event, vars: now.vars, slots: now.slots, heldOccurred: true as const }
+          : f,
+      ),
+    };
+  });
+}
+
+/**
+ * The frame `nowFrameId`, split by `splitResponses`, did not occur (cancelled in its interrupt window, or it found
+ * nothing to do): its held responses are dropped, and so are the minion's held keywords and the announcement of its
+ * engagement, which followed from it. A minion that did enter play and then left keeps them: it met their trigger
+ * (RRG 1.8 "Triggering Condition", p. 45).
+ */
+export function dropHeldResponses(ctx: Ctx, nowFrameId: FrameId): void {
+  updateHeld(ctx, (_f, held) => {
+    const linked = held.after.find((f) => f.kind === "event" && f.responsesFor === nowFrameId);
+    if (!linked || linked.kind !== "event") return held;
+    const event = linked.event;
+    const minion =
+      event.kind === "cardEntersPlay"
+        ? event.instanceId
+        : event.kind === "minionEngaged"
+          ? event.minionInstanceId
+          : null;
+    const followsFrom = (f: StackFrame): boolean =>
+      f.kind === "event" &&
+      (f.responsesFor === nowFrameId || (f.event.kind === "minionEngaged" && f.event.minionInstanceId === minion));
+    return {
+      ...held,
+      keywords: held.keywords.filter((f) => minion === null || keywordMinion(f) !== minion),
+      after: held.after.filter((f) => !followsFrom(f)),
+    };
+  });
 }
 
 /**
@@ -199,36 +267,48 @@ const keywordLabel = (frame: StackFrame): string => (frame.kind === "event" ? "Q
 export function releaseLoopFrames(ctx: Ctx, frame: Frame<"effects">): boolean {
   const held = frame.heldLoopFrames;
   if (!held) return false;
-  let keywords = held.keywords;
-  if (keywords.length >= 2) {
-    if (!frame.answer) {
+  // Only keywords that would do something now are ordered, and only they are offered: a quickstrike whose minion has
+  // left play or is no longer engaged with a hero (`quickstrikeAttack`), or a teamwork with no other minion sharing its
+  // trait (`teamworkWouldActivate`, as on the reveal path), does nothing and resolves after them.
+  const isLive = (f: StackFrame): boolean => {
+    const minion = keywordMinion(f);
+    if (minion === null) return false;
+    return f.kind === "event" ? quickstrikeAttack(ctx, minion) !== null : teamworkWouldActivate(ctx, minion);
+  };
+  const live = held.keywords.filter(isLive);
+  const idle = held.keywords.filter((f) => !isLive(f));
+  let keywords = [...live, ...idle];
+  if (live.length >= 2) {
+    // The answer is read only once this prompt was asked (`asked`), so a stale answer on the frame is not misread.
+    const answer = held.asked ? frame.answer : null;
+    if (!answer) {
       requestChoice(ctx, {
         playerId: simultaneousOrderer(ctx.state),
         authority: "firstPlayerOrders",
         prompt: { kind: "orderLoopKeywords" },
-        options: keywords.map((f, index) => {
-          const minion = keywordMinion(f);
+        options: live.map((f, index) => {
+          const minion = keywordMinion(f)!;
           return {
             optionId: String(index),
-            label: minion ? `${keywordLabel(f)}: ${displayNameOf(ctx.state, minion)}` : keywordLabel(f),
-            ref: minion ? ({ kind: "card", instanceId: minion } as const) : ({ kind: "none" } as const),
+            label: `${keywordLabel(f)}: ${displayNameOf(ctx.state, minion)}`,
+            ref: { kind: "card", instanceId: minion } as const,
           };
         }),
-        minSelections: keywords.length,
-        maxSelections: keywords.length,
+        minSelections: live.length,
+        maxSelections: live.length,
         frameId: frame.frameId,
         ordered: true,
       });
+      setFrame(ctx, { ...frame, answer: null, heldLoopFrames: { ...held, asked: true } });
       return true;
     }
-    const picked = frame.answer.map(Number).filter((i) => Number.isInteger(i) && keywords[i] !== undefined);
+    const picked = answer.map(Number).filter((i) => Number.isInteger(i) && live[i] !== undefined);
     const order = [...new Set(picked)];
-    keywords = [...order.map((i) => keywords[i]!), ...keywords.filter((_, i) => !order.includes(i))];
+    keywords = [...order.map((i) => live[i]!), ...live.filter((_, i) => !order.includes(i)), ...idle];
   }
-  const inPlay = cardsInPlay(ctx.state);
-  const after = held.after.filter(
-    (f) => f.kind !== "event" || f.event.kind !== "cardEntersPlay" || inPlay.includes(f.event.instanceId),
-  );
+  // Backstop: a response held for an event that never applied (`responsesFor` without `heldOccurred`) does not open;
+  // `dropHeldResponses` normally removes it when that event fails.
+  const after = held.after.filter((f) => f.kind !== "event" || f.responsesFor === undefined || f.heldOccurred === true);
   const { heldLoopFrames: _held, ...rest } = frame;
   setFrame(ctx, { ...rest, answer: null });
   pushFrames(ctx, [...keywords, ...after]);

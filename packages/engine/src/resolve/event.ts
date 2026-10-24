@@ -97,7 +97,7 @@ import {
   openLeavingInterrupts,
   runCarriedHostStep,
 } from "./cards.js";
-import { currentActivationFrameId, playFrameOf, type StackFrame, type Vars } from "../stack.js";
+import { defendedActivationFrameId, playFrameOf, type StackFrame, type Vars } from "../stack.js";
 import { forgetEnteredWhileApplying } from "../entered-since.js";
 import { STATUS_NAMES, type GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
@@ -169,7 +169,7 @@ import {
   waitBeneathAbility,
 } from "./attack-ability.js";
 import { cancelThwartSession, foldThwartInstance, openThwartSession, thwartSessionOf } from "./thwart-session.js";
-import { awaitEnclosingAbility } from "./initiated-activation.js";
+import { awaitEnclosingAbility, dropHeldResponses, refreshHeldResponses } from "./initiated-activation.js";
 
 export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
   switch (frame.stage) {
@@ -452,8 +452,11 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, stage: "done" } : f));
         if (frame.responsesLater) noLaterResponses(ctx, frame.frameId);
       } else if (frame.responsesLater) {
-        // Its responses are a later frame's (`responsesLater`): this one ends here.
+        // Its responses are a later frame's (`responsesLater`): this one ends here. One an "each time" loop holds reads
+        // the event as it occurred (`refreshHeldResponses`).
         updateFrame(ctx, frame.frameId, (f) => (f.kind === "event" ? { ...f, stage: "done" } : f));
+        const applied = findFrame(ctx.state, frame.frameId);
+        if (applied?.kind === "event") refreshHeldResponses(ctx, applied);
       }
       return;
     }
@@ -487,7 +490,8 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       // "After a character defends" waits for the attack to end (RRG 1.8 p. 16): hand the response window to the
       // activation frame, which opens it in its own `done` stage. With no activation on the stack (a defense-labeled
       // ability triggered outside an attack) there is nothing to wait for, so the window opens here as before.
-      const activation = defersResponsesToActivation(event) ? currentActivationFrameId(ctx.state.stack) : null;
+      // Never a keyword's attack waiting for its ability (`defendedActivationFrameId`): it has not been defended.
+      const activation = defersResponsesToActivation(event) ? defendedActivationFrameId(ctx.state.stack) : null;
       if (activation !== null) {
         setFrame(ctx, { ...frame, event, stage: "done" });
         updateFrame(ctx, activation, (f) =>
@@ -585,6 +589,8 @@ function sweepAllyEnteredAtZero(ctx: Ctx, event: TriggerEvent): void {
  * (`stepBoostCard`), whose activation frame records it.
  */
 function noLaterResponses(ctx: Ctx, eventFrameId: FrameId): void {
+  // A minion's entering play or engagement split by an "each time" loop (`resolve/initiated-activation.ts`).
+  dropHeldResponses(ctx, eventFrameId);
   for (const f of ctx.state.stack) {
     if (
       (f.kind === "enemyAttack" || f.kind === "enemyScheme" || f.kind === "characterBoost") &&
