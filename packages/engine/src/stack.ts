@@ -679,6 +679,20 @@ export type StackFrame =
        */
       readonly sentence?: true;
       /**
+       * One pass of an "each time a card is discarded this way" loop (`EffectSpec discardEncounterCards
+       * forEachDiscarded`): a quickstrike or teamwork made in it waits for the whole loop before it initiates (FFG
+       * ruling 38, November 19, 2024, Drang III; `resolve/initiated-activation.ts`).
+       */
+      readonly eachTimePass?: true;
+      /**
+       * On the frame whose effect runs an "each time" loop (`eachTimePass`): the quickstrike and teamwork frames of the
+       * minions its passes put into play (`keywords`), and the announcements of those minions engaging (`after`), held
+       * until every pass has resolved. Pushed, keywords first, as the frame resumes (FFG ruling 38, Drang III: "after
+       * they've all engaged, resolve all Quickstrike and Teamwork abilities on those minions, then any Response
+       * abilities"; `resolve/initiated-activation.ts`).
+       */
+      readonly heldLoopFrames?: { readonly keywords: readonly StackFrame[]; readonly after: readonly StackFrame[] };
+      /**
        * On a `sentence` frame: the response windows raised while one of its effects before the last was resolving,
        * oldest first, each the conditions of one occurrence in the order `pushWindow` lists them (the window's own
        * event last). Opened, in that order, once the sentence has resolved.

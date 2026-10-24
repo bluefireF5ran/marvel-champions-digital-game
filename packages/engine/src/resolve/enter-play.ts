@@ -53,7 +53,7 @@ import type { TriggerEvent } from "../trigger-events.js";
 import { announce, base, eventFrame, pushEvent } from "./frames.js";
 import { eachTimeEffectsFor, hasCandidates, heard } from "./triggers.js";
 import { holdToughnessForReveal } from "./reveal-hold.js";
-import { stepsAfterEnclosingAbility } from "./initiated-activation.js";
+import { keywordFramesFor, stepsAfterEnclosingAbility } from "./initiated-activation.js";
 
 /**
  * The keywords that resolve as a card enters play: toughness places a tough
@@ -595,7 +595,8 @@ export function engagedInPlayFrames(ctx: Ctx, id: InstanceId): readonly StackFra
   const engaged = engagementFrame(ctx, id);
   if (engaged) frames.push(engaged);
   const quickstrike = quickstrikeFrame(ctx, id);
-  if (quickstrike) frames.push(quickstrike);
+  // In a pass of an "each time" loop the attack waits for the whole loop (ruling 38; `keywordFramesFor`).
+  if (quickstrike) frames.push(...keywordFramesFor(ctx, [quickstrike]));
   return frames;
 }
 

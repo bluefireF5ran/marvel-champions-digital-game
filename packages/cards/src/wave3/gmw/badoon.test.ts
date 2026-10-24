@@ -425,9 +425,47 @@ describe("Drang III (16060) discards minions into play (FFG ruling 38, Nov 19, 2
       events.findIndex((e) => e.type === "attackResolved" && e.enemyInstanceId === id);
     expect(attackedBy(first!)).toBeGreaterThan(-1); // setup check: the quickstrike attack happened at all
     expect(enteredPlay(second!)).toBeGreaterThan(-1);
-    // Each attack is initiated as its minion engages and resolves its steps once Drang III's ability has finished
-    // (`resolve/initiated-activation.ts`).
+    // The minions all engage before their quickstrikes initiate (`resolve/initiated-activation.ts`).
     expect(enteredPlay(second!)).toBeLessThan(attackedBy(first!));
+  });
+
+  it("no quickstrike attack initiates, and no 'when … attacks' window opens, before the last minion engages", () => {
+    const config = wave3Scenario("brotherhood-of-badoon", {
+      difficulty: "expert",
+      players: [{ starterDeckId: "groot-protection" }],
+      seed: 2026,
+    });
+    const start = startWave3Game({
+      ...config,
+      encounterDeck: [...config.encounterDeck, "16134" as never, "16134" as never],
+    });
+    // Solo: 4 cards. Two Kree Privates (quickstrike) first, then fillers.
+    const stacked = stackEncounterDeck(start, "16134", "16134", "01186", "01187");
+    const hero = runWave3(stacked, toHero(P1));
+    const villain = hero.villains[0]!.instanceId;
+    const primed = patchInstance(hero, villain, { damage: 26 });
+    const { state, events } = driveEvents(WAVE3_DEPS, primed, {
+      type: "basicAttack",
+      playerId: P1,
+      attackerInstanceId: identityOf(primed, P1),
+      targetInstanceId: villain,
+    });
+    expect(activeVillain(state).stageIndex).toBe(2);
+    const [first, second] = [...(instancesOf(state, "16134") as InstanceId[])].sort();
+    const enteredPlay = (id: InstanceId) =>
+      events.findIndex((e) => e.type === "cardMoved" && e.instanceId === id && e.to.kind === "playArea");
+    const attackedBy = (id: InstanceId) =>
+      events.findIndex((e) => e.type === "attackResolved" && e.enemyInstanceId === id);
+    expect(attackedBy(first!)).toBeGreaterThan(-1); // setup check: the quickstrike attack happened at all
+    expect(enteredPlay(second!)).toBeGreaterThan(-1);
+    // The quickstrikes wait for the whole "each time" loop before they initiate (`resolve/initiated-activation.ts`).
+    const lastEngaged = enteredPlay(second!);
+    const initiated = events.findIndex(
+      (e) => e.type === "triggerEvent" && e.phase === "initiated" && e.event.kind === "enemyAttack",
+    );
+    const attackWindow = events.findIndex((e) => e.type === "windowOpened" && e.event.kind === "enemyAttack");
+    expect(initiated).toBeGreaterThan(lastEngaged);
+    if (attackWindow >= 0) expect(attackWindow).toBeGreaterThan(lastEngaged);
   });
 });
 
