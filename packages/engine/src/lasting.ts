@@ -317,7 +317,9 @@ export function noteLeftPlayInDelayedEffects(state: GameState, id: InstanceId): 
  * The leaving is recorded only where a card leaves through `leaveNow` (`leavePlay`, `leavePlayAtOnce`, and so a swap
  * of cards with different titles, `resolve/swap-cards.ts`). Not covered: a main scheme swapped out
  * (`resolve/swap-main-scheme.ts`, its own `forgetOutgoing`), a villain replaced in place (`resolve/game-areas.ts`,
- * `resolve/villain-swap.ts`), and a facedown attachment, which is out of play already. A same-title swap neither
+ * `resolve/villain-swap.ts`), a villain card `addVillains` takes from out of play (`takeOutOfZone` in
+ * `resolve/game-areas.ts`: Whisper in the Dark's Dark Protégé villains are removed from the game when they leave play,
+ * so none can return through it today), and a facedown attachment, which is out of play already. A same-title swap neither
  * leaves nor enters play (RRG 1.8 "'Swap'", p. 42), so it has nothing to record.
  */
 export function forgetReturnedInDelayedEffects(state: GameState, id: InstanceId): GameState {
