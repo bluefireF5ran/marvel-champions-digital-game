@@ -992,6 +992,20 @@ export type GameEvent =
       readonly reason: "dashedStat" | "leftPlay";
     }
   /**
+   * A keyword's enemy activation (quickstrike's attack, teamwork's activation) was initiated while an ability was
+   * resolving: its status check and its "when … attacks / schemes" interrupt window are done, and it now waits beneath
+   * that ability's root frame `abilityFrameId` until the ability has finished, then resolves its steps
+   * (`resolve/initiated-activation.ts`; FFG rulings 137 and 194). No `framePushed` or `framePopped` is logged for the
+   * move: the frame never left the stack.
+   */
+  | {
+      readonly type: "activationAwaitsAbility";
+      readonly activationFrameId: FrameId;
+      readonly abilityFrameId: FrameId;
+      readonly enemyInstanceId: InstanceId;
+      readonly activation: "attack" | "scheme";
+    }
+  /**
    * An "(attack)" ability's attack has dealt its own damage and now waits for the rest of its ability (RRG 1.8 "Attack
    * (Player Ability Type)", p. 10: the ability is a single attack; `resolve/attack-ability.ts`). From here until the
    * ability's last effect, damage it deals to enemies is this attack's, and the attack finishes after it: each enemy

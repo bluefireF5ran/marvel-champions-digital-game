@@ -123,7 +123,7 @@ describe("Planetary Invasion (16057): a Quickstrike attack only initiates in the
    * sentence as the reveal effect". RRG 1.8 p. 4 ("resolve the ability one sentence at a time") does not say otherwise.
    * Teamwork ruling December 8, 2023 - Ruling 129 gives the same "initiates, resolves later" model.
    */
-  it.fails("Vulture (quickstrike, ATK 3) revealed by Planetary Invasion gets its tough status card before its attack deals damage", () => {
+  it("Vulture (quickstrike, ATK 3) revealed by Planetary Invasion gets its tough status card before its attack deals damage", () => {
     const base = runWave3(rocketVsRhino(), toHero());
     const invasion = base.players[0]!.setAside.find((id) => inst(base, id).cardId === "16057")!;
     const deckId = activeEncounterDeckId(base);
@@ -148,7 +148,7 @@ describe("Planetary Invasion (16057): a Quickstrike attack only initiates in the
     const next = events.slice(after + 1).find((e) => e.type === "statusGiven" || e.type === "damageDealt");
     // Staging sanity: the revealed minion's step produced one of the two events at all.
     expect(next).toBeDefined();
-    // Actual: damageDealt (3) first, then statusGiven tough.
+    // The attack was initiated in the reveal sentence; its damage follows the tough status card.
     expect(next!.type).toBe("statusGiven");
   });
 });

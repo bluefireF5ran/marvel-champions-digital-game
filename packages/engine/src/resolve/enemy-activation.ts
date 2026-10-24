@@ -68,7 +68,7 @@ import {
   gainedBoostAbilities,
   isAlly,
 } from "../select.js";
-import { type BoostInProgress, currentActivationFrameId, type Vars } from "../stack.js";
+import { type BoostInProgress, defendedActivationFrameId, type Vars } from "../stack.js";
 import type { BoostGiven, GameState, ZoneId } from "../state.js";
 import { type SchemeThreatDivert, TOTAL_ATK_RESULT, type TriggerEvent } from "../trigger-events.js";
 import {
@@ -827,8 +827,8 @@ export function declareLabeledDefense(ctx: Ctx, playerId: PlayerId): void {
     return;
   }
   // Interrupting the attack itself ("When the villain attacks you"): the procedure
-  // hasn't started, so record the defender on the attack event.
-  const activation = currentActivationFrameId(ctx.state.stack);
+  // hasn't started, so record the defender on the attack event. Not a keyword's attack waiting for its ability.
+  const activation = defendedActivationFrameId(ctx.state.stack);
   const frame = activation ? ctx.state.stack.find((f) => f.frameId === activation) : undefined;
   if (frame?.kind !== "event" || frame.event.kind !== "enemyAttack" || (frame.vars.labeledDefense ?? 0) > 0) return;
   // "…if there is not already a defender" (p. 14): one an effect declared while the attack was being initiated, this
@@ -871,7 +871,7 @@ export function declareDefenderByLabeledEffect(
   if (!declareDefenderByEffect(ctx, defenderId, exhaust)) return;
   if (hero === null || defenderId === hero) return;
   const attack = ctx.state.stack.find((f): f is Frame<"enemyAttack"> => f.kind === "enemyAttack" && !f.versusEnemy);
-  addFrameSlots(ctx, attack?.eventFrameId ?? currentActivationFrameId(ctx.state.stack), {
+  addFrameSlots(ctx, attack?.eventFrameId ?? defendedActivationFrameId(ctx.state.stack), {
     [LABELED_DEFENSE_HERO_SLOT]: [hero],
   });
 }
@@ -932,7 +932,8 @@ export function declareDefenderByEffect(ctx: Ctx, defenderId: InstanceId, exhaus
     }
     return true;
   }
-  const activation = currentActivationFrameId(ctx.state.stack);
+  // Not a keyword's attack waiting for its ability (`defendedActivationFrameId`): the defense bar reads the outer one.
+  const activation = defendedActivationFrameId(ctx.state.stack);
   const frame = activation ? ctx.state.stack.find((f) => f.frameId === activation) : undefined;
   if (frame?.kind !== "event" || frame.event.kind !== "enemyAttack") return false;
   const already = (frame.slots[DEFENDER_SLOT] ?? [])[0] === defenderId;
