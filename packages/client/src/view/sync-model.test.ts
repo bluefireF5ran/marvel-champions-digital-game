@@ -49,6 +49,9 @@ describe("steps", () => {
 
   test("the recovery code must be acknowledged before the setup screen can be left", () => {
     expect(syncStepMustAcknowledge({ kind: "setup", phase: { code: CODE } })).toBe(true);
+    expect(syncStepMustAcknowledge({ kind: "setup", phase: { code: CODE, copied: true } }), "copied counts").toBe(
+      false,
+    );
     expect(syncStepMustAcknowledge({ kind: "setup", phase: "creating" })).toBe(false);
     expect(syncStepMustAcknowledge({ kind: "show-code", code: CODE })).toBe(false);
   });
