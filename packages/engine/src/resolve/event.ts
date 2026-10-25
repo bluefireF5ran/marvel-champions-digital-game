@@ -614,7 +614,7 @@ function pushEndEffects(ctx: Ctx, frame: Frame<"event">): boolean {
   setFrame(ctx, { ...frame, endEffects: [] });
   const event = withResults(frame.event, frame.vars);
   for (const deferred of [...frame.endEffects].reverse()) {
-    pushEffects(ctx, { ...deferred, event, eventFrameId: null });
+    pushEffects(ctx, { ...deferred, event: deferred.event !== undefined ? deferred.event : event, eventFrameId: null });
   }
   return true;
 }

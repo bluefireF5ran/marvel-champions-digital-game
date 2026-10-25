@@ -164,6 +164,13 @@ export interface DeferredEffects {
    * waits for those responses.
    */
   readonly delayed?: true;
+  /**
+   * An activation queued behind this one (RRG 1.8 "Activation", p. 6) keeps the scope of the effect that initiated it:
+   * the player of its `forEachPlayer` pass ("attacks each player": `thatPlayer`) and the event that effect answered
+   * ("that damage"). Unset for the other held effects, which run in the activation's own scope (`pushEndEffects`).
+   */
+  readonly scopedPlayerId?: PlayerId | null;
+  readonly event?: TriggerEvent | null;
 }
 
 /**
