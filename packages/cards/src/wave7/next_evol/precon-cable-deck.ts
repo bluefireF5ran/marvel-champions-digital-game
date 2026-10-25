@@ -46,6 +46,7 @@ import {
   response,
   rule,
   self,
+  sentence,
   shuffleDeck,
   stateCheckFromEntering,
   takesConsequentialDamage,
@@ -239,11 +240,14 @@ export const NEXT_EVOL_PRECON_CABLE_DECK: AbilityRegistry = defineAbilities({
     { label: "thwart" },
     dealDamage(1, teamUpCharacters()),
     // Both schemes are chosen before either removal: the two are simultaneous, so a crisis icon the first removal
-    // defeats still bars the main scheme from the second (ruling December 8, 2023 - Ruling 127; RRG 1.8 p. 61 Wasp FAQ).
+    // defeats still bars the main scheme from the second (ruling December 8, 2023 - Ruling 127 answer 2: "simultaneous,
+    // not consecutive"; RRG 1.8 "And" p. 7; Wasp FAQ p. 61). Answer 1: with two schemes you cannot remove from just one,
+    // so the second choice has no skip option. `sentence` holds the first removal's responses until the second has
+    // happened (a flat list would open a response window between them). It is not `divide`: each scheme loses 3, not a
+    // total of 3 shared out as chosen.
     chooseTarget("first", query("scheme")),
     chooseTarget("second", query("scheme", { excludeSlots: ["first"] })),
-    thwart(3, chosen("first")),
-    thwart(3, chosen("second")),
+    sentence(thwart(3, chosen("first")), thwart(3, chosen("second"))),
   ),
 
   "40028.the-power-of-the-mind-constant": constant(doublesResourcesWhilePayingFor({ trait: PSIONIC })),
