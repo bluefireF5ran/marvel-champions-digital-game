@@ -5,7 +5,7 @@
  * Blast in full before resolving the Response on Gamma form." Ruling 137 (January 11, 2024): "In most cases, yes, a
  * sentence in an ability must fully resolve before responses to that sentence can occur." RRG 1.8 p. 4 ("resolve the
  * ability one sentence at a time") and "'And'" (p. 7, effects joined by "and" resolve simultaneously); the RRG's
- * "Response" (p. 37) and "Triggering Condition" (p. 45) entries do not say when within an ability the window opens.
+ * "Response" (p. 38) and "Triggering Condition" (p. 45) entries do not say when within an ability the window opens.
  *
  * How. `pushWindow` hands a response window to the innermost `sentence` frame on the stack (`holdingSentence`) while
  * that frame still has an effect after the one resolving (`cursor < effects.length`); the window's conditions are

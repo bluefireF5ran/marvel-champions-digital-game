@@ -603,7 +603,9 @@ export function afterDiscardChoice(ctx: Ctx, playerId: PlayerId): void {
 }
 
 /**
- * RRG 1.8 "End of Player Phase" (p. 18) step 2, player by player. A refill that stops early so a drawn card's ability
+ * RRG 1.8 "End of Player Phase" (p. 18) step 2: "Each player simultaneously draws up to their hand size". When two or
+ * more effects would resolve simultaneously the first player decides their order ("First Player", p. 19), and player
+ * order is the engine's default, so the refill runs player by player. A refill that stops early so a drawn card's ability
  * can resolve (`drawUpTo`; RRG 1.8 "Hand Size", p. 21; ruling Aug 14, 2025) leaves the step on that player, with
  * the cards drawn so far, and the flow runs it again once the stack is empty: that player finishes before the next
  * draws, and `handRefilled` counts every card of the refill.

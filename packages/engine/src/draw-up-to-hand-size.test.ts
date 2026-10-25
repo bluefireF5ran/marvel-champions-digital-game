@@ -3,10 +3,9 @@
  * checking after each card is drawn whether they are at their hand size"; FFG ruling August 14, 2025: "if you
  * draw Shapeshifter Surprise when drawing up to your hand size, you immediately resolve it before finishing drawing
  * cards." So an ability a drawn card's arrival triggers resolves before the next card is drawn: a card's "after this
- * enters your hand", and (contributor's rules call 2026-10-17 (bluefireF5ran)) a drawn obligation's entering play.
- * Encounter cards drawn from a player deck are still dealt after the whole draw, also that call: RRG p. 21 (one at a
- * time) and the MC27 p. 21 FAQ ("those cards are drawn simultaneously") differ, and the MC27 FAQ is followed for
- * Mysterio's encounter cards.
+ * enters your hand", and a drawn obligation's entering play. RRG 1.8 p. 21 supersedes MC27's "drawn simultaneously"
+ * for a refill; MC27's separate instruction to deal the drawn encounter cards afterward (MC27 p. 21) still applies, as
+ * it does not conflict with drawing one at a time, so Mysterio's encounter cards are dealt after the whole draw.
  */
 import type { CardId } from "@mc/content";
 import { describe, expect, it } from "vitest";
