@@ -285,6 +285,13 @@ export type StackFrame =
       /** Events handed over by frames whose `responsesWith` is this one; this frame's response window gathers them. */
       readonly joinedResponses?: readonly TriggerEvent[];
       /**
+       * The response windows a sentence held (`Frame<"effects">.heldSentenceResponses`, one entry per occurrence) and
+       * handed to this event, the attack or thwart of the "(attack)"/"(thwart)" ability that sentence ended: they join
+       * this event's own response window, each as a triggering condition group of its own (`Frame<"window">
+       * .conditionGroups`; `resolve/sentence-hold.ts`).
+       */
+      readonly sentenceResponses?: readonly (readonly TriggerEvent[])[];
+      /**
        * Announcements of moves made during this event's own interrupt window, pushed once this frame finishes, after
        * its "cancelled" line if it was cancelled (docs/phase7-wave5.md §4.1 Q34): a replacement ("tuck it here
        * instead") moved the leaving card, and its `cardLeavesPlay` (responses only) follows the replaced one's end.
@@ -413,6 +420,20 @@ export type StackFrame =
        * one of them can cancel or replace that one. Absent (or null) for a condition whose frame has finished.
        */
       readonly alsoEventFrameIds?: readonly (FrameId | null)[];
+      /**
+       * Response windows only: which occurrence each condition belongs to, by index, `alsoEvents` first and `event`
+       * last. Absent when they are all one occurrence's (every window but the one a sentence's held responses open,
+       * `resolve/sentence-hold.ts`). RRG 1.8 p. 5 puts forced before optional only among "abilities with the same
+       * triggering condition" ("Forced", p. 20: "for any given triggering condition"), so with several groups an
+       * optional response to a group no forced response answers is offered before the forced tier too
+       * (`earlyOptional`), as well as after it.
+       */
+      readonly conditionGroups?: readonly number[];
+      /**
+       * With `conditionGroups`: `"offering"` while the optional responses to groups no forced response answers are
+       * offered ahead of the forced tier, `"done"` once that round has ended. Absent when there was no such round.
+       */
+      readonly earlyOptional?: "offering" | "done";
       readonly timing: WindowTiming;
       readonly eventFrameId: FrameId | null;
       /** Index into the priority tier list for this timing (RRG "Simultaneous Timing Priority"). */
@@ -666,9 +687,10 @@ export type StackFrame =
        */
       readonly sentence?: true;
       /**
-       * On a `sentence` frame: the response windows raised while one of its effects before the last was resolving,
-       * oldest first, each the conditions of one occurrence in the order `pushWindow` lists them (the window's own
-       * event last). Opened, in that order, once the sentence has resolved.
+       * On a `sentence` frame: the response windows raised while it resolves, oldest first, each the conditions of one
+       * occurrence in the order `pushWindow` lists them (the window's own event last). Opened together, as one window,
+       * once the sentence has resolved (`resolve/sentence-hold.ts`). On the root frame of a "(thwart)" ability: the ones
+       * its last sentence handed over, for the window of its one thwart (`announceAbilityThwart`).
        */
       readonly heldSentenceResponses?: readonly (readonly TriggerEvent[])[];
     })
