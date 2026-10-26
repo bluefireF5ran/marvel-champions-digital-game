@@ -18,6 +18,30 @@ latest version and link straight to its installers; every release PR updates the
 The desktop and Android apps check GitHub for a newer release on launch and show an "Update available" banner on the
 Title screen when one exists. The web app always runs the latest version.
 
+## Play it from Steam
+
+Each release has an "Install for Steam" script for Windows, macOS and Linux. It adds the installed game to Steam as a
+non-Steam game, with its icon and library art (the grid, wide and Big Picture banners), so it plays from your library
+and Big Picture with a controller. The entry is named "Marvel Champions Digital Edition", which is what Steam and status
+plugins such as Discord show. Running it again updates the entry instead of adding a second one, keeps its collections
+and play time, and also replaces an entry you added by hand (named after the AppImage or exe file). Steam has to be closed while it runs; the script offers to close it.
+
+- **Windows**: install the game, then download `-Windows-Install-for-Steam.ps1` and run, in PowerShell (`-File`
+  takes no wildcards, so this looks the file up first):
+  `powershell -ExecutionPolicy Bypass -File (Get-ChildItem ~\Downloads\MarvelChampions-*-Windows-Install-for-Steam.ps1 | Select-Object -Last 1).FullName`
+- **macOS**: drag the game into Applications from the `.dmg`, then download `-macOS-Install-for-Steam.sh` and run
+  `bash ~/Downloads/MarvelChampions-*-macOS-Install-for-Steam.sh`.
+- **Linux, Steam Deck and Bazzite**: download the `.AppImage` and `-Linux-Install-for-Steam.sh` (on a Steam Deck, in
+  Desktop Mode), then run `bash ~/Downloads/MarvelChampions-*-Linux-Install-for-Steam.sh`. It takes the newest
+  AppImage from Downloads (or downloads the latest), installs it to `~/Applications/MarvelChampions/`, works with
+  native and Flatpak Steam on any distro (without libfuse2 it adds `APPIMAGE_EXTRACT_AND_RUN=1` to the launch
+  options so the AppImage still starts). The app sets the [launch options](#linux-launch-options) below itself, so the
+  entry doesn't need them. Launch options you add in Steam yourself are kept when you run it again for a new version.
+
+Every script takes `--help` (`-?` on Windows) and an uninstall option (`--uninstall`, or `-Uninstall` on Windows) that
+removes the Steam entry and its art. The scripts live in `scripts/linux/`, `scripts/macos/` and `scripts/windows/`;
+the art is in `scripts/linux/steam-art/`, built by `scripts/linux/make-steam-art.py` from the title screen pictures.
+
 ## Linux launch options
 
 The Linux app runs on WebKitGTK, and a few environment variables change how it behaves. The app sets the first three
