@@ -155,6 +155,7 @@ import { finishTurn, pushPhaseEndDelayed } from "../flow.js";
 import { continueActivation } from "../villain/phase.js";
 import { applyEncounterCardBeingDealt, resolveSurge } from "./reveal.js";
 import { answeredByNoResponse, candidatesFor, eachTimeEffectsFor, hasCandidates, heard } from "./triggers.js";
+import { openHeldSentenceResponses, sentenceWindowConditions } from "./sentence-hold.js";
 import { pushWindow } from "./window.js";
 import { markPreThenUnresolved } from "./then.js";
 import { mainSchemePlayAreaOf } from "../per-player-main-schemes.js";
@@ -509,7 +510,14 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       // responses the attack's activation holds (`deferredResponses`): RRG 1.8 "Attack (Enemy Activation)" step 6
       // (p. 9) resolves every forced "after … attacks / is attacked / defends / takes or deals damage" ability before
       // any non-forced one, so they are one window tiered forced first, not a window each.
-      const { joinedResponses: handed = [], deferredResponses: held = [], ...unjoined } = frame;
+      // And so, each as a condition group of its own, do the windows the sentence that ended this attack's or
+      // thwart's ability held (`sentenceResponses`, `sentence-hold.ts`).
+      const {
+        joinedResponses: handed = [],
+        deferredResponses: held = [],
+        sentenceResponses: sentenceHeld = [],
+        ...unjoined
+      } = frame;
       const joinsLater =
         frame.responsesWith !== undefined && findFrame(ctx.state, frame.responsesWith)?.kind === "event";
       // So do the characters its overkill damaged, each a condition of its own (`overkillSpillConditions`).
@@ -526,6 +534,19 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       });
       if (joinLaterResponses(ctx, frame, event, spills)) {
         // Its responses wait for the later frame's window (`pushEventsSharingResponses`).
+        if (sentenceHeld.length > 0) openHeldSentenceResponses(ctx, sentenceHeld);
+      } else if (sentenceHeld.length > 0) {
+        const window = sentenceWindowConditions(sentenceHeld, [...joined, event]);
+        if (window)
+          pushWindow(
+            ctx,
+            event,
+            "response",
+            frame.frameId,
+            window.alsoEvents,
+            [],
+            window.groups.length > 0 ? window.groups : undefined,
+          );
       } else if (
         hasCandidates(ctx.state, ctx.deps, event, "response") ||
         joined.some((other) => hasCandidates(ctx.state, ctx.deps, other, "response"))
@@ -614,7 +635,7 @@ function pushEndEffects(ctx: Ctx, frame: Frame<"event">): boolean {
   setFrame(ctx, { ...frame, endEffects: [] });
   const event = withResults(frame.event, frame.vars);
   for (const deferred of [...frame.endEffects].reverse()) {
-    pushEffects(ctx, { ...deferred, event, eventFrameId: null });
+    pushEffects(ctx, { ...deferred, event: deferred.event !== undefined ? deferred.event : event, eventFrameId: null });
   }
   return true;
 }

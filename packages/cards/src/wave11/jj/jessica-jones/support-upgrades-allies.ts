@@ -77,7 +77,8 @@ const CAMCORDER_X = sum(remainingHpOf(chosen("minion")), -2);
  * RRG 1.8 pp. 24, 26: the (attack) label makes a stunned identity cancel the whole forced response, and the stun is
  * removed; a form change inside the ability is the identity changing form on the player's behalf (p. 24 "Initiating Abilities").
  * **61013**: "at least 3" is read from the pending damage.
- * **61014**: Stakeout is played unattached, so "in your play area" is true until it is attached.
+ * **61014**: a play from hand puts it on your identity (no "attach to" text, RRG 1.8 "Upgrade", p. 46), which is in your
+ * play area until it is attached to a scheme in the villain's area (`inPlayAreaOf` reads an attachment by its host, #411).
  */
 export const JJ_JESSICA_JONES_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   "61003.luke-cage-action": action({ cost: [exhaustThis, damageThisCardCost(1)] }, giveTough(self)),

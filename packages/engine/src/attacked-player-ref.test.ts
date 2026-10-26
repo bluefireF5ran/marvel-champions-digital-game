@@ -453,18 +453,19 @@ describe("PlayerRef attackedPlayer: each attacker reads its own attack", () => {
   it("a nested attack: inside the villain's attack on P1, a minion's attack on P2 reads P2, and the villain still P1", () => {
     const engaged = minionEngagedWith(table(), HOUND.id, P2);
     const result = use(engaged.state, ATTACK_ME);
-    // The minion's attack is made while the villain's is still being initiated: the villain's ATK is its 1 + 2.
+    // The minion's attack waits for the villain's (RRG 1.8 "Activation", p. 6) and is made at its end, while the
+    // villain's attack is still on the stack: the villain's ATK is its 1 + 2.
     expect(recorded(result.state, "probed")).toBe(1);
     expect(recorded(result.state, "villainAtk")).toBe(1 + HAND.p1);
     // No attacker named: the innermost attack, the minion's on P2. Named: that attacker's own.
     expect(recorded(result.state, "innermost")).toBe(HAND.p2);
     expect(recorded(result.state, "bySelf")).toBe(HAND.p2);
     expect(recorded(result.state, "byVillain")).toBe(HAND.p1);
-    // The inner attack resolves first, then the outer one, each with its own target's hand.
+    // The villain's attack resolves first, then the minion's it initiated, each with its own target's hand.
     expect(damageTo(result.events, heroOf(result.state, P2))).toEqual([1 + HAND.p2]);
     expect(damageTo(result.events, heroOf(result.state, P1))).toEqual([1 + HAND.p1]);
     const order = result.events.flatMap((e) => (e.type === "damageDealt" ? [e.targetInstanceId] : []));
-    expect(order).toEqual([heroOf(result.state, P2), heroOf(result.state, P1)]);
+    expect(order).toEqual([heroOf(result.state, P1), heroOf(result.state, P2)]);
   });
 
   it("in a `while` condition: '+2 ATK while attacking a player with at least 4 cards in hand'", () => {

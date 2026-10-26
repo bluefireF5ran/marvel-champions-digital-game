@@ -1,12 +1,12 @@
 /**
  * Rules QA for the Black Panther (Shuri) pack `bp` (51001 to 51042): the interactions the module tests do not
- * assert, each tied to an RRG 1.8 section (`mc_rulesreference_v18_compressed.pdf`), an FFG ruling by its date heading
- * (marvel-champions-rulings-post-rrg-1-7.md) or an owner answer (docs/phase7-wave9.md section 4.1, or wave 3 Q16 in
+ * assert, each tied to an RRG 1.8 section (`docs/rules/mc_rulesreference_v18_compressed.pdf`), an FFG ruling by its date heading
+ * (docs/rulings/marvel-champions-rulings-post-rrg-1-7.md) or an owner answer (docs/phase7-wave9.md section 4.1, or wave 3 Q16 in
  * docs/phase7-wave3.md section 4). A `FINDING` comment marks a case where the game and its source disagree: the
  * expected behavior is an `it.fails`. Findings are tabled in docs/phase7-wave9-qa.md.
  */
 import { cardId } from "@mc/content";
-import { activeEncounterDeckId, type GameState, type InstanceId } from "@mc/engine";
+import { activeEncounterDeckId, applyCommand, type GameState, type InstanceId } from "@mc/engine";
 import { describe, expect, it, vi } from "vitest";
 import {
   P1,
@@ -154,6 +154,22 @@ describe("Heart of the Panther 51025: 'up to 4 Black Panther upgrades'", () => {
     const specials = r.history.filter((h) => h.kind === "chooseCards").at(-1)!;
     expect(specials.ids).toEqual(expect.arrayContaining([beads.id, claws.id]));
     expect(r.mins["chooseCards"]).toBe(1);
+  });
+
+  it("Black Panther (Shuri) and the T'Challa ally 51002 in play can play it (ruling November 21, 2025; issue #425)", () => {
+    const base = withForm(bpHeroGame(), { heroForm: 0 });
+    const without = moveToHand(base, P1, HEART);
+    const refused = applyCommand(
+      without.state,
+      play(P1, without.ids[0]!, payWith(without.state, P1, 2, without.ids)),
+      DEPS,
+    );
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.message).toContain("Black Panther/T'Challa");
+    const ally = putInPlay(base, T_CHALLA_ALLY);
+    const r = cast(ally.state, HEART, 2);
+    expect(playerOf(r.state, P1).hand).not.toContain(r.id);
+    expect(types(r.events, "cardPlayed").map((e) => e.instanceId)).toContain(r.id);
   });
 });
 

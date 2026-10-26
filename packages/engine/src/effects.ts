@@ -1367,10 +1367,11 @@ function enteredHandIsHeard(ctx: Ctx, from: number): boolean {
 
 /**
  * A refill stopping early holds back the encounter cards it drew (recorded from index `from` on), so the flow does not
- * deal them while the refill waits: Mysterio's FAQ deals them after the whole draw (MC27 p. 21, "those cards are drawn
- * simultaneously. Afterward, deal each encounter card drawn during that process"). RRG p. 21 draws one at a time and
- * the MC27 FAQ says simultaneously; the MC27 FAQ is followed for encounter cards (contributor's rules call 2026-10-17
- * (bluefireF5ran)).
+ * deal them while the refill waits. RRG 1.8 "Hand Size" (p. 21) supersedes MC27's "drawn simultaneously" for a refill:
+ * cards are drawn one at a time (ruling Aug 14, 2025). MC27's separate instruction to deal the drawn encounter cards
+ * afterward ("Afterward, deal each encounter card drawn during that process", MC27 p. 21) still applies, because it does
+ * not conflict with drawing one at a time. The MC27 answer covers any multi-card draw from a game step or card ability,
+ * and RRG p. 21's one-at-a-time rule covers only drawing up to hand size, so a plain "draw 3" is still simultaneous.
  */
 function holdRefillEncounterCards(ctx: Ctx, from: number): void {
   const pending = ctx.state.pendingEncounterFromDeck ?? [];
