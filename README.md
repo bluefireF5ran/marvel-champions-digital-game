@@ -4,7 +4,7 @@
 
 # Marvel Champions: Digital Edition (Unofficial Fan Game)
 
-[![Latest release](https://img.shields.io/badge/version-v0.36.5-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.36.5)
+[![Latest release](https://img.shields.io/badge/version-v0.37.0-e8730c)](https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.37.0)
 [![Tests and build on main](https://img.shields.io/github/actions/workflow/status/quincarter/marvel-champions-digital-game/netlify-deploy.yml?branch=main&event=push&label=tests%20%26%20build&logo=github)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/netlify-deploy.yml?query=branch%3Amain)
 [![Release](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml/badge.svg?branch=main)](https://github.com/quincarter/marvel-champions-digital-game/actions/workflows/release-on-merge.yml?query=branch%3Amain)
 [![Netlify Status](https://api.netlify.com/api/v1/badges/487c224e-254f-42a0-a2b3-a6192b9e70c8/deploy-status)](https://app.netlify.com/projects/marvel-champions-digital-game/deploys)
@@ -20,14 +20,14 @@ to be a genuinely playable video game driven by a deterministic rules engine.
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.36.5/MarvelChampions-0.36.5-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.36.5/MarvelChampions-0.36.5-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.36.5/MarvelChampions-0.36.5-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.37.0/MarvelChampions-0.37.0-Windows-x64-Setup.exe"><img src=".github/assets/readme/download-windows.svg" alt="Download for Windows" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.37.0/MarvelChampions-0.37.0-macOS-AppleSilicon-arm64.dmg"><img src=".github/assets/readme/download-macos-apple-silicon.svg" alt="Download for a Mac with Apple silicon" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.37.0/MarvelChampions-0.37.0-macOS-Intel-x64.dmg"><img src=".github/assets/readme/download-macos-intel.svg" alt="Download for an Intel Mac" height="48"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.36.5/MarvelChampions-0.36.5-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
-  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.36.5/MarvelChampions-0.36.5-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.37.0/MarvelChampions-0.37.0-Linux-x64.AppImage"><img src=".github/assets/readme/download-linux.svg" alt="Download for Linux (AppImage)" height="48"></a>
+  <a href="https://github.com/quincarter/marvel-champions-digital-game/releases/download/v0.37.0/MarvelChampions-0.37.0-Android.apk"><img src=".github/assets/readme/download-android.svg" alt="Download for Android" height="48"></a>
   <a href="https://github.com/quincarter/marvel-champions-digital-game/releases"><img src=".github/assets/readme/all-releases.svg" alt="View all releases" height="48"></a>
 </p>
 
@@ -138,15 +138,15 @@ What you can play today is in [Current status](docs/project/current-status.md). 
 
 ## More
 
-| Page                                               | What's in it                                                         |
-| -------------------------------------------------- | -------------------------------------------------------------------- |
-| [Current status](docs/project/current-status.md)   | What you can play today and what the next release adds               |
-| [Architecture](docs/project/architecture.md)       | The four packages, how they depend on each other, running it locally |
-| [Downloads](docs/project/downloads.md)             | Every installer, unsigned macOS builds, the in-app update notice     |
-| [Contributing](CONTRIBUTING.md)                    | Setup, tests, CI, conventions, card data and the release flow        |
-| [PLAN.md](PLAN.md)                                 | The full roadmap, decisions and per-phase detail                     |
-| [Rules authority](docs/project/rules-authority.md) | Which rules source wins a conflict, and every RRG and rulings page   |
-| [CHANGELOG.md](CHANGELOG.md)                       | Every release's changes                                              |
+| Page                                               | What's in it                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Current status](docs/project/current-status.md)   | What you can play today and what the next release adds                                 |
+| [Architecture](docs/project/architecture.md)       | The four packages, how they depend on each other, running it locally                   |
+| [Downloads](docs/project/downloads.md)             | Every installer, unsigned macOS builds, Linux launch options, the in-app update notice |
+| [Contributing](CONTRIBUTING.md)                    | Setup, tests, CI, conventions, card data and the release flow                          |
+| [PLAN.md](PLAN.md)                                 | The full roadmap, decisions and per-phase detail                                       |
+| [Rules authority](docs/project/rules-authority.md) | Which rules source wins a conflict, and every RRG and rulings page                     |
+| [CHANGELOG.md](CHANGELOG.md)                       | Every release's changes                                                                |
 
 ## License
 
