@@ -72,6 +72,11 @@ function finishesAfterItsWindow(ctx: Ctx, eventFrameId: FrameId | null): boolean
   return frame?.kind === "event" && (frame.event.kind === "attack" || frame.event.kind === "enemyAttack");
 }
 
+/** Whether a response window `eventFrameId` raises now would be held by the sentence resolving. */
+export function sentenceHoldsResponses(ctx: Ctx, eventFrameId: FrameId | null): boolean {
+  return holdingSentence(ctx) !== undefined && !finishesAfterItsWindow(ctx, eventFrameId);
+}
+
 /**
  * Hands the response window of `events` (the conditions of one occurrence, the window's own event last) to the
  * sentence resolving. False, with nothing done, when no sentence holds it.

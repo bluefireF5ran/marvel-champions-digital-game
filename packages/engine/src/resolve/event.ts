@@ -154,7 +154,7 @@ import { finishTurn, pushPhaseEndDelayed } from "../flow.js";
 import { continueActivation } from "../villain/phase.js";
 import { applyEncounterCardBeingDealt, resolveSurge } from "./reveal.js";
 import { answeredByNoResponse, candidatesFor, eachTimeEffectsFor, hasCandidates, heard } from "./triggers.js";
-import { openHeldSentenceResponses, sentenceWindowConditions } from "./sentence-hold.js";
+import { openHeldSentenceResponses, sentenceHoldsResponses, sentenceWindowConditions } from "./sentence-hold.js";
 import { noteUnoffered, pushWindow } from "./window.js";
 import { holdingReveal } from "./reveal-hold.js";
 import { markPreThenUnresolved } from "./then.js";
@@ -538,10 +538,11 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         joined.some((other) => hasCandidates(ctx.state, ctx.deps, other, "response"))
       ) {
         pushWindow(ctx, event, "response", frame.frameId, joined);
-      } else if (!holdingReveal(ctx.state)) {
+      } else if (!holdingReveal(ctx.state) && !sentenceHoldsResponses(ctx, frame.frameId)) {
         // No window: a response that answered but cannot be used still says why (#431). Not while a reveal is in
         // progress: what it would answer is judged at the reveal's end (`reveal-hold.ts`), and a condition with nothing
-        // offered is not held for it (engine reading, unchanged), so nothing is said rather than something early.
+        // offered is not held for it (engine reading, unchanged), so nothing is said rather than something early. The
+        // same while a sentence holds its responses (`sentence-hold.ts`), which likewise holds no such condition.
         noteUnoffered(ctx, [event, ...joined], "response");
       }
       // Lasting "each time …" effects resolve before the responses, so they are pushed on top (§3.17).

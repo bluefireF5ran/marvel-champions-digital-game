@@ -674,6 +674,8 @@ function offerEarlyOptional(ctx: Ctx, frame: Frame<"window">): boolean {
   });
   setFrame(ctx, {
     ...frame,
+    // Offered here, it had its opportunity, as one offered at a tier (`stillUnoffered`).
+    ...stillUnoffered(frame, early),
     earlyOptional: "offering",
     optionalAtOpen: atOpen,
     pending: early,
