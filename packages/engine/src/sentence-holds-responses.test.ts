@@ -513,3 +513,49 @@ describe("a sentence's held windows: entering play, nesting, two players, a thwa
     expect(log).toEqual(["changed", "form"]);
   });
 });
+
+/** "Response: After threat is placed on the main scheme, …", costing an energy resource the player does not have. */
+const PRICEY = stubAbility("pricey.response", {
+  trigger: { kind: "response", forced: false, on: { on: "placeThreat", targetIs: { categories: ["mainScheme"] } } },
+  cost: { resources: { energy: 1 } },
+  effects: [
+    {
+      kind: "addCounters",
+      target: { kind: "identityOf", player: { kind: "controller" } },
+      counterType: "tally",
+      amount: { kind: "const", value: 1 },
+    },
+  ],
+} satisfies AbilityDefinition);
+const PRICER = stubSupport({ id: "pricer", cost: 0, abilities: [PRICEY.ref] });
+
+describe("a response that cannot be used, while a sentence holds its responses (#431)", () => {
+  /** How many times the engine said the unpayable response was not offered while `card` resolved. */
+  function notOfferedCount(card: { readonly id: string }): number {
+    const pricedDeps = depsOf(PRICEY, SENTENCE.ability, FLAT.ability);
+    let state = gameAtFirstTurn({
+      cards: [PRICER, SENTENCE.card, FLAT.card],
+      deps: pricedDeps,
+      deck: [PRICER.id, SENTENCE.card.id, FLAT.card.id],
+    });
+    state = playerCardIntoPlay(state, PRICER.id as never).state;
+    const given = giveCard(state, P1, card.id as never);
+    // Nothing else in hand, so the energy cannot be paid.
+    const bare = {
+      ...given.state,
+      players: given.state.players.map((p) => (p.playerId === P1 ? { ...p, hand: [given.id] } : p)),
+    };
+    const { events } = driveSession(startSession(bare), pricedDeps, [
+      { type: "playCard", playerId: P1, cardInstanceId: given.id, payment: [], attachToInstanceId: null },
+    ]);
+    return events.filter((e) => e.type === "abilityNotOffered" && e.abilityId === PRICEY.ref.id).length;
+  }
+
+  it("flat list: said after each placement", () => {
+    expect(notOfferedCount(FLAT.card)).toBe(3);
+  });
+
+  it("inside the sentence nothing is said early, as while a reveal holds them; the last sentence's placement says it", () => {
+    expect(notOfferedCount(SENTENCE.card)).toBe(1);
+  });
+});

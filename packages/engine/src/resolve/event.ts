@@ -155,8 +155,9 @@ import { finishTurn, pushPhaseEndDelayed } from "../flow.js";
 import { continueActivation } from "../villain/phase.js";
 import { applyEncounterCardBeingDealt, resolveSurge } from "./reveal.js";
 import { answeredByNoResponse, candidatesFor, eachTimeEffectsFor, hasCandidates, heard } from "./triggers.js";
-import { openHeldSentenceResponses, sentenceWindowConditions } from "./sentence-hold.js";
-import { pushWindow } from "./window.js";
+import { openHeldSentenceResponses, sentenceHoldsResponses, sentenceWindowConditions } from "./sentence-hold.js";
+import { noteUnoffered, pushWindow } from "./window.js";
+import { holdingReveal } from "./reveal-hold.js";
 import { markPreThenUnresolved } from "./then.js";
 import { mainSchemePlayAreaOf } from "../per-player-main-schemes.js";
 import {
@@ -334,6 +335,10 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
           [...companions.map((companion) => companion.event), ...(engaging ? [engaging] : [])],
           [...companions.map((companion) => companion.frameId), ...(engaging ? [null] : [])],
         );
+      // With no window, an interrupt that answered but cannot be used still says why (#431; `pushWindow` says it for a
+      // window), unless a tough status card stops the damage first, which no interrupt would have had a say in.
+      else if (opened.kind !== "dealDamage" || !toughResolvesFirst(ctx, opened, frame.frameId))
+        noteUnoffered(ctx, [opened, ...companions.map((companion) => companion.event)], "interrupt");
       return;
     }
     case "apply": {
@@ -552,6 +557,12 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         joined.some((other) => hasCandidates(ctx.state, ctx.deps, other, "response"))
       ) {
         pushWindow(ctx, event, "response", frame.frameId, joined);
+      } else if (!holdingReveal(ctx.state) && !sentenceHoldsResponses(ctx, frame.frameId)) {
+        // No window: a response that answered but cannot be used still says why (#431). Not while a reveal is in
+        // progress: what it would answer is judged at the reveal's end (`reveal-hold.ts`), and a condition with nothing
+        // offered is not held for it (engine reading, unchanged), so nothing is said rather than something early. The
+        // same while a sentence holds its responses (`sentence-hold.ts`), which likewise holds no such condition.
+        noteUnoffered(ctx, [event, ...joined], "response");
       }
       // Lasting "each time …" effects resolve before the responses, so they are pushed on top (§3.17).
       for (const effect of [...eachTimeEffectsFor(ctx.state, ctx.deps, event)].reverse()) {
@@ -821,7 +832,11 @@ const defersResponsesToActivation = (event: TriggerEvent): boolean =>
 function openDeferredResponses(ctx: Ctx, frame: Frame<"event">, deferred: readonly TriggerEvent[]): void {
   const [first, ...rest] = deferred.map((each) => withResults(each, frame.vars));
   // Triggering conditions are checked when the window opens, not when the defense happened.
-  if (!first || ![first, ...rest].some((event) => hasCandidates(ctx.state, ctx.deps, event, "response"))) return;
+  if (!first) return;
+  if (![first, ...rest].some((event) => hasCandidates(ctx.state, ctx.deps, event, "response"))) {
+    noteUnoffered(ctx, [first, ...rest], "response");
+    return;
+  }
   // One window for all of them, tiered forced first (RRG 1.8 "Attack (Enemy Activation)" step 6, p. 9).
   pushWindow(ctx, first, "response", frame.frameId, rest);
 }
@@ -873,7 +888,7 @@ function openJoinedResponses(ctx: Ctx, frame: Frame<"event">): boolean {
   setFrame(ctx, unjoined);
   if ([first, ...rest].some((event) => hasCandidates(ctx.state, ctx.deps, event, "response"))) {
     pushWindow(ctx, first, "response", null, rest);
-  }
+  } else noteUnoffered(ctx, [first, ...rest], "response");
   return true;
 }
 
@@ -2084,6 +2099,7 @@ function recordDamageTaken(
     amount: taken,
     sourceInstanceId: event.sourceInstanceId,
     ...(event.noPlayer ? { noPlayer: true as const } : {}),
+    ...(event.retaliate ? { retaliate: true as const } : {}),
     ...(event.unpreventable ? { unpreventable: true as const } : {}),
   });
   addFrameVars(ctx, frameId, { amount: taken });
@@ -2207,6 +2223,7 @@ function applyRetaliate(ctx: Ctx, event: Extract<TriggerEvent, { kind: "characte
     amount,
     sourceInstanceId: event.targetInstanceId,
     fromAttack: false,
+    retaliate: true,
   });
 }
 
