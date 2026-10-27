@@ -866,6 +866,8 @@ export type GameEvent =
       readonly sourceInstanceId: InstanceId | null;
       /** No player dealt it although a player controls its source (`TriggerEvent dealDamage.noPlayer`). */
       readonly noPlayer?: true;
+      /** Retaliate damage (`TriggerEvent dealDamage.retaliate`), so a log can name the keyword. */
+      readonly retaliate?: true;
       /** Unpreventable damage (`TriggerEvent dealDamage.unpreventable`, docs/phase7-wave11-hero-packs.md §H3.3). */
       readonly unpreventable?: true;
     }
@@ -1659,6 +1661,20 @@ export type GameEvent =
    * §3.12). Logged only when some interrupt was waiting.
    */
   | { readonly type: "interruptsPreempted"; readonly event: TriggerEvent; readonly reason: "tough" }
+  /**
+   * An optional interrupt or response on a player's card in play answered `event` but was not offered: it has no valid
+   * target (`noTarget`) or its cost cannot be paid (`cannotPay`; RRG 1.8 "Initiating Abilities", p. 24, step 2). Said
+   * so the client can tell its player why nothing was asked (#431; `unofferedAbilities`). It changes nothing.
+   */
+  | {
+      readonly type: "abilityNotOffered";
+      readonly instanceId: InstanceId;
+      readonly abilityId: AbilityId;
+      readonly playerId: PlayerId;
+      readonly timing: "interrupt" | "response";
+      readonly reason: "noTarget" | "cannotPay";
+      readonly event: TriggerEvent;
+    }
   /**
    * An interrupt that was to resolve (a forced one, or one a player picked) for damage that would be taken did not:
    * an interrupt that resolved before it changed the pending amount, and `event`, the damage as it now stands, no
