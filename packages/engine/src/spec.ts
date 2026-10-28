@@ -5564,10 +5564,16 @@ export type EffectSpec =
    * effects list cannot tell "X and Y" from "X. Y." (Mutant Protectors 32017: a response window opens between its two
    * sentences, ruling post-RRG 1.5), so a script marks the sentence explicitly.
    *
-   * Resolves `effects` in order in a nested frame (bindings and vars go back to the enclosing list, as `then`'s do). A
-   * response window raised while an effect before the last is resolving waits (`resolve/sentence-hold.ts`) and opens
-   * once the whole sentence has resolved; interrupts never wait. The last effect's own responses open where they
-   * always did (an attack's end-of-attack order, RRG 1.8 p. 5, is untouched), before the held ones.
+   * Resolves `effects` in order in a nested frame (bindings and vars go back to the enclosing list, as `then`'s do).
+   * Every response window raised while the sentence resolves, the last effect's included, is held on the sentence
+   * frame (`resolve/sentence-hold.ts`); interrupts never wait. Once the sentence has resolved the held windows open as
+   * one window, each occurrence its own condition group (`Frame<"window">.conditionGroups`): RRG 1.8 "Triggering
+   * Condition" (p. 45), the abilities of one window "may be used in any order", and forced before optional only within
+   * one condition (p. 5 chart, "Forced" p. 20), so an optional response to a condition no forced one answers is
+   * offered first, and again after the forced ones if declined. A sentence that ends an "(attack)" or "(thwart)"
+   * ability hands its held windows to that attack's or thwart's own window, so the end-of-attack order (RRG 1.8 p. 5
+   * item 1, pp. 8-9 steps 6-9) still applies. A card entering play while the sentence holds them does not answer the
+   * held conditions.
    */
   | { readonly kind: "sentence"; readonly effects: readonly EffectSpec[] }
   /** RRG "Cancel": stops the interrupted event from resolving (its responses do not fire). */
