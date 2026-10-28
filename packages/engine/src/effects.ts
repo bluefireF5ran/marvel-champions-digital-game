@@ -2578,7 +2578,7 @@ export function settlePaidForEffects(ctx: Ctx, frameId: FrameId, effectsFrameId:
 export function startFirstAttackEffects(ctx: Ctx, sourceId: InstanceId, attackFrameId: FrameId): void {
   for (const effect of [...ctx.state.lastingEffects]) {
     if (effect.duration.kind !== "endOfPaidFor" || effect.duration.firstAttackVia !== sourceId) continue;
-    const duration: LastingDuration = { kind: "endOfEvent", frameId: attackFrameId };
+    const duration: LastingDuration = { kind: "endOfEvent", frameId: attackFrameId, ifCancelled: effect.duration };
     ctx.state = {
       ...ctx.state,
       lastingEffects: ctx.state.lastingEffects.map((e) => (e.id === effect.id ? { ...e, duration } : e)),
@@ -2595,11 +2595,25 @@ export function expirePaidForEffects(ctx: Ctx, frameId: FrameId): void {
   }
 }
 
-/** "Until the end of this attack": the attack's event frame is finishing. */
-export function expireEventLastingEffects(ctx: Ctx, frameId: string): void {
+/**
+ * "Until the end of this attack": the attack's event frame is finishing. When it was cancelled (`cancelled`), an effect
+ * a played card's first attack had claimed waits for the card's next attack again (`ifCancelled`): a cancelled attack
+ * is not considered to have occurred (RRG 1.8 "Cancel", p. 11), and ruling 190 (May 16, 2024) gives "that attack" to
+ * the first attack made, as when a stun replaces the first ("no attack is made"; RRG 1.8 "Stun", p. 41).
+ */
+export function expireEventLastingEffects(ctx: Ctx, frameId: string, cancelled = false): void {
   for (const effect of [...ctx.state.lastingEffects]) {
-    if (effect.duration.kind === "endOfEvent" && effect.duration.frameId === frameId)
+    if (effect.duration.kind !== "endOfEvent" || effect.duration.frameId !== frameId) continue;
+    const back = cancelled ? effect.duration.ifCancelled : undefined;
+    if (!back) {
       endLastingEffect(ctx, effect.id, "expired");
+      continue;
+    }
+    ctx.state = {
+      ...ctx.state,
+      lastingEffects: ctx.state.lastingEffects.map((e) => (e.id === effect.id ? { ...e, duration: back } : e)),
+    };
+    emit(ctx, { type: "lastingEffectRetimed", id: effect.id, duration: back });
   }
 }
 

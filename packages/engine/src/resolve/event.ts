@@ -417,7 +417,7 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
           namedEncounterDealNotMade(ctx, { ...frame.event, named: frame.event.named });
         }
         reportResults(ctx, frame, false);
-        expireEventLastingEffects(ctx, frame.frameId);
+        expireEventLastingEffects(ctx, frame.frameId, true);
         // An attachment's leaving that carried its host's change: the change still happens (only this card's leaving
         // was cancelled), run while this frame is still on the stack so it does not wait again (§4.1 Q32 of wave 5).
         let finished = frame;
