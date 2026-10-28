@@ -38,8 +38,15 @@ import type { Frame } from "./frames.js";
  * activation resolve before subsequent activations initiate"; ruling Feb 28, 2026 (1) answer 2).
  *
  * Several abilities suspended behind one activation resume, and initiate their activations, in the order they were
- * suspended. RRG 1.8 p. 6 has the first player choose the order of activations initiated at once: not asked yet
- * (follow-up).
+ * suspended: separate effects (two responses, two sentences) are sequential, not simultaneous, and the first player
+ * already chose the order of responses to one triggering condition as they resolved (RRG 1.8 p. 19). Swoop Down
+ * (60194, `packages/cards/src/wave11/fne/modular/the-owl.ts`) is scripted as three separate effects as an interim
+ * reading (task E21), so its Aerial and non-Aerial minions are not ordered against each other yet. Enemies
+ * one effect activates together are simultaneous ("If multiple enemies activate against you simultaneously, resolve
+ * the villain's activation first (if any) in the order of your choice, followed by minion activations in the order of
+ * your choice", p. 6; ruling June 4, 2024 #202): the villain first, then the minions in the order the first player
+ * chooses as the effect is initiated (`orderEnemies`, `resolve/effects-frame.ts`, which flags whose choice it is as an
+ * open question), kept while it waits.
  */
 export function suspendBehindActivation(
   ctx: Ctx,

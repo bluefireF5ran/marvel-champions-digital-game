@@ -1705,12 +1705,23 @@ function executeDiscardFromHand(
 }
 
 const ENEMY_ORDER_SLOT = "_enemyOrder";
+/** The villains' order, chosen before the minions' when one effect activates two or more of each. */
+const VILLAIN_ORDER_SLOT = "_enemyOrderVillains";
 
 /**
- * "Each Masters of Evil minion attacks the hero it is engaged with": one effect
- * makes several enemies attack (or scheme), one at a time. The attacks would
- * resolve simultaneously, so the first player orders them (RRG "First Player").
- * Returns true when it handled the effect (asked for the order, or applied it).
+ * "Each Masters of Evil minion attacks the hero it is engaged with": one effect makes several enemies attack (or
+ * scheme) at once, resolved one at a time. RRG 1.8 "Activation" (p. 6): "If multiple enemies activate against you
+ * simultaneously, resolve the villain's activation first (if any) in the order of your choice, followed by minion
+ * activations in the order of your choice"; ruling June 4, 2024 #202 (correction): "Ultron would have to attack first,
+ * then Black Panther can resolve the 3 Drone attacks in any order"; ruling Dec 8, 2023 #129. So the villains go first,
+ * and each group that has two or more enemies is ordered, the villains' then the minions', each in its own ordered
+ * choice (the villains' kept on the frame meanwhile, `VILLAIN_ORDER_SLOT`). The first player orders them, as the
+ * owner's design records (docs/phase3-encounter-ai.md, "One effect makes several enemies attack/scheme": first player,
+ * `firstPlayerOrders`, RRG "First Player"). Open question for the owner, not changed here: p. 6 says "in the order of
+ * your choice" for enemies activating "against you", which could make it the attacked player's choice. Only one
+ * effect's enemies are simultaneous: two effects (two responses, two sentences) each making an enemy activate are
+ * sequential, and nothing is asked here.
+ * Returns true when it handled the effect (asked for the order, or applied it in its order).
  */
 function orderEnemies(
   ctx: Ctx,
@@ -1718,29 +1729,62 @@ function orderEnemies(
   effect: Extract<EffectSpec, { kind: "enemyAttack" | "enemyScheme" | "enemyActivation" }>,
   context: EffectContext,
 ): boolean {
-  if (frame.answer !== null) {
-    const bindings = { ...frame.bindings, [ENEMY_ORDER_SLOT]: frame.answer.map((id) => asInstanceId(id)) };
-    const next: Frame<"effects"> = { ...frame, answer: null, cursor: frame.cursor + 1, bindings };
-    setFrame(ctx, next);
-    applyEffect(ctx, { ...effect, enemies: { kind: "slot", slot: ENEMY_ORDER_SLOT } }, { ...context, bindings }, next);
-    return true;
-  }
   const inPlay = cardsInPlay(ctx.state);
   const enemies = [...new Set(resolveRef(ctx.state, effect.enemies, context))].filter(
     (id) => inPlay.includes(id) && categoriesOf(ctx.state, id).includes("enemy"),
   );
+  const isVillain = (id: InstanceId): boolean => categoriesOf(ctx.state, id).includes("villain");
+  const villains = enemies.filter(isVillain);
+  const minions = enemies.filter((id) => !isVillain(id));
+  const apply = (order: readonly InstanceId[]): boolean => {
+    const { [VILLAIN_ORDER_SLOT]: _villainOrder, ...kept } = frame.bindings;
+    const bindings = { ...kept, [ENEMY_ORDER_SLOT]: order };
+    const next: Frame<"effects"> = { ...frame, answer: null, cursor: frame.cursor + 1, bindings };
+    setFrame(ctx, next);
+    applyEffect(ctx, { ...effect, enemies: { kind: "slot", slot: ENEMY_ORDER_SLOT } }, { ...context, bindings }, next);
+    return true;
+  };
+  // One ordered choice per group of two or more, villains first, both of the first player.
+  const ask = (group: readonly InstanceId[], at: Frame<"effects">): boolean => {
+    requestChoice(ctx, {
+      playerId: simultaneousOrderer(ctx.state),
+      authority: "firstPlayerOrders",
+      prompt: { kind: "orderEnemies", activation: orderedActivation(ctx, effect, context, enemies) },
+      options: cardOptions(ctx, group),
+      minSelections: group.length,
+      maxSelections: group.length,
+      frameId: at.frameId,
+      ordered: true,
+    });
+    return true;
+  };
+  const chosen = (group: readonly InstanceId[], answer: readonly string[]): readonly InstanceId[] => {
+    const answered = answer.map((id) => asInstanceId(id)).filter((id) => group.includes(id));
+    return answered.length === group.length ? answered : group;
+  };
+  if (frame.answer !== null) {
+    // The villains' order is asked first, when there are two or more, and kept on the frame for the minions' question.
+    if (villains.length >= 2 && frame.bindings[VILLAIN_ORDER_SLOT] === undefined) {
+      const villainOrder = chosen(villains, frame.answer);
+      if (minions.length < 2) return apply([...villainOrder, ...minions]);
+      const next: Frame<"effects"> = {
+        ...frame,
+        answer: null,
+        bindings: { ...frame.bindings, [VILLAIN_ORDER_SLOT]: villainOrder },
+      };
+      setFrame(ctx, next);
+      return ask(minions, next);
+    }
+    const kept = (frame.bindings[VILLAIN_ORDER_SLOT] ?? []).filter((id) => villains.includes(id));
+    const villainOrder = kept.length === villains.length ? kept : villains;
+    return apply([...villainOrder, ...chosen(minions, frame.answer)]);
+  }
   if (enemies.length < 2) return false;
-  requestChoice(ctx, {
-    playerId: simultaneousOrderer(ctx.state),
-    authority: "firstPlayerOrders",
-    prompt: { kind: "orderEnemies", activation: orderedActivation(ctx, effect, context, enemies) },
-    options: cardOptions(ctx, enemies),
-    minSelections: enemies.length,
-    maxSelections: enemies.length,
-    frameId: frame.frameId,
-    ordered: true,
-  });
-  return true;
+  if (villains.length >= 2) return ask(villains, frame);
+  if (minions.length >= 2) return ask(minions, frame);
+  // Nothing to choose; the villain still activates first.
+  const order = [...villains, ...minions];
+  return order.every((id, i) => id === enemies[i]) ? false : apply(order);
 }
 
 /**

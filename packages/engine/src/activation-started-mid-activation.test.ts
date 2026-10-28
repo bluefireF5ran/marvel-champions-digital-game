@@ -23,16 +23,19 @@ import { activeEncounterDeck, activeVillain } from "./query.js";
 import { createGame } from "./setup.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
-import { runCommands } from "./testing/drive.js";
+import { runCommands, runCommandsPicking } from "./testing/drive.js";
 import {
   stubIdentity,
   stubMainScheme,
+  stubMinion,
   stubSideScheme,
   stubSupport,
   stubTreachery,
   stubVillain,
 } from "./testing/fixtures.js";
-import { DEFAULT_CARDS, DEFAULT_DECK, giveCard, withEncounterPiles } from "./testing/scenario.js";
+import { DEFAULT_CARDS, DEFAULT_DECK, defaultPick, giveCard, withEncounterPiles } from "./testing/scenario.js";
+import { minionEngagedWith } from "./testing/wave3.js";
+import type { PendingChoice } from "./choices.js";
 
 const p1 = playerId("p1");
 const one = { kind: "const", value: 1 } as const;
@@ -244,6 +247,36 @@ const SCHEME_AFTER_ATTACK = stubAbility("after-attack-schemer.response", {
   effects: [{ kind: "enemyScheme", enemies: theVillain }],
 });
 const AFTER_ATTACK_SCHEMER = stubSupport({ id: "after-attack-schemer", cost: 0, abilities: [SCHEME_AFTER_ATTACK.ref] });
+const GRUNT_A = stubMinion({ id: "grunt-a", atk: 1, sch: 1, hp: 9, boostIcons: 0 });
+const GRUNT_B = stubMinion({ id: "grunt-b", atk: 2, sch: 1, hp: 9, boostIcons: 0 });
+/** "Forced Response: After the villain's attack deals damage to you, each enemy attacks you." One effect. */
+const EACH_ENEMY_ATTACKS = stubAbility("swarm.response", {
+  ...AFTER_DAMAGE_ONCE,
+  effects: [
+    {
+      kind: "enemyAttack",
+      enemies: { kind: "each", query: { categories: ["enemy"] } },
+      against: { kind: "firstPlayer" },
+    },
+  ],
+});
+const SWARM = stubSupport({ id: "swarm", cost: 0, abilities: [EACH_ENEMY_ATTACKS.ref] });
+/** "Forced Response: After the villain's attack deals damage to you, [that grunt] attacks you." Two separate cards. */
+const gruntStrikes = (grunt: typeof GRUNT_A) =>
+  stubAbility(`${grunt.id}-caller.response`, {
+    ...AFTER_DAMAGE_ONCE,
+    effects: [
+      {
+        kind: "enemyAttack",
+        enemies: { kind: "each", query: { printedId: grunt.id } },
+        against: { kind: "firstPlayer" },
+      },
+    ],
+  });
+const CALL_A = gruntStrikes(GRUNT_A);
+const CALL_B = gruntStrikes(GRUNT_B);
+const CALLER_A = stubSupport({ id: "caller-a", cost: 0, abilities: [CALL_A.ref] });
+const CALLER_B = stubSupport({ id: "caller-b", cost: 0, abilities: [CALL_B.ref] });
 
 /** "Forced Response: After the villain schemes, the villain attacks you twice. Discard this card." */
 const TWO_ATTACKS = stubAbility("doubler.response", {
@@ -326,6 +359,9 @@ const deps: EngineDeps = depsOf(
   PROVOKE,
   VILLAIN_HURT,
   SCHEME_AFTER_ATTACK,
+  EACH_ENEMY_ATTACKS,
+  CALL_A,
+  CALL_B,
   TWO_ATTACKS,
   SCHEME_INSTEAD_ONCE,
   ATTACK_EACH,
@@ -364,6 +400,11 @@ function game(
         PROVOKER,
         HURT_NOTER,
         AFTER_ATTACK_SCHEMER,
+        GRUNT_A,
+        GRUNT_B,
+        SWARM,
+        CALLER_A,
+        CALLER_B,
         DOUBLER,
         DIVERTER,
         RAMPAGE,
@@ -389,6 +430,9 @@ function game(
           PROVOKER.id,
           HURT_NOTER.id,
           AFTER_ATTACK_SCHEMER.id,
+          SWARM.id,
+          CALLER_A.id,
+          CALLER_B.id,
           DOUBLER.id,
           DIVERTER.id,
           RAMPAGE.id,
@@ -671,6 +715,77 @@ describe("RRG 1.8 'Activation' (p. 6); ruling 214 (Jun 13, 2024): an activation 
     expect(attackResolved).toBeGreaterThan(attack);
     expect(held).toBeGreaterThan(attackResolved);
     expect(scheme).toBeGreaterThan(held);
+  });
+
+  // RRG 1.8 "Activation" (p. 6): "If multiple enemies activate against you simultaneously, resolve the villain's
+  // activation first (if any) in the order of your choice, followed by minion activations in the order of your choice";
+  // ruling June 4, 2024 #202. One effect making every enemy attack mid-attack: it waits behind the attack, the villain
+  // attacks first, then the two minions in the order chosen as the effect is initiated, by the first player (the
+  // owner's design, docs/phase3-encounter-ai.md; whether p. 6's "you" makes it the attacked player's is open).
+  describe("one effect makes the villain and two minions attack mid-attack: the first player orders the minions", () => {
+    const run = (wanted: (a: string, b: string) => readonly string[]) => {
+      let state = playFree(game([...copies(BLANK.id, 12), GRUNT_A.id, GRUNT_B.id]), SWARM.id);
+      const a = minionEngagedWith(state, GRUNT_A.id, p1);
+      const b = minionEngagedWith(a.state, GRUNT_B.id, p1);
+      state = runCommands(b.state, deps, toHero).state;
+      const asked: PendingChoice[] = [];
+      const pick = (s: GameState): readonly string[] => {
+        const choice = s.pendingChoice;
+        if (choice?.prompt.kind !== "orderEnemies") return defaultPick(s);
+        asked.push(choice);
+        return wanted(a.id, b.id);
+      };
+      const { state: after, events } = runCommandsPicking(state, deps, pick, endTurn);
+      const villain = activeVillain(after).instanceId;
+      const attackers = events.flatMap((e, i) =>
+        e.type === "triggerEvent" && e.phase === "initiated" && e.event.kind === "enemyAttack"
+          ? [{ i, enemy: e.event.enemyInstanceId }]
+          : [],
+      );
+      const firstResolved = indexOf(events, (e) => e.type === "attackResolved" && e.enemyInstanceId === villain);
+      return { a: a.id, b: b.id, villain, asked, attackers, firstResolved };
+    };
+
+    it.each([
+      ["A then B", (a: string, b: string) => [a, b]],
+      ["B then A", (a: string, b: string) => [b, a]],
+    ])("%s: the villain first, then the minions in the chosen order", (_, wanted) => {
+      const { a, b, villain, asked, attackers, firstResolved } = run(wanted);
+      // Asked once, of the first player, among the minions only.
+      expect(asked).toHaveLength(1);
+      expect(asked[0]!.playerId).toBe(p1);
+      expect(asked[0]!.authority).toBe("firstPlayerOrders");
+      expect([...asked[0]!.options.map((o) => o.optionId)].sort()).toEqual([a, b].sort());
+      // The phase's attack, then (after it has resolved) the villain's, then the two minions as chosen.
+      const order = wanted(a, b);
+      expect(attackers.slice(0, 4).map((x) => x.enemy)).toEqual([villain, villain, ...order]);
+      expect(firstResolved).toBeLessThan(attackers[1]!.i);
+    });
+  });
+
+  // Two cards each making one enemy attack in answer to the same damage are two effects: sequential, not
+  // simultaneous, so no enemy order is asked (the first player orders the two responses, RRG 1.8 p. 19).
+  it("two responses each making a minion attack mid-attack: sequential, no enemy-ordering choice", () => {
+    let state = playFree(playFree(game([...copies(BLANK.id, 12), GRUNT_A.id, GRUNT_B.id]), CALLER_A.id), CALLER_B.id);
+    const a = minionEngagedWith(state, GRUNT_A.id, p1);
+    const b = minionEngagedWith(a.state, GRUNT_B.id, p1);
+    state = runCommands(b.state, deps, toHero).state;
+    const prompts: string[] = [];
+    const pick = (s: GameState): readonly string[] => {
+      prompts.push(s.pendingChoice!.prompt.kind);
+      return defaultPick(s);
+    };
+    const { state: after, events } = runCommandsPicking(state, deps, pick, endTurn);
+    const villain = activeVillain(after).instanceId;
+    expect(prompts).not.toContain("orderEnemies");
+    const attackers = events.flatMap((e) =>
+      e.type === "triggerEvent" && e.phase === "initiated" && e.event.kind === "enemyAttack"
+        ? [e.event.enemyInstanceId]
+        : [],
+    );
+    // The phase's attack, then each response's minion, one after the other.
+    expect(attackers[0]).toBe(villain);
+    expect([...attackers.slice(1, 3)].sort()).toEqual([a.id, b.id].sort());
   });
 
   // RRG 1.8 "Replacement Effect" (p. 36), nested: an attack that was itself queued behind an activation and is then
