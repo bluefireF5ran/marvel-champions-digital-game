@@ -3856,7 +3856,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         }
         for (let index = done ?? 0; index < players.length; index++) {
           const playerId = players[index]!;
-          if (drawUpTo(ctx, playerId, () => value(effect.amount)) || ctx.state.outcome) continue;
+          const refill = `frame:${frame.frameId}:${playerId}`;
+          if (drawUpTo(ctx, playerId, () => value(effect.amount), refill) || ctx.state.outcome) continue;
           updateFrame(ctx, frame.frameId, (f) =>
             f.kind === "effects"
               ? {

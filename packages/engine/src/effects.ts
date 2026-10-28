@@ -1339,7 +1339,13 @@ export function drawCards(ctx: Ctx, playerId: PlayerId, count: number): readonly
  * play) or is heard as entering the hand (Shapeshifter Surprise's Forced Response). The caller lets that resolve and
  * calls this again, which goes on drawing to the target (RRG 1.8 "Hand Size", p. 21, "one at a time").
  */
-export function drawUpTo(ctx: Ctx, playerId: PlayerId, target: () => number): boolean {
+export function drawUpTo(
+  ctx: Ctx,
+  playerId: PlayerId,
+  target: () => number,
+  /** Which refill this is (`RefillHeldEncounterCard.refill`): its held encounter cards are its own, not the player's. */
+  refill: string,
+): boolean {
   const recorded = ctx.state.pendingEncounterFromDeck?.length ?? 0;
   // Cards that do not count toward hand size do not fill it (docs/phase7-wave5.md §3.18).
   while (handCountTowardHandSize(ctx.state, playerId, ctx.deps) < target()) {
@@ -1349,11 +1355,11 @@ export function drawUpTo(ctx: Ctx, playerId: PlayerId, target: () => number): bo
     // One card at a time: an ability the card's arrival triggers resolves before the next card is drawn (RRG 1.8 "Hand
     // Size", p. 21; ruling Aug 14, 2025). The caller runs this again once it has resolved.
     if (ctx.state.stack.length > depth || enteredHandIsHeard(ctx, entered)) {
-      holdRefillEncounterCards(ctx, recorded);
+      holdRefillEncounterCards(ctx, recorded, refill);
       return false;
     }
   }
-  releaseRefillEncounterCards(ctx, playerId);
+  releaseRefillEncounterCards(ctx, refill);
   return true;
 }
 
@@ -1372,7 +1378,7 @@ function enteredHandIsHeard(ctx: Ctx, from: number): boolean {
  * not conflict with drawing one at a time. The MC27 answer covers any multi-card draw from a game step or card ability,
  * and RRG p. 21's one-at-a-time rule covers only drawing up to hand size, so a plain "draw 3" is still simultaneous.
  */
-function holdRefillEncounterCards(ctx: Ctx, from: number): void {
+function holdRefillEncounterCards(ctx: Ctx, from: number, refill: string): void {
   const pending = ctx.state.pendingEncounterFromDeck ?? [];
   const drawn = pending.slice(from);
   if (drawn.length === 0) return;
@@ -1381,24 +1387,32 @@ function holdRefillEncounterCards(ctx: Ctx, from: number): void {
   ctx.state = {
     ...rest,
     ...(kept.length > 0 ? { pendingEncounterFromDeck: kept } : {}),
-    refillHeldEncounterFromDeck: [...(ctx.state.refillHeldEncounterFromDeck ?? []), ...drawn],
+    refillHeldEncounterFromDeck: [
+      ...(ctx.state.refillHeldEncounterFromDeck ?? []),
+      ...drawn.map((card) => ({ ...card, refill })),
+    ],
   };
 }
 
 /**
  * A refill that has finished (or will not go on: its player was eliminated) hands back the encounter cards it held,
- * ahead of any recorded since, to be dealt now.
+ * ahead of any recorded since, to be dealt now. Only its own: a refill nested in another's pause for the same player (a
+ * drawn card's "after this enters your hand, draw up to your hand size") leaves the outer refill's cards held until
+ * that one finishes too (MC27 p. 21 FAQ: "Afterward").
  */
-export function releaseRefillEncounterCards(ctx: Ctx, playerId: PlayerId): void {
+export function releaseRefillEncounterCards(ctx: Ctx, refill: string): void {
   const held = ctx.state.refillHeldEncounterFromDeck ?? [];
-  const mine = held.filter((card) => card.playerId === playerId);
+  const mine = held.filter((card) => card.refill === refill);
   if (mine.length === 0) return;
-  const others = held.filter((card) => card.playerId !== playerId);
+  const others = held.filter((card) => card.refill !== refill);
   const { refillHeldEncounterFromDeck: _, ...rest } = ctx.state;
   ctx.state = {
     ...rest,
     ...(others.length > 0 ? { refillHeldEncounterFromDeck: others } : {}),
-    pendingEncounterFromDeck: [...mine, ...(ctx.state.pendingEncounterFromDeck ?? [])],
+    pendingEncounterFromDeck: [
+      ...mine.map(({ refill: _refill, ...card }) => card),
+      ...(ctx.state.pendingEncounterFromDeck ?? []),
+    ],
   };
 }
 
