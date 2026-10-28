@@ -19,6 +19,7 @@ import { surface } from "./tokens.js";
 import { cssOf, setTextResolution } from "./ui/theme.js";
 import { recoverTextOnContextRestore } from "./ui/context-recovery.js";
 import { installLazyText } from "./ui/lazy-text.js";
+import { installColorScheme } from "./ui/color-scheme-phaser.js";
 import { appSession } from "./session.js";
 import { SCENES } from "./scenes/keys.js";
 import { installSceneLoader, startIdlePreload } from "./scenes/scene-loader.js";
@@ -33,6 +34,7 @@ import { ReportIssueOverlay } from "./scenes/report-issue.js";
 import { ReportButtonScene } from "./scenes/report-button.js";
 import { LanguageButtonScene } from "./scenes/language-button.js";
 import { LanguagePopupOverlay } from "./scenes/language-popup.js";
+import { ThemeButtonScene } from "./scenes/theme-button.js";
 import { installDebugDump } from "./ui/debug-dump.js";
 import { installInputDeviceTracking } from "./platform/input-device.js";
 import { installVisibleArea } from "./platform/visible-area.js";
@@ -146,6 +148,7 @@ const game = new Phaser.Game({
     BootScene,
     TitleScene,
     MusicScene,
+    ThemeButtonScene,
     PowerSavingNoticeScene,
     AchievementToastScene,
     LanguagePopupOverlay,
@@ -156,6 +159,8 @@ const game = new Phaser.Game({
     ReportButtonScene,
   ],
 });
+// Dark mode (#459): before Boot draws anything, so the first frame is already in the player's scheme.
+installColorScheme(game);
 
 // Every other screen is added the first time something starts it (`scenes/scene-loader.ts`), and the rest in idle
 // time once Title has drawn its first frame.
