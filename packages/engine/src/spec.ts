@@ -2875,8 +2875,9 @@ export type EffectSpec =
    *   Several attacks from that one effect ("each X attacks you") scope it to the last of them, which resolves
    *   last. If no attack is made (the enemy is not in play, or a stun cancels it), or the frame finishes without
    *   reaching an `enemyAttack`, the rule ends then: it never outlives an attack that did not happen. An
-   *   `enemyAttack` deferred behind the current activation (`after: "currentActivation"`) runs in a later frame, so
-   *   it is not one this frame initiates.
+   *   `enemyAttack` that waits behind the activation in progress (RRG 1.8 "Activation", p. 6) waits with the rest of
+   *   its ability in this same frame (`suspendBehindActivation`), so it is still the one this frame initiates and the
+   *   rule is retimed to it when it is made; the rule is in force while it waits.
    *
    * The attack's frame id comes from the state's frame sequence, so replay retimes it identically.
    *

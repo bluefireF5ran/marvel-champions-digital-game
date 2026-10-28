@@ -167,6 +167,7 @@ import { executeResolveSetupsTogether } from "./put-into-play-setup.js";
 import { executeSearchCollection } from "./collection.js";
 import { announceAbilityResolved, labelCancels } from "./ability.js";
 import { releaseSentenceResponses } from "./sentence-hold.js";
+import { resumeWaitingAbilities } from "./suspend.js";
 import { noteDeckDiscardsTaken } from "./deck-discard.js";
 import { settleDeclaredDefenderCost } from "./enemy-activation.js";
 import { executeAccuse } from "./accusation.js";
@@ -246,6 +247,14 @@ export const contextOf = (frame: Frame<"effects">, deps: EngineDeps): EffectCont
 });
 
 export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
+  // Back from waiting behind an activation (`suspendBehindActivation`): the activation it initiated resolves now, then
+  // the rest of the ability. The frame passed on still names it, so it is not queued again.
+  if (frame.resumeActivation) {
+    const { resumeActivation: _resumed, ...rest } = frame;
+    setFrame(ctx, rest);
+    applyEffect(ctx, frame.resumeActivation, contextOf(rest, ctx.deps), frame);
+    return;
+  }
   const effect = frame.effects[frame.cursor];
   if (!effect) {
     // A "(thwart)" ability is one thwart: "after you thwart" answers it here, once, after its last effect (RRG 1.8
@@ -306,6 +315,9 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
     }
     // A response to a deck discard: the cards it took away are recorded as its (box-heroes B3.3).
     noteDeckDiscardsTaken(ctx, frame);
+    // The abilities that waited behind an activation this ability initiated resume now that it has finished, after the
+    // responses to its resolution and its sentences' held responses, which are pushed above them.
+    resumeWaitingAbilities(ctx, frame);
     // The ability these effects are has now resolved (RRG 1.8 "Resolve", p. 37).
     announceAbilityResolved(ctx, frame, changed);
     // A sentence has resolved in full: the responses it held open now (`sentence-hold.ts`).
