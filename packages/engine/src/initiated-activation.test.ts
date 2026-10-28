@@ -101,6 +101,28 @@ const AMBUSH_END = action("ambush-end", [
   { kind: "atEndOfAttack", effects: [mark("end")] },
   mark("after"),
 ]);
+const theVillainAttacksYou: EffectSpec = { kind: "enemyAttack", enemies: { kind: "villain" }, against: you };
+/** "Put the minions … into play engaged with you. The villain attacks you. Leave a mark." */
+const AMBUSH_ATTACK = action("ambush-attack", [...putTopMinion, theVillainAttacksYou, mark("after")]);
+/**
+ * "Forced Interrupt: When the villain attacks you, put the minions … into play engaged with you. The villain attacks
+ * you. Leave a mark." Once per round, so its own attack does not fire it again.
+ */
+const CALL_ATTACK = stubSupport({
+  id: "call-attack",
+  cost: 0,
+  abilities: [
+    ability("call-attack.interrupt", {
+      trigger: {
+        kind: "interrupt",
+        forced: true,
+        on: { on: "enemyAttack", playerIs: "controller", sourceIs: { categories: ["villain"] } },
+      },
+      limit: { count: 1, period: "round" },
+      effects: [...putTopMinion, theVillainAttacksYou, mark("after")],
+    }),
+  ],
+});
 /**
  * Drang III's shape: "Discard the top 3 cards of the encounter deck. Each time a minion is discarded this way, put it
  * into play engaged with you."
@@ -246,6 +268,8 @@ const TRAP = stubSupport({
 
 const PLAYER_CARDS: readonly AnyCard[] = [
   AMBUSH_THEN,
+  AMBUSH_ATTACK,
+  CALL_ATTACK,
   AMBUSH,
   AMBUSH_KILL,
   AMBUSH_END,
@@ -427,6 +451,47 @@ describe("a keyword's activation initiates now and resolves after the ability ar
     ]);
     // "After a character defends" waits for the end of the outer attack, not of the parked one (RRG 1.8 p. 16).
     expect(marked(events, "defends")).toBeGreaterThan(attack(events, "resolved", villain));
+  });
+});
+
+describe("an ability's own enemy activation does not wait behind the keyword activation it parked (RRG 1.8 p. 6)", () => {
+  /** The indexes of the `phase` log lines of every attack by `by`, in order. */
+  const attacks = (events: readonly GameEvent[], phase: "initiated" | "resolved", by: InstanceId): readonly number[] =>
+    events.flatMap((e, at) =>
+      e.type === "triggerEvent" && e.phase === phase && e.event.kind === "enemyAttack" && e.event.enemyInstanceId === by
+        ? [at]
+        : [],
+    );
+
+  it("'the villain attacks you' resolves in place, then the rest of the ability, then the quickstrike attack", () => {
+    const { state, events } = play(game(SENTRY), AMBUSH_ATTACK);
+    const [sentry, villain] = [idOf(state, SENTRY), state.villains[0]!.instanceId];
+    expect(awaited(events)).toMatchObject([{ enemyInstanceId: sentry }]);
+    expect(attack(events, "initiated", sentry)).toBeLessThan(attack(events, "initiated", villain));
+    expect(attack(events, "resolved", villain)).toBeLessThan(marked(events, "after"));
+    expect(marked(events, "after")).toBeLessThan(attack(events, "resolved", sentry));
+    expect(damageOn(state)).toBe(3);
+  });
+
+  it("inside an outer villain attack, its attack and the quickstrike attack both wait for the outer attack", () => {
+    const withCall = play(game(SENTRY), CALL_ATTACK).state;
+    const villain = withCall.villains[0]!.instanceId;
+    const { state, events } = runCommandsPicking(withCall, deps, defaultPick, { type: "endTurn", playerId: p1 });
+    const sentry = idOf(state, SENTRY);
+    const [outerResolved, innerResolved] = attacks(events, "resolved", villain);
+    const [, innerInitiated] = attacks(events, "initiated", villain);
+    expect(awaited(events)).toMatchObject([{ enemyInstanceId: sentry }]);
+    expect(outerResolved).toBeGreaterThanOrEqual(0);
+    expect(innerInitiated).toBeGreaterThan(outerResolved!);
+    // The quickstrike resolves, and before Sentry's own activation in the minion step attacks again (not lost while it
+    // waited).
+    const sentryResolved = attacks(events, "resolved", sentry);
+    const sentryInitiated = attacks(events, "initiated", sentry);
+    expect(sentryResolved).toHaveLength(2);
+    expect(sentryResolved[0]).toBeLessThan(sentryInitiated[1]!);
+    expect(sentryResolved[0]).toBeGreaterThan(outerResolved!);
+    expect(innerResolved).toBeLessThan(marked(events, "after"));
+    expect(marked(events, "after")).toBeLessThan(sentryResolved[0]!);
   });
 });
 

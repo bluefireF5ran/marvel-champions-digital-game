@@ -122,6 +122,7 @@ import {
 import type { DefeatPlacement, EffectSpec, PlayerRef, StatName } from "../spec.js";
 import { type GameState, NO_STATUSES } from "../state.js";
 import {
+  awaitingAbility,
   basicPowerUseFrameId,
   currentActivationFrameId,
   currentThwartFrameId,
@@ -540,7 +541,10 @@ function redirectMovedThreat(ctx: Ctx, frame: Frame<"effects">, placed: number):
  *   progress (`currentActivationFrameId`), a hero's included.
  * - Otherwise the innermost enemy attack or scheme anywhere on the stack: p. 6 is about enemy activations, and one is
  *   still resolving beneath a hero's attack or thwart made during it (its responses are part of it: ruling Feb 28,
- *   2026 (1) answer 2). One waiting beneath its "(attack)" ability (`attackWaiting`) is passed over.
+ *   2026 (1) answer 2). One waiting beneath its "(attack)" ability (`attackWaiting`) is passed over, and so is a
+ *   keyword's activation initiated by an ability and waiting for it to finish (`awaitingAbility`): it has not begun
+ *   its steps. Inside an outer activation the ability waits behind that one, with the keyword's activation
+ *   (`suspendedFramesOf`).
  * - If that innermost one was replaced ("would attack … schemes instead") or cancelled outright, null: the
  *   replacement resolves in place of the event it replaces (RRG 1.8 "Replacement Effect", p. 36), not behind an outer
  *   activation; the abilities waiting behind a replaced activation resume then (`resumeSuspendedOnCancel`).
@@ -555,7 +559,11 @@ function redirectMovedThreat(ctx: Ctx, frame: Frame<"effects">, placed: number):
 function activationToQueueBehind(state: GameState, afterCurrent: boolean): FrameId | null {
   if (afterCurrent) return currentActivationFrameId(state.stack);
   for (const f of state.stack) {
-    if (f.kind !== "event" || f.attackWaiting || f.endEffectsDraining) continue;
+    // RRG 1.8 "Activation" p. 6: an initiated-but-unresolved quickstrike attack is not "resolving" (RRG 1.8 FAQ
+    // "Spider-Man (#1A)": initiation precedes the attack's steps), so the ability's own "the villain attacks you"
+    // resolves in place; the quickstrike attack resolves after the whole ability (ruling 194, May 23, 2024). Inside an
+    // outer activation both queue behind it.
+    if (f.kind !== "event" || f.attackWaiting || f.endEffectsDraining || awaitingAbility(f)) continue;
     if (f.event.kind !== "enemyAttack" && f.event.kind !== "enemyScheme") continue;
     return f.cancelled && !f.endedEarly ? null : f.frameId;
   }
