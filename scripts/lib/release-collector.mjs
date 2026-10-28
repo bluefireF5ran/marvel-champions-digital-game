@@ -47,11 +47,21 @@ export function getProjectVersion() {
  * `MarvelChampions-0.21.0-macOS-AppleSilicon-arm64.dmg`. Hyphens, not spaces: GitHub turns a space in an asset name
  * into a dot. Both the CI release job (stage-release-assets.mjs) and local builds name files here, and the in-app
  * update notice matches these names (packages/client/src/platform/update-check.ts).
+ *
+ * Every name carries its card language (`MC_CARD_LANG`, issue #337) right after the version, English included:
+ * `MarvelChampions-0.37.0-EN-Windows-x64-Setup.exe`, `MarvelChampions-0.37.0-ES-Android.apk`. That is where the update
+ * notice reads it (`assetLanguage` in packages/client/src/art/card-language.ts); releases before the tag have none and
+ * are English.
  */
 export const ASSET_PREFIX = "MarvelChampions";
 
-export function androidApkName(version) {
-  return `${ASSET_PREFIX}-${version}-Android.apk`;
+/** `MarvelChampions-<version>-<LANG>`; English unless `MC_CARD_LANG` names another language. */
+function assetStem(version, lang = process.env.MC_CARD_LANG) {
+  return `${ASSET_PREFIX}-${version}-${(lang || "en").toUpperCase()}`;
+}
+
+export function androidApkName(version, lang) {
+  return `${assetStem(version, lang)}-Android.apk`;
 }
 
 const DESKTOP_EXTENSIONS = [".app.tar.gz", ".dmg", ".msi", ".exe", ".deb", ".rpm", ".AppImage"];
@@ -60,7 +70,7 @@ const DESKTOP_EXTENSIONS = [".app.tar.gz", ".dmg", ".msi", ".exe", ".deb", ".rpm
  * The release name of one Tauri bundle, from its file name and path (the target triple when built with `--target`,
  * else the name's own arch, else this machine's). Null for anything that isn't an installer.
  */
-export function desktopAssetName(fileName, fullPath, version) {
+export function desktopAssetName(fileName, fullPath, version, lang) {
   const ext = DESKTOP_EXTENSIONS.find((e) => fileName.endsWith(e));
   if (ext === undefined) return null;
   const arm = /aarch64|arm64/i.test(fullPath) || (!/x86_64|x64|amd64/i.test(fullPath) && process.arch === "arm64");
@@ -72,7 +82,7 @@ export function desktopAssetName(fileName, fullPath, version) {
   else if (ext === ".exe") variant = `Windows-${arch}-Setup`;
   else if (ext === ".msi") variant = `Windows-${arch}-AllUsers`;
   else variant = `Linux-${arch}`;
-  return `${ASSET_PREFIX}-${version}-${variant}${ext}`;
+  return `${assetStem(version, lang)}-${variant}${ext}`;
 }
 
 /**
@@ -156,11 +166,17 @@ export function collectDesktopBundles(releaseDir = defaultReleaseDir) {
 /**
  * The "Install for Steam" script for this machine's OS (scripts/<os>/install-for-steam.*), which adds the installed
  * game to Steam as a non-Steam game with its library art. Each desktop leg of the release stages its own OS's, with
- * the release's tag stamped in so it fetches that release's art; both macOS legs stage the same file.
+ * the release's tag stamped in so it fetches that release's art; both macOS legs stage the same file. Windows ships a
+ * .cmd: the launcher (scripts/windows/install-for-steam-launcher.cmd) with the .ps1 after it, which runs on a
+ * double-click where a downloaded unsigned .ps1 is blocked (#474).
  */
 const STEAM_INSTALLERS = {
   linux: { source: path.join("linux", "install-for-steam.sh"), name: "Linux-Install-for-Steam.sh" },
-  win32: { source: path.join("windows", "install-for-steam.ps1"), name: "Windows-Install-for-Steam.ps1" },
+  win32: {
+    source: path.join("windows", "install-for-steam.ps1"),
+    launcher: path.join("windows", "install-for-steam-launcher.cmd"),
+    name: "Windows-Install-for-Steam.cmd",
+  },
   darwin: { source: path.join("macos", "install-for-steam.sh"), name: "macOS-Install-for-Steam.sh" },
 };
 
@@ -180,8 +196,11 @@ export function collectSteamInstaller(platform = process.platform, releaseDir = 
   const version = getProjectVersion();
   const name = steamInstallerName(platform, version);
   const dest = path.join(releaseDir, name);
-  const script = fs.readFileSync(path.join(repoRoot, "scripts", installer.source), "utf8");
-  fs.writeFileSync(dest, script.replaceAll("__MC_RELEASE_TAG__", `v${version}`), { mode: 0o755 });
+  const read = (file) => fs.readFileSync(path.join(repoRoot, "scripts", file), "utf8");
+  let script = read(installer.source).replaceAll("__MC_RELEASE_TAG__", `v${version}`);
+  // cmd misreads labels and jumps in a batch file with bare LF line ends, so the stitched .cmd uses CRLF throughout.
+  if (installer.launcher) script = (read(installer.launcher) + script).replace(/\r?\n/g, "\r\n");
+  fs.writeFileSync(dest, script, { mode: 0o755 });
   const stat = fs.statSync(dest);
   return { name, path: dest, size: stat.size, sha256: computeSha256(dest) };
 }
