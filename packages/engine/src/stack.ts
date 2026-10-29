@@ -357,7 +357,9 @@ export type StackFrame =
        * An enemy activation a keyword initiated while an ability was resolving (quickstrike, teamwork): the root
        * effects frame of that ability. The activation is initiated where it is (its status check and its "when …
        * attacks / schemes" interrupt window), and its steps resolve once that ability has finished
-       * (`resolve/initiated-activation.ts`; FFG rulings 129, 137, 147 and 194).
+       * (`resolve/initiated-activation.ts`; FFG rulings 129, 137, 147 and 194). Once that ability is done, the frame of
+       * an encounter card's reveal still in its steps, when the ability resolved inside it (`waitForReveal`: the
+       * responses that reveal holds resolve before the steps, ruling 137).
        */
       readonly stepsAfterAbility?: FrameId;
       /**
@@ -368,10 +370,12 @@ export type StackFrame =
        */
       readonly awaitingAbility?: true;
       /**
-       * An announcement that waits beneath the ability's root frame `heldForAbility`, after the keyword activations
-       * waiting there: the responses to a minion entering play or engaging that answer after its quickstrike or
-       * teamwork, which counts as resolved only once its activation has fully resolved (RRG 1.8 "Activation", p. 6;
-       * FFG ruling 38; `resolve/initiated-activation.ts`).
+       * A response to a minion entering play or engaging that an "each time" loop held and released
+       * (`releaseLoopFrames`) for the ability whose root frame is `heldForAbility`: it answers after the minion's
+       * quickstrike or teamwork has fully resolved (FFG ruling 38), so a released keyword's activation that parks
+       * beneath that root takes it along, after the activations waiting there (or, later, beneath the reveal frame they
+       * wait for in turn, which it then names). Outside a loop no response is held this way: it resolves after the
+       * initiation, before the activation's steps (rulings 137, 147; `resolve/initiated-activation.ts`).
        */
       readonly heldForAbility?: FrameId;
       /**

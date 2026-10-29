@@ -16,7 +16,7 @@ import { currentEnemyAttackFrame } from "./defense-claim.js";
 import type { GameEvent } from "./events.js";
 import { playerId, type InstanceId } from "./ids.js";
 import { activeEncounterDeck, mustInstance, mustPlayer } from "./query.js";
-import { DEFENDER_SLOT, resolvePlayers, resolveRef } from "./select.js";
+import { cardsInPlay, DEFENDER_SLOT, resolvePlayers, resolveRef } from "./select.js";
 import type { EffectSpec, TargetRef } from "./spec.js";
 import { awaitingAbility, type StackFrame } from "./stack.js";
 import type { GameState } from "./state.js";
@@ -127,27 +127,28 @@ const CALL_ATTACK = stubSupport({
  * Drang III's shape: "Discard the top 3 cards of the encounter deck. Each time a minion is discarded this way, put it
  * into play engaged with you."
  */
-const LOOP = action("loop", [
-  {
-    kind: "discardEncounterCards",
-    count: { kind: "const", value: 3 },
-    forEachDiscarded: {
-      slot: "d",
-      effects: [
-        {
-          kind: "if",
-          condition: {
-            kind: "refMatches",
-            ref: { kind: "slot", slot: "d" },
-            query: { categories: ["minion"] },
-            anywhere: true,
-          },
-          then: [{ kind: "putIntoPlay", card: { kind: "slot", slot: "d" }, controller: you }],
+const DISCARD_LOOP: EffectSpec = {
+  kind: "discardEncounterCards",
+  count: { kind: "const", value: 3 },
+  forEachDiscarded: {
+    slot: "d",
+    effects: [
+      {
+        kind: "if",
+        condition: {
+          kind: "refMatches",
+          ref: { kind: "slot", slot: "d" },
+          query: { categories: ["minion"] },
+          anywhere: true,
         },
-      ],
-    },
+        then: [{ kind: "putIntoPlay", card: { kind: "slot", slot: "d" }, controller: you }],
+      },
+    ],
   },
-]);
+};
+const LOOP = action("loop", [DISCARD_LOOP]);
+/** The same loop with more of the ability after it: "… put it into play engaged with you. Leave a mark." */
+const LOOP_THEN = action("loop-then", [DISCARD_LOOP, mark("after")]);
 /** "Forced Interrupt: When an enemy attacks you, leave a mark." */
 const WATCH = stubSupport({
   id: "watch",
@@ -266,6 +267,70 @@ const TRAP = stubSupport({
   ],
 });
 
+/** "Forced Response: After a minion enters play, deal 5 damage to it." Defeats a 5-HP minion. */
+const SNIPER = stubSupport({
+  id: "sniper",
+  cost: 0,
+  abilities: [
+    ability("sniper.response", {
+      trigger: { kind: "response", forced: true, on: { on: "cardEntersPlay", targetIs: { categories: ["minion"] } } },
+      effects: [{ kind: "dealDamage", target: { kind: "eventTarget" }, amount: { kind: "const", value: 5 } }],
+    }),
+  ],
+});
+/** "Forced Response: After a minion engages you, leave a mark." */
+const ENGAGED = stubSupport({
+  id: "engaged",
+  cost: 0,
+  abilities: [
+    ability("engaged.response", {
+      trigger: { kind: "response", forced: true, on: { on: "minionEngaged" } },
+      effects: [mark("engaged")],
+    }),
+  ],
+});
+/**
+ * "Forced Interrupt: When the villain attacks you, put the minions of the encounter deck into play engaged with you."
+ * Its last effect puts the minion into play. Once per round.
+ */
+const CALL_LAST = stubSupport({
+  id: "call-last",
+  cost: 0,
+  abilities: [
+    ability("call-last.interrupt", {
+      trigger: {
+        kind: "interrupt",
+        forced: true,
+        on: { on: "enemyAttack", playerIs: "controller", sourceIs: { categories: ["villain"] } },
+      },
+      limit: { count: 1, period: "round" },
+      effects: putTopMinion,
+    }),
+  ],
+});
+/**
+ * Planetary Invasion's shape (16057): "When Revealed: Reveal the minion of the encounter deck. Leave a mark." The mark
+ * stands for "then give it a tough status card": more of the When Revealed after the reveal.
+ */
+const INVASION = stubTreachery({
+  id: "invasion",
+  boostIcons: 0,
+  abilities: [
+    ability("invasion.when-revealed", {
+      trigger: { kind: "whenRevealed" },
+      effects: [
+        {
+          kind: "selectCards",
+          slot: "m",
+          cards: { kind: "encounter", zones: ["deck"], filter: { categories: ["minion"] } },
+        },
+        { kind: "revealCard", cards: { kind: "slot", slot: "m" }, player: you },
+        mark("after"),
+      ],
+    }),
+  ],
+});
+
 const PLAYER_CARDS: readonly AnyCard[] = [
   AMBUSH_THEN,
   AMBUSH_ATTACK,
@@ -274,6 +339,7 @@ const PLAYER_CARDS: readonly AnyCard[] = [
   AMBUSH_KILL,
   AMBUSH_END,
   LOOP,
+  LOOP_THEN,
   WATCH,
   CALL,
   BITE,
@@ -283,6 +349,9 @@ const PLAYER_CARDS: readonly AnyCard[] = [
   ALLY_DEFENSE,
   HERO_DEFENSE,
   BODYGUARD,
+  SNIPER,
+  ENGAGED,
+  CALL_LAST,
 ];
 const deps: EngineDeps = depsOf(...abilities);
 
@@ -294,7 +363,7 @@ function game(top: AnyCard | readonly AnyCard[], inPlay: readonly AnyCard[] = []
     villain: VILLAIN,
     mainScheme: SCHEME,
     deps,
-    extraCards: [SENTRY, RAIDER, DECKHAND, MATE, LOOKOUT, ...PLAYER_CARDS, BLANK],
+    extraCards: [SENTRY, RAIDER, DECKHAND, MATE, LOOKOUT, INVASION, ...PLAYER_CARDS, BLANK],
     encounterDeck: [...tops.map((card) => card.id), ...inPlay.map((card) => card.id), ...copies(BLANK.id, 15)],
     deck: [...DEFAULT_DECK, ...PLAYER_CARDS.map((card) => card.id)],
   });
@@ -454,6 +523,53 @@ describe("a keyword's activation initiates now and resolves after the ability ar
   });
 });
 
+describe("the responses to a minion entering play or engaging resolve after its keyword initiates and before the activation's steps", () => {
+  /**
+   * Keywords have timing priority over Responses (RRG 1.8 FAQ "Widow's Bite (#10)", p. 60); the Responses resolve after
+   * the initiation and before the activation's steps (rulings October 2023 - Ruling 97, January 11, 2024 - Ruling 137,
+   * February 15, 2024 - Ruling 147); a minion that leaves play ends its activation (RRG 1.8 "Activation", p. 6).
+   */
+  const damageBy = (events: readonly GameEvent[], by: InstanceId): number =>
+    events.findIndex((e) => e.type === "damageDealt" && e.sourceInstanceId === by);
+
+  it("a put-into-play: the enters-play window still opens before quickstrike (38A); 'after you engage' follows the initiation, before the steps", () => {
+    const ready = play(play(game(SENTRY), BITE).state, ENGAGED).state;
+    const { state, events } = play(ready, AMBUSH_THEN);
+    const sentry = idOf(state, SENTRY);
+    expect(marked(events, "bite")).toBeGreaterThanOrEqual(0);
+    expect(marked(events, "bite")).toBeLessThan(attack(events, "initiated", sentry));
+    expect(marked(events, "engaged")).toBeGreaterThan(attack(events, "initiated", sentry));
+    expect(marked(events, "engaged")).toBeLessThan(marked(events, "after"));
+    expect(marked(events, "after")).toBeLessThan(attack(events, "resolved", sentry));
+    expect(damageOn(state)).toBe(2);
+  });
+
+  it("revealed by a When Revealed (Planetary Invasion's shape): initiated, the rest of the When Revealed, the held Response, then the steps", () => {
+    const withBite = play(game([BLANK, INVASION, SENTRY]), BITE).state;
+    const { state, events } = runCommandsPicking(withBite, deps, defaultPick, { type: "endTurn", playerId: p1 });
+    const sentry = idOf(state, SENTRY);
+    const initiated = attack(events, "initiated", sentry);
+    expect(initiated).toBeGreaterThanOrEqual(0);
+    expect(marked(events, "after")).toBeGreaterThan(initiated);
+    // The reveal holds the Response until its steps are done (RRG 1.8 "Reveal", p. 38), after the When Revealed.
+    expect(marked(events, "bite")).toBeGreaterThan(marked(events, "after"));
+    expect(damageBy(events, sentry)).toBeGreaterThan(marked(events, "bite"));
+    expect(attack(events, "resolved", sentry)).toBeGreaterThan(marked(events, "bite"));
+  });
+
+  it("a Response that defeats the minion before the steps ends its activation: no attack damage is dealt", () => {
+    const withSniper = play(game([BLANK, INVASION, SENTRY]), SNIPER).state;
+    const { state, events } = runCommandsPicking(withSniper, deps, defaultPick, { type: "endTurn", playerId: p1 });
+    const sentry = idOf(state, SENTRY);
+    expect(attack(events, "initiated", sentry)).toBeGreaterThanOrEqual(0);
+    expect(cardsInPlay(state)).not.toContain(sentry);
+    expect(damageBy(events, sentry)).toBe(-1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "activationSkipped", enemyInstanceId: sentry, reason: "leftPlay" }),
+    );
+  });
+});
+
 describe("an ability's own enemy activation does not wait behind the keyword activation it parked (RRG 1.8 p. 6)", () => {
   /** The indexes of the `phase` log lines of every attack by `by`, in order. */
   const attacks = (events: readonly GameEvent[], phase: "initiated" | "resolved", by: InstanceId): readonly number[] =>
@@ -492,6 +608,24 @@ describe("an ability's own enemy activation does not wait behind the keyword act
     expect(sentryResolved[0]).toBeGreaterThan(outerResolved!);
     expect(innerResolved).toBeLessThan(marked(events, "after"));
     expect(marked(events, "after")).toBeLessThan(sentryResolved[0]!);
+  });
+});
+
+describe("an activation initiated by an ability's last effect inside an outer enemy activation (known limit)", () => {
+  /**
+   * Known limit, tracked for follow-up: with nothing of the ability left after the effect that initiated it
+   * (`abilityHasMore` false) the activation resolves in place, so inside the villain's attack it resolves before that
+   * attack ends. An activation cannot resolve within another one (RRG 1.8 "Activation", p. 6), and the attack waits for
+   * the ability that put the minion into play (ruling May 23, 2024 - Ruling 194), so it should resolve after the
+   * villain's attack.
+   */
+  it.fails("a forced interrupt to the villain's attack whose last effect puts a quickstrike minion into play: the minion attacks after the villain's attack resolves", () => {
+    const withCall = play(game(SENTRY), CALL_LAST).state;
+    const villain = withCall.villains[0]!.instanceId;
+    const { state, events } = runCommandsPicking(withCall, deps, defaultPick, { type: "endTurn", playerId: p1 });
+    const sentry = idOf(state, SENTRY);
+    expect(attack(events, "resolved", villain)).toBeGreaterThanOrEqual(0);
+    expect(attack(events, "resolved", sentry)).toBeGreaterThan(attack(events, "resolved", villain));
   });
 });
 
@@ -557,6 +691,17 @@ describe("an 'each time' loop holds its minions' keywords and responses until it
     const sentry = idOf(state, SENTRY);
     expect(marked(events, "bite")).toBeGreaterThan(discards(events)[2]!);
     expect(marked(events, "bite")).toBeGreaterThan(attack(events, "resolved", sentry));
+  });
+
+  it("with more of the ability after the loop, the held responses still follow the released attack's steps", () => {
+    const withBite = play(game(SENTRY), BITE).state;
+    const { state, events } = play(withBite, LOOP_THEN);
+    const sentry = idOf(state, SENTRY);
+    expect(awaited(events)).toMatchObject([{ enemyInstanceId: sentry }]);
+    expect(attack(events, "initiated", sentry)).toBeGreaterThan(discards(events)[2]!);
+    expect(marked(events, "after")).toBeLessThan(attack(events, "resolved", sentry));
+    expect(marked(events, "bite")).toBeGreaterThan(attack(events, "resolved", sentry));
+    expect(damageOn(state)).toBe(2);
   });
 
   it("a minion whose entering play was cancelled loses its held responses, keywords and engagement announcement", () => {

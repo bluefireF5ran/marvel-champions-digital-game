@@ -737,6 +737,24 @@ describe("a delayed 'discard this at the end of the phase' and a copy that left 
     kind: "discardFromPlay",
     target: { kind: "each", query: { categories: ["ally"], name: RECALLED.name } },
   });
+  // Goliath 23015's "Goliath gets +4 ATK until the end of the phase": a lasting effect with a fixed target, itself.
+  const GROWN_ACTION = stubAbility("grown.action", {
+    trigger: { kind: "action" },
+    effects: [
+      {
+        kind: "modifyStatUntil",
+        stat: "atk",
+        amount: { kind: "const", value: 4 },
+        target: { kind: "self" },
+        until: "endOfPhase",
+      },
+    ],
+  });
+  const GROWN = stubAlly({ id: "grown", cost: 0, atk: 1, thw: 1, hp: 5, abilities: [GROWN_ACTION.ref] });
+  const OUT_GROWN = action("out-grown", {
+    kind: "discardFromPlay",
+    target: { kind: "each", query: { categories: ["ally"], name: GROWN.name } },
+  });
   const deps = depsOf(
     GOLIATH_ACTION,
     OUT.ability,
@@ -745,6 +763,8 @@ describe("a delayed 'discard this at the end of the phase' and a copy that left 
     BOUNCE.ability,
     RECALL_ACTION,
     OUT_RECALLED.ability,
+    GROWN_ACTION,
+    OUT_GROWN.ability,
   );
   const startWith = (cards: readonly AnyCard[], deck: readonly CardId[]): GameState => {
     const base = gameAtFirstTurn({
@@ -817,6 +837,31 @@ describe("a delayed 'discard this at the end of the phase' and a copy that left 
     expect(delayed?.kind === "delayedEffects" && delayed.scope.bindings["ally"]).toEqual([]);
     const ended = runCommands(state, deps, { type: "endTurn", playerId: P1 }).state;
     expect(mustPlayer(ended, P1).playArea).toContain(goliathId);
+  });
+
+  /**
+   * Known limit, tracked for follow-up: only delayed effects forget a copy that left play and came back
+   * (`forgetReturnedInDelayedEffects`); a lasting effect with fixed targets still names the instance id, so the copy that
+   * returned keeps the +4 ATK. RRG 1.8 "Leaves Play" (p. 27): "there is no memory of its previous state and it is
+   * considered to be a new copy of the card"; FFG ruling January 26, 2026 - Ruling 6.
+   */
+  it.fails("a lasting '+4 ATK until the end of the phase' on itself (Goliath's shape) does not follow the copy that returned", () => {
+    let state = startWith([GROWN, OUT_GROWN.card, BACK.card], [GROWN.id, OUT_GROWN.card.id, BACK.card.id]);
+    const put = playerCardIntoPlay(state, GROWN.id);
+    state = runCommands(put.state, deps, {
+      type: "useAbility",
+      playerId: P1,
+      cardInstanceId: put.id,
+      abilityId: GROWN_ACTION.ref.id,
+      payment: [],
+    }).state;
+    expect(characterProfile(state, put.id, deps)?.atk).toBe(5);
+    state = playEvent(state, OUT_GROWN.card);
+    expect(mustPlayer(state, P1).discard).toContain(put.id);
+    state = playEvent(state, BACK.card);
+    expect(mustPlayer(state, P1).playArea).toContain(put.id);
+    // Still the same phase: the effect has not expired, but the returned copy is a new card.
+    expect(characterProfile(state, put.id, deps)?.atk).toBe(1);
   });
 
   it("a card that left play and has not come back is still named: the delayed effect acts on it out of play", () => {

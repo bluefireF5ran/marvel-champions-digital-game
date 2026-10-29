@@ -14,9 +14,11 @@
  * enters play, their keyword resolves (resulting in an activation initiation), Interrupts to the activation and/or
  * Responses to them entering play resolve, then the activation resolves"). Quickstrike initiates the attack; the
  * attack's steps resolve after the enclosing ability (ruling Feb 15, 2024 #147; May 23, 2024 #194). The keyword counts
- * as resolved only once the attack has fully resolved (RRG 1.8 'Activation', p. 6): what answers after the keyword (the
- * responses to its minion entering play or engaging that wait above the ability's root) moves beneath the waiting
- * activation as it parks (`answersAfterKeyword`, `Frame<"event">.heldForAbility`), so it resolves after the attack.
+ * as resolved only once the attack has fully resolved (RRG 1.8 'Activation', p. 6). The responses to its minion entering
+ * play or engaging resolve after the initiation and before the attack's steps (ruling 137: "Hawkeye's Response may be
+ * resolved at this time, after the attack initiates but before the steps of the attack resolve"; ruling 147; RRG 1.8 FAQ
+ * "Widow's Bite (#10)", p. 60), except in an "each time" loop, which holds them with its keywords (below): only those
+ * move beneath the waiting activation as it parks (`answersAfterKeyword`, `Frame<"event">.heldForAbility`).
  *
  * How. A quickstrike attack or teamwork activation made while an ability resolves carries that ability's root effects
  * frame (`Frame<"event">.stepsAfterAbility`; `enclosingAbilityRoot`: the innermost effects frame of an ability on the
@@ -72,6 +74,7 @@ import { simultaneousOrderer } from "../villain/authority.js";
 import { displayNameOf } from "../visibility.js";
 import { base, type Frame } from "./frames.js";
 import { quickstrikeAttack, teamworkWouldActivate } from "./enter-play.js";
+import { holdingReveal } from "./reveal-hold.js";
 import { abilityRootFrameId } from "./thwart-session.js";
 
 /** The root effects frame of the innermost ability resolving on the stack, or undefined when none is. */
@@ -308,7 +311,12 @@ export function releaseLoopFrames(ctx: Ctx, frame: Frame<"effects">): boolean {
   }
   // Backstop: a response held for an event that never applied (`responsesFor` without `heldOccurred`) does not open;
   // `dropHeldResponses` normally removes it when that event fails.
-  const after = held.after.filter((f) => f.kind !== "event" || f.responsesFor === undefined || f.heldOccurred === true);
+  const kept = held.after.filter((f) => f.kind !== "event" || f.responsesFor === undefined || f.heldOccurred === true);
+  // Marked as held for the loop's ability (`heldForAbility`, still above its root): a released keyword's activation
+  // that parks for the ability takes them beneath with it, so they resolve after its steps (ruling 38; `answering` in
+  // `awaitEnclosingAbility`). Unmarked responses, outside a loop, stay where they are.
+  const root = abilityRootFrameId(ctx.state, frame);
+  const after = kept.map((f): StackFrame => (f.kind === "event" ? { ...f, heldForAbility: root } : f));
   const { heldLoopFrames: _held, ...rest } = frame;
   setFrame(ctx, { ...rest, answer: null });
   pushFrames(ctx, [...keywords, ...after]);
@@ -343,16 +351,61 @@ const waitingActivation = (f: StackFrame | undefined, root: FrameId): boolean =>
 const heldFor = (f: StackFrame | undefined, root: FrameId): boolean => f?.kind === "event" && f.heldForAbility === root;
 
 /**
- * A response frame not yet begun that answers the minion `enemy` entering play or engaging: what follows its keywords
- * (`keywordFramesFor`'s held responses, the announcement of its engagement).
+ * A response frame not yet begun, released by an "each time" loop of the ability whose root frame is `root`
+ * (`releaseLoopFrames` marks it `heldForAbility` as it pushes it above that root), that answers the minion `enemy`
+ * entering play or engaging: what follows its keywords (the loop's held responses, the announcement of its engagement).
  */
-function answersAfterKeyword(f: StackFrame, enemy: InstanceId): boolean {
-  if (f.kind !== "event" || f.stage !== "responses" || f.heldForAbility !== undefined) return false;
+function answersAfterKeyword(f: StackFrame, enemy: InstanceId, root: FrameId): boolean {
+  if (f.kind !== "event" || f.stage !== "responses" || f.heldForAbility !== root) return false;
   const event = f.event;
   return (
     (event.kind === "minionEngaged" && event.minionInstanceId === enemy) ||
     (event.kind === "cardEntersPlay" && event.instanceId === enemy)
   );
+}
+
+/** A keyword activation waiting for the frame `root` (`awaitingAbility`), or a response held after it (`heldFor`). */
+const parkedFor = (f: StackFrame | undefined, root: FrameId): boolean =>
+  (f?.kind === "event" && f.awaitingAbility === true && f.stepsAfterAbility === root) || heldFor(f, root);
+
+/**
+ * `frame`, an activation that has waited for its ability (`awaitingAbility`) and is on top again, still waits if that
+ * ability resolved inside the reveal of an encounter card whose steps are not done (`holdingReveal`; a When Revealed
+ * such as Planetary Invasion's "Reveal that minion"): the responses that reveal holds resolve before the activation's
+ * steps. FFG ruling January 11, 2024 - Ruling 137: the minion's attack initiates, "Hawkeye's Response may be resolved at
+ * this time, after the attack initiates but before the steps of the attack resolve"; RRG 1.8 "Reveal" (p. 38) holds
+ * that Response until every step of the reveal is done. So the activation, with every other activation and held
+ * response waiting for the same frame just beneath it, moves beneath the reveal frame, after what already waits there,
+ * and waits for it in turn (`stepsAfterAbility`, `heldForAbility` now name the reveal frame). True when it moved.
+ *
+ * Not beneath the minion's own reveal (a When Revealed that engages the minion revealed): there its quickstrike and
+ * teamwork come before the responses held by the reveal (the owner's answer 32B; RRG 1.8 FAQ "Widow's Bite (#10)",
+ * p. 60). Engine reading, flagged: the activation then waits for the reveal's other remaining steps too (its surge, the
+ * "after this card is revealed" responses), as the reveal process completes before the "next available opportunity"
+ * (ruling 137) its steps resolve at.
+ */
+function waitForReveal(ctx: Ctx, frame: Frame<"event">, at: number): boolean {
+  const waitedFor = frame.stepsAfterAbility;
+  const reveal = holdingReveal(ctx.state);
+  const event = frame.event;
+  const enemy = event.kind === "enemyAttack" || event.kind === "enemyScheme" ? event.enemyInstanceId : null;
+  // The minion's own reveal keeps the owner's order (answer 32B): its keywords, then the responses it held.
+  if (waitedFor === undefined || !reveal || reveal.instanceId === enemy) return false;
+  const stack = ctx.state.stack;
+  const revealAt = stack.findIndex((f) => f.frameId === reveal.frameId);
+  const group = stack.slice(at, revealAt);
+  if (revealAt <= at || !group.every((f) => parkedFor(f, waitedFor))) return false;
+  const rest = [...stack.slice(0, at), ...stack.slice(revealAt)];
+  let place = rest.findIndex((f) => f.frameId === reveal.frameId) + 1;
+  while (place < rest.length && parkedFor(rest[place], reveal.frameId)) place++;
+  const moved = group.map((f): StackFrame => {
+    if (f.kind !== "event") return f;
+    return f.heldForAbility === waitedFor
+      ? { ...f, heldForAbility: reveal.frameId }
+      : { ...f, stepsAfterAbility: reveal.frameId };
+  });
+  ctx.state = { ...ctx.state, stack: [...rest.slice(0, place), ...moved, ...rest.slice(place)] };
+  return true;
 }
 
 /**
@@ -366,18 +419,21 @@ export function awaitEnclosingAbility(ctx: Ctx, frame: Frame<"event">): true | F
   const stack = ctx.state.stack;
   const at = stack.findIndex((f) => f.frameId === frame.frameId);
   const rootAt = root === undefined ? -1 : stack.findIndex((f) => f.frameId === root);
+  if (frame.awaitingAbility && !frame.cancelled && waitForReveal(ctx, frame, at)) return true;
   if (frame.awaitingAbility || frame.cancelled || rootAt < 0 || rootAt < at || !abilityHasMore(stack, at, rootAt)) {
     setFrame(ctx, cleared);
     return cleared;
   }
-  // What answers after this keyword, waiting above the root: the minion's responses to entering play or engaging
-  // (held from an "each time" loop, or the announcement of its engagement). The keyword counts as resolved only once its
-  // activation has fully resolved (RRG 1.8 "Activation", p. 6), so they move beneath it, after every activation
-  // waiting for this ability (`heldForAbility`).
+  // Keyword initiates first (RRG 1.8 FAQ "Widow's Bite (#10)", p. 60); enters-play Responses resolve after the
+  // initiation and before the activation's steps (rulings Oct 2023 #97, Jan 11 2024 #137, Feb 15 2024 #147); a minion
+  // that leaves play ends its activation (RRG 1.8 "Activation", p. 6). So the responses to this minion entering play or
+  // engaging stay where they are, above the root: after the sentence, or the reveal (RRG 1.8 "Reveal", p. 38), and
+  // before these steps. Drang III's "each time" loop holds them with its keywords (ruling 38): only the ones it released
+  // (`heldForAbility`, above the root) move beneath this activation, after every activation waiting for this ability.
   const enemy =
     frame.event.kind === "enemyAttack" || frame.event.kind === "enemyScheme" ? frame.event.enemyInstanceId : null;
   const between = stack.slice(at + 1, rootAt);
-  const answering = between.filter((f): f is Frame<"event"> => enemy !== null && answersAfterKeyword(f, enemy));
+  const answering = between.filter((f): f is Frame<"event"> => enemy !== null && answersAfterKeyword(f, enemy, root!));
   const rest = stack.filter((f) => f.frameId !== frame.frameId && !answering.includes(f as Frame<"event">));
   // After the activations, and an "(attack)" ability's attacks, already waiting for the same ability.
   let place = rest.findIndex((f) => f.frameId === root) + 1;
