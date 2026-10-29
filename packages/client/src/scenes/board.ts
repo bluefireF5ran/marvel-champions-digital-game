@@ -1531,12 +1531,16 @@ export class BoardScene extends Phaser.Scene {
     drawActionBar(ctx, zones.actionBar!, model);
     this.#layerAssign = null;
     this.#registerLayerHints(layout);
-    this.#drawTargetingPanel(ctx, { x: 0, y: 0, width, height });
+    // Both sheets lay out below the top bar, where the chrome buttons (Report, music, language, dark mode) stay drawn
+    // over them (#515).
+    const barBottom = layout.zones.chrome ? layout.zones.chrome.y + layout.zones.chrome.height : 0;
+    const sheetUp = this.#drawTargetingPanel(ctx, { x: 0, y: 0, width, height }, barBottom);
     const searchedPick = this.#controller.searchedPick();
-    if (searchedPick) drawSearchedPickSheet(ctx, { x: 0, y: 0, width, height }, searchedPick);
+    if (searchedPick) drawSearchedPickSheet(ctx, { x: 0, y: 0, width, height }, searchedPick, barBottom);
     this.#drawTargetRings();
     this.#drawFocusRing();
-    this.#drawFirstPlayerToken(model, layout);
+    // The token draws above the table's panels, so it would sit on top of a sheet over the table: it waits under one.
+    if (!sheetUp && !searchedPick) this.#drawFirstPlayerToken(model, layout);
     this.#revealTargets();
     // Turns the moves of a fresh state (if any landed) into travels, now that
     // this frame holds where every card ended up. A no-op on every other redraw.
@@ -1671,7 +1675,8 @@ export class BoardScene extends Phaser.Scene {
    * in target-select mode, so the "Choose a target" title bar, each option's outcome, "why not the others?" and the
    * tablet inspector rail sit over the same board a plain pulsing ring used to be the only affordance for.
    */
-  #drawTargetingPanel(ctx: BoardDrawContext, viewport: Rect): void {
+  /** Whether it drew the panel. */
+  #drawTargetingPanel(ctx: BoardDrawContext, viewport: Rect, top: number): boolean {
     const kind = this.#controller.selection.kind;
     // The same panel carries two more questions: which cards pay a cost with a range, and whose play area a card goes to.
     if (
@@ -1680,12 +1685,13 @@ export class BoardScene extends Phaser.Scene {
       kind !== "choosingController" &&
       kind !== "dividingPower"
     ) {
-      return;
+      return false;
     }
     const panel = this.#controller.targetingPanel();
-    if (!panel) return;
+    if (!panel) return false;
     const focused = this.#focus?.kind === "card" ? this.#focus.instanceId : null;
-    drawTargetingPanel(ctx, viewport, panel, this.#targetingHover, focused);
+    drawTargetingPanel(ctx, viewport, panel, this.#targetingHover, focused, top);
+    return true;
   }
 
   /** Pulsing rings on the valid targets while a target is being chosen. */
@@ -1922,15 +1928,22 @@ export class BoardScene extends Phaser.Scene {
     this.#draw();
   }
 
-  /** The right stick: scrolls the log, the hand or play area row focus is in, or else the table (`view/board-zones.ts`). */
+  /**
+   * The right stick: scrolls the log, the hand or play area row focus is in, a sideways push the play area row while it
+   * is on screen, or else the table (`view/board-zones.ts`).
+   */
   #scrollFocused(dx: number, dy: number): void {
     const members = this.#zoneMembers();
     if (!members) return;
+    const rowShown = !this.#layout?.tabbed || this.#activeTab === "me";
     switch (
-      scrollTargetOf(this.#logFocused, this.#focus, members, {
-        hand: this.#hand.canScroll,
-        playArea: this.#playAreaScroll.row.canScroll,
-      })
+      scrollTargetOf(
+        this.#logFocused,
+        this.#focus,
+        members,
+        { hand: this.#hand.canScroll, playArea: this.#playAreaScroll.row.canScroll },
+        rowShown && Math.abs(dx) > Math.abs(dy),
+      )
     ) {
       case "log":
         this.#logPanel.onPadScroll(dy);
@@ -2319,12 +2332,41 @@ export class BoardScene extends Phaser.Scene {
 
   /** An arrow or D-pad press: the nearest focus stop drawn that way on the table (`view/spatial-nav.ts`). */
   #moveFocusToward(direction: FocusDirection): void {
+    if ((direction === "left" || direction === "right") && this.#stepAlongPlayArea(direction === "left" ? -1 : 1)) {
+      return;
+    }
     const order = this.#controller.focusOrder();
     const keys = order.map(focusKey);
     const current =
       this.#focus && order.some((target) => sameTarget(target, this.#focus)) ? focusKey(this.#focus) : null;
     const next = spatialStep(keys, (key) => this.#frame.focusRects.get(key), current, direction);
     this.#setFocus(next === null ? null : (order[keys.indexOf(next)] ?? null));
+  }
+
+  /**
+   * Left or right from a card in a play area row that scrolls, onto the next stop along the row scrolled wholly off it:
+   * that card has no rect this frame for `spatialStep` to find, so the row scrolls it in and focus moves onto it. A pad
+   * then walks the whole row, the way the phone's hand already does; in a mode whose stops are only some of the row
+   * (targets, payment) it skips the cards that are not stops. False (nothing done) when that stop is on screen, there is
+   * none, or focus is not on a card of the row (an attachment's strip: up or down onto its card first).
+   */
+  #stepAlongPlayArea(step: 1 | -1): boolean {
+    const focus = this.#focus;
+    if (focus?.kind !== "card" || this.#focusRegion !== "board") return false;
+    const route = this.#controller.focusOrder((id) => this.#playAreaScroll.has(id));
+    for (let at = this.#playAreaScroll.neighbor(focus.instanceId, step); at !== null;) {
+      const target: FocusTarget = { kind: "card", instanceId: at };
+      if (route.some((stop) => sameTarget(stop, target))) {
+        if (this.#frame.focusRects.has(focusKey(target))) return false;
+        // Scrolled in before the focus moves, so the card has its rect (and a place on the route) in the draw that
+        // rings it.
+        this.#playAreaScroll.revealCard(at);
+        this.#setFocus(target);
+        return true;
+      }
+      at = this.#playAreaScroll.neighbor(at, step);
+    }
+    return false;
   }
 
   /**
