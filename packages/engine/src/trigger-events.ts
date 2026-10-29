@@ -1052,7 +1052,7 @@ export type TriggerEventBody =
    * A status card was discarded from a card (docs/phase7-wave6.md §3.5): "After a tough status card is discarded from
    * Colossus" (Iron Will, Organic Steel, `mut_gen` 32004, 32006). An announcement (response only), one per status card,
    * from every path that discards one: a tough card used up by damage (RRG 1.8 "Tough", p. 44), piercing, a stun or
-   * confuse spent, an effect, a status the card can no longer have (stalwart, `cannotHaveStatus`). Several discarded by
+   * confuse spent, an effect, a status the card can no longer hold (stalwart). Several discarded by
    * one step (piercing on two tough cards) share one response window (§4.1 Q5), so a response with no limit answers
    * each and one that exhausts its card answers once. Pushed only when an ability listens; a status that was never
    * held (a `cannotHaveStatus` refusal) announces nothing.

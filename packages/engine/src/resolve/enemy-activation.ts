@@ -779,8 +779,14 @@ export function setDefender(
  * ability says to 'declare [a hero] the defender' of an attack, that hero is considered to be making a basic
  * defense"). Each caller announces it once per defense. Resolving a "(defense)"-labeled ability is not one (p. 16:
  * "Resolving a defense-labeled ability is not a basic defense"), so the label alone never reaches here.
+ *
+ * Only a hero announces it. Defense is a hero's basic power (p. 15), and FFG ruling Mar 16, 2025: "Because allies
+ * don't have a DEF stat, they aren't considered to 'use a basic power' when they defend attacks" (Melinda May). The
+ * owner applied this on 2026-10-28 (PR #498), narrowing wave 8 §4.1 Q55 to heroes: an ally defending, at the step or
+ * declared by an ability, uses no basic power.
  */
 function announceBasicDefense(ctx: Ctx, defenderId: InstanceId, defenderPlayer: PlayerId): void {
+  if (cardOf(ctx.state, defenderId)?.type !== "hero_identity") return;
   // "After you use a basic power" (docs/phase7-wave2.md §3.11): defending is the basic defense power.
   const used: TriggerEvent = {
     kind: "basicPowerUsed",

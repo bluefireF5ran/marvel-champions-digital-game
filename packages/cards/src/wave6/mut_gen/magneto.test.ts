@@ -1051,11 +1051,11 @@ describe("Seized! (32158)", () => {
  * card remains on him unless he gains Stalwart." RRG 1.8 agrees: "Confuse, Confused" (p. 13) says only that
  * "confused status cards cannot be placed on that character", and "Status Cards" (p. 41) lists no rule that removes a
  * status card already held. RRG 1.8 "Stalwart" (p. 40) removes held stunned and confused cards only when a character
- * gains the stalwart keyword. The engine (`clearForbiddenStatuses`, `resolve/state-checks.ts`) sheds the held card as
- * soon as the helmet applies.
+ * gains the stalwart keyword. The owner applied this on 2026-10-28 (PR #498), overriding docs/phase7-wave3.md §3.7:
+ * `clearForbiddenStatuses` (`resolve/state-checks.ts`) reads `heldStatusCapacity`, which the helmet does not lower.
  */
 describe("'Cannot be confused' stops new status cards only (FFG ruling Feb 15, 2024 #145; RRG 1.8 'Confuse', p. 13)", () => {
-  it.fails("Magneto's Helmet (32147) attaching to a confused Magneto leaves the confused status card on him", () => {
+  it("Magneto's Helmet (32147) attaching to a confused Magneto leaves the confused status card on him", () => {
     const base = runWith(WAVE6_DEPS, magnetoGame(), toHero(P1));
     const magneto = base.activeVillainId!;
     const confused = patchInstance(base, magneto, { statuses: { ...inst(base, magneto).statuses, confused: 1 } });
