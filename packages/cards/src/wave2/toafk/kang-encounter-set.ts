@@ -9,7 +9,7 @@ import {
   boost,
   cards,
   chooseCards,
-  chooseOne,
+  chooseOneBy,
   chooseTarget,
   chosen,
   constant,
@@ -256,7 +256,9 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   "11022.when-revealed": whenRevealed(
     forEachPlayer(
       eachPlayer,
-      chooseOne(
+      // Each player makes their own choice (RRG 1.8 "Each Player", p. 17; "Choose (Option)", p. 12).
+      chooseOneBy(
+        thatPlayer,
         option("Discard 1 random card from hand", discardAtRandom(1, thatPlayer)),
         option("Place 2 threat here", placeThreat(2, self)),
       ),
