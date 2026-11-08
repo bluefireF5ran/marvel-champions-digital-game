@@ -93,6 +93,20 @@ export function defenseBarFor(state: GameState, playerId: PlayerId | null): Defe
   return null;
 }
 
+/**
+ * `defenseBarFor` for having a character declared the defender (the Declare Defender step, or a card effect that
+ * declares one): only "While a player is defending, other players cannot defend" (RRG 1.8 "Defend, Defense", p. 15)
+ * applies. The label limit there is on "defense-labeled abilities", not on defending. A player whose label made their
+ * identity the defender is defending, and that closes the attack to others; one whose identity "cannot defend" (Taunt:
+ * "Other characters cannot defend against this attack") never becomes the defender (p. 14: the label makes the
+ * identity the defender only "if it can defend"), so the attacked hero can still defend. FFG ruling Aug 10, 2023 #60
+ * (docs/rulings/post-rrg-1-5/04-august-2023.md, Taunt + Mutant Protectors): "the defender would still be you".
+ */
+export function defenderBarFor(state: GameState, playerId: PlayerId | null): DefenseBar | null {
+  const bar = defenseBarFor(state, playerId);
+  return bar === "anotherPlayerDefending" ? bar : null;
+}
+
 /** Whether the candidate's ability is labeled "(defense)". */
 export const isDefenseLabeled = (deps: EngineDeps, candidate: TriggerCandidate): boolean =>
   deps.abilities[candidate.abilityId]?.label?.includes("defense") === true;
