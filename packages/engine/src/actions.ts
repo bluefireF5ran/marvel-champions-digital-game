@@ -7002,8 +7002,9 @@ function makeBasicAttack(
   command: Command & { type: "basicAttack" },
   shares: readonly BasicPowerShare[],
 ): void {
-  announceBasicPower(ctx, command.attackerInstanceId, "attack", command.playerId);
+  // See `makeBasicThwart`: consequential damage first, so it resolves after the "used a basic power" responses.
   const consequential = pushConsequentialDamage(ctx, command.attackerInstanceId, "attack");
+  announceBasicPower(ctx, command.attackerInstanceId, "attack", command.playerId);
   const attackFrames = !command.divide
     ? [
         pushEvent(
@@ -7291,13 +7292,17 @@ function makeBasicThwart(
     ...(ignores?.includes("crisis") ? { ignoreCrisis: true as const } : {}),
     ...(ignores?.includes("patrol") ? { ignorePatrol: true as const } : {}),
   };
-  announceBasicPower(ctx, command.thwarterInstanceId, "thwart", command.playerId, thwartStat);
   const consequential = pushConsequentialDamage(
     ctx,
     command.thwarterInstanceId,
     "thwart",
     useAtk ? "attack" : "thwart",
   );
+  // RRG 1.8 "Consequential Damage" (p. 13): an ally takes it "after resolving abilities that are triggered by the ally
+  // attacking or thwarting", and "Ability" (p. 5) ranks responses (4) before consequential damage (5). So the damage
+  // sits beneath the `basicPowerUsed` announcement (LIFO): "after [this ally] uses a basic power" (Nick Fury 50002)
+  // resolves before the damage that may defeat him.
+  announceBasicPower(ctx, command.thwarterInstanceId, "thwart", command.playerId, thwartStat);
   const framesBefore = new Set(ctx.state.stack.map((frame) => frame.frameId));
   const thwartFrames = !command.divide
     ? [
