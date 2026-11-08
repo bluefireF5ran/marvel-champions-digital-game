@@ -6,8 +6,9 @@
  *    defend against that same attack." A player is defending while a character they control is the attack's defender,
  *    an ally as much as a hero: "If a player defends against an enemy attack that targets a different player (either
  *    by defending with a character they control or by resolving a defense ability), the defending player becomes the
- *    new target of that attack." Resolving a defense ability is itself defending, so the bar covers a "(defense)"
- *    ability as well as being declared the defender.
+ *    new target of that attack." A "(defense)" ability is defending once it makes that player's identity the
+ *    defender; one whose identity cannot defend (Taunt) never does, and leaves the attacked hero free to defend
+ *    (`defenderBarFor`).
  *  - "Once a player resolves a defense-labeled ability during an enemy attack, other players cannot resolve
  *    defense-labeled abilities for that same attack."
  *
@@ -81,8 +82,8 @@ export function defenseClaimOf(state: GameState): DefenseClaim | null {
 }
 
 /**
- * The one predicate: why `playerId` may not resolve a "(defense)"-labeled ability, or have a character declared the
- * defender, for the enemy attack in progress. Null when they may, and outside an enemy attack.
+ * Why `playerId` may not resolve a "(defense)"-labeled ability for the enemy attack in progress. Null when they may,
+ * and outside an enemy attack. Whether they may have a character declared the defender is `defenderBarFor`.
  */
 export function defenseBarFor(state: GameState, playerId: PlayerId | null): DefenseBar | null {
   if (playerId === null) return null;
