@@ -66,6 +66,7 @@ import {
   applyRuleUntil,
   preventConsequentialDamage,
   exists,
+  canEnterPlay,
 } from "../../dsl/index.js";
 import { WAR_MACHINE_PACK_CARDS } from "../../wave4/warm/war-machine-pack-cards.js";
 
@@ -92,15 +93,22 @@ const EACH_OF_YOUR_CHARACTERS_IS_X_FORCE = not(
  * player's control like any put-into-play card (so the ally limit and unique rule apply), as playing it would (RRG 1.8
  * "Play, Put into Play", p. 32): an upgrade goes on its player's identity, or on the host its "attach to" text names
  * (that player chooses when several are legal; with none it stays where it was, RRG 1.8 "Attach To", p. 8).
+ * Only a card that can enter play under that player is offered: a unique card already in play, a "Max 1 per player"
+ * copy that player already controls, or a card a "cannot enter play" effect names is left out, as for Winter, Widow,
+ * Soldier, Spy (owner Q37 = A; RRG 1.8 "Target", p. 43; "Max", p. 28; "Unique", p. 45).
  */
-const eachPlayerMaySearchFor = (found: ReturnType<typeof query>) =>
+const eachPlayerMaySearchFor = (kind: Parameters<typeof query>[0], opts: Parameters<typeof query>[1] = {}) =>
   forEachPlayer(
     eachPlayer,
-    chooseCards("found", zone(["deck", "discard"], thatPlayer, { filter: found }), {
-      min: 0,
-      max: 1,
-      chooser: thatPlayer,
-    }),
+    chooseCards(
+      "found",
+      zone(["deck", "discard"], thatPlayer, { filter: query(kind, { ...opts, ...canEnterPlay(thatPlayer) }) }),
+      {
+        min: 0,
+        max: 1,
+        chooser: thatPlayer,
+      },
+    ),
     putIntoPlay(chosen("found"), thatPlayer),
     shuffleDeck(thatPlayer),
   );
@@ -179,10 +187,10 @@ export const NEXT_EVOL_PRECON_CABLE_DECK: AbilityRegistry = defineAbilities({
     applyRuleUntil(preventConsequentialDamage(query("ally", { controller: "you" })), "endOfPhase"),
   ),
 
-  "40018.when-defeated": whenDefeated(eachPlayerMaySearchFor(query("ally"))),
-  "40019.when-defeated": whenDefeated(eachPlayerMaySearchFor(query("upgrade", { trait: WEAPON, maxPrintedCost: 3 }))),
+  "40018.when-defeated": whenDefeated(eachPlayerMaySearchFor("ally")),
+  "40019.when-defeated": whenDefeated(eachPlayerMaySearchFor("upgrade", { trait: WEAPON, maxPrintedCost: 3 })),
   "40020.when-defeated": whenDefeated(giveTough(each(query("identity")))),
-  "40027.when-defeated": whenDefeated(eachPlayerMaySearchFor(query("support", { maxPrintedCost: 3 }))),
+  "40027.when-defeated": whenDefeated(eachPlayerMaySearchFor("support", { maxPrintedCost: 3 })),
 
   "40021.eva-constant": stateCheckFromEntering(
     not(exists(query("ally", { name: "Fantomex" }))),

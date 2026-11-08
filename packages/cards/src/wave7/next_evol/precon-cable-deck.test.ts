@@ -703,6 +703,15 @@ describe("When Defeated: each player may search their deck and discard pile", ()
     );
     expect(playedOf(state, "40007")).toBeDefined();
   });
+  it("Build Support leaves out a unique support that cannot enter play: Graymalkin already in play", () => {
+    // RRG 1.8 "Unique" (p. 45): a copy of a unique card in play cannot be put into play, so it is no valid pick
+    // (RRG 1.8 "Target", p. 43; the owner's Q37 = A reading for Winter, Widow, Soldier, Spy).
+    const { state: base, scheme } = inPlayScheme([CABLE], "40027");
+    const placed = intoPlay(base, "40007");
+    const staged = patchInstance(placed.state, scheme, { threat: 2 });
+    const offered = offeredCards(staged, declineCard, basicThwart(P1, cableOf(staged), scheme));
+    expect(offered).toEqual(["40021", "40022"]);
+  });
   it("Establish Perimeter gives each identity a tough status card (two players: both)", () => {
     const one = inPlayScheme([CABLE], "40020");
     const done = defeat(one.state, one.scheme, firstLegal);
