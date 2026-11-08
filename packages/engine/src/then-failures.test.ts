@@ -60,6 +60,19 @@ const SEARCH = actionEvent("then-search", [
   { kind: "moveCards", cards: chosen("w"), to: "discard" },
   THEN_THREAT,
 ]);
+/** "Search your deck and discard pile for a widget and discard it. Then, …" (Agent Coulson, For Asgard). */
+const SEARCH_BOTH = actionEvent("then-search-both", [
+  {
+    kind: "chooseCards",
+    slot: "w",
+    from: { kind: "zone", zone: ["deck", "discard"], player: you, filter: { name: "widget" } },
+    chooser: you,
+    min: 1,
+    max: 1,
+  },
+  { kind: "moveCards", cards: chosen("w"), to: "discard" },
+  THEN_THREAT,
+]);
 /** The same search as a `selectCards` (Legions of Hydra's "search … for Madame Hydra and put her into play"). */
 const SELECT = actionEvent("then-select", [
   { kind: "selectCards", slot: "w", cards: { kind: "zone", zone: "deck", player: you, filter: { name: "widget" } } },
@@ -125,6 +138,7 @@ const REMOVE_ALL = actionEvent("then-remove-all", [
 
 const EVENTS = [
   SEARCH,
+  SEARCH_BOTH,
   SELECT,
   DISCARD_UNTIL,
   REVEAL_UNTIL,
@@ -202,6 +216,19 @@ describe("a search or 'discard until' that finds nothing", () => {
     const { state: after, events } = playFree(state, deps, SEARCH.card.id);
     expect(threat(after)).toBe(threat(state) + 7);
     expect(skipped(events)).toBe(false);
+  });
+
+  it("a search of deck and discard pile is initiated with nothing to find, and skips its 'Then'", () => {
+    // RRG 1.8 "Target" (p. 43): "An ability with a search effect requires only a searchable game area in order to
+    // initiate." A zone list naming the deck is a search as much as the deck alone.
+    const state = noWidgets(start());
+    const { state: after, events } = playFree(state, deps, SEARCH_BOTH.card.id);
+    expect(events.some((e) => e.type === "cardPlayed")).toBe(true);
+    expect(threat(after)).toBe(threat(state));
+    expect(causes(events)).toEqual(["searchFoundNothing"]);
+    expect(skipped(events)).toBe(true);
+    const full = start({ widgets: 12 });
+    expect(threat(playFree(full, deps, SEARCH_BOTH.card.id).state)).toBe(threat(full) + 7);
   });
 
   it("a selectCards search behaves the same way", () => {
