@@ -62,6 +62,7 @@ import {
   refMatches,
   revealCard,
   rule,
+  inPlayAreaOf,
   self,
   selectCards,
   stun,
@@ -305,9 +306,9 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   // Time-Travel Tactics — Surge (data). When Revealed: each player takes 1 indirect damage for each obligation in
   // their play area. [star] Boost: this card gains [boost] for each obligation in your play area.
   "11028.when-revealed": whenRevealed(
-    forEachPlayer(eachPlayer, dealIndirectDamage(thatPlayer, countOf(query("obligation", { controller: "other" })))),
+    forEachPlayer(eachPlayer, dealIndirectDamage(thatPlayer, countOf(query("obligation", inPlayAreaOf(thatPlayer))))),
   ),
-  "11028.boost": boost(adjustBoostCount(countOf(query("obligation", { controller: "you" })))),
+  "11028.boost": boost(adjustBoostCount(countOf(query("obligation", inPlayAreaOf(you))))),
 
   // Past Machinations — Incite 1 (data). When Revealed: each player searches the encounter deck and discard pile
   // for a different obligation and reveals it (module docblock: cross-player distinctness not enforced). Shuffle
@@ -404,12 +405,12 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   "11047.kang-master-of-time-constant": constant(
     gets(
       "sch",
-      { kind: "count", query: query("obligation", { controlledBy: engagedPlayerOf(self) }) },
+      { kind: "count", query: query("obligation", inPlayAreaOf(engagedPlayerOf(self))) },
       query("minion", { self: true }),
     ),
     gets(
       "atk",
-      { kind: "count", query: query("obligation", { controlledBy: engagedPlayerOf(self) }) },
+      { kind: "count", query: query("obligation", inPlayAreaOf(engagedPlayerOf(self))) },
       query("minion", { self: true }),
     ),
   ),
