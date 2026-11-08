@@ -712,6 +712,41 @@ describe("When Defeated: each player may search their deck and discard pile", ()
     const offered = offeredCards(staged, declineCard, basicThwart(P1, cableOf(staged), scheme));
     expect(offered).toEqual(["40021", "40022"]);
   });
+  it("Build Support with no support the player can put into play tells them so, and asks nothing", () => {
+    // Owner decision 2026-11-08: a player with no valid card is told (`searchFoundNothing`), not passed silently.
+    // Graymalkin is in play (unique), and E.V.A. and Uncanny X-Force are taken out of the deck by surgery.
+    const { state: base, scheme } = inPlayScheme([CABLE], "40027");
+    const placed = intoPlay(base, "40007").state;
+    const gone = new Set(["40021", "40022"]);
+    const stripped: GameState = {
+      ...placed,
+      players: placed.players.map((p) =>
+        p.playerId === P1
+          ? {
+              ...p,
+              deck: p.deck.filter((id) => !gone.has(codeOf(placed, id))),
+              discard: p.discard.filter((id) => !gone.has(codeOf(placed, id))),
+            }
+          : p,
+      ),
+    };
+    const offered = offeredCards(
+      patchInstance(stripped, scheme, { threat: 2 }),
+      declineCard,
+      basicThwart(P1, cableOf(stripped), scheme),
+    );
+    expect(offered).toEqual([]);
+    const { state, events } = defeat(stripped, scheme, declineCard);
+    expect(events.filter((e) => e.type === "searchFoundNothing")).toEqual([
+      { type: "searchFoundNothing", playerId: P1, slot: "found" },
+    ]);
+    expect(state.victoryDisplay).toContain(scheme);
+  });
+  it("Build Support with a support to take logs no searchFoundNothing", () => {
+    const { state: base, scheme } = inPlayScheme([CABLE], "40027");
+    const { events } = defeat(base, scheme, declineCard);
+    expect(events.some((e) => e.type === "searchFoundNothing")).toBe(false);
+  });
   it("Establish Perimeter gives each identity a tough status card (two players: both)", () => {
     const one = inPlayScheme([CABLE], "40020");
     const done = defeat(one.state, one.scheme, firstLegal);

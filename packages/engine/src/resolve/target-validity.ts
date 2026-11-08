@@ -697,6 +697,29 @@ export function isRequiredSearch(effect: EffectSpec): boolean {
   return effect.kind === "chooseCards" && effect.min >= 1 && choosesAmongDeck(effect.from);
 }
 
+/**
+ * A search a player may come up empty from without anything failing: a `chooseCards` with a minimum of 0 among a
+ * deck's cards ("may search your deck for X", "search ... for up to N"). When it finds no card it can take, the engine
+ * says so (`searchFoundNothing`) rather than passing silently.
+ */
+export function isOptionalSearch(effect: EffectSpec): boolean {
+  if (effect.kind !== "chooseCards" || effect.min !== 0 || namesTopCardOfDeck(effect.from)) return false;
+  return readsDeck(effect.from) || listsDeckZone(effect.from);
+}
+
+/**
+ * Whether a selector reads a deck among a list of zones (`zone: ["deck", "discard"]`, "your deck and discard pile"),
+ * which `readsDeck` does not look at. Kept to `isOptionalSearch` so the required-choice / required-search split that
+ * `readsDeck` drives is unchanged.
+ */
+function listsDeckZone(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(listsDeckZone);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Readonly<Record<string, unknown>>;
+  if (Array.isArray(record.zone) && record.zone.includes("deck")) return true;
+  return Object.values(record).some(listsDeckZone);
+}
+
 /** Whether a choice reads a value or a card the ability's cost binds (`var`, `slot`, `inSlot`, `excludeSlots`). */
 function readsBindings(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(readsBindings);
