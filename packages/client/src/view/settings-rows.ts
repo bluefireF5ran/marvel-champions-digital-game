@@ -705,7 +705,7 @@ export interface CardLanguageRowInfo {
 }
 
 /**
- * "Card art language" (#337, #390): every language, in every build, because app text follows it. Card pictures follow
+ * "Language" (#337, #390): every language, in every build, because app text follows it. Card pictures follow
  * it only where this bundle carries that language's scans (a native installer carries one), which the detail says.
  */
 export function cardLanguageRowInfoOf(settings: Settings): CardLanguageRowInfo {
@@ -713,7 +713,7 @@ export function cardLanguageRowInfoOf(settings: Settings): CardLanguageRowInfo {
   const artNote =
     carried.length < CARD_LANGUAGES.length ? " Card pictures in another language need that language's installer." : "";
   return {
-    title: "Card art language",
+    title: "Language",
     detail: `Which language the app text and the card pictures use. Cards without a translated picture stay in English.${artNote}`,
     options: CARD_LANGUAGES.map((value) => ({ value, label: CARD_LANGUAGE_NAMES[value] })),
     selected: settings.cardLanguage,

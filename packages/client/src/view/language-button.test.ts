@@ -3,7 +3,7 @@ import {
   joinNames,
   languageCodeOf,
   languageMenuLayout,
-  languagePopupMode,
+  languageMenuRows,
   languageRowLabel,
   languageSlotBeside,
   otherLanguagesParagraphs,
@@ -24,9 +24,16 @@ describe("the card language button", () => {
     expect(languageSlotBeside({ ...music, width: 40 }).width).toBeLessThan(slot.width);
   });
 
-  it("opens the list in every build (text switches even where art cannot), the note only when forced", () => {
-    expect(languagePopupMode()).toBe("menu");
-    expect(languagePopupMode(true)).toBe("info");
+  it("lists every language, and on a native build marks the missing art and ends with the installers row", () => {
+    expect(languageMenuRows(["en", "es"], "es").map((row) => [row.key, row.label])).toEqual([
+      ["en", "English"],
+      ["es", "✓ Español"],
+    ]);
+    expect(languageMenuRows(["en"], "es").map((row) => [row.key, row.label])).toEqual([
+      ["en", "English"],
+      ["es", "✓ Español (text only)"],
+      ["installers", "Card art installers"],
+    ]);
   });
 
   it("marks a language whose card art the bundle lacks as text only", () => {

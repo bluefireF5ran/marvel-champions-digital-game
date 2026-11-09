@@ -4,9 +4,9 @@
  * `menu` (every build): a short list under the button, one row per language by its own name, the current one marked
  * with a check. Choosing a row sets `Settings.cardLanguage`, which app text follows everywhere and card art follows
  * where the bundle carries its scans (`session.ts`, #390). A language whose art the bundle lacks reads "(text only)",
- * and a last row opens the downloads page for it.
+ * and a last row, "Card art installers", opens the `info` note.
  *
- * `info` (dev-only `?nativelang`): "Other languages". Which languages exist, which one this install's art is in, why
+ * `info` (from that row): "Other languages". Which languages exist, which one this install's art is in, why
  * each is its own download, and two links that open the real browser: the downloads page and the browser version that
  * has every language.
  *
@@ -15,7 +15,7 @@
  * decision sheets it has no PEEK AT TABLE or Expand: it is a note and a list, not a view that hides the table.
  */
 import Phaser from "phaser";
-import { CARD_LANGUAGES, availableCardLanguages, type CardLanguage } from "../art/card-language.js";
+import { availableCardLanguages, type CardLanguage } from "../art/card-language.js";
 import { artLanguageNow } from "../art/art-source.js";
 import { appLanguageNow } from "../i18n/app-language.js";
 import { hit, ink, surface, typeRole, type TypeSpec } from "../tokens.js";
@@ -26,10 +26,9 @@ import { destroyChildren } from "../ui/destroy-children.js";
 import { formFactorFor, type Rect } from "../view/layout.js";
 import {
   DOWNLOADS_URL,
-  INSTALLERS_ROW_LABEL,
   WEB_VERSION_URL,
   languageMenuLayout,
-  languageRowLabel,
+  languageMenuRows,
   otherLanguagesParagraphs,
   type LanguagePopupMode,
 } from "../view/language-button.js";
@@ -45,6 +44,8 @@ export interface LanguagePopupData {
   readonly mode: LanguagePopupMode;
   /** The language button, which the list hangs from. */
   readonly anchor: Rect;
+  /** The languages whose card art this bundle carries; defaults to `availableCardLanguages()`. */
+  readonly carried?: readonly CardLanguage[];
   /** Opened by pad or keyboard: focus starts on the current language (or the note's first link), ready to press. */
   readonly focused?: boolean;
 }
@@ -53,6 +54,7 @@ export class LanguagePopupOverlay extends Phaser.Scene {
   #mode: LanguagePopupMode = "menu";
   #anchor: Rect = { x: 0, y: 0, width: 56, height: 34 };
   #focused = false;
+  #carried: readonly CardLanguage[] = availableCardLanguages();
   #buttons: McButton[] = [];
   #route: FocusRoute | null = null;
   #disabled: { readonly scene: Phaser.Scene; readonly pointer: boolean; readonly keyboard: boolean }[] = [];
@@ -65,6 +67,7 @@ export class LanguagePopupOverlay extends Phaser.Scene {
     this.#mode = data.mode ?? "menu";
     if (data.anchor) this.#anchor = data.anchor;
     this.#focused = data.focused ?? false;
+    this.#carried = data.carried ?? availableCardLanguages();
   }
 
   create(): void {
@@ -95,6 +98,11 @@ export class LanguagePopupOverlay extends Phaser.Scene {
     if (this.#focused) this.#route?.focusKey(this.#mode === "menu" ? appLanguageNow() : "downloads");
   }
 
+  /** The installers row: the "Other languages" note replaces the list. */
+  #openInfo(): void {
+    this.scene.restart({ mode: "info", anchor: this.#anchor, focused: this.#focused, carried: this.#carried });
+  }
+
   #choose(language: CardLanguage): void {
     const session = appSession();
     if (session.settings.cardLanguage !== language) session.settings = { ...session.settings, cardLanguage: language };
@@ -114,46 +122,34 @@ export class LanguagePopupOverlay extends Phaser.Scene {
   }
 
   #drawMenu(width: number, height: number): void {
-    const languages = CARD_LANGUAGES;
-    const carried = availableCardLanguages();
     const current = appLanguageNow();
-    const installers = carried.length < languages.length;
-    const labels = languages.map((language) => languageRowLabel(language, current, carried));
-    if (installers) labels.push(INSTALLERS_ROW_LABEL);
+    const menuRows = languageMenuRows(this.#carried, current);
     this.add.graphics().fillStyle(surface.void.hex, 0.25).fillRect(0, 0, width, height);
-    const labelWidth = Math.max(...labels.map((label) => label.length)) * 10;
-    const { box, rows } = languageMenuLayout(this.#anchor, labels.length, { width, height }, hit.target, labelWidth);
+    const labelWidth = Math.max(...menuRows.map((row) => row.label.length)) * 10;
+    const { box, rows } = languageMenuLayout(this.#anchor, menuRows.length, { width, height }, hit.target, labelWidth);
     const ground = this.add.graphics();
     ground.fillStyle(surface.ink.hex, 1).fillRect(box.x, box.y, box.width, box.height);
     ground.lineStyle(2, surface.paper.hex, 1).strokeRect(box.x + 1, box.y + 1, box.width - 2, box.height - 2);
     // A press inside the list that misses a row is not "outside".
     this.add.zone(box.x, box.y, box.width, box.height).setOrigin(0, 0).setInteractive();
     const stops = new Map<string, FocusStop>();
-    languages.forEach((language, index) => {
+    menuRows.forEach((row, index) => {
       const rect = rows[index]!;
-      const choose = (): void => this.#choose(language);
+      const key = row.key;
+      const choose = (): void => (key === "installers" ? this.#openInfo() : this.#choose(key));
       this.#buttons.push(
         new McButton(this, {
           kind: "onInk",
-          label: labels[index]!,
+          label: row.label,
           type: ROW_TYPE,
           rect,
-          selected: language === current,
+          selected: key === current,
           onClick: choose,
         }),
       );
-      stops.set(language, { rect, activate: choose });
+      stops.set(key, { rect, activate: choose });
     });
-    const order: string[] = [...languages];
-    if (installers) {
-      const rect = rows[languages.length]!;
-      const open = (): void => openExternal(DOWNLOADS_URL);
-      this.#buttons.push(
-        new McButton(this, { kind: "onInk", label: INSTALLERS_ROW_LABEL, type: ROW_TYPE, rect, onClick: open }),
-      );
-      stops.set("downloads", { rect, activate: open });
-      order.push("downloads");
-    }
+    const order = menuRows.map((row) => row.key);
     this.#route?.set(order, stops, surface.paper.hex);
   }
 

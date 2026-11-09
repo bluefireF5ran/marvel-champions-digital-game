@@ -70,13 +70,13 @@ describe("text language is not clamped to the card scans (#390)", () => {
 
   it("announces once per switch with native-like availability (text only)", () => {
     vi.stubGlobal("__CARD_LANGS__", "en");
-    const heard = vi.fn(() => void t("title.newGame"));
-    const off = onLanguageChange(heard);
+    const seen: string[] = [];
+    const off = onLanguageChange(() => seen.push(t("title.newGame")));
     applyLanguageSetting("es");
     applyLanguageSetting("es");
-    expect(heard).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual(["Nueva partida"]);
     applyLanguageSetting("en");
-    expect(heard).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual(["Nueva partida", "New game"]);
     off();
   });
 
@@ -98,5 +98,18 @@ describe("text language is not clamped to the card scans (#390)", () => {
     vi.stubGlobal("__CARD_LANGS__", "en");
     vi.stubGlobal("navigator", { languages: ["es-ES"] });
     expect(defaultSettings().cardLanguage).toBe("es");
+  });
+
+  it("a Spanish build starts in Spanish whatever the browser says; an English build follows the browser", () => {
+    vi.stubGlobal("__CARD_LANG__", "es");
+    vi.stubGlobal("__CARD_LANGS__", "es");
+    vi.stubGlobal("navigator", { languages: ["fr-FR"] });
+    expect(defaultSettings().cardLanguage).toBe("es");
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    expect(defaultSettings().cardLanguage).toBe("es");
+    vi.stubGlobal("__CARD_LANG__", "en");
+    expect(defaultSettings().cardLanguage).toBe("en");
+    vi.stubGlobal("navigator", { languages: ["fr-FR"] });
+    expect(defaultSettings().cardLanguage).toBe("en");
   });
 });

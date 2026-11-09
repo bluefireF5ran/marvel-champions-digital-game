@@ -6,8 +6,8 @@
  *
  * A tap opens a list to pick from, in every build: app text follows the pick everywhere (#390). Where the bundle
  * carries only some languages' card art (a native installer), the list marks the others "text only" and ends with a
- * downloads row. The "Other languages" note (why each language's art is its own download) is the dev-only
- * `?nativelang` view.
+ * "Card art installers" row, which opens the "Other languages" note (why each language's art is its own download).
+ * The dev-only `?nativelang` link makes a browser build show that native list.
  */
 import { CARD_LANGUAGES, CARD_LANGUAGE_NAMES, type CardLanguage } from "../art/card-language.js";
 import type { Rect } from "./layout.js";
@@ -35,9 +35,25 @@ export function languageSlotBeside(music: Rect, gap = 8): Rect {
 
 export type LanguagePopupMode = "menu" | "info";
 
-/** What a tap on the button opens: the list, or with the dev-only `?nativelang` link the "Other languages" note. */
-export function languagePopupMode(forceInfo = false): LanguagePopupMode {
-  return forceInfo ? "info" : "menu";
+export interface LanguageMenuRow {
+  /** The language it picks, or `installers` for the row that opens the "Other languages" note. */
+  readonly key: CardLanguage | "installers";
+  readonly label: string;
+}
+
+/**
+ * The list's rows: every language (`carried` is the ones whose card art this bundle has), then, when some language's
+ * art is missing, the row that opens the note about its installer.
+ */
+export function languageMenuRows(carried: readonly CardLanguage[], current: CardLanguage): readonly LanguageMenuRow[] {
+  const rows: LanguageMenuRow[] = CARD_LANGUAGES.map((language) => ({
+    key: language,
+    label: languageRowLabel(language, current, carried),
+  }));
+  if (CARD_LANGUAGES.some((language) => !carried.includes(language))) {
+    rows.push({ key: "installers", label: INSTALLERS_ROW_LABEL });
+  }
+  return rows;
 }
 
 export interface LanguageMenuLayout {
@@ -91,7 +107,7 @@ export function languageRowLabel(
 }
 
 /** The list's last row, where some languages' card art is not in this bundle. */
-export const INSTALLERS_ROW_LABEL = "Card art installers ↗";
+export const INSTALLERS_ROW_LABEL = "Card art installers";
 
 /** "English and Español" / "A, B and C". */
 export function joinNames(names: readonly string[]): string {

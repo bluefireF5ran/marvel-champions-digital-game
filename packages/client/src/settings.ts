@@ -7,7 +7,7 @@
  */
 
 import type { TableRules } from "@mc/engine";
-import { CARD_LANGUAGES, preferredCardLanguage, type CardLanguage } from "./art/card-language.js";
+import { defaultCardLanguage, type CardLanguage } from "./art/card-language.js";
 import type { KeyboardHand } from "./view/input-shortcuts.js";
 import type { GlyphSource } from "./view/input-mode.js";
 import type { PadFamilySetting } from "./view/pad-family.js";
@@ -485,7 +485,7 @@ export function defaultSettings(device: DeviceConditions = {}): Settings {
     achievementPopupTime: "5s",
     achievementPopupPlace: "titleBar",
     achievementPopupSize: "small",
-    cardLanguage: preferredCardLanguage(globalThis.navigator?.languages ?? [], CARD_LANGUAGES),
+    cardLanguage: defaultCardLanguage(globalThis.navigator?.languages ?? []),
     padGlyphFamily: "auto",
     nintendoLayout: true,
     keyboardHand: "left",
