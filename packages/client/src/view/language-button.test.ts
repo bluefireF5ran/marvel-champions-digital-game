@@ -24,12 +24,15 @@ describe("the card language button", () => {
     expect(languageSlotBeside({ ...music, width: 40 }).width).toBeLessThan(slot.width);
   });
 
-  it("opens the list on the web with several languages, and the note anywhere else", () => {
-    expect(languagePopupMode(2, false)).toBe("menu");
-    expect(languagePopupMode(1, false)).toBe("info");
-    expect(languagePopupMode(1, true)).toBe("info");
-    expect(languagePopupMode(2, true)).toBe("info");
-    expect(languagePopupMode(2, false, true)).toBe("info");
+  it("opens the list in every build (text switches even where art cannot), the note only when forced", () => {
+    expect(languagePopupMode()).toBe("menu");
+    expect(languagePopupMode(true)).toBe("info");
+  });
+
+  it("marks a language whose card art the bundle lacks as text only", () => {
+    expect(languageRowLabel("es", "es", ["en"])).toBe("✓ Español (text only)");
+    expect(languageRowLabel("en", "es", ["en"])).toBe("English");
+    expect(languageRowLabel("es", "en", ["en", "es"])).toBe("Español");
   });
 
   it("lays the list under the button, inside the screen", () => {

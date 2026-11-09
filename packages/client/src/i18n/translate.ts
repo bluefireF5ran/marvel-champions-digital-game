@@ -1,19 +1,19 @@
 /**
  * Translated app text (issue #390). `t(key)` gives a string in the language the player picked (`Settings.cardLanguage`,
- * the same setting card faces follow: `art/art-source.ts`'s `artLanguageNow`), falling back to English for any key that
- * language has no translation for yet, so a screen can be translated a piece at a time.
+ * read through `app-language.ts`'s `appLanguageNow`), falling back to English for any key that language has no
+ * translation for yet, so a screen can be translated a piece at a time.
  *
  * English (`en.ts`) is the full catalog and the source of every key: a key it lacks doesn't compile. Other languages
  * are partial catalogs over it (`es.ts`). A `{name}` in a message is filled from `params`.
  *
  * A screen that shows translated text redraws on `language-change.ts`'s `onLanguageChange`, as card art does.
  *
- * One setting for both, deliberately for now: text follows the language card faces are drawn in, so it is clamped to
- * the languages this bundle's scans carry (all of them on the web, one in a native installer). Giving text its own,
- * unclamped source is a later choice for the owner (#390).
+ * One setting for both text and card art, but only art is limited by the build: text catalogs ship in every bundle, so
+ * text follows the setting as picked (a Spanish player on an English native install reads Spanish with English
+ * card scans), while `art-source.ts`'s `setArtLanguage` clamps art to the scans the bundle carries (#390).
  */
-import { artLanguageNow } from "../art/art-source.js";
 import type { CardLanguage } from "../art/card-language.js";
+import { appLanguageNow } from "./app-language.js";
 import { en } from "./en.js";
 import { es } from "./es.js";
 
@@ -32,7 +32,7 @@ export function messageFrom(catalog: PartialCatalog, key: MessageKey): string {
 }
 
 /** The message for `key` in `lang`, else in English. */
-export function message(key: MessageKey, lang: CardLanguage = artLanguageNow()): string {
+export function message(key: MessageKey, lang: CardLanguage = appLanguageNow()): string {
   return messageFrom(CATALOGS[lang], key);
 }
 
@@ -44,7 +44,7 @@ export function fill(text: string, params: Params | undefined): string {
 }
 
 /** `key`'s message in the current language (else English), its `{name}` placeholders filled from `params`. */
-export function t(key: MessageKey, params?: Params, lang: CardLanguage = artLanguageNow()): string {
+export function t(key: MessageKey, params?: Params, lang: CardLanguage = appLanguageNow()): string {
   return fill(message(key, lang), params);
 }
 

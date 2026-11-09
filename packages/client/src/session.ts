@@ -26,7 +26,8 @@ import { IdbDeckStorage } from "./engine/idb-deck-storage.js";
 import { SessionStore } from "./store/session-store.js";
 import { defaultSettings, type Settings } from "./settings.js";
 import { colorSchemeOf, setColorScheme } from "./view/color-scheme.js";
-import { setArtLanguage, setShownBalancedScans } from "./art/art-source.js";
+import { setShownBalancedScans } from "./art/art-source.js";
+import { applyLanguageSetting } from "./i18n/app-language.js";
 import { BalancedArtGate } from "./art/balanced-art.js";
 import { onLanguageChange } from "./language-change.js";
 import { SettingsStore, storedSettingsOverrides } from "./settings-store.js";
@@ -139,7 +140,7 @@ export function appSession(): AppSession {
         ...(density ? { screen: recommendedScreenOf(knownHardware()) } : {}),
       }),
     );
-    setArtLanguage(settingsStore.current.cardLanguage);
+    applyLanguageSetting(settingsStore.current.cardLanguage);
     setColorScheme(colorSchemeOf(settingsStore.current.darkMode));
     onPowerSavingChange(() => settingsStore.refreshDefaults());
     onHardwareChange(() => settingsStore.refreshDefaults());
@@ -152,7 +153,7 @@ export function appSession(): AppSession {
       set settings(next: Settings) {
         settingsStore.set(next);
         setPowerSavingIgnored(!next.powerSavingAdjust);
-        setArtLanguage(next.cardLanguage);
+        applyLanguageSetting(next.cardLanguage);
         setColorScheme(colorSchemeOf(next.darkMode));
       },
       gameLog: emptyLog(),

@@ -1,21 +1,23 @@
 /**
  * What the card language button opens (#337, `scenes/language-button.ts`), over whatever screen is up.
  *
- * `menu` (the web, where the bundle carries every language): a short list under the button, one row per language by its
- * own name, the current one marked with a check. Choosing a row sets `Settings.cardLanguage`, which every screen's card
- * art follows (`session.ts`), and closes it.
+ * `menu` (every build): a short list under the button, one row per language by its own name, the current one marked
+ * with a check. Choosing a row sets `Settings.cardLanguage`, which app text follows everywhere and card art follows
+ * where the bundle carries its scans (`session.ts`, #390). A language whose art the bundle lacks reads "(text only)",
+ * and a last row opens the downloads page for it.
  *
- * `info` (a native install, which carries one language): "Other languages". Which languages exist, which one this
- * install's art is in, why each is its own download, and two links that open the real browser: the downloads page and
- * the browser version that has every language.
+ * `info` (dev-only `?nativelang`): "Other languages". Which languages exist, which one this install's art is in, why
+ * each is its own download, and two links that open the real browser: the downloads page and the browser version that
+ * has every language.
  *
  * Tapping outside, the close button or Escape closes either. While it is up every other scene's input is off (and back
  * on after), as the Report panel does, so the Escape or tap that closes it never reaches the screen under it. Unlike the
  * decision sheets it has no PEEK AT TABLE or Expand: it is a note and a list, not a view that hides the table.
  */
 import Phaser from "phaser";
-import { CARD_LANGUAGE_NAMES, availableCardLanguages, type CardLanguage } from "../art/card-language.js";
+import { CARD_LANGUAGES, availableCardLanguages, type CardLanguage } from "../art/card-language.js";
 import { artLanguageNow } from "../art/art-source.js";
+import { appLanguageNow } from "../i18n/app-language.js";
 import { hit, ink, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { textStyle } from "../ui/theme.js";
 import { McButton } from "../ui/widgets.js";
@@ -24,6 +26,7 @@ import { destroyChildren } from "../ui/destroy-children.js";
 import { formFactorFor, type Rect } from "../view/layout.js";
 import {
   DOWNLOADS_URL,
+  INSTALLERS_ROW_LABEL,
   WEB_VERSION_URL,
   languageMenuLayout,
   languageRowLabel,
@@ -89,7 +92,7 @@ export class LanguagePopupOverlay extends Phaser.Scene {
       this.#disabled = [];
     });
     this.#draw();
-    if (this.#focused) this.#route?.focusKey(this.#mode === "menu" ? artLanguageNow() : "downloads");
+    if (this.#focused) this.#route?.focusKey(this.#mode === "menu" ? appLanguageNow() : "downloads");
   }
 
   #choose(language: CardLanguage): void {
@@ -111,11 +114,15 @@ export class LanguagePopupOverlay extends Phaser.Scene {
   }
 
   #drawMenu(width: number, height: number): void {
-    const languages = availableCardLanguages();
-    const current = artLanguageNow();
+    const languages = CARD_LANGUAGES;
+    const carried = availableCardLanguages();
+    const current = appLanguageNow();
+    const installers = carried.length < languages.length;
+    const labels = languages.map((language) => languageRowLabel(language, current, carried));
+    if (installers) labels.push(INSTALLERS_ROW_LABEL);
     this.add.graphics().fillStyle(surface.void.hex, 0.25).fillRect(0, 0, width, height);
-    const labelWidth = Math.max(...languages.map((language) => CARD_LANGUAGE_NAMES[language].length)) * 10;
-    const { box, rows } = languageMenuLayout(this.#anchor, languages.length, { width, height }, hit.target, labelWidth);
+    const labelWidth = Math.max(...labels.map((label) => label.length)) * 10;
+    const { box, rows } = languageMenuLayout(this.#anchor, labels.length, { width, height }, hit.target, labelWidth);
     const ground = this.add.graphics();
     ground.fillStyle(surface.ink.hex, 1).fillRect(box.x, box.y, box.width, box.height);
     ground.lineStyle(2, surface.paper.hex, 1).strokeRect(box.x + 1, box.y + 1, box.width - 2, box.height - 2);
@@ -128,7 +135,7 @@ export class LanguagePopupOverlay extends Phaser.Scene {
       this.#buttons.push(
         new McButton(this, {
           kind: "onInk",
-          label: languageRowLabel(language, current),
+          label: labels[index]!,
           type: ROW_TYPE,
           rect,
           selected: language === current,
@@ -137,7 +144,17 @@ export class LanguagePopupOverlay extends Phaser.Scene {
       );
       stops.set(language, { rect, activate: choose });
     });
-    this.#route?.set([...languages], stops, surface.paper.hex);
+    const order: string[] = [...languages];
+    if (installers) {
+      const rect = rows[languages.length]!;
+      const open = (): void => openExternal(DOWNLOADS_URL);
+      this.#buttons.push(
+        new McButton(this, { kind: "onInk", label: INSTALLERS_ROW_LABEL, type: ROW_TYPE, rect, onClick: open }),
+      );
+      stops.set("downloads", { rect, activate: open });
+      order.push("downloads");
+    }
+    this.#route?.set(order, stops, surface.paper.hex);
   }
 
   #drawInfo(width: number, height: number): void {

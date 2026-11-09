@@ -96,7 +96,7 @@ import { drawSearchResultRow, SEARCH_RESULT_ROW_HEIGHT } from "./settings-search
 import { McVirtualList } from "../ui/virtual-list.js";
 import { ListScroll } from "../view/list-scroll.js";
 import type { GuideLevel } from "../guide/guide-prefs.js";
-import { availableCardLanguages, type CardLanguage } from "../art/card-language.js";
+import type { CardLanguage } from "../art/card-language.js";
 import type {
   CardHoverScale,
   InspectCard,
@@ -554,7 +554,7 @@ export class SettingsOverlay extends Phaser.Scene {
     return settingsTabsOf({
       guideRowIds: guideRows.map((row) => row.id),
       cardHover: formFactorFor(width, height) === "desktop",
-      cardLanguage: availableCardLanguages().length > 1,
+      cardLanguage: true,
       inspectCard: formFactorFor(width, height) === "phone",
       gameVolume: followsWindowsMixer(),
       // Sound's own tab only where six fit with their names whole; a phone keeps five, Sound under Display.
