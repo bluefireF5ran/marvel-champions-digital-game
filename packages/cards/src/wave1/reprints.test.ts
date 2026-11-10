@@ -46,6 +46,12 @@ describe("wave 1 reprints", () => {
     expect(checked).toBe(24);
   });
 
+  it("Clint Barton's Hawkeye (03012) is Core's guarded response: offered only while that minion is still in play", () => {
+    const response = WAVE1_REPRINT_ABILITIES["03012.hawkeye-response"];
+    expect(response).toBe(CORE_ABILITIES["01066.hawkeye-response"]);
+    expect((response?.trigger as { while?: unknown } | undefined)?.while).toBeDefined();
+  });
+
   it("does not alias the three named collisions: Hulk, She-Hulk, Iron Man", () => {
     // Hulk: an ally in Core (01050), a hero identity in `hlk` (10001a). She-Hulk: a hero identity in Core
     // (01019a), an ally in `hlk` (10013). Iron Man: a hero identity in Core (01029a), an ally in `drs` (09039).

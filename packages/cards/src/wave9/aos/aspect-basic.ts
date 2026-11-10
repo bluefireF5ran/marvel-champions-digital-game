@@ -407,7 +407,8 @@ export const AOS_ASPECT_BASIC: AbilityRegistry = defineAbilities({
       cost: discardThis,
       // Only while "that minion" is still in play: gone, it is no valid target, so the ability can't be initiated nor
       // its discard cost paid (RRG 1.8 "Target", p. 42; "Cost", p. 14). A stunned hero may still use it, an (attack)
-      // ability, to remove the stun (RRG 1.8 "Stun, Stunned", p. 41), as Widow's Bite (08010).
+      // ability, to remove the stun (RRG 1.8 "Stun, Stunned", p. 41). This follows the Widow's Bite (08010) reading
+      // merged in #655: keep the two in step if that reading is ever revisited.
       while: anyOf(refMatches(eventTarget, query("minion")), isStunned(yourIdentity)),
     },
     confuse(eventTarget),
