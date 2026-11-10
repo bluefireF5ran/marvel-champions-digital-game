@@ -1368,8 +1368,8 @@ function defenderLeftPlay(ctx: Ctx, frame: Frame<"enemyAttack">): Frame<"enemyAt
  * decides, not the attacked player. This covers a "(defense)" interrupt that redirected an attack aimed at another
  * player (p. 15: "the defending player becomes the new target of that attack"), where the original target has nothing
  * left to declare. A player who resolved a "(defense)" ability without becoming the defender (their identity "cannot
- * defend", Taunt) is not defending, so the attacked player still decides (`defenderBarFor`; FFG ruling Aug 10, 2023
- * #60: "the defender would still be you").
+ * defend", Taunt) is not defending, so the attacked player still decides (`defenderBarFor`; by analogy with FFG
+ * ruling Aug 10, 2023 #60, the Taunt player's own Mutant Protectors: "the defender would still be you").
  */
 function defenseDecider(state: GameState, frame: Frame<"enemyAttack">): PlayerId {
   return defenseClaimOf(state)?.defendingPlayerId ?? frame.attackedPlayerId;

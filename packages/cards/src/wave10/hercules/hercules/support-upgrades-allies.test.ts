@@ -627,9 +627,11 @@ describe("59015 Herc's Helm", () => {
   });
 
   // Saved game 875fed1b (Zola, round 2): another player's Taunt, Hercules's Helm on that villain attack. RRG 1.8 "Defend,
-  // Defense" (pp. 14-15): the label makes Hercules the defender only if he "can defend", and Taunt bars him, so he is
-  // not defending; "resolving a defense-labeled ability is not a basic defense", and the attacked hero can still be
-  // declared the defender. FFG ruling Aug 10, 2023 #60 (Taunt + Mutant Protectors): "the defender would still be you".
+  // Defense" (pp. 14-15): the label makes Hercules the defender "if there is not already a defender", but Taunt's
+  // "cannot" bars him and takes precedence (RRG 1.8 "Cannot", p. 11; the engine's `cannotDefend`, wave 4 §3.31), so he
+  // is not defending; "resolving a defense-labeled ability is not a basic defense", and the attacked hero can still be
+  // declared the defender. By analogy with FFG ruling Aug 10, 2023 #60 (the Taunt player's own Mutant Protectors):
+  // "the defender would still be you".
   it("two players: on Spider-Man's Taunt attack, Hercules's Helm still reduces the damage by 1, and Spider-Man may still defend", () => {
     const base = withForm(quiet(twoPlayerGame()), { heroForm: 0 }, P2);
     const helm = stagedInPlay(base, HELM, { attach: true });

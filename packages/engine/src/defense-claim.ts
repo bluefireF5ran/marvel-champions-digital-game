@@ -99,9 +99,12 @@ export function defenseBarFor(state: GameState, playerId: PlayerId | null): Defe
  * declares one): only "While a player is defending, other players cannot defend" (RRG 1.8 "Defend, Defense", p. 15)
  * applies. The label limit there is on "defense-labeled abilities", not on defending. A player whose label made their
  * identity the defender is defending, and that closes the attack to others; one whose identity "cannot defend" (Taunt:
- * "Other characters cannot defend against this attack") never becomes the defender (p. 14: the label makes the
- * identity the defender only "if it can defend"), so the attacked hero can still defend. FFG ruling Aug 10, 2023 #60
- * (docs/rulings/post-rrg-1-5/04-august-2023.md, Taunt + Mutant Protectors): "the defender would still be you".
+ * "Other characters cannot defend against this attack") never becomes the defender, so the attacked hero can still
+ * defend. The label makes the identity the defender "if there is not already a defender" (p. 14); what bars it is
+ * Taunt's "cannot", which is absolute and takes precedence (RRG 1.8 "Cannot", p. 11), read through the engine's
+ * `cannotDefend` check in `declareLabeledDefense` (docs/phase7-wave4.md §3.31). By analogy with FFG ruling Aug 10,
+ * 2023 #60 (docs/rulings/post-rrg-1-5/04-august-2023.md, the Taunt player's own Mutant Protectors): "the defender
+ * would still be you".
  */
 export function defenderBarFor(state: GameState, playerId: PlayerId | null): DefenseBar | null {
   const bar = defenseBarFor(state, playerId);
