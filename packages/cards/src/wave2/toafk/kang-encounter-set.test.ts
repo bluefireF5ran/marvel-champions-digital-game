@@ -464,6 +464,8 @@ describe("Kang / Temporal encounter set (kang-encounter-set.ts)", () => {
       const deckId = Object.keys(start.encounterDecks)[0]!;
       // The top cards are the enemies' boost cards (two players: a second enemy activation too, RRG 1.8 p. 47); make them
       // inert Advance (01186) so no boost effect reveals an obligation of its own, then stage 11028 right behind them.
+      // The encounter cards dealt to the players at setup are made Advance too: a seed can deal a real obligation there
+      // (seed 2026 deals P1 Stolen Memories, 11019), and the counts must be only the ones each test stages.
       const pile = start.encounterDecks[deckId]!;
       const fillerId = pile.deck[start.players.length]!;
       const relabel = (id: InstanceId, cardId: string) =>
@@ -474,12 +476,18 @@ describe("Kang / Temporal encounter set (kang-encounter-set.ts)", () => {
           ...start.instances,
           ...Object.fromEntries([
             ...pile.deck.slice(0, start.players.length).map((id) => relabel(id, "01186")),
+            ...start.players.flatMap((p) => p.dealtEncounter).map((id) => relabel(id, "01186")),
             relabel(fillerId, "11028"),
           ]),
         },
       };
       const { events, state } = driveEvents(WAVE2_DEPS, staged, ...staged.players.map((p) => endTurn(p.playerId)));
-      expect(events.some((e) => e.type === "encounterCardRevealed" && e.instanceId === fillerId)).toBe(true);
+      const revealedAt = events.findIndex((e) => e.type === "encounterCardRevealed" && e.instanceId === fillerId);
+      expect(revealedAt).toBeGreaterThanOrEqual(0);
+      const obligationsBefore = events
+        .slice(0, revealedAt)
+        .filter((e) => e.type === "encounterCardRevealed" && cardOf(state, e.instanceId)?.type === "obligation");
+      expect(obligationsBefore, "no obligation is revealed before 11028 but the staged ones").toEqual([]);
       const totals: Record<string, number> = {};
       for (const e of events) {
         if (e.type !== "damageDealt" || e.sourceInstanceId !== fillerId) continue;
@@ -493,9 +501,8 @@ describe("Kang / Temporal encounter set (kang-encounter-set.ts)", () => {
     }
 
     it("11028 two players: each takes damage for their own obligations only (P1 one, P2 two)", () => {
-      const totals = indirectDamageByPlayer(withObligations(twoPlayers(), P2, 2));
-      // P1 already holds one real obligation in this seed (Stolen Memories, 11019, is revealed before 11028 and stays in
-      // their play area), so P1 takes 1 for it and nothing for P2's two; P2 takes exactly its own two.
+      const totals = indirectDamageByPlayer(withObligations(withObligations(twoPlayers(), P1, 1), P2, 2));
+      // P1 takes 1 for its own obligation and nothing for P2's two; P2 takes exactly its own two.
       expect(totals[P1] ?? 0).toBe(1);
       expect(totals[P2] ?? 0).toBe(2);
     });
