@@ -1,7 +1,7 @@
 /**
  * Who may defend an enemy attack, across players (owner rulings 2026-10-06, docs/phase7-wave7.md §4.1).
  *
- * RRG 1.8 "Defend, Defense" (pp. 14-15) has two limits between players, and both are read here, from one record:
+ * RRG 1.8 "Defend, Defense" (pp. 15-16) has two limits between players, and both are read here, from one record:
  *  - "Only one player at a time can defend against an enemy attack. While a player is defending, other players cannot
  *    defend against that same attack." A player is defending while a character they control is the attack's defender,
  *    an ally as much as a hero: "If a player defends against an enemy attack that targets a different player (either
@@ -100,7 +100,7 @@ export function defenseBarFor(state: GameState, playerId: PlayerId | null): Defe
  * applies. The label limit there is on "defense-labeled abilities", not on defending. A player whose label made their
  * identity the defender is defending, and that closes the attack to others; one whose identity "cannot defend" (Taunt:
  * "Other characters cannot defend against this attack") never becomes the defender, so the attacked hero can still
- * defend. The label makes the identity the defender "if there is not already a defender" (p. 14); what bars it is
+ * defend. The label makes the identity the defender "if there is not already a defender" (p. 15); what bars it is
  * Taunt's "cannot", which is absolute and takes precedence (RRG 1.8 "Cannot", p. 11), read through the engine's
  * `cannotDefend` check in `declareLabeledDefense` (docs/phase7-wave4.md §3.31). By analogy with FFG ruling Aug 10,
  * 2023 #60 (docs/rulings/post-rrg-1-5/04-august-2023.md, the Taunt player's own Mutant Protectors): "the defender

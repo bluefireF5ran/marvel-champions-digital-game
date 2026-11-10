@@ -837,7 +837,7 @@ export function declareLabeledDefense(ctx: Ctx, playerId: PlayerId): void {
   const activation = defendedActivationFrameId(ctx.state.stack);
   const frame = activation ? ctx.state.stack.find((f) => f.frameId === activation) : undefined;
   if (frame?.kind !== "event" || frame.event.kind !== "enemyAttack" || (frame.vars.labeledDefense ?? 0) > 0) return;
-  // "…if there is not already a defender" (p. 14): one an effect declared while the attack was being initiated, this
+  // "…if there is not already a defender" (p. 15): one an effect declared while the attack was being initiated, this
   // hero included, stays the defender, and the label announces no second defense.
   if ((frame.slots[DEFENDER_SLOT] ?? []).length > 0) return;
   const enemyInstanceId = frame.event.enemyInstanceId;
@@ -1366,7 +1366,7 @@ function defenderLeftPlay(ctx: Ctx, frame: Frame<"enemyAttack">): Frame<"enemyAt
  * (RRG 1.8 "Defend, Defense", p. 15: "While a player is defending, other players cannot defend against that same
  * attack"), and step 2 is "If a player wishes to defend, that player exhausts a hero or ally" (p. 8): so that player
  * decides, not the attacked player. This covers a "(defense)" interrupt that redirected an attack aimed at another
- * player (p. 15: "the defending player becomes the new target of that attack"), where the original target has nothing
+ * player (p. 16: "the defending player becomes the new target of that attack"), where the original target has nothing
  * left to declare. A player who resolved a "(defense)" ability without becoming the defender (their identity "cannot
  * defend", Taunt) is not defending, so the attacked player still decides (`defenderBarFor`; by analogy with FFG
  * ruling Aug 10, 2023 #60, the Taunt player's own Mutant Protectors: "the defender would still be you").
