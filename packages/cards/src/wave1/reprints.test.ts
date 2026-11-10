@@ -5,6 +5,7 @@
  */
 import { CORE_CARDS, WAVE1_CARDS } from "@mc/content";
 import { CORE_ABILITIES } from "../core/index.js";
+import { eventTarget, query, refMatches } from "../dsl/values.js";
 import { WAVE1_REPRINT_ABILITIES, wave1ReprintPairs } from "./reprints.js";
 
 describe("wave 1 reprints", () => {
@@ -49,7 +50,9 @@ describe("wave 1 reprints", () => {
   it("Clint Barton's Hawkeye (03012) is Core's guarded response: offered only while that minion is still in play", () => {
     const response = WAVE1_REPRINT_ABILITIES["03012.hawkeye-response"];
     expect(response).toBe(CORE_ABILITIES["01066.hawkeye-response"]);
-    expect((response?.trigger as { while?: unknown } | undefined)?.while).toBeDefined();
+    expect((response?.trigger as { while?: unknown } | undefined)?.while).toEqual(
+      refMatches(eventTarget, query("minion")),
+    );
   });
 
   it("does not alias the three named collisions: Hulk, She-Hulk, Iron Man", () => {
