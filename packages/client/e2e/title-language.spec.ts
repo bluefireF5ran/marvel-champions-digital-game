@@ -26,16 +26,17 @@ test("the title menu switches to Spanish and back while it is up", async ({ page
   expect(await shown(page, "Trophy Room")).toBe(true);
 
   await setLanguage(page, "es");
-  await waitFor(async () => ((await shown(page, "Sala de Logros")) ? true : null), "the Spanish menu", 15_000);
+  await waitFor(async () => ((await shown(page, "Sala de logros")) ? true : null), "the Spanish menu", 15_000);
   expect(await shown(page, "Trophy Room")).toBe(false);
   expect(await shown(page, "Nueva partida")).toBe(true);
+  expect(await shown(page, "Novedades ↗")).toBe(true);
   await settle(page);
   await page.screenshot({ path: info.outputPath("title-es.png") });
   if (SHOT) await page.screenshot({ path: `${SHOT}/title-es-${info.project.name}.png` });
 
   await setLanguage(page, "en");
   await waitFor(async () => ((await shown(page, "Trophy Room")) ? true : null), "the English menu again", 15_000);
-  expect(await shown(page, "Sala de Logros")).toBe(false);
+  expect(await shown(page, "Sala de logros")).toBe(false);
 });
 
 test("a player whose language is Spanish opens the game on a Spanish menu", async ({ page }) => {

@@ -16,4 +16,5 @@ export const en = {
   "title.quit": "Quit to desktop",
   "title.updateAvailable": "UPDATE AVAILABLE",
   "title.rankUp": "RANK UP",
+  "title.releaseNotes": "Release notes ↗",
 } as const;

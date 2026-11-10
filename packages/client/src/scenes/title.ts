@@ -727,7 +727,7 @@ export class TitleScene extends Phaser.Scene {
       openExternal(
         releaseNotesPageUrl(CLIENT_VERSION, globalThis.location?.href ?? "", isNativeShell(), appLanguageNow()),
       );
-    const linkText = this.add.text(0, layout.footer.y, "Release notes ↗", textStyle(typeRole.label, textColor));
+    const linkText = this.add.text(0, layout.footer.y, t("title.releaseNotes"), textStyle(typeRole.label, textColor));
     linkText.setX(versionText.x - 16 - linkText.width);
     // A phone's footer has no room for all three once the version names its language and install.
     coverageText.setVisible(coverageText.x + coverageText.width + 8 <= linkText.x - 6);
