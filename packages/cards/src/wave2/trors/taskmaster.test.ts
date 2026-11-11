@@ -8,13 +8,13 @@ import {
   moveToHand,
   patchInstance,
   P1,
-  payWith,
   play,
   playerOf,
   settle,
   stackEncounterDeck,
   toHero,
 } from "../../testing/harness.js";
+import { driveEventsPicking } from "../../testing/staging.js";
 import { wave2Scenario } from "../setup.js";
 import { runWave2, startWave2Game, WAVE2_DEPS } from "../testing.js";
 
@@ -249,7 +249,11 @@ describe("Taskmaster scenario", () => {
     expect(playerOf(played, P1).hand.length).toBe(before - 2 + 2);
   });
 
-  it("Moon Knight: a resource with no [wild] icon cannot pay his Response, so it draws nothing", () => {
+  /**
+   * Plays Moon Knight from a hand holding no [wild] card, answering his Response if it is offered and paying any
+   * `payForAbility` with `count` non-[wild] hand cards. Records what the engine offered, and every event.
+   */
+  function playWithoutWild(count: number) {
     // RRG 1.8 "Wild Resource" (p. 48): some abilities specifically require a [wild] resource (as Crossfire's Rifle,
     // 04029, scripts it). Every [wild] card in hand goes to the bottom of the deck, so only other resources are left.
     const start = taskmasterVsHeroes();
@@ -262,22 +266,48 @@ describe("Taskmaster scenario", () => {
       }),
     };
     const { state: withHand, moonKnight } = moonKnightInHand(noWild);
-    expect(playerOf(withHand, P1).hand.length).toBeGreaterThan(1);
-    const before = playerOf(withHand, P1).hand.length;
+    const hand = playerOf(withHand, P1).hand.filter((id) => id !== moonKnight);
+    expect(hand.length).toBeGreaterThanOrEqual(count);
     const triggerOption = `${moonKnight}:04097.moon-knight-response`;
-    const played = settle(
-      runWave2(withHand, play(P1, moonKnight, [])),
+    let triggerOffered = false;
+    const payOptions: string[][] = [];
+    const { state, events } = driveEventsPicking(
+      WAVE2_DEPS,
+      withHand,
       (s) => {
-        if (s.pendingChoice?.prompt.kind === "payForAbility") return payWith(s, P1, 1).map((id) => `hand:${id}`);
-        if (s.pendingChoice?.options.some((o) => o.optionId === triggerOption)) return [triggerOption];
+        const choice = s.pendingChoice!;
+        if (choice.prompt.kind === "payForAbility") {
+          payOptions.push(choice.options.map((o) => o.optionId));
+          return hand.slice(0, count).map((id) => `hand:${id}`);
+        }
+        if (choice.options.some((o) => o.optionId === triggerOption)) {
+          triggerOffered = true;
+          return [triggerOption];
+        }
         return firstLegal(s);
       },
-      undefined,
-      WAVE2_DEPS,
+      play(P1, moonKnight, []),
     );
-    expect(playerOf(played, P1).playArea).toContain(moonKnight);
-    // Only Moon Knight left the hand: no resource spent, no cards drawn.
-    expect(playerOf(played, P1).hand.length).toBe(before - 1);
+    const drawn = events.filter((e) => e.type === "cardDrawn" && e.playerId === P1);
+    return { state, moonKnight, hand, triggerOffered, payOptions, drawn };
+  }
+
+  it("Moon Knight: a resource with no [wild] icon cannot pay his Response, so it is not offered and draws nothing", () => {
+    const { state, moonKnight, hand, triggerOffered, payOptions, drawn } = playWithoutWild(1);
+    expect(playerOf(state, P1).playArea).toContain(moonKnight);
+    // Why nothing was drawn: with no [wild] resource to spend, the Response is never offered (its cost can't be
+    // paid), so no payment is asked for and no card is drawn. Every other card is still in hand.
+    expect(triggerOffered).toBe(false);
+    expect(payOptions).toEqual([]);
+    expect(drawn).toEqual([]);
+    for (const id of hand) expect(playerOf(state, P1).hand).toContain(id);
+  });
+
+  it("Moon Knight: two non-[wild] resources together still can't pay it: more icons are not a [wild] one", () => {
+    const { triggerOffered, payOptions, drawn } = playWithoutWild(2);
+    expect(triggerOffered).toBe(false);
+    expect(payOptions).toEqual([]);
+    expect(drawn).toEqual([]);
   });
 
   it("Captured by Hydra: places 1 random set-aside Captive ally facedown beneath this scheme", () => {
