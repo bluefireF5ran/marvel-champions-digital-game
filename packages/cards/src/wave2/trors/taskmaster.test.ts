@@ -220,6 +220,12 @@ describe("Taskmaster scenario", () => {
     const card = WAVE2_CARDS.find((c) => c.id === state.instances[id]?.cardId);
     return card !== undefined && "resourceIcons" in card && (card.resourceIcons?.wild ?? 0) > 0;
   };
+  /** The resource icons `id` prints, of every type. */
+  const iconsOf = (state: GameState, id: InstanceId): number => {
+    const card = WAVE2_CARDS.find((c) => c.id === state.instances[id]?.cardId);
+    if (card === undefined || !("resourceIcons" in card) || !card.resourceIcons) return 0;
+    return Object.values(card.resourceIcons).reduce((sum: number, n) => sum + (n ?? 0), 0);
+  };
 
   it("Moon Knight: after you play him from your hand, spending a [wild] resource draws 2 cards", () => {
     // Hawkeye's Bow (04002) prints one [wild] icon, so it pays "spend a [wild] resource" exactly (as for Crossfire's
@@ -253,7 +259,7 @@ describe("Taskmaster scenario", () => {
    * Plays Moon Knight from a hand holding no [wild] card, answering his Response if it is offered and paying any
    * `payForAbility` with `count` non-[wild] hand cards. Records what the engine offered, and every event.
    */
-  function playWithoutWild(count: number) {
+  function playWithoutWild(count: number, opts: { readonly bow?: boolean } = {}) {
     // RRG 1.8 "Wild Resource" (p. 48): some abilities specifically require a [wild] resource (as Crossfire's Rifle,
     // 04029, scripts it). Every [wild] card in hand goes to the bottom of the deck, so only other resources are left.
     const start = taskmasterVsHeroes();
@@ -265,10 +271,12 @@ describe("Taskmaster scenario", () => {
         return { ...p, hand: p.hand.filter((id) => !wild.includes(id)), deck: [...p.deck, ...wild] };
       }),
     };
-    const { state: withHand, moonKnight } = moonKnightInHand(noWild);
-    const hand = playerOf(withHand, P1).hand.filter((id) => id !== moonKnight);
-    expect(hand.length).toBeGreaterThanOrEqual(count);
-    const triggerOption = `${moonKnight}:04097.moon-knight-response`;
+    // The positive control: Hawkeye's Bow (04002), which prints a [wild] icon, back in hand to pay with.
+    const given = opts.bow ? moveToHand(noWild, P1, "04002") : { state: noWild, ids: [] as InstanceId[] };
+    const { state: withHand, moonKnight } = moonKnightInHand(given.state);
+    const others = playerOf(withHand, P1).hand.filter((id) => id !== moonKnight && !given.ids.includes(id));
+    const hand = [...given.ids, ...others];
+    expect(others.reduce((sum, id) => sum + iconsOf(withHand, id), 0)).toBeGreaterThanOrEqual(count);
     let triggerOffered = false;
     const payOptions: string[][] = [];
     const { state, events } = driveEventsPicking(
@@ -280,9 +288,11 @@ describe("Taskmaster scenario", () => {
           payOptions.push(choice.options.map((o) => o.optionId));
           return hand.slice(0, count).map((id) => `hand:${id}`);
         }
-        if (choice.options.some((o) => o.optionId === triggerOption)) {
+        // Any option for his Response, whatever its id's prefix: a detector that can't miss it.
+        const response = choice.options.find((o) => o.optionId.includes("04097.moon-knight-response"));
+        if (response) {
           triggerOffered = true;
-          return [triggerOption];
+          return [response.optionId];
         }
         return firstLegal(s);
       },
@@ -303,7 +313,15 @@ describe("Taskmaster scenario", () => {
     for (const id of hand) expect(playerOf(state, P1).hand).toContain(id);
   });
 
-  it("Moon Knight: two non-[wild] resources together still can't pay it: more icons are not a [wild] one", () => {
+  it("Moon Knight: control for the detector: with Hawkeye's Bow in that same hand, the Response is offered and draws 2", () => {
+    const { triggerOffered, drawn } = playWithoutWild(1, { bow: true });
+    expect(triggerOffered).toBe(true);
+    expect(drawn).toHaveLength(2);
+  });
+
+  it("Moon Knight: two or more non-[wild] icons in hand still can't pay it: more icons are not a [wild] one", () => {
+    // The hand left holds at least 2 non-[wild] resource icons (checked in `playWithoutWild`), so the Response is
+    // refused for the icon's type, not for want of resources.
     const { triggerOffered, payOptions, drawn } = playWithoutWild(2);
     expect(triggerOffered).toBe(false);
     expect(payOptions).toEqual([]);
