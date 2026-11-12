@@ -8,9 +8,8 @@
  *    art in the new language;
  *  - the language button relabels itself.
  *
- * Translated app text (#390) subscribes here too. A switch announces once whether art, text or both changed:
- * `art/art-source.ts`'s `setArtLanguage` announces an art change, and `i18n/app-language.ts`'s `applyLanguageSetting`
- * announces a text-only change (a native build, whose art stays). Nothing else calls `announceLanguageChange`.
+ * Translated app text (#390) will subscribe here too. `art/art-source.ts`'s `setArtLanguage` is the only caller of
+ * `announceLanguageChange`.
  */
 
 const listeners = new Set<() => void>();

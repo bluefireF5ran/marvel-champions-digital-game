@@ -4,10 +4,9 @@
  * country, not a language. It sits in the top bar just left of the music button, on every screen that leaves the music
  * button a slot.
  *
- * A tap opens a list to pick from, in every build: app text follows the pick everywhere (#390). Where the bundle
- * carries only some languages' card art (a native installer), the list marks the others "text only" and ends with a
- * "Card art installers" row, which opens the "Other languages" note (why each language's art is its own download).
- * The dev-only `?nativelang` link makes a browser build show that native list.
+ * On the web, where the bundle carries every language, a tap opens a list to pick from. In a native installer, which
+ * carries one language, a tap opens "Other languages" instead: why each language is its own download, and where to get
+ * the others.
  */
 import { CARD_LANGUAGES, CARD_LANGUAGE_NAMES, type CardLanguage } from "../art/card-language.js";
 import type { Rect } from "./layout.js";
@@ -35,25 +34,12 @@ export function languageSlotBeside(music: Rect, gap = 8): Rect {
 
 export type LanguagePopupMode = "menu" | "info";
 
-export interface LanguageMenuRow {
-  /** The language it picks, or `installers` for the row that opens the "Other languages" note. */
-  readonly key: CardLanguage | "installers";
-  readonly label: string;
-}
-
 /**
- * The list's rows: every language (`carried` is the ones whose card art this bundle has), then, when some language's
- * art is missing, the row that opens the note about its installer.
+ * What a tap on the button opens: the list when this bundle carries more than one language on the web, else the
+ * "Other languages" note. `forceInfo` is the dev-only `?nativelang` link, to look at the native note in a browser.
  */
-export function languageMenuRows(carried: readonly CardLanguage[], current: CardLanguage): readonly LanguageMenuRow[] {
-  const rows: LanguageMenuRow[] = CARD_LANGUAGES.map((language) => ({
-    key: language,
-    label: languageRowLabel(language, current, carried),
-  }));
-  if (CARD_LANGUAGES.some((language) => !carried.includes(language))) {
-    rows.push({ key: "installers", label: INSTALLERS_ROW_LABEL });
-  }
-  return rows;
+export function languagePopupMode(carried: number, native: boolean, forceInfo = false): LanguagePopupMode {
+  return !forceInfo && !native && carried > 1 ? "menu" : "info";
 }
 
 export interface LanguageMenuLayout {
@@ -91,23 +77,10 @@ export function languageMenuLayout(
   return { box: { x, y, width, height }, rows };
 }
 
-/**
- * A row of the list: the language's own name, with the current one marked in words and shape, not colour. A language
- * whose card art this bundle lacks (`carried`) says so: its text is translated but the pictures stay as they are.
- */
-export function languageRowLabel(
-  language: CardLanguage,
-  current: CardLanguage,
-  carried: readonly CardLanguage[] = CARD_LANGUAGES,
-): string {
-  const name = carried.includes(language)
-    ? CARD_LANGUAGE_NAMES[language]
-    : `${CARD_LANGUAGE_NAMES[language]} (text only)`;
-  return language === current ? `✓ ${name}` : name;
+/** A row of the list: the language's own name, with the current one marked in words and shape, not colour. */
+export function languageRowLabel(language: CardLanguage, current: CardLanguage): string {
+  return language === current ? `✓ ${CARD_LANGUAGE_NAMES[language]}` : CARD_LANGUAGE_NAMES[language];
 }
-
-/** The list's last row, where some languages' card art is not in this bundle. */
-export const INSTALLERS_ROW_LABEL = "Card art installers";
 
 /** "English and Español" / "A, B and C". */
 export function joinNames(names: readonly string[]): string {

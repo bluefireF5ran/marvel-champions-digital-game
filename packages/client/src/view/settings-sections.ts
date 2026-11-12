@@ -76,7 +76,7 @@ export function settingsSectionsOf(input: {
   readonly cardHover: boolean;
   /** A phone: the "Inspect card" row, which picks the portrait Inspect layout (#358). */
   readonly inspectCard?: boolean;
-  /** The "Language" row (every build: text follows the setting even where the art cannot). */
+  /** A bundle that carries more than one card language (the web): the "Card art language" row. */
   readonly cardLanguage?: boolean;
   readonly gameVolume?: boolean;
   readonly desktopWindow?: boolean;

@@ -1,17 +1,18 @@
 /**
  * The card language button (#337): a globe and the language's code ("EN", "ES") in the top bar, just left of the music
  * button, on every screen that leaves the music button a slot (`ui/music-slot.ts`: the table and Title). A globe rather
- * than a flag, because a flag names a country and not a language. It reads the language the app speaks now
- * (`appLanguageNow`), so it follows a change made in Settings too.
+ * than a flag, because a flag names a country and not a language. It reads the language the card art is drawn in now
+ * (`artLanguageNow`), so it follows a change made in Settings too.
  *
- * A tap opens `scenes/language-popup.ts`: the list to pick from, in every build. A second tap closes it again.
+ * A tap opens `scenes/language-popup.ts`: the list to pick from on the web, the "Other languages" note on a native
+ * install, which carries one language only. A second tap closes it again.
  *
  * Like the music and Report buttons it runs for the whole session from Boot as chrome, above every screen (see
  * `CHROME_SCENES`), and follows the slot every frame.
  */
 import Phaser from "phaser";
-import { availableCardLanguages, cardLanguage } from "../art/card-language.js";
-import { appLanguageNow } from "../i18n/app-language.js";
+import { availableCardLanguages } from "../art/card-language.js";
+import { artLanguageNow } from "../art/art-source.js";
 import { onLanguageChange } from "../language-change.js";
 import { surface, typeRole } from "../tokens.js";
 import { textStyle } from "../ui/theme.js";
@@ -19,7 +20,8 @@ import { onTap } from "../ui/tap.js";
 import { musicSlots, setShownLanguageButton } from "../ui/music-slot.js";
 import { reportButtonSlot } from "../view/report-button.js";
 import type { Rect } from "../view/layout.js";
-import { languageCodeOf, languageSlotBeside } from "../view/language-button.js";
+import { languageCodeOf, languagePopupMode, languageSlotBeside } from "../view/language-button.js";
+import { isNativeShell } from "../platform/platform.js";
 import { SCENES } from "./keys.js";
 
 /** The scenes that sort themselves above the screens (the same set the music button keeps clear of). */
@@ -38,8 +40,8 @@ const ABOVE_SCREENS: ReadonlySet<string> = new Set([
   SCENES.syncSetupNotice,
 ]);
 
-/** Dev only: `?nativelang` shows the list as a native install does (English art only) in a browser. */
-function forcedNative(): boolean {
+/** Dev only: `?nativelang` shows the native install's "Other languages" note in a browser. */
+function forcedInfo(): boolean {
   return import.meta.env.DEV && new URLSearchParams(globalThis.location?.search ?? "").has("nativelang");
 }
 
@@ -102,7 +104,7 @@ export class LanguageButtonScene extends Phaser.Scene {
       this.#popupUp = popupUp;
       this.#draw();
     }
-    if (this.#drawnCode !== languageCodeOf(appLanguageNow())) this.#draw();
+    if (this.#drawnCode !== languageCodeOf(artLanguageNow())) this.#draw();
   }
 
   /** Read by the debug snapshot (`ui/debug-dump.ts`). */
@@ -119,8 +121,7 @@ export class LanguageButtonScene extends Phaser.Scene {
       return;
     }
     this.scene.launch(SCENES.languagePopup, {
-      mode: "menu",
-      carried: forcedNative() ? [cardLanguage()] : availableCardLanguages(),
+      mode: languagePopupMode(availableCardLanguages().length, isNativeShell(), forcedInfo()),
       anchor: rect,
       focused,
     });
@@ -154,7 +155,7 @@ export class LanguageButtonScene extends Phaser.Scene {
     if (!graphics || !zone || !code) return;
     graphics.clear();
     const rect = this.#rect;
-    this.#drawnCode = languageCodeOf(appLanguageNow());
+    this.#drawnCode = languageCodeOf(artLanguageNow());
     code.setText(this.#drawnCode);
     if (!rect) {
       code.setVisible(false);

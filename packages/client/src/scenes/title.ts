@@ -16,7 +16,7 @@
  */
 
 import Phaser from "phaser";
-import { appLanguageNow } from "../i18n/app-language.js";
+import { artLanguageNow } from "../art/art-source.js";
 import { accent, dotGrid, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import type { Rect } from "../view/layout.js";
 import { cssOf, skin, textStyle } from "../ui/theme.js";
@@ -725,7 +725,7 @@ export class TitleScene extends Phaser.Scene {
     // is the screen's one forward action.
     const releaseNotes = (): void =>
       openExternal(
-        releaseNotesPageUrl(CLIENT_VERSION, globalThis.location?.href ?? "", isNativeShell(), appLanguageNow()),
+        releaseNotesPageUrl(CLIENT_VERSION, globalThis.location?.href ?? "", isNativeShell(), artLanguageNow()),
       );
     const linkText = this.add.text(0, layout.footer.y, t("title.releaseNotes"), textStyle(typeRole.label, textColor));
     linkText.setX(versionText.x - 16 - linkText.width);

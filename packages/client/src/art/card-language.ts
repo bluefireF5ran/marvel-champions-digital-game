@@ -43,8 +43,8 @@ export function availableCardLanguages(): readonly CardLanguage[] {
 }
 
 /**
- * The first of the browser's languages (`navigator.languages`, `es-MX` counts as `es`) among `available`, else the
- * first of `available`.
+ * The language a player who never picked one starts in: the first of the browser's languages (`navigator.languages`,
+ * `es-MX` counts as `es`) that this bundle carries, else the build language.
  */
 export function preferredCardLanguage(
   browserLanguages: readonly string[],
@@ -66,14 +66,4 @@ export function assetLanguage(name: string): CardLanguage | null {
   const tag = /^MarvelChampions-[^-]+-([A-Z]{2})-/.exec(name)?.[1]?.toLowerCase();
   if (tag === undefined) return BASE_CARD_LANGUAGE;
   return isCardLanguage(tag) ? tag : null;
-}
-
-/**
- * The language a player who never picked one starts in. A non-English build (its installer was an explicit pick) starts
- * in its own language. An English build, which also serves as the web's default, follows the browser's language over
- * every language (app text is translated in all of them, art falls back to the build's), else English (#390).
- */
-export function defaultCardLanguage(browserLanguages: readonly string[]): CardLanguage {
-  const build = cardLanguage();
-  return build !== BASE_CARD_LANGUAGE ? build : preferredCardLanguage(browserLanguages, CARD_LANGUAGES);
 }

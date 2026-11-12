@@ -610,13 +610,12 @@ describe("card art language row (#337)", () => {
     expect(nextSettingsAfterCardLanguage(BASE, "fr" as never)).toBe(BASE);
   });
 
-  test("a bundle with one language still offers and accepts every language, since text follows it (#390)", () => {
+  test("a bundle with one language offers only it and refuses another", () => {
     vi.stubGlobal("__CARD_LANGS__", "en");
     const info = cardLanguageRowInfoOf({ ...BASE, cardLanguage: "es" });
-    expect(info.options.map((o) => o.value)).toEqual(["en", "es"]);
-    expect(info.selected).toBe("es");
-    expect(info.detail).toContain("installer");
-    expect(nextSettingsAfterCardLanguage(BASE, "es").cardLanguage).toBe("es");
+    expect(info.options.map((o) => o.value)).toEqual(["en"]);
+    expect(info.selected).toBe("en");
+    expect(nextSettingsAfterCardLanguage(BASE, "es")).toBe(BASE);
   });
 });
 

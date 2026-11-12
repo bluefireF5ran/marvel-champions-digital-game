@@ -704,25 +704,22 @@ export interface CardLanguageRowInfo {
   readonly selected: CardLanguage;
 }
 
-/**
- * "Language" (#337, #390): every language, in every build, because app text follows it. Card pictures follow
- * it only where this bundle carries that language's scans (a native installer carries one), which the detail says.
- */
+/** "Card art language" (#337): the languages this bundle carries (the web carries all; a native installer one, so no row). */
 export function cardLanguageRowInfoOf(settings: Settings): CardLanguageRowInfo {
   const carried = availableCardLanguages();
-  const artNote =
-    carried.length < CARD_LANGUAGES.length ? " Card pictures in another language need that language's installer." : "";
   return {
-    title: "Language",
-    detail: `Which language the app text and the card pictures use. Cards without a translated picture stay in English.${artNote}`,
-    options: CARD_LANGUAGES.map((value) => ({ value, label: CARD_LANGUAGE_NAMES[value] })),
-    selected: settings.cardLanguage,
+    title: "Card art language",
+    detail: "Which language the card pictures are printed in. Cards without a translated picture stay in English.",
+    options: carried.map((value) => ({ value, label: CARD_LANGUAGE_NAMES[value] })),
+    selected: carried.includes(settings.cardLanguage) ? settings.cardLanguage : (carried[0] ?? "en"),
   };
 }
 
-/** `settings` with the language set; one that is not a language changes nothing. */
+/** `settings` with the card art language set; one this bundle does not carry changes nothing. */
 export function nextSettingsAfterCardLanguage(settings: Settings, value: CardLanguage): Settings {
-  return CARD_LANGUAGES.includes(value) ? { ...settings, cardLanguage: value } : settings;
+  return CARD_LANGUAGES.includes(value) && availableCardLanguages().includes(value)
+    ? { ...settings, cardLanguage: value }
+    : settings;
 }
 
 export interface CardSizeRowInfo {

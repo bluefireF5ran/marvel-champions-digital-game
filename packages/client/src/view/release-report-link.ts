@@ -19,7 +19,7 @@ const SPANISH_REPORT_PATH = `releases/${RELEASE_NOTICE_VERSION}/index.es.html`;
 /**
  * `pageUrl` is `location.href`; `native` is `isNativeShell()`. A release other than the one this build has a report
  * for (`view/release-notice.ts`, following GitHub) opens in the release history, which draws any release. `language`
- * is the player's app language (`appLanguageNow`), which the report opens in.
+ * is the player's card language, which the report opens in.
  */
 export function releaseReportUrl(
   pageUrl: string,

@@ -6,8 +6,7 @@ import { SHOT } from "./x-men-helpers.js";
 /**
  * Issue #337: the card language button in the top bar, beside the music button. A globe and the language's code; a tap
  * opens the list, choosing Español sets `Settings.cardLanguage` and the button reads ES. With `?nativelang` (a dev-only
- * link standing in for a native install, English art only) the list marks Español "text only" and ends with a "Card art
- * installers" row, which opens the "Other languages" note.
+ * link standing in for a native install) a tap opens the "Other languages" note instead.
  */
 
 test.use({ locale: "en-US" });
@@ -112,9 +111,7 @@ test("issue #337: the language button lists the languages and Español switches 
   expect(await savedLanguage(page)).toBe("es");
 });
 
-test("issue #337: on a native install the list has an installers row that opens the Other languages note", async ({
-  page,
-}, info) => {
+test("issue #337: on a native install the button opens the Other languages note", async ({ page }, info) => {
   test.setTimeout(120_000);
   const phone = info.project.name === "phone";
   await openApp(page, "unlock=all&nativelang");
@@ -123,16 +120,9 @@ test("issue #337: on a native install the list has an installers row that opens 
   await press(page, phone, centre(button));
   await waitFor(
     async () => ((await activeScenes(page)).includes("LanguagePopupOverlay") ? true : null),
-    "the list opens",
+    "the note opens",
     10_000,
   );
-  // Every language is listed (text switches), and the last row leads to the installers note.
-  const installers = await waitFor(() => stopRect(page, "installers"), "the installers row", 10_000);
-  expect(await stopRect(page, "es")).not.toBeNull();
-  expect(await stopRect(page, "downloads")).toBeNull();
-  await settle(page);
-  if (SHOT) await page.screenshot({ path: `${SHOT}/language-native-menu-${info.project.name}.png` });
-  await press(page, phone, centre(installers));
   await waitFor(() => stopRect(page, "downloads"), "the Downloads link", 10_000);
   expect(await stopRect(page, "web")).not.toBeNull();
   expect(await stopRect(page, "es")).toBeNull();
