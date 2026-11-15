@@ -173,7 +173,6 @@ import { releaseSentenceResponses } from "./sentence-hold.js";
 import { resumeWaitingAbilities } from "./suspend.js";
 import { noteDeckDiscardsTaken } from "./deck-discard.js";
 import { settleDeclaredDefenderCost } from "./enemy-activation.js";
-import { askFriendlyDefender } from "./friendly-attack.js";
 import { executeAccuse } from "./accusation.js";
 import { executeReportFact } from "./report-fact.js";
 import { executeBasicPowerBy } from "./basic-power-by.js";
@@ -204,7 +203,7 @@ import {
 } from "./frames.js";
 import { giveStatusOrAnnounce } from "./status-being-given.js";
 import { splitWouldDiscard } from "./would-discard.js";
-import { hasKeyword, keywordTotal, statusActive, statusCapacity, wouldDiscardAsVulnerable } from "../keywords.js";
+import { hasKeyword, keywordTotal, statusCapacity, wouldDiscardAsVulnerable } from "../keywords.js";
 import { cardEffectBonus } from "../modifiers.js";
 import { candidateOption } from "./window.js";
 import { thwartBlockedOn } from "./event.js";
@@ -498,12 +497,6 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
       return;
     }
   }
-  // Old Rivals: the attacked player declares a defender before the friendly attack is made (`friendly-attack.ts`).
-  if (
-    effect.kind === "friendlyCharacterAttacks" &&
-    askFriendlyDefender(ctx, frame, effect, context, (id) => statusActive(ctx.state, id, "stunned", ctx.deps))
-  )
-    return;
   if (effect.kind === "putIntoPlay" && askPutIntoPlayController(ctx, frame, effect, context)) return;
   if (effect.kind === "putIntoPlay" && askPutIntoPlayHost(ctx, frame, effect, context)) return;
   // docs/phase7-wave9.md §3.6: which of a card's counters "1 all-purpose counter" is, where its types differ.

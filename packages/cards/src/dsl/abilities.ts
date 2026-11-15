@@ -3482,8 +3482,24 @@ export const on = {
    * is deferred to the end of the attack and carries that attack's own results, so damage from a Boost ability
    * during the same attack does not count against it.
    */
-  defends: (defender: TargetQuery, opts: { readonly takingNoDamage?: boolean } = {}): EventPattern =>
-    pattern("defended", { targetIs: defender }, opts.takingNoDamage ? { resultsAtMost: { damage: 0 } } : {}),
+  defends: (
+    defender: TargetQuery,
+    opts: {
+      readonly takingNoDamage?: boolean;
+      /**
+       * "Defends against an **enemy** attack": the attacker must be an enemy, so a friendly character's attack on its
+       * own player (Old Rivals, `nebu` 22031) is not heard: "Gamora is not considered 'an enemy' during the attack"
+       * (ruling Oct 26, 2023 (102)). Without it, any attack's defense is heard, hers included.
+       */
+      readonly againstEnemy?: boolean;
+    } = {},
+  ): EventPattern =>
+    pattern(
+      "defended",
+      { targetIs: defender },
+      opts.takingNoDamage ? { resultsAtMost: { damage: 0 } } : {},
+      opts.againstEnemy ? { sourceIs: { categories: ["enemy"] } } : {},
+    ),
   /**
    * "After you **exactly defend** an attack" (Redirection Mastery, `iron_fist` 64018): `defends`, for a hero's basic
    * defense whose DEF for that attack equaled the attack's modified ATK (engine `EXACTLY_DEFENDED_RESULT`; FFG rulings
@@ -3551,6 +3567,11 @@ export const on = {
     to: Who,
     opts: {
       readonly fromAttack?: boolean;
+      /**
+       * "From an **enemy** attack": with `fromAttack`, the damage's source must be an enemy, so a friendly character's
+       * attack (Old Rivals; ruling Oct 26, 2023 (102): she is no enemy) is not heard.
+       */
+      readonly fromEnemy?: boolean;
       readonly dealt?: true | number;
       readonly taken?: boolean;
       readonly consequential?: boolean;
@@ -3561,6 +3582,7 @@ export const on = {
       "dealDamage",
       asTarget(to),
       opts.fromAttack !== undefined ? { fromAttack: opts.fromAttack } : {},
+      opts.fromEnemy ? { sourceIs: { categories: ["enemy"] } } : {},
       opts.consequential !== undefined ? { consequential: opts.consequential } : {},
       opts.indirect !== undefined ? { indirect: opts.indirect } : {},
       opts.dealt !== undefined ? { eventAtLeast: { dealt: opts.dealt === true ? 1 : opts.dealt } } : {},

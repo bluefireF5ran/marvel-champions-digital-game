@@ -56,7 +56,7 @@ export const PSYLOCKE_PACK_CARDS: AbilityRegistry = defineAbilities({
   ),
 
   "41032.psi-flail-strike-response": heroResponse(
-    after.defends(YOUR_IDENTITY),
+    after.defends(YOUR_IDENTITY, { againstEnemy: true }),
     { label: "attack" },
     attack(3, eventSource),
     stun(eventSource),

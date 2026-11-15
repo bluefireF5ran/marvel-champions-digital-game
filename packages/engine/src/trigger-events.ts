@@ -312,6 +312,12 @@ export type TriggerEventBody =
        * Activation)" step 4, p. 9). Absent on every other attack.
        */
       readonly basicDefense?: true;
+      /**
+       * A friendly character's attack on its own player (Old Rivals; `resolve/friendly-attack.ts`): the player it is
+       * made against, who may defend it, by the Declare Defender question or by a "(defense)" ability
+       * (`declareLabeledDefense`). Absent on every other attack.
+       */
+      readonly attackedPlayerId?: PlayerId;
       /** The card whose ability made this attack (the event card for "Hero Action (attack)"). */
       readonly sourceInstanceId?: InstanceId | null;
       /**
@@ -426,6 +432,11 @@ export type TriggerEventBody =
   | {
       readonly kind: "defended";
       readonly defenderInstanceId: InstanceId;
+      /**
+       * The attacking character, the event's source: an enemy, except for a friendly character's attack on its own
+       * player (Old Rivals, `resolve/friendly-attack.ts`), whose attacker is no enemy (ruling Oct 26, 2023 (102)). A
+       * pattern for a defense "against an enemy attack" asks for an enemy source (`sourceIs`).
+       */
       readonly enemyInstanceId: InstanceId;
       readonly playerId: PlayerId;
       readonly basic: boolean;

@@ -794,7 +794,12 @@ export type TargetRef =
   /** The card in play with this exact printed name ("Bomb Scare", "the Legions of Hydra side scheme"). */
   | { readonly kind: "named"; readonly name: string }
   | { readonly kind: "slot"; readonly slot: string }
-  | { readonly kind: "eventSource" }
+  /**
+   * The triggering event's source. `filter`: only a source matching it, so "the attacking enemy" of a defense is
+   * `{ categories: ["enemy"] }` and names nothing when the attacker is no enemy (a friendly character's attack, Old
+   * Rivals: ruling Oct 26, 2023 (102), "she's not a valid target for abilities that target enemies").
+   */
+  | { readonly kind: "eventSource"; readonly filter?: TargetQuery }
   /**
    * The character a card acts for (`actingCharacterOf`; RRG 1.8 "You, Your", p. 49): a character is itself, an event,
    * a resource or an upgrade is its controller's identity (or its host ally), a support or encounter card nobody.

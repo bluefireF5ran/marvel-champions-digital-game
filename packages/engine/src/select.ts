@@ -2489,12 +2489,12 @@ export function canAttack(
   ignoreGuard = false,
   /**
    * For an attack ability already initiated, the guard minions engaged with its player as it was (`EffectContext
-   * .attackGuardFrom`): only one of them still engaged and still with guard stops it; a minion that gains guard
-   * later does not. Owner decision 2026-11-15 (#525 item
-   * 6), narrowing wave 8 Q49: guard is checked when the attack is initiated, and for its later targets only against a
-   * guard minion already engaged then; ruling May 18, 2023 (5), Swift Retribution: "Guard prevents you from initiating
-   * attacks, but does not prevent you from dealing damage". A guard minion an earlier instruction defeated stops
-   * nothing (Dive Bomb FAQ). Absent: every guard minion engaged now counts.
+   * .attackGuardFrom`): only one of them still engaged and still with guard stops it; a minion that gains guard later
+   * does not. Owner decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49: guard is checked when the attack is
+   * initiated, and for its later targets only against a guard minion already engaged then; ruling May 18, 2023 (5),
+   * Swift Retribution: "Guard prevents you from initiating attacks, but does not prevent you from dealing damage". A
+   * guard minion an earlier instruction defeated stops nothing (Dive Bomb FAQ). Absent: every guard minion engaged now
+   * counts.
    */
   guardFrom?: readonly InstanceId[],
 ): boolean {
@@ -2855,8 +2855,10 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
     }
     case "slot":
       return context.bindings[ref.slot] ?? [];
-    case "eventSource":
-      return context.event ? eventSubjects(context.event).sources : [];
+    case "eventSource": {
+      const sources = context.event ? eventSubjects(context.event).sources : [];
+      return ref.filter ? sources.filter((id) => matchesQuery(state, id, ref.filter as TargetQuery, context)) : sources;
+    }
     case "eventTarget":
       return context.event ? eventSubjects(context.event).targets : [];
     case "actingCharacter":

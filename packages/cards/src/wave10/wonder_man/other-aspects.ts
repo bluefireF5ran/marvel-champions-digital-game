@@ -17,7 +17,7 @@ import {
   discardFromHand,
   each,
   eventDamageTaken,
-  eventSource,
+  eventSourceEnemy,
   eventTarget,
   exhaustYourHero,
   forAnIdentityNotInThisGame,
@@ -151,7 +151,7 @@ export const WONDER_MAN_OTHER_ASPECTS: AbilityRegistry = defineAbilities({
       ifThen(not(eventDamageTaken(each(YOUR_IDENTITY))), [
         chooseTarget(
           "attachment",
-          query("attachment", { host: eventSource, ...printsAbility(["action", "response"], "hero") }),
+          query("attachment", { host: eventSourceEnemy, ...printsAbility(["action", "response"], "hero") }),
         ),
         discard(chosen("attachment")),
       ]),

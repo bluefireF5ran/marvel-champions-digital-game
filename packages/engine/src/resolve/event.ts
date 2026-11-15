@@ -1,5 +1,6 @@
 /** Event frames (interrupts → apply → responses) and the state change each event kind makes. */
 
+import { declareFriendlyDefender } from "./friendly-attack.js";
 import { applyMainSchemeTurnsToB } from "./main-scheme-side.js";
 import type { CardId } from "@mc/content";
 import { applyStatusBeingGiven, statusGiveNotMade, statusStillToGive } from "./status-being-given.js";
@@ -380,6 +381,11 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         popFrame(ctx);
         return;
       }
+      // A friendly character's attack on its own player (Old Rivals): its Declare Defender step (`friendly-attack.ts`).
+      // Engine reading (no source on non-enemy attack order): by analogy with RRG 1.8 "Attack (Enemy Activation)" p. 8
+      // and FAQ Spider-Man (#1A) p. 57, "when attacks" interrupts resolve before the Declare Defender step; ruling Oct
+      // 26, 2023 (102) allows defending.
+      if (declareFriendlyDefender(ctx, frame)) return;
       if (frame.cancelled && frame.thwartInstanceCancelled) {
         // A later instance of a "(thwart)" ability whose thwart was cancelled: the cancellation is already logged.
         reportResults(ctx, frame, false);

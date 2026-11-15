@@ -47,7 +47,7 @@ export const PROTECTION = defineAbilities({
   ),
   // Counter-Punch — Response (attack): After your hero defends against an enemy attack, deal damage to that enemy equal to your hero's ATK.
   "01077.counter-punch-response": response(
-    after.defends(YOUR_HERO),
+    after.defends(YOUR_HERO, { againstEnemy: true }),
     { label: "attack" },
     attack(statOf(yourIdentity, "atk"), eventSource),
   ),

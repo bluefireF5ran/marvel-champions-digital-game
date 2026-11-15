@@ -14,6 +14,7 @@ import { eventSubjects, slotsCarriedByResolved, type TriggerEvent } from "../tri
 import { declareWildTypes } from "./declare-wilds.js";
 import { declareLabeledDefense, declaresDefender, recordDefenseLabel } from "./enemy-activation.js";
 import { announce, type Frame, pushEffects, pushEvent } from "./frames.js";
+import { declareLabeledFriendlyDefense } from "./friendly-attack.js";
 import { heard } from "./triggers.js";
 import { keywordAbilityOf } from "../keyword-abilities.js";
 import { discardStatusCards, settlePaidForEffects } from "../effects.js";
@@ -201,8 +202,11 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
   if (definition.label?.includes("defense") && frame.controllerId) recordDefenseLabel(ctx, frame.controllerId);
   // An ability that itself declares a defender ("declare it the defender for this attack", Mutant Protectors) leaves
   // the label's own declaration to that effect (`declareDefender` in `apply-effect.ts`; FAQ p. 63).
-  if (definition.label?.includes("defense") && frame.controllerId && !declaresDefender(definition))
+  if (definition.label?.includes("defense") && frame.controllerId && !declaresDefender(definition)) {
     declareLabeledDefense(ctx, frame.controllerId);
+    // A friendly character's attack on this player (Old Rivals): the same rule (`friendly-attack.ts`).
+    declareLabeledFriendlyDefense(ctx, frame.controllerId);
+  }
   // RRG 1.8 "Resolve" (p. 37): resolved once its effects resolve, so its effects frame makes the announcement as it
   // finishes (`Frame<"effects">.announceResolved`, `announceAbilityResolved`), with the slots it then holds.
   const announceResolved = {

@@ -23,7 +23,7 @@ import {
   draw,
   drawUpTo,
   encounterCards,
-  eventSource,
+  eventSourceEnemy,
   exhaustThis,
   exists,
   handCountOf,
@@ -108,7 +108,7 @@ const ANOTHER_WEB_WARRIOR_CARD: TargetQuery = { ...A_WEB_WARRIOR_CARD, self: fal
  * the same chosen enemy is the literal reading).
  *
  * **Spider-UK (27012)**: `on.defends` names Spider-UK himself (`self: true`, the `rocket-kit.ts` "Groot" precedent
- * for an ally defending), and the attacking enemy is `eventSource` (the "defended" event's own source, per
+ * for an ally defending), and the attacking enemy is `eventSourceEnemy` (the "defended" event's own source, per
  * `mts/spectrum-kit.ts` Pulsar Shield / `vision-kit.ts` Mass Increase) — resolved immediately in the interrupt
  * window rather than deferred with `atEndOfAttack`, since dealing damage here isn't a stat modifier riding the
  * attack's own event frame.
@@ -172,7 +172,7 @@ export const GHOST_SPIDER_SUPPORT_UPGRADES_ALLIES = defineAbilities({
 
   "27012.spider-uk-interrupt": interrupt(
     on.defends(query("ally", { self: true })),
-    dealDamage(countOf(A_WEB_WARRIOR_CARD), eventSource),
+    dealDamage(countOf(A_WEB_WARRIOR_CARD), eventSourceEnemy),
   ),
 
   "27017.spider-man-constant": constant(playOnlyIf(exists(A_WEB_WARRIOR_CARD))),

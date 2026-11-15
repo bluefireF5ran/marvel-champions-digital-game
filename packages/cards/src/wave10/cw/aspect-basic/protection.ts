@@ -80,7 +80,11 @@ export const ASPECT_BASIC_PROTECTION: AbilityRegistry = defineAbilities({
 
   "56044.the-night-nurse-action": DRS_PACK_CARDS["09019.the-night-nurse-action"]!,
 
-  "56045.excelsior-response": response(after.defends(YOUR_HERO), { cost: spend({ energy: 1 }) }, damageAnEnemy(2)),
+  "56045.excelsior-response": response(
+    after.defends(YOUR_HERO, { againstEnemy: true }),
+    { cost: spend({ energy: 1 }) },
+    damageAnEnemy(2),
+  ),
 
   "56046.defensive-conditioning-constant": constant(gets("hp", 3, YOUR_IDENTITY), gets("def", 1, YOUR_HERO)),
 

@@ -15,7 +15,7 @@ import {
   defineAbilities,
   discardThis,
   draw,
-  eventSource,
+  eventSourceEnemy,
   exhaustThis,
   gainsKeyword,
   gainsTrait,
@@ -210,7 +210,7 @@ export const VISION_KIT = defineAbilities({
   // same "prevent all damage from this attack, stun after the attack resolves" shape as Mockingbird (`trors`
   // 04004) and Never Back Down (`qsv` 14014): `modifyAttack({ preventAllDamage: true })` rides the attack's own
   // event frame from wherever it's set (here, the "defended" interrupt point, still before the damage step) through
-  // to the eventual damage step; `atEndOfAttack(stun(eventSource))` reads the "defended" event's own source (the
+  // to the eventual damage step; `atEndOfAttack(stun(eventSourceEnemy))` reads the "defended" event's own source (the
   // attacking enemy, `packages/engine/src/trigger-events.ts`'s `eventSubjects` case "defended") after the attack's
   // results are known, the same deferral Never Back Down's own stun already uses.
   "26012.mass-increase-constant": constant(playOnlyIf(inAdditionalForm("mass", "Dense"))),
@@ -218,6 +218,6 @@ export const VISION_KIT = defineAbilities({
     on.defends(YOUR_IDENTITY),
     { label: "defense" },
     modifyAttack({ preventAllDamage: true }),
-    atEndOfAttack(stun(eventSource)),
+    atEndOfAttack(stun(eventSourceEnemy)),
   ),
 });

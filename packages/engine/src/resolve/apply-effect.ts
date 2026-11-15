@@ -188,7 +188,6 @@ import {
   playersCannotDiscard,
   revealCannotBeCanceled,
   sustainedDamageAllowance,
-  defendsWithoutExhausting,
   schemeActivationDestination,
 } from "../rules.js";
 import {
@@ -257,12 +256,11 @@ import {
   dealBoostCardOrAnnounce,
   dealChosenBoostCard,
   cancelBoostedActivation,
-  announceBasicDefense,
   declareDefenderByLabeledEffect,
   getsBoostCard,
   giveBoostCard,
 } from "./enemy-activation.js";
-import { friendlyAttackOf, friendlyDefenderSlot, friendlyDefenders } from "./friendly-attack.js";
+import { friendlyAttackOf } from "./friendly-attack.js";
 import {
   checkRestrictedAfterFlip,
   enterPlay,
@@ -1003,44 +1001,25 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
         announceStatusDiscarded(ctx, discardStatusCards(ctx, attacker, "stunned", "cancelledAttack"));
         return noAttack();
       }
-      // The defender the attacked player declared (`askFriendlyDefender`), if still one that may defend.
-      const [defender] = (frame.bindings[friendlyDefenderSlot(frame.cursor)] ?? []).filter((id) =>
-        friendlyDefenders(ctx.state, ctx.deps, playerId, attacker).includes(id),
-      );
-      const defenderPlayer = defender ? (controllerOf(ctx.state, defender) ?? playerId) : playerId;
-      if (defender) {
-        const withoutExhausting = defendsWithoutExhausting(ctx.state, ctx.deps, defender);
-        emit(ctx, {
-          type: "defenderDeclared",
-          attackInstanceId: attacker,
-          defenderInstanceId: defender,
-          playerId,
-          ...(withoutExhausting ? { withoutExhausting: true as const } : {}),
-        });
-        if (!withoutExhausting) exhaustCard(ctx, defender);
-      }
-      const heroDefends =
-        defender !== undefined && defender === getPlayer(ctx.state, defenderPlayer)?.identity.instanceId;
       const consequential = pushConsequentialDamage(ctx, attacker, "attack");
+      // Made against the attacked identity; its Declare Defender step is taken after its interrupt window, as its event
+      // frame applies (`declareFriendlyDefender`).
       pushEvent(
         ctx,
         {
           kind: "attack",
           attackerInstanceId: attacker,
-          // The defender takes the attack (RRG 1.8 "Attack (Enemy Activation)" step 5, p. 9), else the attacked identity.
-          targetInstanceId: defender ?? player.identity.instanceId,
+          targetInstanceId: player.identity.instanceId,
           playerId: controllerOf(ctx.state, attacker)!,
           basic: false,
           // "Resolve her ATK against you": the attack deals the attacker's ATK (docs/phase7-wave10.md §3.17).
           usedStat: "atk",
-          ...(heroDefends ? { basicDefense: true as const } : {}),
+          attackedPlayerId: playerId,
           sourceInstanceId: frame.selfInstanceId,
           ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
         },
         reportTo(effect.bind) ?? consequential,
       );
-      // A hero's defense is its basic defense power: announced on top, so it resolves before the attack's damage.
-      if (heroDefends) announceBasicDefense(ctx, defender, defenderPlayer);
       return;
     }
     case "enemyAttacksEnemy": {

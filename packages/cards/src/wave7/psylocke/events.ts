@@ -92,7 +92,7 @@ export const PSYLOCKE_EVENTS: AbilityRegistry = defineAbilities({
   ),
 
   "41006.psionic-redirect-interrupt": heroInterrupt(
-    on.damage(YOUR_IDENTITY, { fromAttack: true }),
+    on.damage(YOUR_IDENTITY, { fromAttack: true, fromEnemy: true }),
     { label: "defense" },
     preventDamage(scaled(KATANAS, { times: 2, plus: 2 })),
     ifThen(valueAtLeast(KNIVES, 1), confuse(eventSource)),

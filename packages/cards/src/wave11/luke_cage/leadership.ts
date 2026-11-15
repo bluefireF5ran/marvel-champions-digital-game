@@ -70,7 +70,7 @@ export const LUKE_CAGE_LEADERSHIP: AbilityRegistry = defineAbilities({
   "62017.the-power-of-leadership-constant": WAVE10_ABILITIES["01072.the-power-of-leadership-constant"]!,
 
   "62012.iron-fist-interrupt": interrupt(
-    when.defends({ self: true }),
+    when.defends({ self: true }, { againstEnemy: true }),
     modifyAttack({ preventDamage: statOf(self, "atk") }),
   ),
 

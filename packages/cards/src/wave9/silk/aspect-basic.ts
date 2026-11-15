@@ -147,7 +147,7 @@ export const SILK_ASPECT_BASIC: AbilityRegistry = defineAbilities({
   "52015.not-today-interrupt": ROGUE_EVENTS["38016.not-today-interrupt"]!,
 
   "52016.stop-hitting-yourself-response": heroResponse(
-    after.defends(YOUR_IDENTITY, { takingNoDamage: true }),
+    after.defends(YOUR_IDENTITY, { takingNoDamage: true, againstEnemy: true }),
     { label: "attack" },
     attack(statOf(yourIdentity, "def"), eventSource),
   ),

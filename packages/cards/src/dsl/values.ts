@@ -283,6 +283,13 @@ export const PAID_CARDS = PAID_CARDS_SLOT;
 /** The card that caused the triggering event ("that enemy" after it attacks). */
 export const eventSource: TargetRef = { kind: "eventSource" };
 /**
+ * "The attacking enemy" / "that enemy" of a trigger whose event's source is the attacker (a defense, an attack's
+ * damage): `eventSource`, if it is an enemy. A friendly character's attack (Old Rivals) has none: "Gamora is not
+ * considered 'an enemy' during the attack … she's not a valid target for abilities that target enemies" (ruling Oct 26,
+ * 2023 (102)). "The attacking character" (Electrostatic Armor) is `eventSource`.
+ */
+export const eventSourceEnemy: TargetRef = { kind: "eventSource", filter: { categories: ["enemy"] } };
+/**
  * The character a card acts for (RRG 1.8 "You, Your", p. 49): `actingCharacter(eventSource)` is the character that
  * caused the event, the identity for an event card, a resource or an upgrade on it; nobody for a support.
  */
