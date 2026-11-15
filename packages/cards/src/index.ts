@@ -1,8 +1,16 @@
 export * from "./dsl/index.js";
 export { obligation } from "./core/obligations.js";
-export { builtinPackProblems, defineBuiltinPack } from "./builtin-packs/define.js";
+export { abilitiesForCards, builtinPackProblems, defineBuiltinPack, ownScriptsOf } from "./builtin-packs/define.js";
 export type { BuiltinPack, BuiltinPackManifest } from "./builtin-packs/define.js";
 export { BUILTIN_PACKS } from "./builtin-packs/index.js";
+export { WAVE4_BUILTIN_PACKS } from "./wave4/index.js";
+export { WAVE5_BUILTIN_PACKS } from "./wave5/index.js";
+export { WAVE6_BUILTIN_PACKS } from "./wave6/index.js";
+export { WAVE7_BUILTIN_PACKS } from "./wave7/index.js";
+export { WAVE8_BUILTIN_PACKS } from "./wave8/index.js";
+export { WAVE9_BUILTIN_PACKS } from "./wave9/index.js";
+export { WAVE10_BUILTIN_PACKS } from "./wave10/index.js";
+export { WAVE11_BUILTIN_PACKS } from "./wave11/index.js";
 export {
   CORE_ABILITIES,
   CORE_BUILTIN_PACK,
@@ -25,6 +33,7 @@ export {
 export type { Wave1ScenarioOptions } from "./wave1/index.js";
 export {
   WAVE2_ABILITIES,
+  WAVE2_BUILTIN_PACKS,
   WAVE2_DEPS,
   WAVE2_REPRINT_ABILITIES,
   wave2ReprintPairs,
@@ -34,6 +43,7 @@ export {
 export type { Wave2ScenarioOptions } from "./wave2/index.js";
 export {
   WAVE3_ABILITIES,
+  WAVE3_BUILTIN_PACKS,
   WAVE3_CARDS,
   WAVE3_DEPS,
   WAVE3_REPRINT_ABILITIES,
