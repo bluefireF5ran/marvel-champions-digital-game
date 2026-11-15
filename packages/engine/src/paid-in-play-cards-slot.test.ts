@@ -57,12 +57,31 @@ const GEAR_RESOURCE = stubAbility(
   "gear.resource",
   def({ trigger: { kind: "resource" }, cost: { exhaustSelf: true }, generates: 1, effects: [] }),
 );
+/** "Forced Interrupt: When you play a card, …": opens the play's `cardBeingPlayed` window. */
+const BEING_INTERRUPT = stubAbility(
+  "being.interrupt",
+  def({
+    trigger: { kind: "interrupt", forced: true, on: { on: "cardBeingPlayed", playerIs: "controller" } },
+    effects: [],
+  }),
+);
 const RECRUIT = stubAlly({ id: "recruit", cost: 2, atk: 1, thw: 1, hp: 3, abilities: [TUCK_RESPONSE.ref] });
+/** Recruit at a cost of 0: whatever pays for it is overpaid. */
+const FREE_RECRUIT = stubAlly({ id: "free-recruit", cost: 0, atk: 1, thw: 1, hp: 3, abilities: [TUCK_RESPONSE.ref] });
 const GEAR = stubSupport({ id: "gear", cost: 0, abilities: [GEAR_RESOURCE.ref] });
+/** Gear with the permanent keyword (RRG 1.8 "Permanent", p. 32). */
+const FIXED_GEAR = stubSupport({
+  id: "fixed-gear",
+  cost: 0,
+  keywords: [{ name: "permanent" }],
+  abilities: [GEAR_RESOURCE.ref],
+});
+/** A support whose interrupt listens for `cardBeingPlayed`. */
+const WATCHER = stubSupport({ id: "watcher", cost: 0, abilities: [BEING_INTERRUPT.ref] });
 /** A resource card printing 1 mental resource. */
 const NOTE = stubResource({ id: "note", icons: 0, produces: { mental: 1 } });
 
-const CARDS = [RECRUIT, GEAR, NOTE];
+const CARDS = [RECRUIT, FREE_RECRUIT, GEAR, NOTE];
 const deps = depsOf(TUCK_RESPONSE, GEAR_RESOURCE);
 
 const play = (card: InstanceId, payment: readonly Payment[]): Command => ({
@@ -74,8 +93,12 @@ const play = (card: InstanceId, payment: readonly Payment[]): Command => ({
 });
 
 /** Gear in play, Recruit and a mental card in hand. */
-function table() {
-  const base = gameAtFirstTurn({ cards: CARDS, deps, deck: CARDS.flatMap((c) => [c.id, c.id, c.id]) });
+function table(d = deps, extra: readonly (typeof GEAR)[] = []) {
+  const base = gameAtFirstTurn({
+    cards: [...CARDS, ...extra],
+    deps: d,
+    deck: [...CARDS, ...extra].flatMap((c) => [c.id, c.id, c.id]),
+  });
   const gear = playerCardIntoPlay(base, GEAR.id);
   const given = giveCards(gear.state, P1, RECRUIT.id, NOTE.id);
   const [recruit, note] = given.ids as [InstanceId, InstanceId];
@@ -86,7 +109,7 @@ function table() {
   return { state: given.state, gear: gear.id, recruit, note, payment };
 }
 
-function run(state: GameState, command: Command, prefer: InstanceId) {
+function run(state: GameState, command: Command, prefer: InstanceId, d = deps) {
   const prompts: { options: readonly string[]; note: string | undefined }[] = [];
   const pick = (s: GameState): readonly string[] => {
     const choice = s.pendingChoice!;
@@ -101,8 +124,8 @@ function run(state: GameState, command: Command, prefer: InstanceId) {
     }
     return defaultPick(s);
   };
-  const { session, events } = driveSession(startSession(state), deps, [command], pick);
-  const replayed = replay(session.log, deps);
+  const { session, events } = driveSession(startSession(state), d, [command], pick);
+  const replayed = replay(session.log, d);
   if (!replayed.ok) throw new Error(replayed.error.message);
   expect(replayed.state).toEqual(session.state);
   return { state: session.state, events, prompts };
@@ -154,5 +177,80 @@ describe("slot `paid.inPlayCards`: the cards in play whose resource ability paid
     const { events } = run(staged, play(t.recruit, [{ fromHand: t.note }, { fromHand: extra }]), t.note);
     expect(playedEvent(events)!.paidCards).toEqual([t.note, extra]);
     expect(playedEvent(events)!.paidInPlayCards).toBeUndefined();
+  });
+
+  it("the slot is carried on `cardBeingPlayed` too, for an interrupt to the play", () => {
+    const withInterrupt = depsOf(TUCK_RESPONSE, GEAR_RESOURCE, BEING_INTERRUPT);
+    const t = table(withInterrupt, [WATCHER]);
+    const watcher = playerCardIntoPlay(t.state, WATCHER.id);
+    const { events } = run(watcher.state, play(t.recruit, t.payment), t.note, withInterrupt);
+    const being = events.flatMap((e) =>
+      e.type === "triggerEvent" && e.event.kind === "cardBeingPlayed" ? [e.event] : [],
+    )[0];
+    expect(being, "the cardBeingPlayed window opened").toBeDefined();
+    expect(being!.paidInPlayCards).toEqual([t.gear]);
+    expect(being!.paidCards).toEqual([t.note]);
+  });
+
+  it("leaves out an in-play payer whose resource was overpaid (a cost of 0: nothing was paid)", () => {
+    // RRG 1.8 "Cost" (p. 13): overpaid resources "were not paid for that cost"; §4.1 Q28 = A, as for `paid.cards`.
+    const t = table();
+    const free = giveCards(t.state, P1, FREE_RECRUIT.id);
+    const recruit = free.ids[0]!;
+    const { state, events, prompts } = run(
+      free.state,
+      play(recruit, [{ ability: { instanceId: t.gear, abilityId: GEAR_RESOURCE.ref.id } }]),
+      t.gear,
+    );
+    expect(playedEvent(events)!.paidInPlayCards).toBeUndefined();
+    expect(prompts).toEqual([]);
+    expect(mustPlayer(state, P1).playArea).toContain(t.gear);
+  });
+
+  // Engine reading: an identity is never tucked under a card (it never leaves play that way), so an identity whose
+  // resource ability paid is not bound.
+  it("leaves out an identity whose resource ability paid", () => {
+    const t = table();
+    const identity = mustPlayer(t.state, P1).identity.instanceId;
+    const heroCardId = mustInstance(t.state, identity).cardId;
+    const hero = t.state.cardPool[heroCardId]!;
+    if (hero.type !== "hero_identity") throw new Error("expected a hero identity");
+    const withResource: GameState = {
+      ...t.state,
+      cardPool: {
+        ...t.state.cardPool,
+        [heroCardId]: {
+          ...hero,
+          hero: { ...hero.hero, abilities: [...hero.hero.abilities, GEAR_RESOURCE.ref] },
+          alterEgo: { ...hero.alterEgo, abilities: [...hero.alterEgo.abilities, GEAR_RESOURCE.ref] },
+        },
+      },
+    };
+    const { events, prompts } = run(
+      withResource,
+      play(t.recruit, [{ ability: { instanceId: identity, abilityId: GEAR_RESOURCE.ref.id } }, { fromHand: t.note }]),
+      t.note,
+    );
+    const played = playedEvent(events)!;
+    expect(played.paidCards).toEqual([t.note]);
+    expect(played.paidInPlayCards).toBeUndefined();
+    expect(prompts[0]!.options).toEqual([t.note]);
+  });
+
+  // RRG 1.8 "Permanent" (p. 32): permanent cards "are not valid targets for card effects that would cause the
+  // permanent card to leave play", and a tuck takes the card out of play ("Tuck", p. 45).
+  it("leaves out a permanent card whose resource ability paid", () => {
+    const t = table(deps, [FIXED_GEAR]);
+    const fixed = playerCardIntoPlay(t.state, FIXED_GEAR.id);
+    const { state, events, prompts } = run(
+      fixed.state,
+      play(t.recruit, [{ ability: { instanceId: fixed.id, abilityId: GEAR_RESOURCE.ref.id } }, { fromHand: t.note }]),
+      fixed.id,
+    );
+    const played = playedEvent(events)!;
+    expect(played.paidCards).toEqual([t.note]);
+    expect(played.paidInPlayCards).toBeUndefined();
+    expect(prompts[0]!.options).toEqual([t.note]);
+    expect(mustPlayer(state, P1).playArea).toContain(fixed.id);
   });
 });

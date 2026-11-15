@@ -285,9 +285,13 @@ export const PAID_CARDS = PAID_CARDS_SLOT;
  * The cards in play whose "Resource" ability paid for a play, the engine's slot `paid.inPlayCards` (owner decision
  * 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025: "you can use a resource
  * ability to pay for Spectrum and then tuck that card under her"). Carried as `paidCards` is, and never counted in
- * `paid.cards.<cardType>`. Each is read where it is now: usually still in play.
+ * `paid.cards.<cardType>`. Each is read where it is now: usually still in play. Choose among those still in play with
+ * `cards(each(query([], { inSlot: PAID_IN_PLAY_CARDS })))`, and among those in a discard pile with `zone("discard", …,
+ * { filter: { inSlot: PAID_IN_PLAY_CARDS } })`.
  */
 export const paidInPlayCards: TargetRef = { kind: "slot", slot: PAID_IN_PLAY_CARDS_SLOT };
+/** The slot `paidInPlayCards` reads, for a query's `inSlot`. */
+export const PAID_IN_PLAY_CARDS = PAID_IN_PLAY_CARDS_SLOT;
 /** The card that caused the triggering event ("that enemy" after it attacks). */
 export const eventSource: TargetRef = { kind: "eventSource" };
 /**

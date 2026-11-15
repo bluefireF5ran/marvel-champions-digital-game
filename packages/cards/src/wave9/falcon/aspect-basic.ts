@@ -58,7 +58,9 @@ import {
   you,
   PAID_CARDS,
   paidCards,
-  paidInPlayCards,
+  PAID_IN_PLAY_CARDS,
+  countOf,
+  zoneCountOf,
   refCount,
   anyOf,
   anyOfCards,
@@ -136,8 +138,9 @@ const CAPTAINS_SHIELD = query("upgrade", { name: "Captain America's Shield" });
  * spent from under a Resource Reserve; never an overpaid card) or `paid.inPlayCards` (a card in play whose "Resource"
  * ability paid; owner decision 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22,
  * 2025, Q2: "you can use a resource ability to pay for Spectrum and then tuck that card under her"). The player picks
- * 1 of those still in a discard pile, or an in-play payer wherever it is now, whoever owns it; the choice warns that a
- * tucked card is out of play (`SPECTRUM_TUCK_NOTE`). An in-play card leaves play as it is tucked (its text stops, its
+ * 1 of those still in a discard pile, or an in-play payer still in play or in a discard pile (owner decision
+ * 2026-11-15, #525 item 11; a permanent one is never bound, RRG 1.8 "Permanent", p. 32), whoever owns it; the choice
+ * warns that a tucked card is out of play (`SPECTRUM_TUCK_NOTE`). An in-play card leaves play as it is tucked (its text stops, its
  * attachments are handled as for any card leaving play). It is tucked faceup and stays its owner's. Each
  * bonus reads the printed resources of what is tucked under her: [mental] +2 THW, [physical] +2 ATK, [energy] +2 hit
  * points, each once however many icons, and a printed [wild] gives all three. A card of any type can be tucked (the
@@ -259,10 +262,22 @@ export const FALCON_ASPECT_BASIC: AbilityRegistry = defineAbilities({
   // (owner decision 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025).
   [SPECTRUM_GRANTED_RESPONSE]: response(
     after.youPlayThis(),
-    { while: anyOf(valueAtLeast(refCount(paidCards), 1), valueAtLeast(refCount(paidInPlayCards), 1)) },
+    {
+      while: anyOf(
+        valueAtLeast(refCount(paidCards), 1),
+        valueAtLeast(countOf(query([], { inSlot: PAID_IN_PLAY_CARDS })), 1),
+        valueAtLeast(zoneCountOf("discard", eachPlayer, { inSlot: PAID_IN_PLAY_CARDS }), 1),
+      ),
+    },
     chooseCards(
       "tucked",
-      anyOfCards(zone("discard", eachPlayer, { filter: { inSlot: PAID_CARDS } }), cards(paidInPlayCards)),
+      anyOfCards(
+        zone("discard", eachPlayer, { filter: { inSlot: PAID_CARDS } }),
+        // Owner decision 2026-11-15 (#525 item 11): in play or discard pile; no source names a zone. A payer that has
+        // gone back to a hand or into a deck is not offered; one its own cost discarded (Support Staff) is.
+        cards(each(query([], { inSlot: PAID_IN_PLAY_CARDS }))),
+        zone("discard", eachPlayer, { filter: { inSlot: PAID_IN_PLAY_CARDS } }),
+      ),
       { min: 1, max: 1, note: SPECTRUM_TUCK_NOTE },
     ),
     tuckCards(cards(chosen("tucked")), self),

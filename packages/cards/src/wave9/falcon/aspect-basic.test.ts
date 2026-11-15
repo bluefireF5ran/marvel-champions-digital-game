@@ -1783,9 +1783,16 @@ describe("Spectrum tucking a [mental] + [wild] card (ruling Aug 22, 2025)", () =
  * Here Falcon's Flock, an Aerial support that pays [energy] for Spectrum.
  */
 describe("Spectrum may tuck the support whose resource ability paid for her (ruling Aug 22, 2025)", () => {
-  function flockPaid(pickFlock: boolean) {
+  /**
+   * `birds`: the Flock's counters (1: Uses discards it as it pays). `beforeTuck`: a change made once Spectrum's
+   * response is offered, before it resolves.
+   */
+  function flockPaid(
+    pickFlock: boolean,
+    opts: { birds?: number; beforeTuck?: (s: GameState, flock: InstanceId) => GameState } = {},
+  ) {
     const base = falconHeroGame();
-    const flock = stagedInPlay(base, "53006", { counters: { bird: 5 } });
+    const flock = stagedInPlay(base, "53006", { counters: { bird: opts.birds ?? 5 } });
     const given = moveToHand(flock.state, P1, SPECTRUM, GENIUS, STRENGTH);
     const [spectrum, genius, strength] = given.ids as [InstanceId, InstanceId, InstanceId];
     const prompts: { options: string[]; note: string | undefined }[] = [];
@@ -1798,21 +1805,66 @@ describe("Spectrum may tuck the support whose resource ability paid for her (rul
       }
       if (choice.prompt.kind === "chooseCards") {
         prompts.push({ options: offered, note: choice.prompt.note });
-        return [pickFlock ? flock.id : genius];
+        return [pickFlock && offered.includes(flock.id) ? flock.id : genius];
       }
       return firstLegal(s);
     };
     // Flock [energy] 1 + Genius 2 + Strength 2 = 5.
-    const out = driveEventsPicking(
-      FALCON_DEPS,
-      given.state,
-      pick,
-      play(P1, spectrum, [genius, strength], {
-        abilities: [resourceAbility(flock.id, "53006.falcons-flock-resource")],
-      }),
-    );
-    return { ...out, prompts, spectrum, genius, strength, flock: flock.id };
+    const command = play(P1, spectrum, [genius, strength], {
+      abilities: [resourceAbility(flock.id, "53006.falcons-flock-resource")],
+    });
+    let current = given.state;
+    const events: GameEvent[] = [];
+    let beforeTuck = opts.beforeTuck;
+    const step = (c: Command) => {
+      const result = applyCommand(current, c, FALCON_DEPS);
+      if (!result.ok) throw new Error(result.error.message);
+      current = result.state;
+      events.push(...result.events);
+    };
+    step(command);
+    while (current.pendingChoice && !current.outcome) {
+      const choice = current.pendingChoice;
+      if (
+        beforeTuck &&
+        choice.prompt.kind === "chooseTriggers" &&
+        choice.options.some((o) => (o.optionId as string).endsWith(SPECTRUM_GRANTED))
+      ) {
+        current = beforeTuck(current, flock.id);
+        beforeTuck = undefined;
+      }
+      step({
+        type: "resolveChoice",
+        playerId: current.pendingChoice!.playerId,
+        choiceId: current.pendingChoice!.choiceId,
+        selectedOptionIds: pick(current),
+      });
+    }
+    return { state: current, events, prompts, spectrum, genius, strength, flock: flock.id };
   }
+
+  // Owner decision 2026-11-15 (#525 item 11): in play or discard pile; no source names a zone.
+  it("a Flock returned to its owner's hand before the response resolves is not offered", () => {
+    const toHand = (s: GameState, id: InstanceId): GameState => ({
+      ...s,
+      players: s.players.map((p) =>
+        p.playerId === P1 ? { ...p, playArea: p.playArea.filter((i) => i !== id), hand: [...p.hand, id] } : p,
+      ),
+    });
+    const { state, prompts, spectrum, genius, strength, flock } = flockPaid(true, { beforeTuck: toHand });
+    expect(prompts).toHaveLength(1);
+    expect([...prompts[0]!.options].sort()).toEqual([genius, strength].sort());
+    expect(inst(state, spectrum).tucked).toEqual([genius]);
+    expect(playerOf(state, P1).hand).toContain(flock);
+  });
+
+  it("a Flock its own Uses discarded as it paid (last bird counter) is offered from the discard pile, and tucked", () => {
+    const { state, prompts, spectrum, genius, strength, flock } = flockPaid(true, { birds: 1 });
+    expect(prompts).toHaveLength(1);
+    expect([...prompts[0]!.options].sort()).toEqual([flock, genius, strength].sort());
+    expect(inst(state, spectrum).tucked).toEqual([flock]);
+    expect(playerOf(state, P1).discard).not.toContain(flock);
+  });
 
   it("Falcon's Flock, used to pay for Spectrum, is offered with the hand cards that paid, and the choice carries the warning", () => {
     const { prompts, genius, strength, flock } = flockPaid(false);
