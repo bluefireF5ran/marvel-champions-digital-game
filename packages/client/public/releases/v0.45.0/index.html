@@ -610,7 +610,7 @@
           <b>Community heroes and scenarios now install from inside the game.</b> The Mod Store opens in Extras with
           eight fan-made packs, from Carnage and Yondu to a battle for your soul against Mephisto. Every game you play
           can now be <b>watched back as a replay</b>, exported or shared, Past games keeps every finished game to look
-          back on, and the game has a website of its own.
+          back on, the game has a website of its own, and the first new game screens speak Spanish.
         </p>
       </section>
 
@@ -691,6 +691,10 @@
             <li>
               <b>House rules:</b> Lost Traits by Bluefire, and GMW Fixes by Gideon's Gaming, which brings the Balanced
               option for The Galaxy's Most Wanted.
+            </li>
+            <li>
+              <b>Coming next:</b> Throg by Patatasaurio and Caurel is in the game as a draft, and joins the store once
+              its authors confirm the curators' fixes.
             </li>
           </ul>
         </div>
@@ -818,13 +822,15 @@
       <!-- ============ HOME ============ -->
       <div class="band">
         <h2>A home of its own</h2>
-        <div class="lab">Issue #697 · PR #698</div>
+        <div class="lab">Issues #697 and #707 · PRs #698 and #708</div>
       </div>
       <p class="lead">
         <b>The game has its own website now,</b>
         <a href="https://champions-digital-game.com/">champions-digital-game.com</a>, led by the game's art: news, every
         hero and villain, the mods, downloads for your device and the community Discords, in English and Spanish. The
-        game itself moves to its own address soon, and I'll post when it does.
+        game itself has moved to its own address,
+        <a href="https://marvel.champions-digital-game.com/">marvel.champions-digital-game.com</a>, and the release
+        reports are on champions-digital-game.com.
       </p>
       <div class="shots">
         <figure class="a">
@@ -839,23 +845,81 @@
         </figure>
       </div>
       <div class="box">
-        <h3>When the game moves</h3>
+        <h3>The game has moved</h3>
         <ul class="ck">
           <li>
-            Saves in a web browser belong to its address, so the old address will show a page that
+            Saves in a web browser belong to its address, so the old address now shows a page that
             <b>hands you your saves and your sync code</b>, with the steps to bring them over.
           </li>
           <li>The installed apps keep their saves, and nothing changes for them.</li>
-          <li>Links made for the old address, such as a shared replay, still open at the new one.</li>
+          <li>Links made for the old address, such as a shared replay, open at the new one.</li>
         </ul>
+      </div>
+
+      <!-- ============ SPANISH ============ -->
+      <div class="band">
+        <h2>New game speaks Spanish</h2>
+        <div class="lab">Issue #390 · PR #719 by @bluefireF5ran</div>
+      </div>
+      <p class="lead">
+        <b>The Spanish reaches past the title menu.</b> @bluefireF5ran translated the first screens of a new game: the
+        guide chooser, Scenario select and the unlock prompts now read in Spanish when the game is in Spanish. The words
+        follow the Spanish Rules Reference and the printed Spanish cards, written for players in Spain.
+      </p>
+      <div class="shots s-phone">
+        <figure class="a">
+          <img
+            src="img/scenario-select-es.webp"
+            alt="Scenario select in Spanish: Elige un escenario, the Core Set shelf with Rhino ELEGIDO, Etapas del escenario, Tu historial and Elegir héroes"
+            width="1280"
+            height="871"
+            loading="lazy"
+          />
+          <figcaption>Scenario select in Spanish, from the pull request's screenshots</figcaption>
+        </figure>
+        <figure class="a">
+          <img
+            src="img/guide-chooser-es-phone.webp"
+            alt="The guide chooser in Spanish on a phone: ¿Nuevo en la lucha?, with Aprende jugando, Solo consejos, Sin guía and ¡A la acción!"
+            width="375"
+            height="667"
+            loading="lazy"
+          />
+          <figcaption>The guide chooser on a phone</figcaption>
+        </figure>
+      </div>
+      <div class="cols">
+        <div class="box">
+          <h3>What's in Spanish now</h3>
+          <ul class="ck">
+            <li>The title menu, since v0.44.0.</li>
+            <li>
+              <b>The guide chooser</b>, and <b>Scenario select</b>: its search, filters, shelves, stages, stats, side
+              panel and your record.
+            </li>
+            <li>The unlock prompts and lock captions, such as "Vence a Rhino para desbloquear Wave 1".</li>
+            <li>A screen switches language in place, the search box too.</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Still in English</h3>
+          <ul class="ck">
+            <li>Card, villain, scenario, pack and wave names.</li>
+            <li>Every screen after Scenario select, for now.</li>
+            <li>Next up: the hero seats and deck check, then table setup and the mulligan.</li>
+          </ul>
+        </div>
       </div>
 
       <!-- ============ YOU ASKED ============ -->
       <div class="band">
         <h2>You asked, we fixed</h2>
-        <div class="lab">Issues #692 and #700</div>
+        <div class="lab">Issues #692, #700 and #717 · PRs #714 and #715</div>
       </div>
-      <p class="lead"><b>Both of these came from one player's reports.</b> Thank you, @AlecHolland1582.</p>
+      <p class="lead">
+        <b>Three came from your reports, and two from a contributor who found and fixed them.</b> Thank you,
+        @AlecHolland1582, Funguykawhi and @bluefireF5ran.
+      </p>
       <div class="cards">
         <div class="paper">
           <div class="eb">#692 · reported by @AlecHolland1582</div>
@@ -875,12 +939,40 @@
           </p>
           <div class="src">RRG 1.8 "Response", p. 38</div>
         </div>
+        <div class="paper">
+          <div class="eb">#717 · reported by Funguykawhi on Discord</div>
+          <h3>Kang's obligations take the right card</h3>
+          <p>
+            Discarding a resource to get rid of Kang's Temporal obligations now offers only cards with the
+            <b>printed resource it names</b>, so picking a wild card no longer leaves Confirm stuck.
+          </p>
+          <div class="src">RRG 1.8 "Wild Resource", p. 48</div>
+        </div>
+        <div class="paper">
+          <div class="eb">#714 · fixed by @bluefireF5ran</div>
+          <h3>Searches offer what can enter play</h3>
+          <p>
+            Build Support, Call for Backup and Lock and Load let each player search for a card and put it into play.
+            They now offer only cards that <b>can enter play</b>: not a unique card already in play, and not an upgrade
+            with nothing to attach to. A search that finds nothing says so in the log.
+          </p>
+          <div class="src">RRG 1.8 "Target", p. 43</div>
+        </div>
+        <div class="paper">
+          <div class="eb">#715 · fixed by @bluefireF5ran</div>
+          <h3>An empty search still resolves</h3>
+          <p>
+            A required search of your deck and discard pile can be made with <b>nothing to find</b>, as any search can,
+            and a "then" after a search that found nothing is skipped, as the rules say.
+          </p>
+          <div class="src">RRG 1.8 "Target", p. 43; "Then", p. 44</div>
+        </div>
       </div>
 
       <!-- ============ ALSO ============ -->
       <div class="band">
         <h2>Also in v0.45.0</h2>
-        <div class="lab">Rules, art and what's next</div>
+        <div class="lab">Rules, art, polish and what's next</div>
       </div>
       <div class="cols">
         <div class="box">
@@ -916,6 +1008,24 @@
           </ul>
         </div>
       </div>
+      <div class="box" style="margin-top: 24px">
+        <h3>Smoother, and up to date</h3>
+        <ul class="ck">
+          <li>
+            <b>Moving between screens is smooth (#712).</b> Title, Extras and the Mod Store fade in already fully drawn,
+            instead of filling in and blinking, and the Extras tabs switch without a hitch.
+          </li>
+          <li>
+            <b>Less work on the main thread (#716, #722):</b> progress and pictures are prepared in workers, so screen
+            changes hitch far less.
+          </li>
+          <li>Every dependency is on its latest compatible version.</li>
+          <li>
+            The project's current status and architecture pages are up to date, including how the content, mod template
+            and Mod Store registry repositories feed the game.
+          </li>
+        </ul>
+      </div>
 
       <!-- ============ THANKS ============ -->
       <section class="thanks">
@@ -930,8 +1040,9 @@
           <div class="person wide">
             <h3>@bluefireF5ran</h3>
             <p>
-              Curated every community pack in the store, made the Lost Traits house rule, and brought Mephisto's Spanish
-              card faces and art.
+              Curated every community pack in the store, made the Lost Traits house rule, brought Mephisto's Spanish
+              card faces and art, fixed how searches offer cards, <b>#714</b> and <b>#715</b>, and put the first New
+              game screens into Spanish, <b>#719</b>.
             </p>
           </div>
           <div class="person wide">
@@ -950,6 +1061,10 @@
             <h3>@AlecHolland1582</h3>
             <p>Reported the blank Briefing, <b>#692</b>, and Stealth Training, <b>#700</b>.</p>
           </div>
+          <div class="person">
+            <h3>Funguykawhi</h3>
+            <p>Reported Kang's obligations on Discord, <b>#717</b>.</p>
+          </div>
         </div>
       </section>
 
@@ -961,22 +1076,22 @@
       <section class="stats" aria-label="Code shipped since v0.44.0">
         <div class="tile">
           <h4>Pull requests</h4>
-          <div class="n">14</div>
+          <div class="n">23</div>
           <p>merged into main.</p>
         </div>
         <div class="tile">
           <h4>Files changed</h4>
-          <div class="n">1,232</div>
+          <div class="n">1,346</div>
           <p>across the engine, the cards, the client, the mod SDK and this report.</p>
         </div>
         <div class="tile">
           <h4>Lines added</h4>
-          <div class="n c-green">90,289</div>
+          <div class="n c-green">96,410</div>
           <p>the Mod Store, the SDK, replays, the new site and their tests.</p>
         </div>
         <div class="tile">
           <h4>Lines removed</h4>
-          <div class="n c-red">3,256</div>
+          <div class="n c-red">4,442</div>
           <p>across the same pull requests.</p>
         </div>
       </section>
