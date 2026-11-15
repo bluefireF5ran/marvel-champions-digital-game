@@ -3,6 +3,7 @@ import {
   activeAbilityRefs,
   activeEncounterDeckId,
   allyLimitFor,
+  cardsInPlay,
   applyCommand,
   keywordTotal,
   locateCard,
@@ -45,6 +46,7 @@ import {
   FALCON_ASPECT_BASIC_SKIPPED as SKIPPED,
   FLIGHT_SQUADRON_GRANTED_RESPONSE as GRANTED,
   SPECTRUM_GRANTED_RESPONSE as SPECTRUM_GRANTED,
+  SPECTRUM_TUCK_NOTE,
 } from "./aspect-basic.js";
 import {
   ASPECT_DEPS as DEPS,
@@ -1775,19 +1777,18 @@ describe("Spectrum tucking a [mental] + [wild] card (ruling Aug 22, 2025)", () =
 /*
  * Ruling August 22, 2025 (Alex), question 2: "Can I use the resource ability of a support or upgrade card to
  * pay for the cost of Spectrum (leadership ally) and tuck this card under Spectrum? Yes, you can use a resource
- * ability to pay for Spectrum and then tuck that card under her." RRG 1.8 is silent on this.
- *
- * The engine's `paid.cards` slot (`cardsThatPaid`, `engine/src/actions.ts`) lists only cards discarded from a hand,
- * and the script's own docblock says "never a resource a 'Resource' ability generated", so a card in play whose
- * resource ability paid (here Falcon's Flock, an Aerial support that pays [energy] for Spectrum) is not offered.
+ * ability to pay for Spectrum and then tuck that card under her." Owner decision 2026-11-15 (#525 item 11), replacing
+ * wave 9 §3.46 (b) on this point: the cards in play whose resource ability paid (engine slot `paid.inPlayCards`) are
+ * offered with the discarded ones, and the choice warns that a tucked card is out of play (RRG 1.8 "Tuck", p. 45).
+ * Here Falcon's Flock, an Aerial support that pays [energy] for Spectrum.
  */
 describe("Spectrum may tuck the support whose resource ability paid for her (ruling Aug 22, 2025)", () => {
-  it.fails("Falcon's Flock, used to pay for Spectrum, is among the cards offered to tuck", () => {
+  function flockPaid(pickFlock: boolean) {
     const base = falconHeroGame();
     const flock = stagedInPlay(base, "53006", { counters: { bird: 5 } });
     const given = moveToHand(flock.state, P1, SPECTRUM, GENIUS, STRENGTH);
     const [spectrum, genius, strength] = given.ids as [InstanceId, InstanceId, InstanceId];
-    const offeredOptions: string[] = [];
+    const prompts: { options: string[]; note: string | undefined }[] = [];
     const pick = (s: Parameters<typeof firstLegal>[0]): readonly string[] => {
       const choice = s.pendingChoice!;
       const offered = choice.options.map((o) => o.optionId as string);
@@ -1795,11 +1796,14 @@ describe("Spectrum may tuck the support whose resource ability paid for her (rul
         const hit = offered.find((o) => o.endsWith(SPECTRUM_GRANTED));
         return hit ? [hit] : [];
       }
-      if (choice.prompt.kind === "chooseCards") offeredOptions.push(...offered);
+      if (choice.prompt.kind === "chooseCards") {
+        prompts.push({ options: offered, note: choice.prompt.note });
+        return [pickFlock ? flock.id : genius];
+      }
       return firstLegal(s);
     };
     // Flock [energy] 1 + Genius 2 + Strength 2 = 5.
-    driveEventsPicking(
+    const out = driveEventsPicking(
       FALCON_DEPS,
       given.state,
       pick,
@@ -1807,8 +1811,58 @@ describe("Spectrum may tuck the support whose resource ability paid for her (rul
         abilities: [resourceAbility(flock.id, "53006.falcons-flock-resource")],
       }),
     );
-    expect(offeredOptions, "a tuck prompt was shown").not.toEqual([]);
-    expect(offeredOptions).toContain(flock.id);
+    return { ...out, prompts, spectrum, genius, strength, flock: flock.id };
+  }
+
+  it("Falcon's Flock, used to pay for Spectrum, is offered with the hand cards that paid, and the choice carries the warning", () => {
+    const { prompts, genius, strength, flock } = flockPaid(false);
+    expect(prompts).toHaveLength(1);
+    expect([...prompts[0]!.options].sort()).toEqual([flock, genius, strength].sort());
+    expect(prompts[0]!.note).toBe(SPECTRUM_TUCK_NOTE);
+  });
+
+  it("a hand card that paid is still tucked from the discard pile; the Flock stays in play", () => {
+    const { state, spectrum, genius, flock } = flockPaid(false);
+    expect(inst(state, spectrum).tucked).toEqual([genius]);
+    expect(playerOf(state, P1).playArea).toContain(flock);
+  });
+
+  it("the Flock tucked: it leaves play, its text stops working, and it is discarded when Spectrum leaves play", () => {
+    const { state, events, spectrum, flock } = flockPaid(true);
+    expect(inst(state, spectrum).tucked).toEqual([flock]);
+    expect(locateCard(state, flock)).toMatchObject({ kind: "tucked", hostInstanceId: spectrum });
+    expect(playerOf(state, P1).playArea).not.toContain(flock);
+    // It left play from its play area (RRG 1.8 "Leaves Play", p. 27), so its text no longer works.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "cardMoved",
+        instanceId: flock,
+        from: { kind: "playArea", playerId: P1 },
+        to: { kind: "tucked", hostInstanceId: spectrum },
+      }),
+    );
+    expect(cardsInPlay(state)).not.toContain(flock);
+    // Spectrum leaves play (defeated by the consequential damage of her attack): the Flock goes to the discard pile.
+    const villain = state.activeVillainId!;
+    const hurt = patchInstance(state, spectrum, { damage: (maxHitPoints(state, spectrum, FALCON_DEPS) ?? 1) - 1 });
+    const after = driveEventsPicking(FALCON_DEPS, hurt, firstLegal, {
+      type: "basicAttack",
+      playerId: P1,
+      attackerInstanceId: spectrum,
+      targetInstanceId: villain,
+    });
+    expect(playerOf(after.state, P1).discard).toContain(spectrum);
+    expect(playerOf(after.state, P1).discard).toContain(flock);
+  });
+
+  it("the Flock is not counted in paid.cards (§3.51): only Genius and Strength, the hand cards, are", () => {
+    // "Paid with a resource card" (Concussive Blast) reads `paid.cards.resource`; the in-play Flock is in none.
+    const { events } = flockPaid(false);
+    const played = events.find((e) => e.type === "triggerEvent" && e.event.kind === "cardPlayed");
+    const payment = played?.type === "triggerEvent" && played.event.kind === "cardPlayed" ? played.event.payment : {};
+    const counted = Object.entries(payment ?? {}).filter(([k]) => k.startsWith("paid.cards."));
+    expect(counted.reduce((n, [, v]) => n + v, 0)).toBe(2);
+    expect(counted.map(([k]) => k)).not.toContain("paid.cards.support");
   });
 });
 

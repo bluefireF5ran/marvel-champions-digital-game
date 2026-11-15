@@ -1233,13 +1233,28 @@ export function paymentVarsIn(vars: Vars): Vars {
 export const PAID_CARDS_SLOT = "paid.cards";
 
 /**
+ * The cards in play whose resource ability paid for a play (`cardsInPlayThatPaid`, `actions.ts`), in payment order:
+ * a "Resource" ability used in the payment whose resources are among the ones **paid** (`canBePaidFor`, as for
+ * `PAID_CARDS_SLOT`), its card not an identity. Owner decision 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b)
+ * on this point; ruling Aug 22, 2025 (Q2): "you can use a resource ability to pay for Spectrum and then tuck that card
+ * under her". Kept apart from `PAID_CARDS_SLOT` so the `paid.cards.<cardType>` counts (§3.51) still read only cards
+ * spent as cards ("paid with a resource card", Concussive Blast). Bound and carried as `PAID_CARDS_SLOT` is.
+ */
+export const PAID_IN_PLAY_CARDS_SLOT = "paid.inPlayCards";
+
+/**
  * The cards that paid for the play of `instanceId` while that play is still resolving, as the bindings its own
  * abilities start with (`PAID_CARDS_SLOT`); empty when none did or the card is not being played. The slot twin of
  * `playPaymentVars`.
  */
 export function playPaidCards(stack: readonly StackFrame[], instanceId: InstanceId): Bindings {
-  const paid = playFrameOf(stack, instanceId)?.bindings[PAID_CARDS_SLOT];
-  return paid && paid.length > 0 ? { [PAID_CARDS_SLOT]: paid } : {};
+  const bindings = playFrameOf(stack, instanceId)?.bindings;
+  const paid = bindings?.[PAID_CARDS_SLOT];
+  const inPlay = bindings?.[PAID_IN_PLAY_CARDS_SLOT];
+  return {
+    ...(paid && paid.length > 0 ? { [PAID_CARDS_SLOT]: paid } : {}),
+    ...(inPlay && inPlay.length > 0 ? { [PAID_IN_PLAY_CARDS_SLOT]: inPlay } : {}),
+  };
 }
 
 /** The var prefix of the paid resources by the type each was used as (`paid.as.<type>`; docs/phase7-wave8.md §3.62). */

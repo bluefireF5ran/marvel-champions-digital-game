@@ -301,6 +301,7 @@ import {
 import {
   describeFrame,
   PAID_CARDS_SLOT,
+  PAID_IN_PLAY_CARDS_SLOT,
   paidAsVars,
   PRINTED_COST_PAID_SLOT,
   type Bindings,
@@ -2091,6 +2092,40 @@ function cardsThatPaid(
     );
     return canBePaidFor(pool, generated, paidFor) ? [entry.fromHand] : [];
   });
+}
+
+/**
+ * The cards in play whose "Resource" ability paid for a cost, in payment order, each once (`PAID_IN_PLAY_CARDS_SLOT`):
+ * a use in the payment that is not an overpay-only one (`overpayOnlyPool`), on a card in play that is not an identity,
+ * whose generated resources are among the ones **paid** (`canBePaidFor`, the judgement `cardsThatPaid` makes). Owner
+ * decision 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025 (Q2). Read
+ * before paying, while the cards are still in play. Never counted by `paidCardVars`.
+ */
+function cardsInPlayThatPaid(
+  ctx: Ctx,
+  playerId: PlayerId,
+  payment: readonly Payment[],
+  payingFor: InstanceId | null,
+  pool: ResourcePool,
+  requirement: ResolvedRequirement,
+  cost: AbilityCost | undefined,
+  resourceVarsRead: Vars,
+): readonly InstanceId[] {
+  const paidFor = paidRequirementOf(pool, requirement, cost, resourceVarsRead);
+  const inPlay = cardsInPlay(ctx.state);
+  const found: InstanceId[] = [];
+  for (const entry of payment) {
+    if (!("ability" in entry)) continue;
+    const { instanceId, abilityId } = entry.ability;
+    if (found.includes(instanceId) || !inPlay.includes(instanceId)) continue;
+    if (overpaysOnly(ctx.deps, abilityId)) continue;
+    if (categoriesOf(ctx.state, instanceId).includes("identity")) continue;
+    const spender = resourceSpender(ctx.state, ctx.deps, instanceId, abilityId, playerId);
+    const top = mustPlayer(ctx.state, spender).discard[0] ?? null;
+    const generated = resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, top, payingFor);
+    if (canBePaidFor(pool, generated, paidFor)) found.push(instanceId);
+  }
+  return found;
 }
 
 /**
@@ -5093,6 +5128,8 @@ export interface PricedPlay {
   readonly types?: PaidTypesSettled;
   /** The cards that paid (`cardsThatPaid`; docs/phase7-wave9.md §3.46 (b)); absent when no card did. */
   readonly paidCards?: readonly InstanceId[];
+  /** The cards in play whose resource ability paid (`cardsInPlayThatPaid`, `PAID_IN_PLAY_CARDS_SLOT`); absent if none. */
+  readonly paidInPlayCards?: readonly InstanceId[];
 }
 
 /**
@@ -5286,7 +5323,11 @@ export function logAbilityWildTypes(
  * `paid.cards` (`PAID_CARDS_SLOT`; docs/phase7-wave9.md §3.46 (b)), and any wilds still to declare.
  */
 export const playFrameCost = (priced: PricedPlay, bindings: Bindings = priced.plan.bindings) => ({
-  bindings: priced.paidCards ? { ...bindings, [PAID_CARDS_SLOT]: priced.paidCards } : bindings,
+  bindings: {
+    ...bindings,
+    ...(priced.paidCards ? { [PAID_CARDS_SLOT]: priced.paidCards } : {}),
+    ...(priced.paidInPlayCards ? { [PAID_IN_PLAY_CARDS_SLOT]: priced.paidInPlayCards } : {}),
+  },
   vars: priced.vars,
   ...(priced.types?.undeclared ? { undeclaredWilds: priced.types.undeclared } : {}),
 });
@@ -5409,7 +5450,24 @@ export function pricePlay(
     paidTypes.wildAs,
   );
   if (isFault(settled)) return settled;
-  return { pool: everything, plan, ...settled, ...(paidCards.length > 0 ? { paidCards } : {}) };
+  // Not counted in `paid.cards.*` (`paidCardVars`): only bound, for "tuck 1 card used to pay for her" (Spectrum).
+  const paidInPlayCards = cardsInPlayThatPaid(
+    ctx,
+    playerId,
+    payment,
+    payingFor,
+    pool,
+    requirement,
+    plan.cost ?? cost,
+    vars,
+  );
+  return {
+    pool: everything,
+    plan,
+    ...settled,
+    ...(paidCards.length > 0 ? { paidCards } : {}),
+    ...(paidInPlayCards.length > 0 ? { paidInPlayCards } : {}),
+  };
 }
 
 /**

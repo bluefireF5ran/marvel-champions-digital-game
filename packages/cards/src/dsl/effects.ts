@@ -1986,6 +1986,8 @@ export const chooseCards = (
      * "look at the top N" (`EffectSpec chooseCards.search`).
      */
     readonly search?: boolean;
+    /** A line the prompt carries for the player (`EffectSpec chooseCards.note`): Spectrum's out-of-play warning. */
+    readonly note?: string;
   },
 ): EffectSpec => ({
   kind: "chooseCards",
@@ -2000,6 +2002,7 @@ export const chooseCards = (
     : {}),
   ...(opts.hiddenHands ? { hiddenHands: true as const } : {}),
   ...(opts.search ? { search: true as const } : {}),
+  ...(opts.note !== undefined ? { note: opts.note } : {}),
 });
 /**
  * "Discard the [superlative] card in your hand" on an encounter card, among `from` (the tied cards): the first player

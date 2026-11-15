@@ -13,7 +13,7 @@ import type {
   TargetCategory,
   ValueSpec,
 } from "./spec.js";
-import { PAID_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
+import { PAID_CARDS_SLOT, PAID_IN_PLAY_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
 import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./state.js";
 
 /**
@@ -690,6 +690,8 @@ export type TriggerEventBody =
        * ability reads as slot `paid.cards` (`carriedByEvent`). Absent when no card paid.
        */
       readonly paidCards?: readonly InstanceId[];
+      /** The cards in play whose resource ability paid for the play (`PAID_IN_PLAY_CARDS_SLOT`); absent when none did. */
+      readonly paidInPlayCards?: readonly InstanceId[];
       /**
        * The card whose ability or permission played this one, as the play recorded it (`PLAYED_VIA_SLOT`): the
        * `playFromHand.via` card (Wolverine's Claws; docs/phase7-wave6.md §3.42) or the hand card discarded to play it
@@ -713,6 +715,8 @@ export type TriggerEventBody =
       readonly countsAsFrom?: "hand";
       /** The cards that paid for the play, as `cardPlayed.paidCards` has them; absent when no card paid. */
       readonly paidCards?: readonly InstanceId[];
+      /** As `cardPlayed.paidInPlayCards`. */
+      readonly paidInPlayCards?: readonly InstanceId[];
     }
   | {
       readonly kind: "cardRevealed";
@@ -2916,8 +2920,18 @@ export function carriedByEvent(event: TriggerEvent | null | undefined): typeof N
     Object.fromEntries(Object.entries(record ?? {}).map(([key, item]) => [`${MOMENT_PREFIX}${key}`, item]));
   if (event?.kind === "abilityResolved" && event.carried) return { bindings: prefixed(event.carried), vars: {} };
   // The cards that paid for a play, under the slot's own name: there is one play, so nothing to keep apart (§3.46 (b)).
-  if ((event?.kind === "cardPlayed" || event?.kind === "cardBeingPlayed") && event.paidCards?.length)
-    return { bindings: { [PAID_CARDS_SLOT]: event.paidCards }, vars: {} };
+  // So do the cards in play whose resource ability paid (`PAID_IN_PLAY_CARDS_SLOT`).
+  if (
+    (event?.kind === "cardPlayed" || event?.kind === "cardBeingPlayed") &&
+    (event.paidCards?.length || event.paidInPlayCards?.length)
+  )
+    return {
+      bindings: {
+        ...(event.paidCards?.length ? { [PAID_CARDS_SLOT]: event.paidCards } : {}),
+        ...(event.paidInPlayCards?.length ? { [PAID_IN_PLAY_CARDS_SLOT]: event.paidInPlayCards } : {}),
+      },
+      vars: {},
+    };
   if (event?.kind !== "momentRaised" || (!event.carried && !event.carriedVars)) return NOTHING_CARRIED;
   return { bindings: prefixed(event.carried), vars: prefixed(event.carriedVars) };
 }

@@ -7,6 +7,7 @@ import { discardZoneFor, locateCard, mustCardOf, mustInstance, mustPlayer, scena
 import { attachedOnlyWhileInPlay, cardsInPlay, controllerOf, PLAYED_VIA_SLOT, printedAbilityRefs } from "../select.js";
 import {
   PAID_CARDS_SLOT,
+  PAID_IN_PLAY_CARDS_SLOT,
   paymentVarsIn,
   type Bindings,
   type StackFrame,
@@ -92,12 +93,14 @@ function entersExhausted(ctx: Ctx, frame: Frame<"playCard">): void {
 /** The play's interrupt window (`cardBeingPlayed`), opened only when something listens for it. */
 function openBeingPlayedWindow(ctx: Ctx, frame: Frame<"playCard">): void {
   const paidCards = frame.bindings[PAID_CARDS_SLOT];
+  const paidInPlayCards = frame.bindings[PAID_IN_PLAY_CARDS_SLOT];
   const beingPlayed: TriggerEvent = {
     kind: "cardBeingPlayed",
     instanceId: frame.instanceId,
     playerId: frame.playerId,
     ...playedFromOf(frame),
     ...(paidCards && paidCards.length > 0 ? { paidCards } : {}),
+    ...(paidInPlayCards && paidInPlayCards.length > 0 ? { paidInPlayCards } : {}),
   };
   if (heard(ctx.state, ctx.deps, beingPlayed)) pushEvent(ctx, beingPlayed);
 }
@@ -336,6 +339,7 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
       // you play Spectrum, tuck 1 card used to pay for her under her".
       const payment = paymentVarsIn(frame.vars);
       const paidCards = frame.bindings[PAID_CARDS_SLOT];
+      const paidInPlayCards = frame.bindings[PAID_IN_PLAY_CARDS_SLOT];
       // The card that played this one (`PLAYED_VIA_SLOT`), so an "after you play" ability can tell how it was played
       // once the play frame is gone (`EventPattern.playedVia`, docs/phase7-wave11.md §3.9).
       const via = frame.bindings[PLAYED_VIA_SLOT]?.[0];
@@ -346,6 +350,7 @@ export function executePlayCardFrame(ctx: Ctx, frame: Frame<"playCard">): void {
         ...playedFromOf(frame),
         ...(Object.keys(payment).length > 0 ? { payment } : {}),
         ...(paidCards && paidCards.length > 0 ? { paidCards } : {}),
+        ...(paidInPlayCards && paidInPlayCards.length > 0 ? { paidInPlayCards } : {}),
         ...(via !== undefined ? { via } : {}),
       });
       return;

@@ -2327,6 +2327,7 @@ function executeChooseCards(
       slot: effect.slot,
       ...(limit ? { maxTotal: { of: limit.of, atMost: limit.atMost, values } } : {}),
       ...(facedown ? { facedown: true as const } : {}),
+      ...(effect.note !== undefined ? { note: effect.note } : {}),
     },
     // "Different cards" by name: the offered ids are one per name, so any selection is legal.
     options,

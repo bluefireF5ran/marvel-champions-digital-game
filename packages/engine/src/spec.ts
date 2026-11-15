@@ -3237,6 +3237,12 @@ export type EffectSpec =
        * no card logs no `searchFoundNothing` (`isOptionalSearch`). A filtered or whole-deck choice is a search anyway.
        */
       readonly search?: true;
+      /**
+       * A line for the player about what choosing does, copied to the prompt (`ChoicePrompt chooseCards.note`) for the
+       * client to show with the options: Spectrum's tuck (53018) warns that a card chosen from play leaves it ("A tucked
+       * card is out of play…"; RRG 1.8 "Tuck", p. 45; owner decision 2026-11-15, #525 item 11). Rules never read it.
+       */
+      readonly note?: string;
     }
   /**
    * Shuffle a player's deck (RRG "Search": searching any part of a deck shuffles it afterwards). `separateDeck`: that

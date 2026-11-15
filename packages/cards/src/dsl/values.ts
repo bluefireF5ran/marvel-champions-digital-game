@@ -5,6 +5,7 @@ import {
   DEFENDER_DEF_RESULT,
   labeledResolvedVar,
   PAID_CARDS_SLOT,
+  PAID_IN_PLAY_CARDS_SLOT,
   PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
   EXCESS_AS_DEALT_RESULT,
@@ -271,8 +272,8 @@ export const chosen = (slot: string): TargetRef => ({ kind: "slot", slot });
  * for a play, the engine's slot `paid.cards`. Read by the played card's own abilities while its play resolves, and by
  * an interrupt or response to the play (`when.youPlayCard`, `after.youPlayedCard`, …). They are the cards spent as
  * cards: discarded from a hand (another player's too, for an alliance card), or spent from under a Resource Reserve
- * (§3.46 (c)); a resource a "Resource" ability generated is not one (RRG 1.8 "Cost", p. 13), a card whose every
- * resource was overpaid is not one, and at a cost of 0 there is none. Each is read where it is now, usually a discard
+ * (§3.46 (c)); a card in play whose "Resource" ability paid is not one here but in `paidInPlayCards`, a card whose
+ * every resource was overpaid is not one, and at a cost of 0 there is none. Each is read where it is now, usually a discard
  * pile: count them with `refCount(paidCards)` or `countInRef`, read their icons with `totalPrintedResources`, choose
  * among those still in a discard pile with `chooseCards(slot, zone("discard", eachPlayer, { filter: { inSlot: PAID_CARDS } }), …)`.
  * Nothing paid, or the card was put into play without being played: the slot is empty.
@@ -280,6 +281,13 @@ export const chosen = (slot: string): TargetRef => ({ kind: "slot", slot });
 export const paidCards: TargetRef = { kind: "slot", slot: PAID_CARDS_SLOT };
 /** The slot `paidCards` reads, for a query's `inSlot`. */
 export const PAID_CARDS = PAID_CARDS_SLOT;
+/**
+ * The cards in play whose "Resource" ability paid for a play, the engine's slot `paid.inPlayCards` (owner decision
+ * 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025: "you can use a resource
+ * ability to pay for Spectrum and then tuck that card under her"). Carried as `paidCards` is, and never counted in
+ * `paid.cards.<cardType>`. Each is read where it is now: usually still in play.
+ */
+export const paidInPlayCards: TargetRef = { kind: "slot", slot: PAID_IN_PLAY_CARDS_SLOT };
 /** The card that caused the triggering event ("that enemy" after it attacks). */
 export const eventSource: TargetRef = { kind: "eventSource" };
 /**
