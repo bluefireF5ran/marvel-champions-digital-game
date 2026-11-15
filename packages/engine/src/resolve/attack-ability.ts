@@ -77,25 +77,29 @@
  * - **A stunned identity is not this case**: its whole ability is cancelled by the status card first (p. 26,
  *   `labelCancels`), as before.
  *
- * **All damage of the attack prevented** (`modifyAttack.preventAllDamage` in a player attack's "when … attacks"
- * window: "Preparation: Prevent all damage from this attack"; docs/phase7-wave9.md §3.4, owner decision §4.1 Q4 = A:
- * with several targets, "this attack" is the whole attack). Official text: p. 10, "An ability labeled as an attack is
- * considered a single attack, even if that attack deals multiple instances of damage"; RRG 1.8 "Prevent" (p. 35). The
- * flag is on the `attack` event whose window it was set in, and every instance dealt with that frame as its parent
- * reads it: its own damage, and the damage of the ability's later instructions while it waits. When the ability makes
- * more than one `attack` event (one per enemy of "attack each enemy"), its root frame remembers the prevented one
- * (`attackDamagePrevented`, `preventAbilityAttackDamage`) and the damage of the others is prevented with it
- * (`attackPreventingDamage`). Unlike a cancelled attack, a prevented one still attacks: every enemy named is attacked
- * and retaliates, "after … attacks" answers, and its `damage` result is 0. This engine's interpretation, with its
- * alternatives:
+ * **All damage of the attack prevented, to the character it protects** (`modifyAttack.preventAllDamage` in a player
+ * attack's "when … attacks" window: "Preparation: Prevent all damage from this attack"; docs/phase7-wave9.md §3.4).
+ * Owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4 = A; ruling Jul 11, 2025 ("Like Temporal Shield
+ * preventing just the damage dealt to Kang, Attacrobatics only prevents the damage that would be dealt to Black Widow
+ * during the attack"), ruling Mar 22, 2024 (155), ruling Jan 17, 2026 (3) ("prevent damage" prevents damage taken),
+ * RRG 1.8 "Prevent" (p. 35): with several targets, only the damage to the character the attack is against is
+ * prevented; the ability's damage to every other character is dealt as written. The flag is on the `attack` event
+ * whose window it was set in, and every instance dealt with that frame as its parent reads it: its own damage, and the
+ * damage of the ability's later instructions while it waits. When the ability makes more than one `attack` event (one
+ * per enemy of "attack each enemy"), its root frame remembers the prevented one (`attackDamagePrevented`,
+ * `preventAbilityAttackDamage`), and later damage of the ability to that event's target is prevented with it
+ * (`attackPreventingDamage`, `protectsTarget`). The protected character is the event's target as the damage is dealt
+ * (after any move in its window); a player attack that names no character yet, and an enemy attack, protect every
+ * instance. Unlike a cancelled attack, a prevented one still attacks: every enemy named is attacked and retaliates,
+ * "after … attacks" answers, and its `damage` result is 0 for the protected character. This engine's interpretation,
+ * with its alternatives:
  *
- * - **Damage already dealt stays dealt**: an enemy of "each enemy" whose own event resolved before the one the
- *   prevention was asked in. Prevention replaces damage that would be taken (p. 35); it heals nothing.
+ * - **Damage already dealt stays dealt**: prevention replaces damage that would be taken (p. 35); it heals nothing.
  *   (Alternative: nothing; the damage is on the character.)
- * - **Separate attacks of one ability are prevented together** (two `attack` instructions), as a cancel stops both
- *   (row 65). (Alternative: only the attack asked, which is how "that attack deals N additional damage" is read,
- *   Q53, on p. 10's "only increases the damage of one of that ability's attacks"; not built, since Q4 = A makes
- *   "this attack" the ability's whole attack.)
+ * - **Separate attacks of one ability against the protected character are prevented together** (two `attack`
+ *   instructions), as a cancel stops both (row 65). (Alternative: only the attack asked, which is how "that attack
+ *   deals N additional damage" is read, Q53, on p. 10's "only increases the damage of one of that ability's
+ *   attacks"; not built.)
  * - **An attack with no `attackOf`** (an ally's, an unlabeled ability's, each share of a divided basic attack) is one
  *   event per enemy with nothing joining them, as everywhere else in this file: only the event asked is prevented.
  *
@@ -268,7 +272,9 @@
  *   each minion engaged with you", with `to` a minion now engaged: it takes the villain's share once). That covers a
  *   later damage instruction and the other events of an `attack` instruction that names several enemies (one event per
  *   enemy; `skippedWithRetargetedAttack`). Before the decision only the attack on `from` moved and the other enemies
- *   were attacked as written; to return to that (answer B), `retargetAbilityAttack` is the one place to change.
+ *   were attacked as written; to return to that (answer B), `retargetAbilityAttack` is the one place to change. The
+ *   owner decision of 2026-11-15 (#525 item 10) replaced Q4 only for prevention (above, "All damage of the attack
+ *   prevented"); the move stays whole.
  *   Interpretations: **damage already dealt stays dealt** (an enemy of "each enemy" whose own event resolved before the
  *   one that was moved), as for a prevented attack; **a later `attack` instruction that names `from` again** makes its
  *   event against `from` as written, with its own window (no shipped card; not built); **an attack with no
@@ -481,14 +487,29 @@ export function preventAbilityAttackDamage(ctx: Ctx, attackFrameId: FrameId, bin
 export function attackPreventingDamage(state: GameState, damage: Damage): Frame<"event"> | undefined {
   const parent = damage.parentFrameId ? findFrame(state, damage.parentFrameId) : undefined;
   if (parent?.kind !== "event") return undefined;
-  if ((parent.vars.preventAllDamage ?? 0) > 0) return parent;
+  if ((parent.vars.preventAllDamage ?? 0) > 0) return protectsTarget(parent, damage) ? parent : undefined;
   if (parent.event.kind !== "attack" || parent.attackOf === undefined) return undefined;
   const root = findFrame(state, parent.attackOf);
   const prevented =
     root?.kind === "effects" && root.attackDamagePrevented !== undefined
       ? findFrame(state, root.attackDamagePrevented)
       : undefined;
-  return prevented?.kind === "event" && (prevented.vars.preventAllDamage ?? 0) > 0 ? prevented : undefined;
+  return prevented?.kind === "event" && (prevented.vars.preventAllDamage ?? 0) > 0 && protectsTarget(prevented, damage)
+    ? prevented
+    : undefined;
+}
+
+/**
+ * Whether the prevented attack `prevented` protects the character `damage` would be dealt to: on a player attack, only
+ * the character that attack is against as the damage is dealt (its event's target, after any move in its window), so
+ * the damage the same ability deals to anyone else is dealt as written (file header, "All damage of the attack
+ * prevented"; owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul 11, 2025). A player attack
+ * that names no character yet, and an enemy attack (one defender, whoever defends), protect every instance.
+ */
+function protectsTarget(prevented: Frame<"event">, damage: Damage): boolean {
+  if (prevented.event.kind !== "attack") return true;
+  const target = prevented.event.targetInstanceId;
+  return target === null || target === damage.targetInstanceId;
 }
 
 /**

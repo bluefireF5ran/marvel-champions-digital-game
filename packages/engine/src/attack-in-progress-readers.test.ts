@@ -574,23 +574,23 @@ describe("§3.4 `modifyAttack { preventAllDamage, bind }` on a player's attack",
   });
 });
 
-describe("§3.4, Q4 = A: an attack with several targets is prevented whole", () => {
-  it("one attack, two damage instructions (3 to the villain, 3 to each minion): every instance is prevented", () => {
+// Owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul 11, 2025 ("Like Temporal Shield preventing
+// just the damage dealt to Kang, Attacrobatics only prevents the damage that would be dealt to Black Widow during the
+// attack"); RRG 1.8 "Prevent" (p. 35): only the damage to the character the attack is against is prevented.
+describe("§3.4: an attack with several targets is prevented only for the character it protects", () => {
+  it("one attack, two damage instructions (3 to the villain, 3 to each minion): only the villain's 3 is prevented", () => {
     const t = table({ top: ACRO, goon: true });
     const { state, events } = play(t, SWEEP);
 
     expect(damageOn(state, t.villain)).toBe(0);
-    expect(damageOn(state, t.goon!)).toBe(0);
-    expect(preventions(events)).toEqual([
-      [t.villain, 3, "effect"],
-      [t.goon, 3, "effect"],
-    ]);
-    // Both were attacked: retaliate 1 from each. Then "that much": the 3 it would have dealt the villain, not 6.
+    expect(damageOn(state, t.goon!)).toBe(3);
+    expect(preventions(events)).toEqual([[t.villain, 3, "effect"]]);
+    // Both were attacked: retaliate 1 from each. Then "that much": the 3 prevented on the villain.
     expect(attackedCharacters(events)).toEqual([t.villain, t.goon]);
     expect(damageOn(state, t.hero)).toBe(1 + 1 + 3);
     expect(counter(state, "preventedAmount")).toBe(3);
-    expect(counter(state, "preventedTotal")).toBe(6);
-    expect(counter(state, "afterDamage")).toBe(0);
+    expect(counter(state, "preventedTotal")).toBe(3);
+    expect(counter(state, "afterDamage")).toBe(1);
   });
 
   it("without the Preparation the same attack deals 3 to each", () => {
@@ -602,19 +602,16 @@ describe("§3.4, Q4 = A: an attack with several targets is prevented whole", () 
     expect(damageOn(state, t.hero)).toBe(1 + 1);
   });
 
-  it("an `attack` effect against each enemy (one event per enemy): the other enemy's damage is prevented with the villain's", () => {
+  it("an `attack` effect against each enemy (one event per enemy): the other enemy's damage is dealt", () => {
     const t = table({ top: ACRO, goon: true });
     const { state, events } = play(t, VOLLEY);
 
     expect(damageOn(state, t.villain)).toBe(0);
-    expect(damageOn(state, t.goon!)).toBe(0);
-    expect(preventions(events)).toEqual([
-      [t.villain, 3, "effect"],
-      [t.goon, 3, "effect"],
-    ]);
+    expect(damageOn(state, t.goon!)).toBe(3);
+    expect(preventions(events)).toEqual([[t.villain, 3, "effect"]]);
     expect(damageOn(state, t.hero)).toBe(1 + 1 + 3);
     expect(counter(state, "preventedAmount")).toBe(3);
-    expect(counter(state, "preventedTotal")).toBe(6);
+    expect(counter(state, "preventedTotal")).toBe(3);
   });
 });
 

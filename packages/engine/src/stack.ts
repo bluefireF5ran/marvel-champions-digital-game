@@ -746,10 +746,11 @@ export type StackFrame =
       readonly attackCancelled?: true;
       /**
        * On the root frame of an "(attack)"-labeled ability: all damage of the attack it makes with its controller's
-       * identity is prevented (`modifyAttack.preventAllDamage` in the window of one of its `attack` events, the frame
-       * named here; `preventAbilityAttackDamage`, `resolve/attack-ability.ts`). The ability is one attack (RRG 1.8
-       * "Attack (Player Ability Type)", p. 10), so the damage of its other `attack` events and of its damage
-       * instructions is prevented too (owner decision, docs/phase7-wave9.md §4.1 Q4 = A).
+       * identity to the character it protects is prevented (`modifyAttack.preventAllDamage` in the window of one of its
+       * `attack` events, the frame named here; `preventAbilityAttackDamage`, `resolve/attack-ability.ts`). The ability
+       * is one attack (RRG 1.8 "Attack (Player Ability Type)", p. 10), so the damage its other `attack` events and its
+       * damage instructions deal to that frame's target is prevented too; damage to anyone else is not (owner decision
+       * 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul 11, 2025).
        */
       readonly attackDamagePrevented?: FrameId;
       /**

@@ -2457,13 +2457,12 @@ export type EffectSpec =
        * while the attack is on the stack. Damage something else stopped first (a "cannot take damage" rule, a
        * "prevent all damage to X" constant) is not counted, and neither is damage the attack never dealt.
        *
-       * **An attack with several targets** (owner decision, docs/phase7-wave9.md §4.1 Q4 = A: "this
-       * attack" is the whole attack; RRG 1.8 "Attack (Player Ability Type)", p. 10: "An ability labeled as an attack is
-       * considered a single attack, even if that attack deals multiple instances of damage"): on a player attack made
-       * by an "(attack)" ability with its controller's identity, the prevention reaches every instance of damage the
-       * ability deals as that attack from then on, whichever of its `attack` events or damage instructions deals it
-       * and to whichever enemy (`preventAbilityAttackDamage`). Damage the attack dealt before this effect resolved
-       * stays dealt (an earlier enemy of "attack each enemy", whose own event resolved first).
+       * **An attack with several targets** (owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul
+       * 11, 2025: Attacrobatics "only prevents the damage that would be dealt to Black Widow during the attack"; RRG
+       * 1.8 "Prevent", p. 35): on a player attack, only the damage to the character the attack is against is prevented,
+       * whichever of the ability's `attack` events or damage instructions deals it (`preventAbilityAttackDamage`,
+       * `attackPreventingDamage`); its damage to every other character is dealt as written, so `<bind>.amount` and
+       * `<bind>.total` agree on such an attack. Damage the attack dealt before this effect resolved stays dealt.
        */
       readonly bind?: string;
       /**

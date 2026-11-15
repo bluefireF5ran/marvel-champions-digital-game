@@ -61,7 +61,8 @@ vi.setConfig({ testTimeout: 300_000 });
  *   Automated Defenses both granting a Preparation, the attacker ordering them; Stun Net attaching and any player
  *   discarding it.
  * - C (expert, solo): stage II to III; Attacrobatics' expert clause; A.I.M. Commando's Preparation answered by
- *   quickstrike; A.I.M. Grunt taking the whole attack (January 17, 2026 - Ruling 2, Q4 = A).
+ *   quickstrike; A.I.M. Grunt taking the whole attack (January 17, 2026 - Ruling 2, Q4 = A, kept for a move; prevention is
+ *   scoped to her by the owner decision 2026-11-15, #525 item 10).
  * - D (solo): the loss by the main scheme.
  *
  * The tally of what the games leave unproven is at the end of the file (`it.todo`).
