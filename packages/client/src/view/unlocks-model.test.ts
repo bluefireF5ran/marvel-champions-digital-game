@@ -134,7 +134,7 @@ describe("taps", () => {
       expect(hero.confirmLabel).toBe("Gastar 150");
       expect(hero.body).toBe(
         "Cuesta 150 de tus 750 puntos de campeón; te quedarán 600. Si lo desactivas más tarde, no se te devolverán. " +
-          "O vence a Ultron para desbloquear a Thor gratis y sumar puntos por la victoria. " +
+          "O vence a Ultron para desbloquear a Thor gratis y ganar puntos por la victoria. " +
           "Esto es para el mazo preconstruido de Thor: si importas o creas un mazo de Thor, ya puedes jugarlo.",
       );
       expect(confirmOf(rich(), { kind: "everything" }).confirmLabel).toBe("Desbloquear todo");

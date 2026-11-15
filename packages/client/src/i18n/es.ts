@@ -116,7 +116,7 @@ export const es: Readonly<Partial<Record<keyof typeof en, string>>> = {
   "scenario.foeHp": "Vida del {foe}",
   "scenario.varies": "Variable",
   "scenario.encounterSets": "Conjuntos de encuentros",
-  "scenario.encounterSetsCell": "Encuentros",
+  "scenario.encounterSetsCell": "Modulares",
   "scenario.modularSets": "Conjuntos modulares",
   "scenario.recommendedModular": "Modular recomendado",
   "scenario.none": "Ninguno.",
@@ -155,7 +155,7 @@ export const es: Readonly<Partial<Record<keyof typeof en, string>>> = {
   "unlock.captionOrPts": "{short} · o {cost} pts",
   "unlock.everythingTitle": "¿Desbloquear todo gratis?",
   "unlock.everythingBody":
-    "Se abren todas las oleadas, Héroes, escenarios y campañas, sin ningún coste. Los puntos de campeón se desactivan mientras esté activo. Desactívalo en Opciones ▸ Desbloqueos para volver a ganarlos y gastarlos; lo que hayas ganado no se pierde.",
+    "Se abren todos los ciclos, Héroes, escenarios y campañas, sin ningún coste. Los puntos de campeón se desactivan mientras esté activo. Desactívalo en Opciones ▸ Desbloqueos para volver a ganarlos y gastarlos; lo que hayas ganado no se pierde.",
   "unlock.everything": "Desbloquear todo",
   "unlock.notEnough": "No tienes suficientes puntos de campeón",
   "unlock.notEnoughCost": "Desbloquear {name} cuesta {cost} puntos, y tienes {have}.",
@@ -171,8 +171,8 @@ export const es: Readonly<Partial<Record<keyof typeof en, string>>> = {
   "unlock.openByHand": "¿Abrir {name} con puntos?",
   "unlock.thisHero": "este Héroe",
   "unlock.thisCampaign": "esta campaña",
-  "unlock.itsWave": "su oleada",
-  "unlock.freeHero": "{hint} para desbloquear a {name} gratis y sumar puntos por la victoria",
+  "unlock.itsWave": "su ciclo",
+  "unlock.freeHero": "{hint} para desbloquear a {name} gratis y ganar puntos por la victoria",
   "unlock.freeCampaign": "{hint} para abrirla gratis",
   "unlock.freeScenario": "{lock}, gratis",
   "unlock.noteHero":
