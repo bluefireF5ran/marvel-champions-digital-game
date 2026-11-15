@@ -93,9 +93,12 @@ const EACH_OF_YOUR_CHARACTERS_IS_X_FORCE = not(
  * player's control like any put-into-play card (so the ally limit and unique rule apply), as playing it would (RRG 1.8
  * "Play, Put into Play", p. 32): an upgrade goes on its player's identity, or on the host its "attach to" text names
  * (that player chooses when several are legal; with none it stays where it was, RRG 1.8 "Attach To", p. 8).
- * Only a card that can enter play under that player is offered: a unique card already in play, a "Max 1 per player"
- * copy that player already controls, or a card a "cannot enter play" effect names is left out, as for Winter, Widow,
- * Soldier, Spy (owner Q37 = A; RRG 1.8 "Target", p. 43; "Max", p. 28; "Unique", p. 45).
+ * Only a card the put into play would not refuse is offered (`canEnterPlay`): a unique card already in play, a "Max 1
+ * per player" copy that player already controls, a card a "cannot enter play" effect names, or an upgrade with no legal
+ * host (Sidearm with no ally to take it) is left out, as for Winter, Widow, Soldier, Spy (owner Q37 = A; RRG 1.8
+ * "Target", p. 43; "Max", p. 28; "Unique", p. 45; "Attach To", p. 8). A "Play under any player's control" card is
+ * offered when it could enter under any player, as its finder chooses who controls it (FFG ruling Nov 21, 2025:
+ * Build Support finding Boot Camp).
  */
 const eachPlayerMaySearchFor = (kind: Parameters<typeof query>[0], opts: Parameters<typeof query>[1] = {}) =>
   forEachPlayer(
@@ -130,8 +133,8 @@ const eachPlayerMaySearchFor = (kind: Parameters<typeof query>[0], opts: Paramet
  *   threat per player is data. When Defeated resolves as the scheme leaves the limit (owner rulings,
  *   docs/phase7-wave7.md §4.1); a scheme discarded by the limit, or never defeated, never resolves it.
  * - **Lock and Load (40019)**: its When Defeated finds a WEAPON upgrade costing 3 or less. Psimitar and Plasma Rifle
- *   go on the finder's identity; Sidearm ("attach to an ally") on an ally, and stays in the deck when no ally is in
- *   play. Restricted is checked as the upgrade enters play.
+ *   go on the finder's identity; Sidearm ("attach to an ally") on an ally, and is not offered when no ally can take
+ *   it. Restricted is checked as the upgrade enters play.
  * - **E.V.A. (40021)**: discarded when Fantomex is not in play, a standing condition (RRG 1.8 "Ability", p. 4, constant
  *   abilities), so an E.V.A. that enters play with no Fantomex is discarded immediately, before any interrupt or
  *   response to her entering play is offered (`stateCheckFromEntering`; owner ruling, docs/phase7-wave7.md §4.1).

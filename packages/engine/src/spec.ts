@@ -285,11 +285,19 @@ export interface TargetQuery {
    * honored. The candidate is a card out of play; one already in play never matches itself. The player is whose area
    * it would enter; a ref naming nobody checks against every area. A card a `RuleSpec cannotEnterPlay` names is not
    * offered either (docs/phase7-wave8.md §3.43), nor is another copy of a "Max N per player" card that player already
-   * controls (RRG 1.8 "Max, Maximum", p. 28; docs/phase7-wave9.md §4.1 Q37 = A).
+   * controls (RRG 1.8 "Max, Maximum", p. 28; docs/phase7-wave9.md §4.1 Q37 = A), nor an upgrade with no legal host
+   * under that player (RRG 1.8 "Attach To", p. 8). A card printed "Play under any player's control" is offered when it
+   * could enter under any player still in the game, as the `putIntoPlay` that follows lets its player choose
+   * (FFG ruling Nov 21, 2025), unless `canEnterPlayControllerStated`. The decision is `canBePutIntoPlay`.
    *
    * It narrows a choice only: the effect still refuses a matching card on its own.
    */
   readonly canEnterPlay?: PlayerRef;
+  /**
+   * With `canEnterPlay`: the `putIntoPlay` that follows states the controller (`putIntoPlay.controllerStated`, "put it
+   * into play under their control"), so a "Play under any player's control" card is read under that player alone.
+   */
+  readonly canEnterPlayControllerStated?: true;
   /**
    * "Flip 1 [card]" as a choice, "you may flip this card": only a card no `cannotFlip` rule names (`rules.ts`
    * `cannotFlip`, the decision the `flipCard` effect makes as it applies; docs/phase7-wave7.md §3.64). RRG 1.8
