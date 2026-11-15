@@ -13,6 +13,7 @@ import {
   draw,
   eventAmount,
   eventSource,
+  eventSourceEnemy,
   eventTarget,
   exhaustThis,
   heroAction,
@@ -116,9 +117,10 @@ export const BKW_PACK_CARDS = defineAbilities({
   // deal an equal amount of damage to that enemy. Same shape as Core's own "Counter-Punch" (01077,
   // `core/aspects/protection.ts`): a real `attack` effect, not plain damage, since the ability is "(attack)"-labeled.
   "08030.counterattack-response": heroResponse(
-    after.damage(YOUR_IDENTITY, { fromAttack: true, taken: true }),
+    // "From an enemy attack": Gamora's Old Rivals attack is not one (ruling Oct 26, 2023 (102); owner decision 2026-11-15, #525 item 1).
+    after.damage(YOUR_IDENTITY, { fromAttack: true, fromEnemy: true, taken: true }),
     { label: "attack", cost: discardThis },
-    attack(eventAmount, eventSource),
+    attack(eventAmount, eventSourceEnemy),
   ),
 
   // Rapid Response — Hero Response: After an ally you control is defeated, discard Rapid Response → put that ally

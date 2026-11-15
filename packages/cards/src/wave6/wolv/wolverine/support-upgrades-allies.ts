@@ -82,7 +82,8 @@ export const WOLVERINE_SUPPORT_UPGRADES_ALLIES = defineAbilities({
   ),
 
   "35005.berserker-frenzy-response": heroResponse(
-    after.damage(YOUR_IDENTITY, { fromAttack: true, taken: true }),
+    // "From an enemy attack" (Gamora's Old Rivals is not one; ruling Oct 26, 2023 (102), #525 item 1).
+    after.damage(YOUR_IDENTITY, { fromAttack: true, fromEnemy: true, taken: true }),
     draw(1),
   ),
   "35005.berserker-frenzy-forced-response": forcedResponse(

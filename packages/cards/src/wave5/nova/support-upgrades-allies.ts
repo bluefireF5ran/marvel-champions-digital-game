@@ -253,6 +253,8 @@ export const NOVA_SUPPORT_UPGRADES_ALLIES = defineAbilities({
       target: YOUR_IDENTITY,
       amount: 1,
       fromAttack: true,
+      // "From each enemy attack": Gamora's Old Rivals is not one (ruling Oct 26, 2023 (102), #525 item 1).
+      onlyAttacker: query("enemy"),
       while: youHaveTrait(AERIAL),
     }),
   ),
