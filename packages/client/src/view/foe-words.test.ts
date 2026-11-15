@@ -57,8 +57,10 @@ describe("foeWord in Spanish", () => {
 
   test("keeps the game term capitalized, even where English lowers it", () => {
     useSpanish();
-    expect(foeWord(rhino)).toBe("Villano");
-    expect(foeWord(rhino, { lower: true })).toBe("Villano");
-    expect(foeWord(ironMan, { plural: true })).toBe("Líderes");
+    expect(foeWord(rhino, { lang: "es" })).toBe("Villano");
+    expect(foeWord(rhino, { lang: "es", lower: true })).toBe("Villano");
+    expect(foeWord(ironMan, { lang: "es", plural: true })).toBe("Líderes");
+    // Asked for no language, it stays English, so the log and the board don't pick up Spanish words.
+    expect(foeWord(rhino, { lower: true })).toBe("villain");
   });
 });

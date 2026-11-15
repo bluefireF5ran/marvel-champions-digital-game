@@ -44,7 +44,9 @@
  * Pure: no storage, no Phaser. `progression.ts` owns the cache and the saved preferences.
  */
 import { isCustomCardCode, type Scenario } from "@mc/content";
+import type { CardLanguage } from "../art/card-language.js";
 import { t } from "../i18n/translate.js";
+import { artLanguageNow } from "../art/art-source.js";
 import { CARDS_BY_ID, POOL_HERO_SHELF_PACKS, POOL_SCENARIOS, POOL_STARTER_DECKS } from "../content/pool.js";
 import { SAGA_VOLUMES } from "../campaign/story.js";
 import { cardDisplayName } from "../view/hero-names.js";
@@ -408,12 +410,16 @@ export function villainLabelOf(scenarioId: string): string {
 }
 
 /** A gate in words: "Beat Rhino", "Complete the Sinister Motives campaign". */
-export function gateHintOf(gate: UnlockGate): string {
-  if (gate.kind === "scenarioWin") return t("unlock.beat", { villain: villainLabelOf(gate.scenarioIds[0]!) });
+export function gateHintOf(gate: UnlockGate, lang: CardLanguage = artLanguageNow()): string {
+  if (gate.kind === "scenarioWin") {
+    return t("unlock.beat", { villain: villainLabelOf(gate.scenarioIds[0]!) }, lang);
+  }
   // English prints "Complete The Rise of Red Skull campaign", not "the The Rise".
-  return t(gate.campaign.startsWith("The ") ? "unlock.completeCampaignThe" : "unlock.completeCampaign", {
-    campaign: gate.campaign,
-  });
+  return t(
+    gate.campaign.startsWith("The ") ? "unlock.completeCampaignThe" : "unlock.completeCampaign",
+    { campaign: gate.campaign },
+    lang,
+  );
 }
 
 /** A gate in few words, for a locked tile: "Beat Rhino", "Finish Age of Apocalypse" (no leading "The"). */
@@ -482,6 +488,8 @@ export interface WaveStatus {
   readonly unlocked: boolean;
   /** "Beat Rhino to unlock Wave 1" while locked; null once open. Worded in the language current when it is read. */
   readonly lockReason: string | null;
+  /** `lockReason` in a given language, for a screen that wraps it in English text of its own. */
+  lockReasonIn(lang: CardLanguage): string | null;
 }
 
 export interface PointsTally {
@@ -535,7 +543,12 @@ export class Unlocks {
             unlocked,
             // Read on demand, so a language switch rewords it.
             get lockReason() {
-              return unlocked || !gate ? null : t("unlock.toUnlock", { hint: gateHintOf(gate), name: wave.name });
+              return this.lockReasonIn(artLanguageNow());
+            },
+            lockReasonIn(lang: CardLanguage) {
+              return unlocked || !gate
+                ? null
+                : t("unlock.toUnlock", { hint: gateHintOf(gate, lang), name: wave.name }, lang);
             },
           },
         ];
@@ -561,9 +574,9 @@ export class Unlocks {
    * Null when the wave is open. A cycle missing from `UNLOCK_WAVES` is treated as open rather than silently hiding
    * content; `unlocks.test.ts` keeps every pool wave listed.
    */
-  waveLock(cycleId: string | undefined): string | null {
+  waveLock(cycleId: string | undefined, lang: CardLanguage = artLanguageNow()): string | null {
     if (cycleId === undefined) return null;
-    return this.#waves.get(cycleId)?.lockReason ?? null;
+    return this.#waves.get(cycleId)?.lockReasonIn(lang) ?? null;
   }
 
   /**
@@ -658,10 +671,10 @@ export class Unlocks {
   }
 
   /** Null when the campaign box's wave is open. The Saga's own volume order still applies unless opened by hand. */
-  campaignLock(campaignId: string): string | null {
+  campaignLock(campaignId: string, lang: CardLanguage = artLanguageNow()): string | null {
     if (this.campaignManual(campaignId)) return null;
     const wave = waveOfCampaign(campaignId);
-    return wave ? this.waveLock(wave.cycleId) : null;
+    return wave ? this.waveLock(wave.cycleId, lang) : null;
   }
 
   /** Whether the player has the points `target` costs. Spending never takes the total below zero. */

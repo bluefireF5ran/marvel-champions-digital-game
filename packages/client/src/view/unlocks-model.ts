@@ -363,5 +363,5 @@ export function unlocksSummaryOf(unlocks: Unlocks): string {
     unlocks.prefs.campaignIds.filter((id) => !unlocks.campaignEarned(id)).length;
   const parts = [points, `${open} of ${waves.length} waves open`];
   if (byHand > 0) parts.push(`${byHand} unlocked by hand`);
-  return `${parts.join(" · ")}.${next?.lockReason ? ` Next: ${next.lockReason}.` : ""}`;
+  return `${parts.join(" · ")}.${next?.lockReasonIn("en") ? ` Next: ${next.lockReasonIn("en")}.` : ""}`;
 }

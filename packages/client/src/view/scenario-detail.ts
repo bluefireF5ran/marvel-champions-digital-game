@@ -19,6 +19,7 @@
  */
 import type { AnyCard, CardId, EncounterSet, ScalingValue, Scenario, VillainStage } from "@mc/content";
 import { pooledModularShortSummary, pooledModularSummary } from "./modular-summary.js";
+import type { CardLanguage } from "../art/card-language.js";
 import { t } from "../i18n/translate.js";
 import { foeWord } from "./foe-words.js";
 import { hasRandomVillain, randomVillainLabel } from "./random-villain.js";
@@ -107,6 +108,8 @@ export function scenarioDetailOf(
   scenario: Scenario,
   cardsById: ReadonlyMap<string, AnyCard>,
   encounterSets: readonly EncounterSet[],
+  /** The language of the words it builds in (the Villain/Leader word, a random villain's label). English unless the screen is translated. */
+  lang: CardLanguage = "en",
 ): ScenarioDetail {
   const sets = new Map(encounterSets.map((set) => [set.id as string, set]));
   const villain = cardsById.get(scenario.villainCardId as string);
@@ -132,7 +135,7 @@ export function scenarioDetailOf(
     .map((id) => cardsById.get(id as string)?.name ?? (id as string));
 
   const setNames = new Map(encounterSets.map((set) => [set.id as string, set.name]));
-  const randomLabel = randomVillainLabel(scenario, cardsById, setNames);
+  const randomLabel = randomVillainLabel(scenario, cardsById, setNames, lang);
   const villainIsRandom = hasRandomVillain(scenario);
   const villainName = randomLabel ?? side.name;
   const displayName = villainIsRandom
@@ -154,7 +157,7 @@ export function scenarioDetailOf(
     scenarioName: scenario.name,
     packCode: scenario.packCode as string,
     villainName,
-    foeWord: foeWord(scenario, { cardsById }),
+    foeWord: foeWord(scenario, { cardsById, lang }),
     villainIsRandom,
     displayName,
     tileTitle: titledByScenario ? scenario.name : displayName,

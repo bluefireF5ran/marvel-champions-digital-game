@@ -69,9 +69,20 @@ export function tPlural(
   params?: Params,
   lang: CardLanguage = artLanguageNow(),
 ): string {
+  return pluralFrom(CATALOGS[lang], lang, base, count, params);
+}
+
+/** `tPlural` over one catalog: the form `lang`'s rule picks, else the catalog's `_other`, else English in English's own form. */
+export function pluralFrom(
+  catalog: PartialCatalog,
+  lang: string,
+  base: PluralBase,
+  count: number,
+  params?: Params,
+): string {
   const form = new Intl.PluralRules(lang).select(count) === "one" ? "one" : "other";
-  const catalog = CATALOGS[lang];
-  const text = catalog[`${base}_${form}`] ?? catalog[`${base}_other`] ?? en[`${base}_${form}`];
+  const englishForm = new Intl.PluralRules("en").select(count) === "one" ? "one" : "other";
+  const text = catalog[`${base}_${form}`] ?? catalog[`${base}_other`] ?? en[`${base}_${englishForm}`];
   return fill(text, { ...params, count });
 }
 

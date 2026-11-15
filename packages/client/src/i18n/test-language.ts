@@ -13,5 +13,5 @@ export function useSpanish(): void {
 /** For an `afterEach`: back to English and the build's real languages. */
 export function useEnglish(): void {
   setArtLanguage("en");
-  vi.unstubAllGlobals();
+  delete (globalThis as { __CARD_LANGS__?: string }).__CARD_LANGS__;
 }

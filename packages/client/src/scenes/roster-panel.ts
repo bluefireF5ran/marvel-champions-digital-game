@@ -111,7 +111,10 @@ export function drawSearchField(
   stops: Map<string, FocusStop>,
 ): McTextInput {
   const input = existing ?? new McTextInput(scene, { rect, value, placeholder, onChange });
-  if (existing) existing.layout(rect);
+  if (existing) {
+    existing.layout(rect);
+    existing.setPlaceholder(placeholder);
+  }
   stops.set(stopId, { rect, activate: () => input.focus() });
   return input;
 }

@@ -28,7 +28,8 @@ export function waveGuideLines(): string[] {
     const rewards = wave.heroRewards
       .map((r) => `${heroName(r.identityCardId)} for ${villainLabelOf(r.scenarioId)}`)
       .join("; ");
-    const hint = gateHintOf(wave.gate);
+    // English: the guide is not translated, and its search index is built in a worker.
+    const hint = gateHintOf(wave.gate, "en");
     const opens = `${hint.charAt(0).toLowerCase()}${hint.slice(1)}`;
     return `${wave.name}: ${opens}.${cast}${rewards ? ` Then, a villain each: ${rewards}.` : ""}`;
   });

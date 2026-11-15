@@ -102,6 +102,7 @@ import { SCENES } from "./keys.js";
 import type { SeatsData } from "./seats.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
+import { artLanguageNow } from "../art/art-source.js";
 import { t, tPlural } from "../i18n/translate.js";
 import { onLanguageChange } from "../language-change.js";
 import { refreshUnlocks, unlocks } from "../progression/progression.js";
@@ -396,7 +397,9 @@ export class ScenarioSelectScene extends Phaser.Scene {
 
     // "Customize this scenario": only on a ready-made Civil War scenario (inert until one is in the pool).
     const customize = customizeEntryOf(scenario);
-    const detail = scenario ? scenarioDetailOf(scenario, currentCardsById(), currentEncounterSets()) : null;
+    const detail = scenario
+      ? scenarioDetailOf(scenario, currentCardsById(), currentEncounterSets(), artLanguageNow())
+      : null;
     // The real wrapped line count against the panel's own text width, not a raw string count — a fixed
     // per-string budget clipped a long line against a ~300px side panel.
     const detailTextWidth = detailPanelWidthFor(width, height) - DETAIL_TEXT_PAD;
@@ -881,7 +884,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       picture?.url ??
       (villainCard ? artFor(villainCard, { kind: "villainStage", sideIndex: 0, stageIndex: 0 }) : null)?.url ??
       null;
-    const cardDetail = scenarioDetailOf(s, currentCardsById(), currentEncounterSets());
+    const cardDetail = scenarioDetailOf(s, currentCardsById(), currentEncounterSets(), artLanguageNow());
     const subtitle = shelfSubtitleOf(cardDetail);
     const selected = this.#scenarioPicked() && this.#draft.scenarioId === (s.id as string);
     // A locked scenario stays selectable, so its stages can be read ahead of time; only "Choose heroes" refuses it.
@@ -1283,7 +1286,9 @@ export class ScenarioSelectScene extends Phaser.Scene {
         optionId: s.id as string,
         label: s.multipleVillains
           ? t("scenario.playThis")
-          : t("scenario.playFoe", { foe: foeWord(s, { cardsById: currentCardsById(), lower: true }) }),
+          : t("scenario.playFoe", {
+              foe: foeWord(s, { cardsById: currentCardsById(), lower: true, lang: artLanguageNow() }),
+            }),
       },
     });
   }

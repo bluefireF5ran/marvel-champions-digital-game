@@ -12,6 +12,7 @@ import { introArtFor, ART_CATALOG } from "../art/scenario-art.js";
 import type { ComicBeat } from "../campaign/story.js";
 import { scenarioIntroFor, type ScenarioIntro } from "../campaign/scenario-intros.js";
 import { t } from "../i18n/translate.js";
+import { onLanguageChange } from "../language-change.js";
 import { appSession } from "../session.js";
 import { ink, surface, typeRole } from "../tokens.js";
 import { campaignFrame } from "../ui/campaign-chrome.js";
@@ -105,7 +106,12 @@ export class ScenarioIntroScene extends Phaser.Scene {
         },
       },
     });
+    // A language switch (#390): SKIP, ONE-SHOT and BACK read again in the new language.
+    const unsubscribeLanguage = onLanguageChange(() => {
+      if (this.sys.isActive()) this.#draw();
+    });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      unsubscribeLanguage();
       this.scale.off("resize", this.#draw, this);
       this.input.keyboard?.off("keydown", onArrow);
       this.#panTween?.stop();

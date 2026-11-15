@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARD_LANGUAGES } from "../art/card-language.js";
 import { en } from "./en.js";
-import { CATALOGS, fill, messageFrom, placeholdersOf, t, tPlural, type MessageKey } from "./translate.js";
+import { CATALOGS, fill, pluralFrom, messageFrom, placeholdersOf, t, tPlural, type MessageKey } from "./translate.js";
 
 describe("translated app text (#390)", () => {
   it("gives the picked language's message", () => {
@@ -23,6 +23,12 @@ describe("translated app text (#390)", () => {
 });
 
 describe("plural messages", () => {
+  it("falls back to English in English's own plural form, not the language's", () => {
+    // Russian calls 21 "one"; English calls it "other".
+    expect(pluralFrom({}, "ru", "scenario.wins", 21)).toBe("21 wins");
+    expect(pluralFrom({}, "ru", "scenario.wins", 1)).toBe("1 win");
+  });
+
   it("picks the singular for one and the plural otherwise, per language", () => {
     expect(tPlural("scenario.wins", 1, undefined, "en")).toBe("1 win");
     expect(tPlural("scenario.wins", 3, undefined, "en")).toBe("3 wins");
@@ -52,6 +58,12 @@ describe("every catalog against English", () => {
     it(`${lang} gives each plural message its _one and _other together`, () => {
       const keys = new Set(Object.keys(catalog));
       const lonely = [...keys].filter((key) => key.endsWith("_one") && !keys.has(key.replace(/_one$/, "_other")));
+      expect(lonely).toEqual([]);
+    });
+
+    it(`${lang} gives each plural message its _one with its _other`, () => {
+      const keys = new Set(Object.keys(catalog));
+      const lonely = [...keys].filter((key) => key.endsWith("_other") && !keys.has(key.replace(/_other$/, "_one")));
       expect(lonely).toEqual([]);
     });
 

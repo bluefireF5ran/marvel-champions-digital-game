@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
+import { artLanguageNow } from "../art/art-source.js";
 import { useEnglish, useSpanish } from "../i18n/test-language.js";
 import { scenarioDetailLines, scenarioDetailOf, shelfSubtitleOf, lockCaptionOf } from "./scenario-detail.js";
 import type { AnyCard, Scenario } from "@mc/content";
@@ -211,9 +212,34 @@ describe("lockCaptionOf", () => {
 describe("shelfSubtitleOf in Spanish", () => {
   afterEach(useEnglish);
 
-  test("words the stage range and the random villain in Spanish", () => {
+  const spanishDetail = (id: string) => {
     useSpanish();
-    expect(shelfSubtitleOf(scenarioDetailOf(rhino, CARDS_BY_ID, POOL_ENCOUNTER_SETS))).toMatch(/^Etapa/);
+    return scenarioDetailOf(
+      POOL_SCENARIOS.find((s) => (s.id as string) === id)!,
+      CARDS_BY_ID,
+      POOL_ENCOUNTER_SETS,
+      artLanguageNow(),
+    );
+  };
+
+  test("words a single villain's stage line in Spanish", () => {
+    useSpanish();
+    expect(shelfSubtitleOf(scenarioDetailOf(rhino, CARDS_BY_ID, POOL_ENCOUNTER_SETS))).toMatch(/^Etapas? /);
+  });
+
+  test("words the choice of villains in Spanish", () => {
+    expect(shelfSubtitleOf(spanishDetail("art-museum-heist"))).toMatch(/^A elegir entre 5 Villanos · Etapas I–II/);
+  });
+
+  test("words a random villain in Spanish", () => {
+    expect(shelfSubtitleOf(spanishDetail("morlock-siege"))).toBe("The Marauders · aleatorio");
+  });
+
+  test("the English words stay English unless the screen asks for the current language", () => {
+    useSpanish();
+    const marauders = POOL_SCENARIOS.find((s) => (s.id as string) === "morlock-siege")!;
+    expect(scenarioDetailOf(marauders, CARDS_BY_ID, POOL_ENCOUNTER_SETS).foeWord).toBe("Villain");
+    expect(scenarioDetailOf(marauders, CARDS_BY_ID, POOL_ENCOUNTER_SETS, "es").foeWord).toBe("Villano");
   });
 });
 
