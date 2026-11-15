@@ -240,6 +240,7 @@ export const contextOf = (frame: Frame<"effects">, deps: EngineDeps): EffectCont
   vars: frame.vars,
   ...(frame.abilityId !== undefined ? reachOf(deps.abilities[frame.abilityId]) : {}),
   ...(frame.abilityId !== undefined ? attackIgnoringOf(deps.abilities[frame.abilityId]) : {}),
+  ...(frame.engagedAtInitiation ? { attackGuardFrom: frame.engagedAtInitiation } : {}),
   ...(frame.controllerId !== null &&
   frame.abilityId !== undefined &&
   deps.abilities[frame.abilityId]?.label?.includes("thwart")

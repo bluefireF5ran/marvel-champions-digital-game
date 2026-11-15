@@ -322,6 +322,11 @@
  *   `target-validity.ts`, for a `chooseTarget` slot; a division's candidates), and with none to offer it does nothing;
  * - a guard minion an earlier instruction of the same ability defeated no longer guards: the villain can then be
  *   attacked by the next instruction.
+ * - only a guard minion already engaged with the player as the ability was initiated guards against it (owner decision
+ *   2026-11-15, #525 item 6, narrowing wave 8 Q49; ruling May 18, 2023 (5), reaffirmed July 20, 2023 (50), on Swift
+ *   Retribution: "Guard prevents you from initiating attacks, but does not prevent you from dealing damage"). A guard
+ *   minion a boost or a scheme brings in while it resolves does not stop its damage (`Frame<"effects">
+ *   .engagedAtInitiation`, read through `EffectContext.attackGuardFrom` and `AbilityAttack.guardFrom`).
  *
  * Guard is not read for damage that is not an attack on the enemy taking it: an overkill spill, an unlabeled
  * ability's damage, an instruction marked `fromAttack: false`.
@@ -416,6 +421,8 @@ export interface AbilityAttack {
   readonly frameId: FrameId;
   /** "This attack ignores guard" (`EffectSpec attack.ignores`, `attackIgnoringOf`): guard does not stop it. */
   readonly ignoresGuard: boolean;
+  /** The minions that can guard against it: those engaged as its ability was initiated (`engagedAtInitiation`). */
+  readonly guardFrom: readonly InstanceId[] | undefined;
 }
 
 /** Whether an attack of the "(attack)" ability `frame` belongs to was cancelled (`cancelAbilityAttack`). */
@@ -670,6 +677,7 @@ export function abilityAttackOf(
     ignoresGuard:
       attackIgnoringOf(frame.abilityId === undefined ? undefined : deps.abilities[frame.abilityId])
         .attackIgnoresGuard === true,
+    guardFrom: frame.engagedAtInitiation,
   };
 }
 
@@ -737,7 +745,8 @@ export const mayAttackWith = (
   targetId: InstanceId,
 ): boolean =>
   !isAttackTarget(state, targetId, deps) ||
-  (!attack.cancelled && canAttack(state, attack.attackerId, targetId, deps, false, attack.ignoresGuard));
+  (!attack.cancelled &&
+    canAttack(state, attack.attackerId, targetId, deps, false, attack.ignoresGuard, attack.guardFrom));
 
 /**
  * The targets of a damage instruction that names its enemies, less the enemies the attack may not attack as it
@@ -864,7 +873,16 @@ function attackAhead(
           (!chosenLater &&
             !named.some(
               (id) =>
-                isEnemy(id) && canAttack(state, identity, id, context.deps, false, context.attackIgnoresGuard === true),
+                isEnemy(id) &&
+                canAttack(
+                  state,
+                  identity,
+                  id,
+                  context.deps,
+                  false,
+                  context.attackIgnoresGuard === true,
+                  context.attackGuardFrom,
+                ),
             )) ||
           (instruction.moveDamageFrom !== undefined &&
             (moveFrom === undefined || (state.instances[moveFrom]?.damage ?? 0) <= 0));
@@ -1021,7 +1039,7 @@ export function beginLabelAttack(
   const mayAttack = (id: InstanceId): boolean =>
     inPlay.includes(id) &&
     isAttackTarget(ctx.state, id, ctx.deps) &&
-    canAttack(ctx.state, identity, id, ctx.deps, false, context.attackIgnoresGuard === true);
+    canAttack(ctx.state, identity, id, ctx.deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom);
   // Nothing resolves before the ability's own `attack` instruction: it makes its event now, as it always has, when it
   // can (an enemy it may attack, damage to move). One that would make none (no minion for "each minion", every enemy
   // guarded, no damage to move) begins the attack here instead, so the ability is still an attack, on nobody.

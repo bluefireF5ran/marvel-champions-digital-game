@@ -900,6 +900,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           ctx.deps,
           false,
           ignoresGuard,
+          context.attackGuardFrom,
         ),
       );
       // Once an attack of that ability was cancelled, the ability's one attack makes no more (owner decision,

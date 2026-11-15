@@ -338,8 +338,9 @@ describe("Order and Chaos (15018): the damage waits on the cancel", () => {
 // FFG ruling (post-RRG 1.5, answered by Alex; Hall of Heroes "Latest FFG Rulings (post RRG 1.5)", "Guard prevents you
 // from initiating attacks, but does not prevent you from dealing damage. We rule that, if you already initiated an
 // attack with Swift Retribution and were dealt a Goblin Thrall during the activation, you could still deal the damage
-// from Swift Retribution."): the engine instead re-reads guard when the already-begun attack's damage instruction
-// resolves (Q49, `attack-label.test.ts`), so the 4 damage is lost.
+// from Swift Retribution."). Owner decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49: guard is checked as the
+// attack is initiated, and for its later instructions only against a guard minion already engaged then
+// (`Frame<"effects">.engagedAtInitiation`), so a Goblin Thrall the scheme's boost engages does not stop the damage.
 describe("Swift Retribution (15014) when the villain's scheme boost brings a Guard minion (FFG ruling post-RRG 1.5)", () => {
   /** Mutagen Formula, one player; P1's setup Goblin Thrall is disengaged and a Goblin Thrall (boost: put into play engaged) is the next card. */
   const staged = (topCode: string) => {
@@ -356,7 +357,7 @@ describe("Swift Retribution (15014) when the villain's scheme boost brings a Gua
     expect(inst(done.state, villainOf(given.state)).damage).toBe(4);
   });
 
-  it.fails("a Goblin Thrall boost engages a Guard minion after the attack began: the 4 damage is still dealt", () => {
+  it("a Goblin Thrall boost engages a Guard minion after the attack began: the 4 damage is still dealt", () => {
     const given = staged("02024");
     const done = playOut(given.state, given.id, 1);
     expect(done.accepted).toBe(true);

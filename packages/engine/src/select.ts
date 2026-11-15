@@ -266,6 +266,12 @@ export interface EffectContext {
    */
   readonly attackIgnoresGuard?: true;
   /**
+   * The minions engaged with the ability's controller as its effects were initiated (`Frame<"effects">
+   * .engagedAtInitiation`): only these can guard against its attack (`canAttack`'s `guardFrom`). Absent: guard is read
+   * live (an ability being initiated, a basic attack). Set by `contextOf`.
+   */
+  readonly attackGuardFrom?: readonly InstanceId[];
+  /**
    * What this context may match inside a closed in-play scenario area (`closedScenarioPlayArea`,
    * docs/phase7-wave8.md §3.33): the area its ability declares (`AbilityDefinition.reaches`, `reachOf`), or `"all"`
    * for a read. A condition, a count and an event pattern are reads (§4.1 Q18 = A: "counting or watching them does
@@ -339,6 +345,31 @@ export const attackIgnoringOf = (definition: AbilityDefinition | undefined): { r
     IGNORES_GUARD.set(definition, ignores);
   }
   return ignores ? { attackIgnoresGuard: true } : {};
+};
+
+const MAKES_ATTACK = new WeakMap<AbilityDefinition, boolean>();
+
+/** Whether `value` holds an `attack` instruction anywhere inside it (a branch, an option, post-"then" text included). */
+function holdsAttackInstruction(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(holdsAttackInstruction);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Readonly<Record<string, unknown>>;
+  return record.kind === "attack" || Object.values(record).some(holdsAttackInstruction);
+}
+
+/**
+ * Whether resolving this ability can make a player's attack: it is labeled "(attack)" (RRG 1.8 "Labeled Ability",
+ * p. 26) or holds an `attack` instruction. Its effects frame keeps the minions engaged as it was initiated
+ * (`Frame<"effects">.engagedAtInitiation`), which its guard checks read.
+ */
+export const abilityMakesAttack = (definition: AbilityDefinition | undefined): boolean => {
+  if (definition === undefined) return false;
+  let makes = MAKES_ATTACK.get(definition);
+  if (makes === undefined) {
+    makes = definition.label?.includes("attack") === true || holdsAttackInstruction(definition.effects);
+    MAKES_ATTACK.set(definition, makes);
+  }
+  return makes;
 };
 
 /**
@@ -1719,7 +1750,10 @@ export function explainQuery(
   }
   if (query.attackableBy) {
     const [attacker] = resolveRef(state, query.attackableBy, context);
-    if (!attacker || !canAttack(state, attacker, id, context.deps, false, context.attackIgnoresGuard === true))
+    if (
+      !attacker ||
+      !canAttack(state, attacker, id, context.deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom)
+    )
       return "cannotBeAttacked";
   }
   if (query.canTakeAttackInProgress === "player") {
@@ -2363,10 +2397,22 @@ export const rulePlayers = (
   return blanked && blanked.length > 0 ? players.filter((playerId) => !blanked.includes(playerId)) : players;
 };
 
-const guardEngagedWith = (state: GameState, playerId: PlayerId, deps: EngineDeps): boolean =>
-  cardsInPlay(state).some(
-    (id) =>
-      isMinion(state, id) && getInstance(state, id)?.engagedWith === playerId && hasKeyword(state, id, "guard", deps),
+/** The minions in play engaged with `playerId`. */
+export const minionsEngagedWith = (state: GameState, playerId: PlayerId): readonly InstanceId[] =>
+  cardsInPlay(state).filter((id) => isMinion(state, id) && getInstance(state, id)?.engagedWith === playerId);
+
+/**
+ * A guard minion engaged with `playerId`; with `guardFrom`, only one of those minions counts (an attack already
+ * initiated, `canAttack`).
+ */
+const guardEngagedWith = (
+  state: GameState,
+  playerId: PlayerId,
+  deps: EngineDeps,
+  guardFrom?: readonly InstanceId[],
+): boolean =>
+  minionsEngagedWith(state, playerId).some(
+    (id) => (guardFrom === undefined || guardFrom.includes(id)) && hasKeyword(state, id, "guard", deps),
   );
 
 /**
@@ -2451,6 +2497,15 @@ export function canAttack(
   basic = false,
   /** "This attack ignores guard" (`EffectSpec attack.ignores`): guard does not stop it; everything else still does. */
   ignoreGuard = false,
+  /**
+   * For an attack ability already initiated, the minions engaged with its player as it was (`EffectContext
+   * .attackGuardFrom`): only one of them still engaged and with guard stops it. Owner decision 2026-11-15 (#525 item
+   * 6), narrowing wave 8 Q49: guard is checked when the attack is initiated, and for its later targets only against a
+   * guard minion already engaged then; ruling May 18, 2023 (5), Swift Retribution: "Guard prevents you from initiating
+   * attacks, but does not prevent you from dealing damage". A guard minion an earlier instruction defeated stops
+   * nothing (Dive Bomb FAQ). Absent: every guard minion engaged now counts.
+   */
+  guardFrom?: readonly InstanceId[],
 ): boolean {
   const controller = controllerOf(state, attackerId);
   // An attack by an enemy is nobody's attack: neither guard nor a player-scoped `cannotAttack` (an `attacker`-scoped
@@ -2463,7 +2518,7 @@ export function canAttack(
   if (!isVillain(state, targetId)) return true;
   if (ignoreGuard || hasKeyword(state, targetId, "guard", deps)) return true;
   if (characterIgnores(state, deps, attackerId, "guard")) return true;
-  return !guardEngagedWith(state, controller, deps);
+  return !guardEngagedWith(state, controller, deps, guardFrom);
 }
 
 /**

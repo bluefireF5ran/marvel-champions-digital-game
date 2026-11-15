@@ -436,7 +436,9 @@ export function attackTargetAllowed(
       : attackInstructions(rest).map((effect) => attackerOf(state, effect, context) ?? labeledAttacker(state, context));
   if (attackers.length === 0) attackers.push(labeledAttacker(state, context));
   return attackers.every(
-    (attacker) => attacker === null || canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true),
+    (attacker) =>
+      attacker === null ||
+      canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom),
   );
 }
 
@@ -452,7 +454,10 @@ function judgedCanAffect(
     // An "(attack)" ability's damage to an enemy attacks it (owner rulings Q48 and Q49): not one it may not attack.
     if (context.attackLabeled && isAttackInstruction(effect) && isAttackTarget(state, id, deps)) {
       const attacker = labeledAttacker(state, context);
-      if (attacker !== null && !canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true))
+      if (
+        attacker !== null &&
+        !canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom)
+      )
         return false;
     }
     return canDealDamageTo(state, deps, id, context.selfInstanceId, effect.fromAttack === true);
@@ -472,7 +477,10 @@ function judgedCanAffect(
     // An "(attack)" ability's defeat of an enemy attacks it (`attack-ability.ts`, "A defeat instruction").
     if (context.attackLabeled && isAttackTarget(state, id, deps)) {
       const attacker = labeledAttacker(state, context);
-      if (attacker !== null && !canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true))
+      if (
+        attacker !== null &&
+        !canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom)
+      )
         return false;
     }
     return !alreadyDefeated(state, id);
@@ -1524,7 +1532,9 @@ function attackNamesNoAttackableEnemy(
     // Damage to the player's own characters only is not an attack on anything.
     if (enemies.length === 0) return null;
     if (enemies.length !== present.length || attacker === null) return "unknown";
-    return enemies.some((id) => canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true))
+    return enemies.some((id) =>
+      canAttack(state, attacker, id, deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom),
+    )
       ? "valid"
       : "invalid";
   };

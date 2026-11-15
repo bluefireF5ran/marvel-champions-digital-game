@@ -5,11 +5,13 @@ import { type Ctx, nextFrameId, pushFrames, updateFrame } from "../ctx.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardOf, villainOf, villainStageOf } from "../query.js";
 import {
+  abilityMakesAttack,
   activeAbilityRefs,
   categoriesOf,
   controllerOf,
   countsAsExtras,
   ignoredAbilities,
+  minionsEngagedWith,
   TOGETHER_TARGETS_SLOT,
   traitsOf,
   withSelfHost,
@@ -339,8 +341,34 @@ export function pushEffects(
       ...(spec.sentence ? { sentence: true as const } : {}),
       ...(spec.eachTimePass ? { eachTimePass: true as const } : {}),
       ...(spec.replacesEvent !== undefined ? { replacesEvent: spec.replacesEvent } : {}),
+      ...engagedAtInitiationOf(ctx, spec),
     },
   ]);
+}
+
+/**
+ * `Frame<"effects">.engagedAtInitiation` for effects being pushed: a branch of an ability whose frame is resolving
+ * (the frame on top, same ability and card) carries that frame's; an attack-making ability's own effects take the
+ * minions engaged with its controller now, as its effect is initiated.
+ */
+function engagedAtInitiationOf(
+  ctx: Ctx,
+  spec: {
+    readonly abilityId?: AbilityId | undefined;
+    readonly selfInstanceId: InstanceId | null;
+    readonly controllerId: PlayerId | null;
+  },
+): { readonly engagedAtInitiation?: readonly InstanceId[] } {
+  if (spec.abilityId === undefined || spec.controllerId === null) return {};
+  if (!abilityMakesAttack(ctx.deps.abilities[spec.abilityId])) return {};
+  const parent = ctx.state.stack[0];
+  if (
+    parent?.kind === "effects" &&
+    parent.abilityId === spec.abilityId &&
+    parent.selfInstanceId === spec.selfInstanceId
+  )
+    return parent.engagedAtInitiation ? { engagedAtInitiation: parent.engagedAtInitiation } : {};
+  return { engagedAtInitiation: minionsEngagedWith(ctx.state, spec.controllerId) };
 }
 
 export function abilityFrame(

@@ -8,7 +8,8 @@
  * - **Q49 = A, qualified.** Guard restricts attack targeting, not damage, and is checked for every enemy the attack
  *   targets at the time that enemy would be attacked. RRG 1.8 "Guard" (p. 21); "Attack (Player Ability Type)" (p. 10):
  *   "Hero and ally attacks can target any enemy, unless a card ability (such as guard) is preventing that enemy from
- *   being attacked."
+ *   being attacked." Narrowed by the owner decision of 2026-11-15 (#525 item 6): only a guard minion already engaged
+ *   as the attack was initiated guards against its later instructions (ruling May 18, 2023 (5), Swift Retribution).
  * - **Q50 = B, multi-target recognized.** Attacked targets are tracked apart from damage recipients. RRG 1.8 p. 10:
  *   "When an attack targets multiple enemies, the attacking character is considered to have attacked each of those
  *   enemies. Each attacked enemy with the retaliate X keyword that is still in play after the attack resolves deals
@@ -199,6 +200,15 @@ const damage = (amount: number, target: TargetRef, fromAttack?: boolean): Effect
   ...(fromAttack === undefined ? {} : { fromAttack }),
 });
 
+/** "Put a sentry into play engaged with you": a guard minion that arrives as the ability resolves. */
+const SENTRY_ARRIVES: EffectSpec = {
+  kind: "putIntoPlay",
+  card: { kind: "find", query: { name: "sentry" } },
+  controller: { kind: "controller" },
+};
+/** "Hero Action (attack): [a sentry engages you]. Deal 3 damage to the villain." Label only, and with an attack effect. */
+const LATE_GUARD_JAB = event("late-guard-jab", [SENTRY_ARRIVES, damage(3, theVillain)]);
+const LATE_GUARD_HIT = event("late-guard-hit", [SENTRY_ARRIVES, attack(3, theVillain)]);
 /** "Hero Action (attack): Deal 3 damage to the villain." No attack effect: the label alone makes it an attack. */
 const JAB = event("jab", [damage(3, theVillain)]);
 /** The same text with no label: plain damage. */
@@ -358,6 +368,8 @@ const PREP_SHOT: ReturnType<typeof event> = event("prep-shot", [
   { kind: "attack", target: theVillain, amount: n(3), keywords: ["ranged"] },
 ]);
 const EVENTS = [
+  LATE_GUARD_JAB,
+  LATE_GUARD_HIT,
   PREP_DOUBLE,
   PREP_AIM_HIT,
   STOMP,
@@ -1129,6 +1141,21 @@ describe("Q49: guard is checked for each enemy an attack targets, as it would be
     const aside = play(table(PLAIN_V, [], [SENTRY]), ASIDE);
     expect(amountsTo(aside.events, aside.state.villains[0]!.instanceId)).toEqual([1]);
     expect(skipped(aside.events)).toEqual([]);
+  });
+
+  // Owner decision 2026-11-15 (#525 item 6), narrowing Q49; ruling May 18, 2023 (5), on Swift Retribution: "Guard
+  // prevents you from initiating attacks, but does not prevent you from dealing damage".
+  it("a guard minion that engages after the attack was initiated does not stop its damage to the villain", () => {
+    for (const card of [LATE_GUARD_JAB, LATE_GUARD_HIT]) {
+      const t = table(PLAIN_V);
+      const after = play(t, card);
+      const sentries = Object.values(after.state.instances).filter(
+        (i) => i.cardId === SENTRY.id && i.engagedWith === P1,
+      );
+      expect(sentries.length).toBeGreaterThan(0);
+      expect(amountsTo(after.events, t.villain)).toEqual([3]);
+      expect(skipped(after.events)).toEqual([]);
+    }
   });
 
   it("a division of damage does not offer the guarded villain", () => {
