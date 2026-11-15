@@ -4799,14 +4799,28 @@ export function canBePutIntoPlay(
   const under = anyPlayer
     ? [putter, ...playerOrder(state).flatMap((p) => (p.playerId === putter ? [] : [p.playerId]))]
     : [putter];
-  return under.some((player) => {
-    if (uniqueEntryBlocker(state, deps, id, player, bringer)) return false;
-    if (cannotEnterPlay(state, deps, id, player)) return false;
-    if (card?.type !== "upgrade") return maxPerPlayerReached(state, id, player) === null;
-    if (putIntoPlayHostCandidates(state, deps, id, player).length > 0) return true;
-    // No host the maximum leaves it (`admitUnderPlayerMax` refuses it), or none at all (`noLegalHost`).
-    return attachedOnlyWhileInPlay(state, id, deps) && upgradeHostCandidates(state, deps, id, player).length === 0;
-  });
+  return under.some((player) => canEnterPlayUnder(state, deps, id, player, bringer));
+}
+
+/**
+ * The per-player half of `canBePutIntoPlay`: whether `id`, entering play from out of play, could enter under `player`'s
+ * control. The unique rule (RRG 1.8 "Unique Icon", pp. 45-46), no `RuleSpec cannotEnterPlay`, "Max N per player" (RRG
+ * 1.8 "Max, Maximum", p. 28) and, for an upgrade, a legal host under that player (`putIntoPlayHostCandidates`). The
+ * "[type] form only" check reads the player putting it in and is the caller's (`formOnlyFault`).
+ */
+export function canEnterPlayUnder(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  player: PlayerId,
+  bringer: InstanceId | null,
+): boolean {
+  if (uniqueEntryBlocker(state, deps, id, player, bringer)) return false;
+  if (cannotEnterPlay(state, deps, id, player)) return false;
+  if (cardOf(state, id)?.type !== "upgrade") return maxPerPlayerReached(state, id, player) === null;
+  if (putIntoPlayHostCandidates(state, deps, id, player).length > 0) return true;
+  // No host the maximum leaves it (`admitUnderPlayerMax` refuses it), or none at all (`noLegalHost`).
+  return attachedOnlyWhileInPlay(state, id, deps) && upgradeHostCandidates(state, deps, id, player).length === 0;
 }
 
 /**

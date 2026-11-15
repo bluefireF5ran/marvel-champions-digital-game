@@ -791,13 +791,13 @@ describe("When Defeated: each player may search their deck and discard pile", ()
       const c = s.pendingChoice;
       if (c?.prompt.kind === "choosePlayer" && c.prompt.slot === "putIntoPlayController") {
         controlAsked.push(c.options.map((o) => o.optionId));
-        return [P2];
       }
       if (c?.prompt.kind === "chooseCards") return c.playerId === P1 ? [found] : [];
       return firstLegal(s);
     };
     const { state, events } = defeat(staged, scheme, pick);
-    expect(controlAsked).toEqual([[P1, P2]]);
+    // Only P2 can take it (P1 is at "Max 1 per player"), so nobody is asked: owner decision 2026-11-15 (#525, on #714).
+    expect(controlAsked).toEqual([]);
     expect(inPlay(state, P2)).toContain(found);
     expect(inst(state, found)).toMatchObject({ controllerId: P2, ownerId: P1 });
     expect(events.some((e) => e.type === "putIntoPlayRefused")).toBe(false);

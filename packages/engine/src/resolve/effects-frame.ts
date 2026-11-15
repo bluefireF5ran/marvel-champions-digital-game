@@ -151,6 +151,7 @@ import {
   selectTargets,
   attackIgnoringOf,
   reachOf,
+  canEnterPlayUnder,
 } from "../select.js";
 import type { EffectSpec, PlayerRef, StatusName, TargetRef, ValueSpec } from "../spec.js";
 import type { Bindings, ResolvedCountVar, StackFrame, TriggerCandidate } from "../stack.js";
@@ -595,10 +596,13 @@ function statusAheadOfDamage(ctx: Ctx, frame: Frame<"effects">, effect: EffectSp
  * The control question of a `putIntoPlay`: a card printed "Play under any player's control" enters play under the
  * player the one putting it in chooses, as playing it would (RRG 1.8 "Play, Put into Play", pp. 32-33; FFG ruling
  * Nov 21, 2025; `putIntoPlayControlIsChosen`). The ruling does not say who chooses: the player putting it in is an
- * engine interpretation. Asked before the host question, one card per pass, of every player
- * still in the game; one such player is no choice. The answer is kept in the frame's bindings
- * (`putIntoPlayControllerSlot`) as the chosen player's identity, as `choosePlayer` binds. Returns true while a question
- * is open or was just answered.
+ * engine interpretation. Asked before the host question, one card per pass, listing only the players still in the
+ * game under whom the card can enter play (`canEnterPlayUnder`: unique, "Max N per player", a legal host for an
+ * upgrade), the player putting it in first; when only one can take it they are bound without asking, and when none can
+ * nothing is bound and the effect refuses the card under the player putting it in. Owner decision 2026-11-15 (#525, on
+ * #714); RRG 1.8 "Max, Maximum" p. 28: "A player cannot take control of another copy of a 'Max 1 per player' card they
+ * already control." The answer is kept in the frame's bindings (`putIntoPlayControllerSlot`) as the chosen player's
+ * identity, as `choosePlayer` binds. Returns true while a question is open or was just answered.
  */
 function askPutIntoPlayController(
   ctx: Ctx,
@@ -618,11 +622,18 @@ function askPutIntoPlayController(
     if (frame.bindings[slot] || !putIntoPlayControlIsChosen(ctx.state, effect, id)) continue;
     // A "[type] form only" card the effect will refuse (`admitFormOnly`) has no controller to ask about.
     if (formOnlyFault(ctx.state, id, putter) !== null) continue;
+    const able = players.filter((p) => canEnterPlayUnder(ctx.state, ctx.deps, id, p.playerId, frame.selfInstanceId));
+    // Nobody can take it: the candidate filter should not have offered it; the effect refuses it (`putIntoPlayRefused`).
+    if (able.length === 0) continue;
+    if (able.length === 1) {
+      setFrame(ctx, { ...frame, bindings: { ...frame.bindings, [slot]: [able[0]!.identity.instanceId] } });
+      return true;
+    }
     if (frame.answer === null) {
       requestChoice(ctx, {
         playerId: putter,
         prompt: { kind: "choosePlayer", slot: "putIntoPlayController", cardInstanceId: id },
-        options: players.map((p) => ({
+        options: able.map((p) => ({
           optionId: p.playerId,
           label: p.playerId,
           ref: { kind: "player", playerId: p.playerId } as const,
@@ -633,9 +644,8 @@ function askPutIntoPlayController(
       });
       return true;
     }
-    const chosen =
-      players.find((p) => frame.answer?.includes(p.playerId)) ?? players.find((p) => p.playerId === putter);
-    const identity = (chosen ?? players[0]!).identity.instanceId;
+    const chosen = able.find((p) => frame.answer?.includes(p.playerId)) ?? able[0]!;
+    const identity = chosen.identity.instanceId;
     setFrame(ctx, { ...frame, answer: null, bindings: { ...frame.bindings, [slot]: [identity] } });
     return true;
   }
