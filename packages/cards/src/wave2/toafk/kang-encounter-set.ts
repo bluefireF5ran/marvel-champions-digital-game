@@ -56,12 +56,14 @@ import {
   on,
   option,
   placeThreat,
+  product,
   printedCostOf,
   putIntoPlay,
   query,
   refMatches,
   revealCard,
   rule,
+  inPlayAreaOf,
   self,
   selectCards,
   stun,
@@ -219,9 +221,11 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   // on the damage, so a tough status card on Kang cannot absorb the hit first (RRG 1.8 "Damage", p. 14; audit finding
   // 17, owner decision 2026-10-16). "(Max 1 per attack.)" is a narrow edge case (two copies attached to Kang at once,
   // both interrupting the same attack) this DSL's `AbilityLimit.period` ("turn" | "phase" | "round") can't express
-  // "per attack"; not modeled — the primary effect is exact either way.
+  // "per attack"; not modeled — the primary effect is exact either way. The text names no attacker, so an enemy's
+  // attack on Kang counts too, and "the attacker" is that enemy (an enemy is a character, RRG 1.8 "Character", p. 12;
+  // heard as `enemyAttacksEnemy`, `patternHearsKind`; rules-expert reading 2026-11-12, no FFG ruling).
   "11014.temporal-shield-forced-interrupt": forcedInterrupt(
-    when.attacks(query(["identity", "ally"]), { target: { hostOfSelf: true } }),
+    when.attacks(query("character"), { target: { hostOfSelf: true } }),
     { cost: discardThis },
     modifyAttack({ preventAllDamage: true }),
     dealDamage(1, eventSource),
@@ -270,8 +274,10 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   "11023.kangs-dominion-constant": constant(rule({ kind: "cannotTakeDamage", target: query("villain") })),
   "11023.when-defeated": whenDefeated(dealEncounterCard(defeatingPlayer)),
 
-  // Pinned Down — Crisis (data). When Revealed: place 2 threat here for each obligation in play.
-  "11024.when-revealed": whenRevealed(placeThreat(countOf(query("obligation")), self)),
+  // Pinned Down — Crisis (data). When Revealed: place 2 threat here for each obligation in play, on top of its
+  // starting threat (RRG v1.8 p. 40 "Side Scheme"). "In play" counts every player's obligations (p. 23 "In Play and
+  // Out of Play"), not only the revealing player's.
+  "11024.when-revealed": whenRevealed(placeThreat(product(2, countOf(query("obligation"))), self)),
 
   // Rampage — Acceleration (data). When Defeated: discard cards from the top of the encounter deck until a minion
   // is discarded. Put that minion into play engaged with the player who defeated this scheme.
@@ -305,9 +311,9 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   // Time-Travel Tactics — Surge (data). When Revealed: each player takes 1 indirect damage for each obligation in
   // their play area. [star] Boost: this card gains [boost] for each obligation in your play area.
   "11028.when-revealed": whenRevealed(
-    forEachPlayer(eachPlayer, dealIndirectDamage(thatPlayer, countOf(query("obligation", { controller: "other" })))),
+    forEachPlayer(eachPlayer, dealIndirectDamage(thatPlayer, countOf(query("obligation", inPlayAreaOf(thatPlayer))))),
   ),
-  "11028.boost": boost(adjustBoostCount(countOf(query("obligation", { controller: "you" })))),
+  "11028.boost": boost(adjustBoostCount(countOf(query("obligation", inPlayAreaOf(you))))),
 
   // Past Machinations — Incite 1 (data). When Revealed: each player searches the encounter deck and discard pile
   // for a different obligation and reveals it (module docblock: cross-player distinctness not enforced). Shuffle
@@ -404,12 +410,12 @@ export const KANG_ENCOUNTER_SET = defineAbilities({
   "11047.kang-master-of-time-constant": constant(
     gets(
       "sch",
-      { kind: "count", query: query("obligation", { controlledBy: engagedPlayerOf(self) }) },
+      { kind: "count", query: query("obligation", inPlayAreaOf(engagedPlayerOf(self))) },
       query("minion", { self: true }),
     ),
     gets(
       "atk",
-      { kind: "count", query: query("obligation", { controlledBy: engagedPlayerOf(self) }) },
+      { kind: "count", query: query("obligation", inPlayAreaOf(engagedPlayerOf(self))) },
       query("minion", { self: true }),
     ),
   ),

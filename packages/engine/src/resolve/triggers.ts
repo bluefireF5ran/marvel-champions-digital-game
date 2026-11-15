@@ -22,7 +22,14 @@ import {
 } from "../actions.js";
 import { createCtx } from "../ctx.js";
 import { candidateDefenseBar, type DefenseBar } from "../defense-claim.js";
-import { addPools, EMPTY_POOL, requirementTotal, satisfies, satisfiesPrinted } from "../resources.js";
+import {
+  addPools,
+  EMPTY_POOL,
+  requirementTotal,
+  satisfies,
+  satisfiesPrinted,
+  type ResolvedRequirement,
+} from "../resources.js";
 import type { AbilityId } from "@mc/content";
 import type { InstanceId, PlayerId } from "../ids.js";
 import { cardOf, deckDiscardStillThere, getInstance, getPlayer, playerOrder } from "../query.js";
@@ -35,6 +42,7 @@ import {
   controllerOf,
   type EffectContext,
   evaluate,
+  hasBoostAbility,
   matchesQuery,
   resolvePlayers,
   sourcePlayerOf,
@@ -48,10 +56,16 @@ import { snapshotTitledAs } from "../titles.js";
 import { candidateOf, type TriggerCandidate, type WindowTiming } from "../stack.js";
 import type { LastingEffect } from "../lasting.js";
 import { STATUS_NAMES, type Form, type GameState } from "../state.js";
-import { carriedByEvent, eventSubjects, hearsEncounterDeckDiscard, type TriggerEvent } from "../trigger-events.js";
+import {
+  carriedByEvent,
+  eventSubjects,
+  hearsEncounterDeckDiscard,
+  patternHearsKind,
+  type TriggerEvent,
+} from "../trigger-events.js";
 import { limitReached } from "./ability.js";
 import { removalBlockedOf } from "./event.js";
-import { resourcesChoiceOf, type AbilityDefinition } from "../abilities.js";
+import { resourcesChoiceOf, type AbilityCost, type AbilityDefinition } from "../abilities.js";
 import { chosenSizePayments } from "../payable.js";
 import { cannotEnterPlay, cannotPlayCard, revealCannotBeCanceled, triggeredAbilityForbidden } from "../rules.js";
 import { abilityLacksValidTarget } from "./target-validity.js";
@@ -73,22 +87,37 @@ import { enteredPlaySince } from "../entered-since.js";
  */
 function cancelHasNoTarget(state: GameState, deps: EngineDeps, definition: AbilityDefinition, event: TriggerEvent) {
   if (interruptBarredByUnpreventable(definition, event)) return true;
-  if (event.kind === "boostCardTurnedFaceup") return boostAbilityCancelGone(state, definition, event.boostInstanceId);
+  if (event.kind === "boostCardTurnedFaceup")
+    return boostAbilityCancelGone(state, deps, definition, event.boostInstanceId);
   if (event.kind !== "encounterCardRevealing" && event.kind !== "encounterCardBeingRevealed") return false;
   const cancels = definition.effects.some((e) => e.kind === "cancelWhenRevealed" || e.kind === "cancelRevealedCard");
   return cancels && revealCannotBeCanceled(state, deps, event.instanceId);
 }
 
 /**
- * An ability whose only effect is "cancel that card's boost ability", once that ability can no longer be cancelled: it
- * has resolved (a Response to the card being turned faceup comes after it, RRG 1.8 "Simultaneous Timing Priority",
- * p. 5; owner decision, 2026-10-16, audit finding 10 B), is already cancelled, or is ignored. As for a reveal cancel
- * above, the cancel has no valid target, so it can't be initiated (RRG 1.8 "Initiating Abilities", p. 24, step 2) and
- * no cost is paid (Target Acquired, `bkw` 08024). An ability with any other effect is still offered for that one.
+ * An ability whose only effect is "cancel that card's boost ability", on a card with no "Boost" ability to cancel, or
+ * once that ability can no longer be cancelled: it has resolved (a Response to the card being turned faceup comes after
+ * it, RRG 1.8 "Simultaneous Timing Priority", p. 5; owner decision, 2026-10-16, audit finding 10 B), is already
+ * cancelled, or is ignored. As for a reveal cancel above, the cancel has no valid target, so it can't be initiated
+ * (RRG 1.8 "Initiating Abilities", p. 24, step 2) and no cost is paid (Target Acquired, `bkw` 08024). An ability with
+ * any other effect is still offered for that one.
  */
-function boostAbilityCancelGone(state: GameState, definition: AbilityDefinition, boostId: InstanceId): boolean {
-  if (definition.effects.length === 0 || !definition.effects.every((e) => e.kind === "cancelBoostAbility"))
-    return false;
+function boostAbilityCancelGone(
+  state: GameState,
+  deps: EngineDeps,
+  definition: AbilityDefinition,
+  boostId: InstanceId,
+): boolean {
+  // Post-"Then" text is not an independent part of the ability when judging whether it can be initiated (RRG 1.8
+  // "'Then'", p. 44; `EffectSpec then`): "cancel its 'Boost' ability. Then, that card gains [boost]" (Killer Instinct,
+  // 63001a) is a cancel-only ability for this.
+  const independent = definition.effects.filter((e) => e.kind !== "then");
+  if (independent.length === 0 || !independent.every((e) => e.kind === "cancelBoostAbility")) return false;
+  // A card with no "Boost" ability, printed or gained, has none to cancel: the cancel has no valid target, so the
+  // ability cannot be initiated and its cost is not paid (RRG 1.8 "Target", p. 42, "Cost", p. 13; FAQ "Attacrobatics
+  // (#6)", p. 59, on a card with no boost icons to cancel). A bare cancel (Wraith 22012, Target Acquired 08024) and one
+  // with a "Then" (Killer Instinct 63001a, whose post-"Then" text could not happen either; RRG 1.8 "'Then'", p. 44).
+  if (!hasBoostAbility(state, deps, boostId)) return true;
   const procedure = state.stack.find(
     (f) =>
       (f.kind === "enemyAttack" || f.kind === "enemyScheme" || f.kind === "characterBoost") &&
@@ -98,7 +127,13 @@ function boostAbilityCancelGone(state: GameState, definition: AbilityDefinition,
     procedure?.kind === "enemyAttack" || procedure?.kind === "enemyScheme" || procedure?.kind === "characterBoost"
       ? procedure.boost
       : null;
-  return !boost || boost.step !== "window" || boost.abilityCancelled || boost.ignored === true;
+  return (
+    !boost ||
+    boost.step !== "window" ||
+    boost.abilityCancelled ||
+    boost.ignored === true ||
+    boost.abilityIgnored === true
+  );
 }
 
 /**
@@ -158,7 +193,7 @@ function costPayable(
         0,
         asIfInHandCostReduction(state, deps, playerId, id),
       )
-    : plan.requirement;
+    : withLeastX(plan.requirement, (plan.cost ?? cost)?.resourcesX);
   const chosenSize = fromHand ? null : resourcesChoiceOf(plan.cost ?? cost);
   if (requirementTotal(requirement) === 0 && !chosenSize) return true;
   const ctx = createCtx(state, deps);
@@ -180,6 +215,20 @@ function costPayable(
     if (pool) most = addPools(most, pool);
   }
   return (plan.cost ?? cost)?.printedResourcesOnly ? satisfiesPrinted(most, requirement) : satisfies(most, requirement);
+}
+
+/**
+ * A "spend X" / "spend up to N" cost (`resourcesX`) prices 0 fixed resources, but X must reach its `min` (1 for "up
+ * to": RRG 1.8 "Cost", pp. 13-14; FFG ruling, May 18, 2023, Karmic Blast / Cosmic Awareness: "up to" in a cost cannot
+ * be 0), so those resources join the requirement the bound is checked against. Machine Man
+ * (`vision` 26022) with nothing to spend is then not offered, rather than opening a payment step with nothing to pick
+ * (issue #654).
+ */
+function withLeastX(requirement: ResolvedRequirement, x: AbilityCost["resourcesX"]): ResolvedRequirement {
+  const least = x?.min ?? 0;
+  if (least <= 0) return requirement;
+  const slot = x!.resource === "any" ? "generic" : x!.resource;
+  return { ...requirement, [slot]: requirement[slot] + least };
 }
 
 function matchesPattern(
@@ -231,8 +280,8 @@ function matchesOwnFields(
   deps: EngineDeps,
   controllerOverride?: PlayerId,
 ): boolean {
-  const kinds: readonly TriggerEvent["kind"][] = typeof pattern.on === "string" ? [pattern.on] : pattern.on;
-  if (!kinds.includes(event.kind)) return false;
+  // "When/After [this card] is attacked" also hears an enemy's attack on it (`patternHearsKind`).
+  if (!patternHearsKind(pattern, event.kind)) return false;
   // A card discarded from an encounter deck is heard only by a pattern that asks for one (docs/phase7-wave9.md §3.43
   // (b)), so "after you discard a card from the top of your deck" stays a player deck's.
   if (event.kind === "cardDiscardedFromDeck" && event.deck === "encounter" && !hearsEncounterDeckDiscard(pattern))
@@ -345,11 +394,15 @@ function matchesRest(
       if (withoutTrait && traits.includes(withoutTrait)) return false;
       if (anyTrait && !anyTrait.some((wanted) => traits.includes(wanted))) return false;
       if (!matchesQuery(state, lastKnown.id, rest, context)) return false;
-    } else if (event.kind === "characterDefeated" && event.asDefeated !== undefined) {
+    } else if (
+      (event.kind === "characterDefeated" || event.kind === "schemeDefeated") &&
+      event.asDefeated !== undefined
+    ) {
       // "After a Controlled minion is defeated": what the character was as its defeat was initiated (`DefeatedSnapshot`,
       // docs/phase7-wave9.md §3.32). A player card in play facedown as a minion is itself again once it has left play,
       // so its categories, its traits and whether it was facedown are read from the snapshot; the rest of the query,
-      // and a clause inside `anyOf`/`not`, read the card as it now is.
+      // and a clause inside `anyOf`/`not`, read the card as it now is. "After you defeat a side scheme" reads the scheme
+      // the same way: its When Defeated may have turned it over to an ally (Secure the Landing Pad, issue #700).
       const was = event.asDefeated;
       const { categories, trait, withoutTrait, anyTrait, facedown, ...rest } = query;
       if (categories && !categories.some((category) => was.categories.includes(category))) return false;
@@ -889,9 +942,8 @@ function keywordCandidates(
   for (const ability of KEYWORD_ABILITIES) {
     const trigger = ability.definition.trigger;
     if (trigger.kind !== timing || trigger.forced !== forced) continue;
-    const kinds: readonly TriggerEvent["kind"][] = typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on;
     // Cheap before the scan of every card in play: most events are of no keyword's kind.
-    if (!kinds.includes(event.kind)) continue;
+    if (!patternHearsKind(trigger.on, event.kind)) continue;
     for (const id of cardsInPlay(state)) {
       // Nor does its keyword, for the same reason (`gatherCandidates`).
       if (timing === "response" && enteredPlaySince(event, id)) continue;
@@ -1282,8 +1334,7 @@ export function hearersOf(
   const listens = (definition: AbilityDefinition | undefined): boolean => {
     const trigger = definition?.trigger;
     if (!trigger || trigger.kind !== timing || trigger.forced) return false;
-    const kinds: readonly TriggerEvent["kind"][] = typeof trigger.on.on === "string" ? [trigger.on.on] : trigger.on.on;
-    return kinds.includes(event.kind);
+    return patternHearsKind(trigger.on, event.kind);
   };
   const found: string[] = [];
   for (const id of cardsInPlay(state)) {

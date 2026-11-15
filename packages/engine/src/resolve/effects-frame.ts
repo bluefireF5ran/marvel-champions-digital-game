@@ -77,6 +77,7 @@ import {
   addLastingEffect,
   areaCostReductionFor,
   expireNextVillainPhaseEffects,
+  untilNextVillainPhase,
   dealEncounterCardOrAnnounce,
   discardFromHand,
   expirePaidForEffects,
@@ -113,6 +114,7 @@ import {
   heroFacesOf,
   locateCard,
   mustCardOf,
+  mustInstance,
   mustPlayer,
   playerOrder,
   printedCostOf,
@@ -147,9 +149,10 @@ import {
   resolveRef,
   resolveValue,
   selectTargets,
+  attackIgnoringOf,
   reachOf,
 } from "../select.js";
-import type { EffectSpec, PlayerRef, StatusName, ValueSpec } from "../spec.js";
+import type { EffectSpec, PlayerRef, StatusName, TargetRef, ValueSpec } from "../spec.js";
 import type { Bindings, ResolvedCountVar, StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
 import { executePayAttackCost } from "../attack-cost.js";
@@ -235,6 +238,7 @@ export const contextOf = (frame: Frame<"effects">, deps: EngineDeps): EffectCont
   bindings: frame.bindings,
   vars: frame.vars,
   ...(frame.abilityId !== undefined ? reachOf(deps.abilities[frame.abilityId]) : {}),
+  ...(frame.abilityId !== undefined ? attackIgnoringOf(deps.abilities[frame.abilityId]) : {}),
   ...(frame.controllerId !== null &&
   frame.abilityId !== undefined &&
   deps.abilities[frame.abilityId]?.label?.includes("thwart")
@@ -370,6 +374,9 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   // instruction, whether or not it then deals damage (RRG 1.8 "Labeled Ability", p. 26; owner decision, 2026-10-15).
   if (beginLabelAttack(ctx, frame, effect, context)) return;
   if (effect.kind === "chooseCards") return executeChooseCards(ctx, frame, effect, context);
+  // Owner decision 7 (docs/phase7-elektra-iron-fist.md §5): which facedown boost card Moon Knight 63039 discards.
+  if (effect.kind === "discardFacedownBoostCards" && effect.choose && !effect.cards)
+    return executeDiscardBoostChoice(ctx, frame, effect, context);
   // docs/phase7-wave10-hero-packs.md H3.4: a find that chooses among every card that matches.
   if (effect.kind === "findCard" && effect.choose) return executeFindWithChoice(ctx, frame, effect, context);
   if (effect.kind === "lookAt") return executeLookAt(ctx, frame, effect, context);
@@ -411,7 +418,14 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   // docs/phase7-wave8.md §3.13: "until the next villain phase begins" ends here, as the villain phase begins.
   if (effect.kind === "villainPhaseBegins") {
     setFrame(ctx, { ...frame, cursor: frame.cursor + 1 });
-    return expireNextVillainPhaseEffects(ctx);
+    const ending = untilNextVillainPhase(ctx.state);
+    expireNextVillainPhaseEffects(ctx);
+    // Kept on the beginning they ended for, to come back if it is cancelled (`cancelTriggeringEvent`).
+    if (effect.beginning && ending.length > 0)
+      updateFrame(ctx, effect.beginning, (target) =>
+        target.kind === "event" ? { ...target, restoreIfCancelled: ending } : target,
+      );
+    return;
   }
   // docs/phase7-wave8.md §3.11: "resolve its 'Forced Response' →", settled once the abilities have resolved.
   if (effect.kind === "settleResolveAbilityCost") return executeSettleResolveAbilityCost(ctx, frame, effect);
@@ -1126,7 +1140,8 @@ function executeDivide(
       return {
         kind: "dealDamage",
         targetInstanceId: dealtTo,
-        amount: (shares.get(named) ?? 0) + bonus + (ofAttack?.extra ?? 0),
+        // A reduction of the attack's damage (a negative `extra`) leaves no share below 0.
+        amount: Math.max(0, (shares.get(named) ?? 0) + bonus + (ofAttack?.extra ?? 0)),
         sourceInstanceId: frame.selfInstanceId,
         fromAttack: false,
         ...ofAttack?.damage,
@@ -2083,6 +2098,69 @@ const cardOption =
     ref: { kind: "card", instanceId: id } as const,
   });
 const cardOptions = (ctx: Ctx, ids: readonly InstanceId[]): readonly ChoiceOption[] => ids.map(cardOption(ctx));
+
+const BOOST_PICK = "_discardBoost";
+const BOOST_PICK_OFFERED = `${BOOST_PICK}#offered`;
+
+/**
+ * `EffectSpec discardFacedownBoostCards.choose` (owner decision 7, docs/phase7-elektra-iron-fist.md §5; RRG 1.8
+ * "Choose", p. 12): with more facedown boost cards on the cards `from` names than it discards, the ability's controller
+ * picks which. Each is offered facedown as its place in the order dealt, the first dealt first (the pick when nothing is
+ * known about them); no option names the card or its instance, so nobody learns its face from the prompt. The cards as
+ * offered are kept in the frame (`BOOST_PICK_OFFERED`) so the answer maps back to them; the effect then resolves with
+ * `cards` naming the pick. With no more cards than it discards, or no controller, it resolves with no prompt.
+ */
+function executeDiscardBoostChoice(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "discardFacedownBoostCards" }>,
+  context: EffectContext,
+): void {
+  const resolveWith = (cards: TargetRef | null, bindings: Readonly<Record<string, readonly InstanceId[]>>): void => {
+    const { choose: _asked, ...rest } = effect;
+    const next: EffectSpec = cards ? { ...rest, cards } : rest;
+    setFrame(ctx, {
+      ...frame,
+      answer: null,
+      bindings,
+      effects: frame.effects.map((each, index) => (index === frame.cursor ? next : each)),
+    });
+  };
+  if (frame.answer !== null) {
+    const offered = frame.bindings[BOOST_PICK_OFFERED] ?? [];
+    const picked = frame.answer.flatMap((optionId) => {
+      const id = offered[Number(optionId.replace("boost:", "")) - 1];
+      return id ? [id] : [];
+    });
+    const { [BOOST_PICK_OFFERED]: _offered, ...bindings } = frame.bindings;
+    emit(ctx, { type: "targetChosen", slot: BOOST_PICK, instanceIds: picked });
+    resolveWith({ kind: "slot", slot: BOOST_PICK }, { ...bindings, [BOOST_PICK]: picked });
+    return;
+  }
+  const inPlay = cardsInPlay(ctx.state);
+  const facedown = resolveRef(ctx.state, effect.from, context)
+    .filter((id) => inPlay.includes(id))
+    .flatMap((id) => mustInstance(ctx.state, id).boostCards.filter((card) => !mustInstance(ctx.state, card).faceup));
+  const count = effect.count ? Math.max(0, resolveValue(ctx.state, effect.count, context)) : 1;
+  const [chooser] = resolvePlayers(ctx.state, { kind: "controller" }, context);
+  if (!chooser || count === 0 || facedown.length <= count) return resolveWith(null, frame.bindings);
+  setFrame(ctx, { ...frame, bindings: { ...frame.bindings, [BOOST_PICK_OFFERED]: facedown } });
+  requestChoice(ctx, {
+    playerId: chooser,
+    prompt: { kind: "chooseOption" },
+    options: facedown.map((_, index) => ({
+      optionId: `boost:${index + 1}`,
+      label:
+        index === 0
+          ? "Facedown boost card 1 (the first dealt)"
+          : `Facedown boost card ${index + 1} (dealt ${index + 1}${index === 1 ? "nd" : index === 2 ? "rd" : "th"})`,
+      ref: { kind: "none" },
+    })),
+    minSelections: count,
+    maxSelections: count,
+    frameId: frame.frameId,
+  });
+}
 
 /**
  * A choice that chooses nothing binds its slot empty and moves on. A required one (`isRequiredChoice`), or a search
@@ -3436,12 +3514,16 @@ function executeResolveSpecials(
   // card whose constant gives it (null for a rule no card carries). Absent: one of the card's own abilities.
   type Step = TriggerCandidate & { readonly grantedBy?: InstanceId | null };
   const steps: Step[] = [];
-  // Cards in play (`cards`), or cards a ref names wherever they are (`of`): an Invocation card resolves from its deck.
-  const sources = effect.of
-    ? resolveRef(ctx.state, effect.of, context).filter((id) => getInstance(ctx.state, id) !== undefined)
-    : effect.cards
-      ? selectTargets(ctx.state, effect.cards, context)
-      : [];
+  // Cards a ref names wherever they are (`of`): an Invocation card resolves from its deck. Then cards in play (`cards`);
+  // with both, the cards of both, `of`'s first and each once (a card removed from the game resolving with the rest).
+  const sources = [
+    ...new Set([
+      ...(effect.of
+        ? resolveRef(ctx.state, effect.of, context).filter((id) => getInstance(ctx.state, id) !== undefined)
+        : []),
+      ...(effect.cards ? selectTargets(ctx.state, effect.cards, context) : []),
+    ]),
+  ];
   const resolvingPlayer = effect.player ? (resolvePlayers(ctx.state, effect.player, context)[0] ?? null) : null;
   // "Resolve this card's 'When Revealed' ability" / "each 'When Revealed' ability on each side scheme" (§3.56).
   const trigger = effect.trigger ?? "special";
@@ -3453,7 +3535,8 @@ function executeResolveSpecials(
     for (const ref of activeAbilityRefs(ctx.state, id, ctx.deps)) {
       // A "Forced Response" is a forced `response`; a card's attach instruction is not one of its When Revealed
       // abilities (`resolvableAs`).
-      if (!resolvableAs(ctx.deps.abilities[ref.id], trigger)) continue;
+      // A tagged ability resolves only under its own tag (`AbilityTriggerSpec special.tag`).
+      if (!resolvableAs(ctx.deps.abilities[ref.id], trigger, effect.tag)) continue;
       if (only && !only.has(ref.id)) continue;
       // A Forced Interrupt with no enemy activation to be "as if" met is not one this resolves (§3.28).
       if (trigger === "forcedInterrupt" && !asIfActivation(ctx, id, ref.id, asIfPlayer)) continue;
@@ -3543,7 +3626,24 @@ function executeResolveSpecials(
   // the calling ability's player (Wakanda Forever!).
   const unowned = all.every((c) => controllerOf(ctx.state, c.instanceId) === null);
   let ordered = all;
-  if (frame.answer !== null) {
+  if (effect.pick === "one") {
+    // "Resolve whatever is written in a PINK BUBBLE in play" (`pick: "one"`): one of them, the calling ability's
+    // player's pick (the first player's for a card nobody controls, as the order is), every candidate a legal one.
+    if (frame.answer === null && all.length > 1) {
+      requestChoice(ctx, {
+        playerId: frame.controllerId ?? simultaneousOrderer(ctx.state),
+        ...(frame.controllerId ? {} : { authority: "firstPlayerOrders" as const }),
+        prompt: { kind: "chooseOption" },
+        options: all.map(option),
+        minSelections: 1,
+        maxSelections: 1,
+        frameId: frame.frameId,
+      });
+      return;
+    }
+    const picked = frame.answer?.[0];
+    ordered = picked === undefined ? all.slice(0, 1) : all.filter((c) => key(c) === picked);
+  } else if (frame.answer !== null) {
     const byKey = new Map(all.map((c) => [key(c), c]));
     ordered = frame.answer.map((k) => byKey.get(k)).filter((c): c is Step | KeywordStep => c !== undefined);
   } else if (asks && (frame.controllerId || unowned)) {

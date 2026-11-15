@@ -14,6 +14,8 @@ import "@fontsource/public-sans/400.css";
 import "@fontsource/public-sans/700.css";
 import "@fontsource/public-sans/800.css";
 import "@fontsource/ibm-plex-mono/400.css";
+// After Bangers: the crossed 7 that overrides Bangers' own (issue #660). Order matters, see the file.
+import "./fonts/bangers-seven.css";
 import Phaser from "phaser";
 import { surface } from "./tokens.js";
 import { cssOf, setTextResolution } from "./ui/theme.js";
@@ -168,6 +170,9 @@ installColorScheme(game);
 // Every other screen is added the first time something starts it (`scenes/scene-loader.ts`), and the rest in idle
 // time once Title has drawn its first frame.
 const sceneLoader = installSceneLoader(game, Phaser.Scenes.ScenePlugin);
+// Installed custom packs join the card pool and a new game's engine deps (`packs/active-packs.ts`). Not awaited: the
+// base game is playable at once, and a pack is validated in a worker. A dynamic import keeps the validator out of the first load.
+void import("./packs/active-packs.js").then((m) => m.refreshActivePacks()).catch(() => undefined);
 /** After Title's first frame, how long the stats backfill waits, so the first screens load first. */
 const BACKFILL_DELAY_MS = 8000;
 const preloadAfterTitle = (): void => {

@@ -2,11 +2,13 @@ import { cardId, trait, type Trait, type VillainSideLetter } from "@mc/content";
 import {
   ATTACK_DAMAGE_RESULT,
   attackPreventedVars,
+  DEFENDER_DEF_RESULT,
   labeledResolvedVar,
   PAID_CARDS_SLOT,
   PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
   EXCESS_AS_DEALT_RESULT,
+  EXACTLY_DEFEATED_RESULT,
   TOTAL_ATK_RESULT,
   UNRESOLVED_VAR,
 } from "@mc/engine";
@@ -779,6 +781,22 @@ export const encounterIconsInPlay = (icons?: readonly CardIcon[]): ValueSpec => 
   ...(icons ? { icons } : {}),
 });
 export const boostIconsOn = (of: TargetRef): ValueSpec => ({ kind: "boostIcons", of });
+/**
+ * "X equals the PINK BUBBLES you control" (custom content): the abilities tagged `tag` (`tagged(...)`) on the cards in
+ * play `cards` matches (absent: every card in play), each counted: `taggedAbilitiesOn("pinkBubble", { controller:
+ * "you" })`. Live, so a blanked text box counts none. Engine `ValueSpec taggedAbilities`.
+ */
+export const taggedAbilitiesOn = (tag: string, cards?: TargetQuery): ValueSpec => ({
+  kind: "taggedAbilities",
+  tag,
+  ...(cards ? { cards } : {}),
+});
+/**
+ * "Cards with a PINK BUBBLE" (custom content): a query fragment for a card that has an ability tagged `tag`, read live
+ * (in hand: its printed ones): `query(["upgrade", "support", "ally"], hasTaggedAbility("pinkBubble"))`. Engine
+ * `TargetQuery hasTaggedAbility`.
+ */
+export const hasTaggedAbility = (tag: string): Pick<TargetQuery, "hasTaggedAbility"> => ({ hasTaggedAbility: tag });
 /** The star icons (★) in the boost areas of the cards `cards` names: 1 for each card that prints one. */
 export const starIconsOn = (cards: TargetRef): ValueSpec => ({ kind: "starIcons", cards });
 /**
@@ -864,6 +882,12 @@ export const eventResult = (key: string, of?: TargetRef): ValueSpec =>
  * `enemyAttacks` response; `eventResult("damage")` is what the attack dealt after DEF.
  */
 export const attackTotalAtk: ValueSpec = eventResult(TOTAL_ATK_RESULT);
+/**
+ * "Your DEF for that attack" (Redirection Mastery, `iron_fist` 64018): the defending hero's DEF the enemy attack's
+ * damage step subtracted for a basic defense, every modifier included (engine `DEFENDER_DEF_RESULT`). Read on a
+ * `defends` / `exactlyDefends` response; 0 for an attack no hero basically defended.
+ */
+export const defenderDefForAttack: ValueSpec = eventResult(DEFENDER_DEF_RESULT);
 /**
  * "For each point of excess damage dealt to that enemy by that attack", for a card ruled to count the damage **dealt**.
  * No card reads it now: Prince of Power (`hercules` 59017), which did under February 8, 2026 - Ruling 2 and owner answer
@@ -1111,6 +1135,16 @@ export const thwartInProgress = (of: {
   readonly basic?: boolean;
 }): Predicate => ({ kind: "thwartInProgress", ...of });
 /**
+ * "If Elektra is using a basic power" (the Ninja cards 63002–63004): a character matching `character` (any, absent) is
+ * in the middle of a basic power of its own, its basic defense of an enemy attack included (engine `Predicate
+ * usingBasicPower`). `query(["hero"], { name: "Elektra" })` is her hero face only, so the alter-ego Elektra Natchios is
+ * not (ruling October 12, 2026 - Ruling 2).
+ */
+export const usingBasicPower = (character?: TargetQuery): Predicate => ({
+  kind: "usingBasicPower",
+  ...(character ? { character } : {}),
+});
+/**
  * Inside a `modifyStatOf` amount, or a constant modifier's `while` or amount: the card whose stat is being read (the
  * engine's `AFFECTED_SLOT`). "While Wolverine
  * or Jubilee is making a basic attack against that enemy, **they** get +2 ATK" (Jubilee 35003; docs/phase7-wave6.md
@@ -1128,6 +1162,31 @@ export const playedVia = (card: TargetQuery): Predicate => ({ kind: "playedVia",
  * it had (MC60 p. 4). Schemes only: a character's exact defeat reads `attackExcessAsDealt` (hero-pack spec H3.19).
  */
 export const exactlyDefeated: Predicate = { kind: "exactlyDefeated" };
+/**
+ * "After they exactly defeat an enemy or side scheme" (Sensei, `iron_fist` 64032), read in an ally's consequential-
+ * damage scope (`takesConsequentialDamage(…, { if })`), where the power it follows reported its results: its attack
+ * defeated an enemy and dealt no excess damage (`attack.defeated`, no `attack.excessAsDealt`: FFG ruling August 3, 2026
+ * (6), dealt rather than taken), or its thwart exactly defeated a side scheme (`thwart.exactlyDefeated`, engine
+ * `EXACTLY_DEFEATED_RESULT`: no more threat attempted than the scheme had, MC60 p. 4).
+ */
+export const exactlyDefeatedByPower: Predicate = {
+  kind: "or",
+  of: [
+    {
+      kind: "and",
+      of: [
+        { kind: "varAtLeast", name: "attack.defeated", amount: 1 },
+        {
+          kind: "compare",
+          left: { kind: "var", name: `attack.${EXCESS_AS_DEALT_RESULT}` },
+          op: "atMost",
+          right: { kind: "const", value: 0 },
+        },
+      ],
+    },
+    { kind: "varAtLeast", name: `thwart.${EXACTLY_DEFEATED_RESULT}`, amount: 1 },
+  ],
+};
 /**
  * "If Gambit's 'Throw de Card' ability removed at least: • 1 counter, this attack gains ranged. • 2 counters, …"
  * (Charged Card 37006; docs/phase7-wave6.md §3.52): the play of the card resolving carries the note `name`
@@ -1397,6 +1456,11 @@ export const hasStatus = (of: TargetRef, status: StatusName): Predicate => ({ ki
  * names is attached right now, read in its own When Revealed after the engine tried its `attachesTo`.
  */
 export const isAttached = (of: TargetRef): Predicate => ({ kind: "isAttached", of });
+/**
+ * A standing "X cannot be defeated" covers the card `of` names right now, its `while` included (Proxima Midnight and
+ * Corvus Glaive, `mts` 21092/21095). Gates a "remove counters to defeat" option that would do nothing (issue #663).
+ */
+export const cannotBeDefeated = (of: TargetRef): Predicate => ({ kind: "cannotBeDefeated", of });
 /**
  * "A stunned / confused character" by the rules: with steady, two status cards of the type (RRG 1.8 "Steady", p. 41).
  * `hasStatus` only asks whether a status card is there. docs/phase7-wave4.md §3.52.
@@ -1678,6 +1742,24 @@ export const characterDidThisPhase = (character: TargetQuery, did: "attack" | "t
   did,
 });
 /**
+ * "An enemy who has been attacked by a hero this phase" (Iron Fist, `iron_fist` 64014) is `attackedThisPhase(eventTarget,
+ * { category: "hero" })`; "an enemy who has been attacked by another Martial Artist character this phase" (Colleen Wing
+ * 64021) is `attackedThisPhase(attackTarget(), { trait: MARTIAL_ARTIST, except: self })` in her consequential-damage
+ * scope. Some attack this phase against that card by an attacker that was of `category` and had `trait` when it
+ * attacked (engine `GameState.attacksThisPhase`); `except` names attackers that do not count ("another"). The target is
+ * matched in play or not, so an enemy the attack defeated still counts.
+ */
+export const attackedThisPhase = (
+  target: TargetRef,
+  by: { readonly category?: TargetCategory; readonly trait?: Trait; readonly except?: TargetRef } = {},
+): Predicate => ({
+  kind: "attackedThisPhase",
+  target,
+  ...(by.category ? { byCategory: by.category } : {}),
+  ...(by.trait ? { byTrait: by.trait } : {}),
+  ...(by.except ? { exceptBy: by.except } : {}),
+});
+/**
  * "If all the players at this stage are defeated" (Kang's stage 3 cards, docs/phase7-wave2.md §3.1): every player
  * in this effect's own game area is defeated (eliminated). False outside a separate game area.
  */
@@ -1856,4 +1938,18 @@ export const playedThisRound = (atMost: number, opts: { cardType?: string; playe
   player: opts.player ?? you,
   ...(opts.cardType ? { cardType: opts.cardType } : {}),
   atMost,
+});
+
+/**
+ * "If the last card you played this round was a Night Thrasher event, reduce the cost to play this card by 1."
+ * (Kickflip, a custom-content card): the most recent card `player` (default "you") played this round, by play order,
+ * matches `cards`; false when they have played nothing this round. As the condition of a cost reduction read from the
+ * hand it sees the play before this card's own (the play is recorded when it commits):
+ * `constant(costModifier({ delta: -1, appliesTo: { self: true }, activeIn: "hand", while: lastPlayedThisRound(
+ * query("event", { identitySetOf: you })) }))`.
+ */
+export const lastPlayedThisRound = (cards: TargetQuery, opts: { player?: PlayerRef } = {}): Predicate => ({
+  kind: "lastPlayedThisRound",
+  player: opts.player ?? you,
+  cards,
 });

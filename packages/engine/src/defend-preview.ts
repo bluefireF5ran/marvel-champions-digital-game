@@ -33,7 +33,7 @@
 import { DEFAULT_DEPS, type EngineDeps } from "./abilities.js";
 import type { InstanceId, FrameId, PlayerId } from "./ids.js";
 import { attackKeywordsOf, keywordTotal } from "./keywords.js";
-import { boostIconsFor } from "./modifiers.js";
+import { amplifyIconsInPlay, boostIconsFor } from "./modifiers.js";
 import {
   activeVillain,
   cardOf,
@@ -45,17 +45,11 @@ import {
   isMinion,
   maxHitPoints,
   mustInstance,
+  printsBoostAbility,
 } from "./query.js";
 import { defendsWithoutExhausting } from "./rules.js";
-import { villainousFriendlyCharacter } from "./resolve/villainous.js";
-import {
-  cardsInPlay,
-  categoriesOf,
-  characterIgnores,
-  controllerOf,
-  gainedBoostAbilities,
-  printedAbilityRefs,
-} from "./select.js";
+import { heldBoostCardsOf, villainousFriendlyCharacter } from "./resolve/villainous.js";
+import { cardsInPlay, categoriesOf, characterIgnores, controllerOf, gainedBoostAbilities } from "./select.js";
 import type { StackFrame, Vars } from "./stack.js";
 import type { GameState } from "./state.js";
 
@@ -183,8 +177,14 @@ export interface DefendOptionPreview {
   /** Null for "no defense". */
   readonly defenderInstanceId: InstanceId | null;
   readonly basicDefense: boolean;
-  /** Who actually takes the damage. */
+  /** The character the attack is against once this option is declared: the defender, or the attack's own target. */
   readonly targetInstanceId: InstanceId;
+  /**
+   * Who takes the attack's damage: `targetInstanceId`, or the enemy an interrupt sent it to instead ("damage from that
+   * attack is dealt to the chosen enemy instead of you", Psychic Misdirection; `modifyAttack.damageTo`). The bands'
+   * damage, tough and defeat are this character's; retaliate stays the attacked character's.
+   */
+  readonly damagedInstanceId: InstanceId;
   readonly targetPlayerId: PlayerId;
   /**
    * What declaring this defender exhausts (p. 9 step 2): the defender, or nothing when a rule has it defend without
@@ -195,19 +195,19 @@ export interface DefendOptionPreview {
   readonly defenseReduction: number;
   readonly boost: BoostBound;
   /**
-   * A villainous hero's basic defense (docs/phase7-wave11-scenarios.md §S3.7): the one boost card of its own that this
-   * defense will be given and turn up, its icons added to its DEF (RRG 1.8 "Villainous", p. 47). Bounded over the same
-   * unseen pool. With it the bands run over the enemy's icons less these, so a band's `boostFrom`/`boostTo` can go
-   * below 0. Absent for any other option.
+   * A villainous hero's basic defense (docs/phase7-wave11-scenarios.md §S3.7): the boost card of its own that this
+   * defense will be given and turn up, plus any it holds for its basic powers (ruling September 10, 2026 - Ruling 3
+   * (A)), their icons added to its DEF (RRG 1.8 "Villainous", p. 47). Bounded over the same unseen pool. With it the
+   * bands run over the enemy's icons less these, so a band's `boostFrom`/`boostTo` can go below 0. Absent for any
+   * other option.
    */
   readonly ownBoost?: BoostBound;
   readonly bands: readonly DefendBand[];
 }
 
 const hasBoostAbility = (state: GameState, deps: EngineDeps, id: InstanceId): boolean => {
-  const card = cardOf(state, id);
-  if (!card) return false;
-  if (printedAbilityRefs(card).some((ref) => deps.abilities[ref.id]?.trigger.kind === "boost")) return true;
+  // The printed one from card data, as `select.ts` `hasBoostAbility` reads it (`printsBoostAbility`).
+  if (printsBoostAbility(state, id)) return true;
   // A Boost it would gain as a boost card ("Each boost card from the Purple Man encounter set gains …", §S3.6 of
   // docs/phase7-wave11-scenarios.md), read as if it were one: the pool's cards are in a deck or still facedown.
   return gainedBoostAbilities(state, deps, id, { asBoostCard: true }).length > 0;
@@ -272,14 +272,21 @@ function boundOf(
   };
 }
 
-/** The defender's own villainous boost card: one card off the same unseen pool, no per-card bonus. */
+/**
+ * The defender's own boost cards: its villainous card and those it holds for its basic powers (`heldBoostCardsOf`,
+ * ruling September 10, 2026 - Ruling 3 (A)), `count` cards off the same unseen pool, which already holds the held ones
+ * (they are facedown out of the deck). Each gains one icon per amplify icon in play (MC60 p. 4's updated Amplify text
+ * over RRG 1.8 p. 7, the owner's decision of 2026-11-14; `resolve/villainous.ts`) but not the enemy activation's "+N
+ * boost icons each".
+ */
 const ownCardBound = (
   state: GameState,
   deps: EngineDeps,
   enemyId: InstanceId,
+  count: number,
   scope: BoostScope,
   youId: PlayerId,
-): BoostBound => boundOf(state, deps, enemyId, 1, scope, 0, youId);
+): BoostBound => boundOf(state, deps, enemyId, count, scope, amplifyIconsInPlay(state, deps), youId);
 
 interface Outcome {
   readonly damageDealt: number;
@@ -327,6 +334,8 @@ function outcomeAt(
     readonly targetInstanceId: InstanceId;
     readonly defenderInstanceId: InstanceId | null;
     readonly basicDefense: boolean;
+    /** Set when the damage goes to this enemy instead of the target (`modifyAttack.damageTo`). */
+    readonly damageTo: InstanceId | null;
   },
   boostIcons: number,
   overkill: boolean,
@@ -338,8 +347,13 @@ function outcomeAt(
     basicDefense: option.basicDefense,
   });
   const damageDealt = planned?.damage ?? 0;
-  const target = getInstance(state, option.targetInstanceId);
-  const maxHp = maxHitPoints(state, option.targetInstanceId, deps) ?? 0;
+  // Psychic Misdirection: the attack's damage, DEF already taken off it (RRG 1.8 "Attack (Enemy Activation)" step 4,
+  // p. 8; "Defend, Defense", p. 15), is dealt to the chosen enemy, which is not attacked: its tough status card absorbs
+  // it, but no overkill or "prevent N damage from this attack" applies to it (§4.1 Q18; `dealDamage` `notAttacked`).
+  const redirected = option.damageTo !== null;
+  const damagedId = option.damageTo ?? option.targetInstanceId;
+  const target = getInstance(state, damagedId);
+  const maxHp = maxHitPoints(state, damagedId, deps) ?? 0;
   const already = target?.damage ?? 0;
 
   // RRG 1.8 "Tough" (p. 44): the damage is prevented and the status card is discarded — except that a hero making a
@@ -351,22 +365,28 @@ function outcomeAt(
   // budget unspent. Prevented damage is dealt but not taken (RRG 1.8 "Prevent", p. 35).
   const vars = activationVarsOf(state, frame.eventFrameId);
   const preventsAll = (vars.preventAllDamage ?? 0) > 0;
-  const preventBudget = Math.max(0, (vars.preventDamage ?? 0) - (vars.preventDamageUsed ?? 0));
+  const preventBudget = redirected ? 0 : Math.max(0, (vars.preventDamage ?? 0) - (vars.preventDamageUsed ?? 0));
+  // A chosen enemy that has left play takes nothing: the damage is replaced all the same (`resolve/enemy-activation.ts`).
+  const gone = redirected && !cardsInPlay(state).includes(damagedId);
   const hasTough = !preventsAll && (target?.statuses.tough ?? 0) > 0;
-  const damageTaken = damageDealt <= 0 || hasTough || preventsAll ? 0 : Math.max(0, damageDealt - preventBudget);
-  const toughSpent = damageDealt > 0 && hasTough;
+  const damageTaken =
+    gone || damageDealt <= 0 || hasTough || preventsAll ? 0 : Math.max(0, damageDealt - preventBudget);
+  const toughSpent = !gone && damageDealt > 0 && hasTough;
 
   const defeated = damageTaken > 0 && already + damageTaken >= maxHp;
-  const excess = overkill && defeated ? already + damageTaken - maxHp : 0;
+  const excess = overkill && !redirected && defeated ? already + damageTaken - maxHp : 0;
   // The defender has not been declared yet, so the preview says who it would be rather than reading the frame: every
   // option's target is the defender or the character the attack is against, and either one spills (p. 10).
-  const recipient = excess > 0 ? overkillRecipient(state, option.targetInstanceId, true) : null;
+  const recipient = excess > 0 ? overkillRecipient(state, damagedId, true) : null;
 
   // RRG 1.8 "Retaliate X" (p. 38): a forced response after the character is attacked, so the character must still be
   // in play once the attack resolves; and "Ranged" (p. 37) — an attack with ranged ignores retaliate entirely.
   // An attacker that ignores retaliate against this character takes none either (docs/phase7-wave7.md §3.30).
   const ignored = characterIgnores(state, deps, frame.enemyInstanceId, "retaliate", false, option.targetInstanceId);
-  const retaliate = ranged || defeated || ignored ? 0 : keywordTotal(state, option.targetInstanceId, "retaliate", deps);
+  const retaliate =
+    ranged || (defeated && !redirected) || ignored
+      ? 0
+      : keywordTotal(state, option.targetInstanceId, "retaliate", deps);
 
   return {
     damageDealt,
@@ -426,8 +446,9 @@ export function defendPreview(
     (id) => getInstance(state, id)?.faceup !== true,
   ).length;
   // "Each boost card turned faceup during that activation gets +N boost icons" (§4.1 Q66) is known now, so it is
-  // folded into every card of the pool.
-  const perCard = activationVarsOf(state, frame.eventFrameId).boostIconsEach ?? 0;
+  // folded into every card of the pool, as is one icon per amplify icon in play (RRG 1.8 "Amplify Icon", p. 7), which
+  // the activation's flip adds to each of its cards (`enemy-activation.ts` `flipBoostCard`).
+  const perCard = (activationVarsOf(state, frame.eventFrameId).boostIconsEach ?? 0) + amplifyIconsInPlay(state, deps);
   // A boost card's "you", and a constant's while the attack resolves, is the defending player (RRG 1.8 "Defend,
   // Defense", p. 16), so both are read per option, as they will be once that option's defender is declared.
   const boostBounds = new Map<PlayerId, BoostBound>();
@@ -443,6 +464,10 @@ export function defendPreview(
   // gains ranged"), a loss by the attacker ("his attacks lose ranged", wave 11 §S7 E19) and a loss against the
   // character ("attacks against them lose ranged", wave 10 §3.18) all count.
   const vars = activationVarsOf(state, frame.eventFrameId);
+  // "Damage from that attack is dealt to the chosen enemy instead of you", recorded by an interrupt to this attack
+  // while it was being initiated; the damage step deals it to nobody if that enemy has left play since.
+  const eventFrame = frame.eventFrameId ? state.stack.find((f) => f.frameId === frame.eventFrameId) : undefined;
+  const damageTo = (eventFrame?.kind === "event" ? eventFrame.slots.damageTo?.[0] : undefined) ?? null;
   const rangedAgainst = (targetInstanceId: InstanceId): boolean =>
     attackKeywordsOf(state, deps, { attackerInstanceId: frame.enemyInstanceId, vars, targetInstanceId }).includes(
       "ranged",
@@ -457,20 +482,22 @@ export function defendPreview(
     const targetInstanceId = defenderInstanceId ?? frame.targetInstanceId;
     const targetPlayerId =
       (defenderInstanceId ? controllerOf(state, defenderInstanceId) : null) ?? frame.targetPlayerId;
-    const shape = { targetInstanceId, defenderInstanceId, basicDefense };
+    const shape = { targetInstanceId, defenderInstanceId, basicDefense, damageTo };
     const boost = boundFor(targetPlayerId);
     const defended = withTargetPlayer(state, frame, targetPlayerId);
     const planned = plannedAttackDamage(defended, deps, frame, { boostIcons: 0, defenderInstanceId, basicDefense });
 
     const ranged = rangedAgainst(targetInstanceId);
-    // A villainous hero defending is given a boost card of its own, turned up after the enemy's (`startDefenderBoost`),
-    // whose icons add to its DEF: they come off the enemy's icons here.
+    // A defending hero's own boost cards, resolved in step 3 with the enemy's (`startDefenderBoost`): the one a
+    // villainous hero is given, and those it holds for its basic powers. Their icons add to its DEF, so they come off
+    // the enemy's icons here.
+    const ownCount =
+      defenderInstanceId !== null && categoriesOf(state, defenderInstanceId).includes("hero")
+        ? (villainousFriendlyCharacter(state, deps, defenderInstanceId) ? 1 : 0) +
+          heldBoostCardsOf(state, defenderInstanceId).length
+        : 0;
     const ownBoost =
-      defenderInstanceId !== null &&
-      categoriesOf(state, defenderInstanceId).includes("hero") &&
-      villainousFriendlyCharacter(state, deps, defenderInstanceId)
-        ? ownCardBound(state, deps, frame.enemyInstanceId, scope, targetPlayerId)
-        : null;
+      ownCount > 0 ? ownCardBound(state, deps, frame.enemyInstanceId, ownCount, scope, targetPlayerId) : null;
     const bands: DefendBand[] = [];
     for (let icons = boost.min - (ownBoost?.max ?? 0); icons <= boost.max - (ownBoost?.min ?? 0); icons++) {
       const outcome = outcomeAt(defended, deps, frame, shape, icons, overkill, ranged);
@@ -484,6 +511,7 @@ export function defendPreview(
       defenderInstanceId,
       basicDefense,
       targetInstanceId,
+      damagedInstanceId: damageTo ?? targetInstanceId,
       targetPlayerId,
       // Nothing under "does not exhaust to defend" (`RuleSpec defendsWithoutExhausting`, docs/phase7-wave9.md §3.47).
       exhausts:

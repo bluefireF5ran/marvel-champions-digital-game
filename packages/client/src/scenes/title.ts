@@ -87,7 +87,12 @@ import {
 import { GlyphHints, specsForShortcuts } from "../ui/glyph-hints.js";
 import { hasDesktopWindow, quitToDesktop } from "../platform/desktop-window.js";
 import { onSyncApplied } from "../sync/sync-events.js";
+import { onLanguageChange } from "../language-change.js";
+import { t } from "../i18n/translate.js";
 import { takeReceiveLink, takeSyncLink } from "../save-data/receive-link.js";
+import { fetchReplay, takeReplayLink } from "../replay/replay-link.js";
+import { openReplay, replayErrorKey } from "../replay/replay-files.js";
+import { watchReplay } from "./replay-entry.js";
 import { maybeAskGlobalStats } from "./global-ask-launch.js";
 import { maybeShowSyncSetupPrompt } from "./sync-setup-prompt-launch.js";
 import { SCENES } from "./keys.js";
@@ -175,6 +180,57 @@ export class TitleScene extends Phaser.Scene {
     super(SCENES.title);
   }
 
+  /** A game in progress, watched so far as a replay (#693) without resuming it; Exit comes back here. */
+  async #watchSaved(save: SaveMeta): Promise<void> {
+    if (this.#starting) return;
+    try {
+      const host = await openReplay({ kind: "stored", gameId: save.id });
+      if (!this.sys.isActive()) return host.dispose();
+      await watchReplay(this, host, SCENES.title);
+    } catch (cause) {
+      if (this.sys.isActive()) this.#replayProblem(t(replayErrorKey(cause)));
+    }
+  }
+
+  /** A `#replay=` link: fetches the shared replay and opens it on the board; Exit comes back here. */
+  async #watchSharedReplay(id: string): Promise<void> {
+    const loading = this.#replayNote(t("replay.link.loading"), surface.paper.hex);
+    let fetched: Awaited<ReturnType<typeof fetchReplay>>;
+    try {
+      fetched = await fetchReplay(id);
+    } catch {
+      fetched = { ok: false, failure: "unavailable" };
+    } finally {
+      loading.destroy();
+    }
+    if (!this.sys.isActive()) return;
+    if (!fetched.ok)
+      return this.#replayProblem(t(fetched.failure === "not-found" ? "replay.link.gone" : "replay.link.offline"));
+    try {
+      const host = await openReplay({ kind: "file", bytes: fetched.value });
+      if (!this.sys.isActive()) return host.dispose();
+      await watchReplay(this, host, SCENES.title);
+    } catch (cause) {
+      if (this.sys.isActive()) this.#replayProblem(t(replayErrorKey(cause)));
+    }
+  }
+
+  /** Says why a shared replay didn't open, at the top of the screen, for a few seconds. */
+  #replayProblem(text: string): void {
+    const line = this.#replayNote(text, signal.caution.hex);
+    this.time.delayedCall(6000, () => line.destroy());
+  }
+
+  /** A line about a shared replay at the top of the screen, on an ink ground so it reads over the title art. */
+  #replayNote(text: string, color: number): Phaser.GameObjects.Text {
+    const { width } = this.scale.gameSize;
+    return this.add
+      .text(width / 2, 8, text, { ...textStyle(typeRole.body, color), backgroundColor: cssOf(surface.ink.hex) })
+      .setPadding(10, 6, 10, 6)
+      .setOrigin(0.5, 0)
+      .setDepth(1000);
+  }
+
   create(data: TitleSceneData = {}): void {
     if (data.initialSeatDeckId) {
       const draft = withSeatOne(this.#freshDraft(true), data.initialSeatDeckId);
@@ -190,6 +246,10 @@ export class TitleScene extends Phaser.Scene {
     const unsubscribePowerSaving = onPowerSavingChange(() => {
       if (this.sys.isActive()) this.#rebuild();
     });
+    // A language switch (#390): the menu reads again in the new language.
+    const unsubscribeLanguage = onLanguageChange(() => {
+      if (this.sys.isActive()) this.#rebuild();
+    });
     // A device sync that brought in saves from another device: Continue reads the newest save again (#276).
     const unsubscribeSync = onSyncApplied(() => {
       if (!this.sys.isActive()) return;
@@ -198,6 +258,7 @@ export class TitleScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", this.#rebuild, this);
       unsubscribePowerSaving();
+      unsubscribeLanguage();
       unsubscribeSync();
       this.#hints?.dispose();
       this.#hints = null;
@@ -248,6 +309,10 @@ export class TitleScene extends Phaser.Scene {
     this.#checkRankUp();
     this.#rebuild();
     fadeScreenIn(this);
+    // Opened from a shared replay's link (issue #693): fetch it and watch it (read and cleared once).
+    const replayId = takeReplayLink();
+    if (replayId === "invalid") this.#replayProblem(t("replay.link.invalid"));
+    else if (replayId) void this.#watchSharedReplay(replayId);
     // Opened from a Send screen's QR code: straight to Settings, Save data, Receive (read and cleared once).
     const receive = takeReceiveLink();
     if (receive) this.scene.launch(SCENES.settings, { receive });
@@ -256,7 +321,9 @@ export class TitleScene extends Phaser.Scene {
     if (syncLink) this.scene.launch(SCENES.settings, { syncLink });
     // The one-time "Set up cross-device sync?" question; it decides for itself and stays out of a link's way.
     // The global win rates question comes only once that one has been decided, and never in the same visit.
-    else if (!receive) void maybeShowSyncSetupPrompt(this).then((asked) => maybeAskGlobalStats(this, asked));
+    // A shared replay's link is for watching it: no first-visit question comes up over it.
+    else if (!receive && !replayId)
+      void maybeShowSyncSetupPrompt(this).then((asked) => maybeAskGlobalStats(this, asked));
     // Points may have moved since Boot read them (a game just ended): read again, and announce a rank gained.
     void refreshUnlocks()
       .catch(() => false)
@@ -344,6 +411,7 @@ export class TitleScene extends Phaser.Scene {
       from: this.scene.key,
       saves: this.#listedGames(),
       onResume: (save) => void this.#resume(save),
+      onWatch: (save) => void this.#watchSaved(save),
       onChanged: () => void this.#refreshSaves(),
     } satisfies GamesListOverlayData);
   }
@@ -445,7 +513,7 @@ export class TitleScene extends Phaser.Scene {
     const menuKind = onDark ? "onInk" : "secondary";
 
     this.add
-      .text(layout.eyebrow.x, layout.eyebrow.y, "DIGITAL EDITION", textStyle(typeRole.label, accent.heroRed.hex, 1))
+      .text(layout.eyebrow.x, layout.eyebrow.y, t("title.eyebrow"), textStyle(typeRole.label, accent.heroRed.hex, 1))
       .setLetterSpacing(1);
     this.add
       .text(layout.left, layout.eyebrow.y + layout.eyebrow.height + 8, "MARVEL\nCHAMPIONS", {
@@ -532,7 +600,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: "primary",
-        label: this.#starting ? "Starting…" : "New game",
+        label: this.#starting ? t("title.starting") : t("title.newGame"),
         type: typeRole.barTitle,
         rect: layout.newGame,
         enabled: !this.#starting,
@@ -551,7 +619,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "Decks & Collection",
+        label: t("title.decks"),
         type: typeRole.menuButton,
         rect: layout.decks,
         onClick: openDecks,
@@ -566,7 +634,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "Campaign",
+        label: t("title.campaign"),
         type: typeRole.menuButton,
         rect: layout.campaign,
         onClick: openCampaign,
@@ -604,7 +672,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "Extras",
+        label: t("title.extras"),
         type: typeRole.menuButton,
         rect: layout.extras,
         onClick: openExtras,
@@ -620,7 +688,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "Trophy Room",
+        label: t("title.trophyRoom"),
         type: typeRole.menuButton,
         rect: layout.trophies,
         onClick: openTrophies,
@@ -635,7 +703,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "Your stats",
+        label: t("title.yourStats"),
         type: typeRole.menuButton,
         rect: layout.stats,
         onClick: openStats,
@@ -652,7 +720,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "How to play",
+        label: t("title.howToPlay"),
         type: typeRole.menuButton,
         rect: layout.howToPlay,
         onClick: openHowToPlay,
@@ -667,7 +735,7 @@ export class TitleScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: menuKind,
-        label: "Settings",
+        label: t("title.settings"),
         type: typeRole.menuButton,
         rect: layout.settings,
         onClick: openSettings,
@@ -684,7 +752,7 @@ export class TitleScene extends Phaser.Scene {
       this.#buttons.push(
         new McButton(this, {
           kind: menuKind,
-          label: "Quit to desktop",
+          label: t("title.quit"),
           type: typeRole.menuButton,
           rect: layout.quit,
           onClick: quit,
@@ -720,7 +788,7 @@ export class TitleScene extends Phaser.Scene {
       openExternal(
         releaseNotesPageUrl(CLIENT_VERSION, globalThis.location?.href ?? "", isNativeShell(), artLanguageNow()),
       );
-    const linkText = this.add.text(0, layout.footer.y, "Release notes ↗", textStyle(typeRole.label, textColor));
+    const linkText = this.add.text(0, layout.footer.y, t("title.releaseNotes"), textStyle(typeRole.label, textColor));
     linkText.setX(versionText.x - 16 - linkText.width);
     // A phone's footer has no room for all three once the version names its language and install.
     coverageText.setVisible(coverageText.x + coverageText.width + 8 <= linkText.x - 6);
@@ -877,6 +945,7 @@ export class TitleScene extends Phaser.Scene {
       enabled: !this.#starting && !this.#removeBusy,
       error: this.#removeError,
       onResume: (row) => void this.#resume(row.save),
+      onWatch: (row) => void this.#watchSaved(row.save),
       onAskRemove: (row) => {
         this.#removing = row.id;
         this.#rebuild();
@@ -907,9 +976,10 @@ export class TitleScene extends Phaser.Scene {
       .rectangle(banner.x, banner.y, banner.width, banner.height, signal.caution.hex)
       .setOrigin(0, 0)
       .setStrokeStyle(2, surface.inkOnHue.hex);
-    this.add
-      .text(parts.text.x, parts.text.y, "UPDATE AVAILABLE", textStyle(typeRole.label, surface.inkOnHue.hex))
+    const heading = this.add
+      .text(parts.text.x, parts.text.y, t("title.updateAvailable"), textStyle(typeRole.label, surface.inkOnHue.hex))
       .setLetterSpacing(1);
+    fitText(heading, parts.textWidth, typeRole.label.size); // a translation can run longer than the English
     this.add
       .text(
         parts.text.x,
@@ -991,7 +1061,7 @@ export class TitleScene extends Phaser.Scene {
     const line = this.add.text(
       rect.x + pad,
       rect.y + 4,
-      up ? `RANK UP · ${up.replace(/^Rank up: /, "")}` : `${badge.rankLabel} · ${badge.title}`,
+      up ? `${t("title.rankUp")} · ${up.replace(/^Rank up: /, "")}` : `${badge.rankLabel} · ${badge.title}`,
       textStyle(typeRole.label, paper),
     );
     let room = inner;
@@ -1017,12 +1087,14 @@ export class TitleScene extends Phaser.Scene {
     const inner = rect.width - pad * 2;
     const paper = surface.paper.hex;
     const label = this.add
-      .text(rect.x + pad, rect.y + 5, up ? "RANK UP" : badge.rankLabel, textStyle(typeRole.label, paper))
+      .text(rect.x + pad, rect.y + 5, up ? t("title.rankUp") : badge.rankLabel, textStyle(typeRole.label, paper))
       .setLetterSpacing(1);
     if (!up) {
       const points = this.add.text(0, rect.y + 5, badge.pointsLabel, textStyle(typeRole.label, paper));
       points.setX(rect.x + rect.width - pad - points.width);
       fitText(label, Math.max(20, inner - points.width - 6), typeRole.label.size);
+    } else {
+      fitText(label, inner, typeRole.label.size); // a translation can run longer than "RANK UP"
     }
     const title = this.add.text(rect.x + pad, rect.y + 19, up ? up.replace(/^Rank up: /, "") : badge.title, {
       ...textStyle(typeRole.rowTitle, paper),

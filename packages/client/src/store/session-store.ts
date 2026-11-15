@@ -28,6 +28,7 @@ import { actingPlayer } from "../engine/acting-player.js";
 import { emptyRecord, type GameRecord } from "../engine/game-record.js";
 import type { SaveMeta } from "../engine/game-storage.js";
 import type { EngineHost, EngineUpdate, LegalActionsFor, SavedGame, SessionConfig } from "../engine/host.js";
+import { setGamePacks } from "../content/game-deps.js";
 import type { BackOutTrailEntry } from "../view/back-out.js";
 import type { PaymentState } from "../view/payment-model.js";
 import type { JudgedPayment } from "../view/payment-verdict.js";
@@ -186,6 +187,14 @@ export class SessionStore {
     // Device sync pulls in a newer copy of this game first (`store/resume-hook.ts`); a no-op when sync is off.
     await runBeforeResume(gameId);
     return this.#begin(() => this.#host.resume(gameId));
+  }
+
+  /**
+   * Shows what the host holds already, without syncing or picking anything up: a replay's first position
+   * (`replay/replay-mode.ts`), where `resume`'s device sync would only cost a round trip for a game nobody is playing.
+   */
+  open(): Promise<void> {
+    return this.#begin(() => this.#host.resume(""));
   }
 
   /** The saved game to offer as "Continue", or null. A storage failure is treated as "none". */
@@ -455,6 +464,8 @@ export class SessionStore {
 
   #set(next: SessionState): void {
     this.#state = next;
+    // The game on the table's own packs, which every in-game screen reads its deps and cards through (`content/game-deps.ts`).
+    setGamePacks(next.config?.packs);
     for (const listener of [...this.#listeners]) listener(next);
   }
 }

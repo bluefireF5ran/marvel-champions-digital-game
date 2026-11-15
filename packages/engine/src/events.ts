@@ -113,8 +113,15 @@ export type GameEvent =
   /**
    * Round `round`'s villain phase was skipped (`EffectSpec skipNextVillainPhase`, docs/phase7-wave11-hero-packs.md
    * H3.7): the round goes straight to its end. `remaining` is how many more villain phases are still to be skipped.
+   * With `playerPhaseInstead`, a player phase is played in its place, within the same round (`EffectSpec
+   * replaceNextVillainPhaseWithPlayerPhase`), and `remaining` counts the replacements still to come.
    */
-  | { readonly type: "villainPhaseSkipped"; readonly round: number; readonly remaining: number }
+  | {
+      readonly type: "villainPhaseSkipped";
+      readonly round: number;
+      readonly remaining: number;
+      readonly playerPhaseInstead?: true;
+    }
   | { readonly type: "turnStarted"; readonly playerId: PlayerId }
   | { readonly type: "turnEnded"; readonly playerId: PlayerId }
   | { readonly type: "deckShuffled"; readonly zone: ZoneId; readonly order: readonly InstanceId[] }
@@ -996,6 +1003,19 @@ export type GameEvent =
       readonly reason: "dashedStat" | "leftPlay";
     }
   /**
+   * An activation cancelled by a "Boost" ability of one of its own boost cards (`EffectSpec cancelBoostedActivation`)
+   * has ended: no damage or threat, no further boost card turned faceup. `discardedBoostCards` are the enemy's boost
+   * cards discarded with it, still facedown or the cancelling card itself (unless its ability moved it). Logged once
+   * the cancelling ability has resolved, before the activation's `triggerEvent` "cancelled" line.
+   */
+  | {
+      readonly type: "activationCancelled";
+      readonly enemyInstanceId: InstanceId;
+      readonly activation: "attack" | "scheme";
+      readonly byInstanceId: InstanceId;
+      readonly discardedBoostCards: readonly InstanceId[];
+    }
+  /**
    * A keyword's enemy activation (quickstrike's attack, teamwork's activation) was initiated while an ability was
    * resolving: its status check and its "when … attacks / schemes" interrupt window are done, and it now waits beneath
    * that ability's root frame `abilityFrameId` until the ability has finished, then resolves its steps
@@ -1102,6 +1122,8 @@ export type GameEvent =
       readonly enemyInstanceId: InstanceId;
       readonly instanceId: InstanceId;
       readonly outsideActivation?: true;
+      /** Held for the friendly holder's next basic power (`CardInstance.heldForBasicPowers`). */
+      readonly forBasicPower?: true;
     }
   /**
    * An activation's boost cards were withheld by an interrupt to it ("Do not give Master Mold a boost card for this
@@ -1147,7 +1169,28 @@ export type GameEvent =
    * "Ignore", p. 23): it is turned faceup and discarded as usual, adds 0 and resolves no ability. Not a cancel, so no
    * `boostCancelled` goes with it. Logged once per card, after its `boostCardFlipped` (whose `boostIcons` is then 0).
    */
-  | { readonly type: "boostIgnored"; readonly enemyInstanceId: InstanceId; readonly instanceId: InstanceId }
+  | {
+      readonly type: "boostIgnored";
+      readonly enemyInstanceId: InstanceId;
+      readonly instanceId: InstanceId;
+      /**
+       * Only the card's "Boost" ability is ignored (`RuleSpec ignoreBoost` with `only: "abilities"`): its icons count
+       * as usual, and its `boostCardFlipped` carries them.
+       */
+      readonly abilityOnly?: true;
+    }
+  /**
+   * A boost card's count was multiplied (`RuleSpec boostIconsMultiplied`, "each boost icon counts twice"): `counted` is
+   * what it would have added, `icons` what it adds. Logged at the count, before the card is discarded.
+   */
+  | {
+      readonly type: "boostIconsMultiplied";
+      readonly enemyInstanceId: InstanceId;
+      readonly instanceId: InstanceId;
+      readonly factor: number;
+      readonly counted: number;
+      readonly icons: number;
+    }
   | {
       readonly type: "boostCardFlipped";
       readonly enemyInstanceId: InstanceId;
@@ -1157,7 +1200,8 @@ export type GameEvent =
   /**
    * A villainous character that is not an enemy (an ally or a hero) turned its boost card faceup as one of its basic
    * powers resolved (RRG 1.8 "Villainous", p. 47; MC60 p. 26 FAQ; docs/phase7-wave11-scenarios.md §S3.7). `boostIcons`
-   * is the card's count at the flip (no amplify: RRG 1.8 "Amplify Icon", p. 7, adds only "during an enemy activation");
+   * is the card's count at the flip, amplify icons included (MC60 p. 4's updated Amplify text over RRG 1.8 p. 7, the
+   * owner's decision of 2026-11-14; `resolve/villainous.ts`);
    * the icons go to `stat` for this use, and the card is discarded once its Boost ability has resolved. Not an enemy's
    * boost card, so never a `boostCardFlipped`.
    */
@@ -1448,6 +1492,16 @@ export type GameEvent =
     }
   /** A player's ability tried to discard a card a `playersCannotDiscard` rule protects (docs/phase7-wave4.md §3.44). */
   | { readonly type: "discardRefused"; readonly instanceId: InstanceId }
+  /**
+   * A card being set aside from a player's zone went to scenario area `area` instead, by the `setAsideDestination` rule
+   * of `sourceInstanceId` (Damnation, community pack `mephisto-nep`).
+   */
+  | {
+      readonly type: "setAsideRedirected";
+      readonly instanceId: InstanceId;
+      readonly area: string;
+      readonly sourceInstanceId: InstanceId | null;
+    }
   /** An ally started (`as: "minion"`) or stopped (`as: null`) being treated as a minion (docs/phase7-wave4.md §3.9). */
   /** A resource ability used in a payment put its own effects on the stack (docs/phase7-wave4.md §3.30). */
   | {
@@ -1866,6 +1920,19 @@ export type GameEvent =
         readonly resources: ResourcePool;
       }[];
     }
+  /**
+   * "Treat the next card you spend as if it has double the resources" (`RuleSpec doubleNextCardSpent`; community pack
+   * `yondu-dh`, Jackpot!) doubled `instanceId`, the first card `playerId` spent in this payment: its `paymentCommitted`
+   * resources already count the `factor`. Logged right after that line; each grant in `lastingEffectIds` then ends as
+   * `consumed`.
+   */
+  | {
+      readonly type: "spentCardDoubled";
+      readonly playerId: PlayerId;
+      readonly instanceId: InstanceId;
+      readonly factor: number;
+      readonly lastingEffectIds: readonly string[];
+    }
   | {
       readonly type: "resourcesGenerated";
       readonly playerId: PlayerId;
@@ -2115,6 +2182,8 @@ export type GameEvent =
       readonly instanceId: InstanceId;
       readonly playerId: PlayerId;
       readonly as: FacedownRole["kind"];
+      /** Where it came from when not the top of the player's deck (`putIntoPlayFacedown.from`). */
+      readonly from?: "discard";
     }
   /**
    * RRG "Unique Icon": a card that would have entered play matched one already in play.

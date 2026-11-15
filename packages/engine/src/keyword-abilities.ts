@@ -34,13 +34,13 @@ export const TEMPORARY_ABILITY: KeywordAbility = {
 
 /**
  * RRG 1.8 "Villainous" (p. 47): "The villainous keyword is equivalent to the following triggered ability: 'Forced
- * Interrupt: When this character uses a basic power, give it a boost card.'" The card comes facedown from the top of the
- * encounter deck (`giveBoostCard`). This is the keyword on a character that is not an enemy, an ally or a hero (MC60
- * p. 26 FAQ: "The rules for villainous have been revised to function for allies (and heroes) who have it"; Black Cat
- * 60169 as an ally; docs/phase7-wave11-scenarios.md §S3.7): only those make a basic power the `basicPowerUsing` event
- * hears. An enemy's activation gives its own card (`resolve/enemy-activation.ts` `giveBoostCard`, RRG 1.8 "Attack
- * (Enemy Activation)" step 1, p. 8), and the pattern leaves enemies out. The card is turned faceup and resolved as the
- * power resolves, and discarded after it, by the `characterBoost` frames (`resolve/villainous.ts`).
+ * Interrupt: When this character uses a basic power, give it a boost card.'" The card comes facedown from the top of
+ * the encounter deck (`giveBoostCard`). This is the keyword on a character that is not an enemy, an ally or a hero
+ * (MC60 p. 26 FAQ: "The rules for villainous have been revised to function for allies (and heroes) who have it"; Black
+ * Cat 60169 as an ally; docs/phase7-wave11-scenarios.md §S3.7). An enemy's activation gives its own card
+ * (`resolve/enemy-activation.ts` `giveBoostCard`, RRG 1.8 "Attack (Enemy Activation)" step 1, p. 8), and the pattern
+ * leaves enemies out. The card is turned faceup and resolved as the power resolves, and discarded after it, by the
+ * `characterBoost` frames (`resolve/villainous.ts`).
  */
 export const VILLAINOUS_ABILITY: KeywordAbility = {
   keyword: "villainous",
@@ -49,6 +49,11 @@ export const VILLAINOUS_ABILITY: KeywordAbility = {
     trigger: {
       kind: "interrupt",
       forced: true,
+      // Villainous = Forced Interrupt: when this character uses a basic power (RRG 1.8 'Villainous' p. 47). Same
+      // triggering condition as Stick 60029 / Moondragon 63038, so it initiates before them ('Forced' p. 20). 'Would'
+      // interrupts to the attack/thwart go first, and a 'would' cancel gives no card ('Would' p. 48): the
+      // `basicPowerUsing` window of a basic attack, thwart or recovery opens after its event's "would" tier
+      // (`Frame<"event">.usingAfterWould`, `resolve/window.ts`).
       on: {
         on: "basicPowerUsing",
         selfIs: "source",
@@ -56,16 +61,17 @@ export const VILLAINOUS_ABILITY: KeywordAbility = {
         sourceIs: { not: { categories: ["enemy"] } },
         // An ally's defense is no use of a basic power: "Defense power (DEF) can be used by a character to perform a
         // basic defense … Generally, only heroes have defense power" (RRG 1.8 "Basic Power", p. 10), and "A hero can
-        // use their basic defense power … An ally can exhaust to defend" (RRG 1.8 "Defend, Defense", p. 15). A
-        // recovery is a basic power (p. 10: "Recovery power (REC) can be used by a character to perform a basic
-        // recovery").
+        // use their basic defense power … An ally can exhaust to defend" (RRG 1.8 "Defend, Defense", p. 15).
         anyOf: [
           { on: "basicPowerUsing", eventIs: { power: ["attack", "thwart", "recover"] } },
           { on: "basicPowerUsing", eventIs: { power: "defense" }, sourceIs: { categories: ["hero"] } },
         ],
       },
     },
-    effects: [{ kind: "giveBoostCard", enemy: { kind: "self" } }],
+    // Held for its basic powers (`CardInstance.heldForBasicPowers`), as the card is given: that mark is what the use
+    // resolves, so a card an enemy's text places on the character mid-use is never resolved or kept as its own (ruling
+    // September 10, 2026 - Ruling 3 (C); `resolve/villainous.ts`).
+    effects: [{ kind: "giveBoostCard", enemy: { kind: "self" }, forBasicPower: true }],
   },
 };
 

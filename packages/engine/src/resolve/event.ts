@@ -53,6 +53,7 @@ import {
   damageTakenAllowance,
   damageTakenBreakdown,
   perAttackDamageCap,
+  perAttackDamageFloor,
   damageSourceCard,
   type DamageAttackInfo,
   type DamageSourceInfo,
@@ -81,12 +82,14 @@ import {
   actingCharacterOf,
   cannotBeDefeatedAgain,
   cardsInPlay,
+  categoriesOf,
   characterIgnores,
   controllerOf,
   isProtectedMainScheme,
   resolveValue,
   sourcePlayerOf,
   thwartAmount,
+  traitsOf,
 } from "../select.js";
 import {
   applyLeavingPlay,
@@ -100,7 +103,7 @@ import {
 import { defendedActivationFrameId, playFrameOf, type StackFrame, type Vars } from "../stack.js";
 import { releaseWaitingAbilities, resumeSuspended } from "./suspend.js";
 import { forgetEnteredWhileApplying } from "../entered-since.js";
-import { STATUS_NAMES, type GameState } from "../state.js";
+import { type AttackThisPhase, STATUS_NAMES, type GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
 import {
@@ -115,6 +118,7 @@ import {
   damageTakenKey,
   eventSubjects,
   EXCESS_AS_DEALT_RESULT,
+  EXACTLY_DEFEATED_RESULT,
   spillDefeatedKey,
 } from "../trigger-events.js";
 import type { AttackKeyword, DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
@@ -173,6 +177,7 @@ import {
 } from "./attack-ability.js";
 import { cancelThwartSession, foldThwartInstance, openThwartSession, thwartSessionOf } from "./thwart-session.js";
 import { awaitEnclosingAbility, dropHeldResponses, refreshHeldResponses } from "./initiated-activation.js";
+import { pushUsingAfterWould, startCharacterBoost } from "./villainous.js";
 
 export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
   switch (frame.stage) {
@@ -299,7 +304,11 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       // (`engagingAsItEnters`, RRG 1.8 "Engage", p. 18, and "Triggering Condition", p. 45). No frame of its own: its
       // responses are announced after the minion's keywords.
       const engaging = engagingAsItEnters(ctx, frame.event);
+      // A basic power's event holding its `basicPowerUsing` announcement (`usingAfterWould`) always opens its window: the
+      // announcement is made there, after the "would" tier, and its interrupts (Psi-Energy Control turning a Knife into
+      // a Katana) can make this event's own interrupts eligible (Directed Force 41019), read as the next tier opens.
       const interrupts =
+        frame.usingAfterWould !== undefined ||
         engaging !== null ||
         hasCandidates(ctx.state, ctx.deps, frame.event, "interrupt") ||
         companions.some((companion) => hasCandidates(ctx.state, ctx.deps, companion.event, "interrupt"));
@@ -450,6 +459,14 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         if (frame.event.kind === "dealDamage") announceStatusDiscarded(ctx, piercedBeforeInterrupts(frame.event));
         return;
       }
+      // A basic power's own event (its attack, thwart or recovery) with no interrupt window still holds its power's
+      // `basicPowerUsing` announcement (`usingAfterWould`): it is announced now, before the power resolves.
+      if (pushUsingAfterWould(ctx, frame.frameId)) return;
+      // That event has had its interrupt window: its "would" tier, then the `basicPowerUsing` window (the Villainous
+      // give, then "when … uses a basic power" interrupts), then its other tiers ("'Would'" p. 48, "Forced" p. 20,
+      // "Interrupt" p. 25). Its user's boost cards flip now, as the power resolves (RRG 1.8 "Villainous", p. 47), and
+      // the event waits here, at `apply`, until they have resolved.
+      if (startCharacterBoost(ctx, frame.frameId)) return;
       setFrame(ctx, { ...frame, stage: "responses" });
       const beforeApply = ctx.state;
       const happened = applyEvent(ctx, frame) !== false;
@@ -1060,6 +1077,7 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
     case "characterAttacked":
       recordAttackThisTurn(ctx, event.attackerInstanceId, event.targetInstanceId);
       recordActThisPhase(ctx, event.attackerInstanceId, "attack");
+      recordAttackThisPhase(ctx, event.attackerInstanceId, event.targetInstanceId);
       return applyRetaliate(ctx, event);
     case "characterDefeated":
       return applyDefeat(ctx, event);
@@ -1457,7 +1475,16 @@ function damageAttackInfo(ctx: Ctx, event: DamageEvent): DamageAttackInfo | unde
             (event[name] === true || (source !== null && hasKeyword(ctx.state, source, name, ctx.deps))) &&
             !attackLost(ctx, event, name),
         );
-  return { attackerInstanceId: source, cardInstanceId: event.viaInstanceId ?? null, keywords };
+  // The enemy attack's `undefended` result on the activation frame this damage belongs to (step 5 marks an attack
+  // whose defender left play; a late defender withdraws it), for `reduceDamageTaken.onlyUndefended`.
+  const parent = event.parentFrameId ? findFrame(ctx.state, event.parentFrameId) : undefined;
+  const undefended = parent?.kind === "event" && (parent.vars.undefended ?? 0) > 0;
+  return {
+    attackerInstanceId: source,
+    cardInstanceId: event.viaInstanceId ?? null,
+    keywords,
+    ...(undefended ? { undefended: true } : {}),
+  };
 }
 
 /** Whether a "cannot take damage" rule stops this damage, read with its sources and its attack (`cannotTakeDamage`). */
@@ -1698,7 +1725,13 @@ function spendAttackPreventBudget(
   if (parent?.kind !== "event") return 0;
   const left = (parent.vars.preventDamage ?? 0) - (parent.vars.preventDamageUsed ?? 0);
   if (left <= 0) return 0;
-  const prevented = Math.min(left, taken);
+  // A floor (`minDamageTakenPerAttack`, the Slothful Endurance comment in `applyDamage`) holds over a partial
+  // prevention as it does over a prevent interrupt: the budget prevents only down to the floor (never past `taken`,
+  // which already had the floor and the cap applied), and is spent only by what it prevented. Prevention of the whole
+  // amount, down to 0, escapes the floor.
+  const floor = left < taken ? perAttackDamageFloor(ctx.state, ctx.deps, event.targetInstanceId, true) : null;
+  const prevented = floor === null ? Math.min(left, taken) : Math.min(left, taken - Math.min(floor, taken));
+  if (prevented <= 0) return 0;
   addFrameVars(ctx, parent.frameId, { preventDamageUsed: prevented });
   emit(ctx, { type: "damagePrevented", targetInstanceId: event.targetInstanceId, amount: prevented, reason: "effect" });
   announceDamagePrevented(ctx, {
@@ -1980,9 +2013,18 @@ export function applyDamage(
   // Already applied as the damage reached its "would take" interrupts (`damageConstantsBeforeWouldTake`): only the
   // per-attack cap is read again (the sustained and per-phase ones are below), over what an interrupt changed since.
   // The constants are frozen at step 3 (FFG ruling June 6, 2024, Ruling 205); only the caps are re-read at take time.
+  // Slothful Endurance floor (RRG v1.8 "Cannot" p.11 + "Prevent" p.35): any positive damage taken from an attack is
+  // raised to current DEF, also after partial prevention ("cannot" beats the prevent interrupt); damage defended to 0
+  // (Attack step 4 p.8, General FAQ p.57) or fully prevented / tough (Prevent p.35, Tough p.44) is not taken and is not
+  // raised. Constant-before-interrupt ordering per ruling #205 (Jun 2024) is for caps; a floor can't be undercut.
+  // Derived from RRG, no FFG ruling on damage floors.
+  // Re-read here with the cap, before it, over what a "prevent N of that damage" interrupt left (`minDamageTakenPerAttack`).
   const reapplyCap = (amount: number): number => {
+    const floor =
+      amount > 0 ? perAttackDamageFloor(ctx.state, ctx.deps, event.targetInstanceId, event.fromAttack) : null;
+    const floored = floor === null ? amount : Math.max(amount, floor);
     const cap = perAttackDamageCap(ctx.state, ctx.deps, event.targetInstanceId, event.fromAttack);
-    return cap === null ? amount : Math.min(amount, cap);
+    return cap === null ? floored : Math.min(floored, cap);
   };
   const breakdown = event.constantsApplied
     ? { taken: reapplyCap(event.amount), beforeDoubling: event.amount, doubledBy: [] }
@@ -2312,6 +2354,28 @@ function recordAttackThisTurn(ctx: Ctx, attackerId: InstanceId, targetId: Instan
   if (already.some((r) => r.attackerInstanceId === attackerId && r.attackerTitle === attackerTitle)) return;
   const record = { attackerInstanceId: attackerId, attackerTitle };
   ctx.state = { ...ctx.state, attackedThisTurn: { ...ctx.state.attackedThisTurn, [targetId]: [...already, record] } };
+}
+
+/**
+ * Remembers that `attackerId` attacked `targetId` this phase, with the attacker's categories and traits as they are now
+ * (`GameState.attacksThisPhase`, which says why). A set: the same attacker attacking the same target again as the same
+ * thing changes nothing, and a replay builds the same array.
+ */
+function recordAttackThisPhase(ctx: Ctx, attackerId: InstanceId, targetId: InstanceId): void {
+  const record: AttackThisPhase = {
+    attackerInstanceId: attackerId,
+    targetInstanceId: targetId,
+    attackerCategories: categoriesOf(ctx.state, attackerId),
+    attackerTraits: traitsOf(ctx.state, attackerId, ctx.deps),
+  };
+  const attacks = ctx.state.attacksThisPhase ?? [];
+  const same = (a: AttackThisPhase) =>
+    a.attackerInstanceId === record.attackerInstanceId &&
+    a.targetInstanceId === record.targetInstanceId &&
+    a.attackerCategories.join() === record.attackerCategories.join() &&
+    a.attackerTraits.join() === record.attackerTraits.join();
+  if (attacks.some(same)) return;
+  ctx.state = { ...ctx.state, attacksThisPhase: [...attacks, record] };
 }
 
 /**
@@ -2653,7 +2717,16 @@ function applySchemeDefeated(ctx: Ctx, event: Extract<TriggerEvent, { kind: "sch
   // "If that thwart defeats attached scheme" (docs/phase7-wave11-hero-packs.md H3.12): the thwart's `defeated` result,
   // read by an `atEndOfThwart` effect or the thwart's responses. Recorded here, past the defeat's interrupt window, so
   // a defeat an interrupt cancelled (or a scheme it removed first) is not one.
-  if (event.thwartFrameId) addFrameVars(ctx, event.thwartFrameId, { defeated: 1 });
+  // …and `exactlyDefeated` when that thwart attempted no more threat than the scheme had (MC60 p. 4; FFG ruling
+  // August 3, 2026 (6) for the enemy half). Recorded on the thwart itself, so an ally's consequential damage, which the
+  // thwart reports into (`pushConsequentialDamage`, prefix `thwart.`), reads it: "Each Martial Artist ally you control
+  // takes -2 consequential damage after they exactly defeat an enemy or side scheme" (Sensei, `iron_fist` 64032).
+  if (event.thwartFrameId) {
+    addFrameVars(ctx, event.thwartFrameId, {
+      defeated: 1,
+      ...(event.excessThreat === 0 ? { [EXACTLY_DEFEATED_RESULT]: 1 } : {}),
+    });
+  }
   // "Shuffle it into the encounter deck instead of discarding it." (Time Portal; `defeatedIntoEncounterDeck`, §3.11;
   // the general `defeatDestination`, docs/phase7-wave3.md §3.45).
   const effectsFrame = leaveAfterWhenDefeated(
@@ -2798,7 +2871,14 @@ function applyPlayerAttack(
   recordKeywordsIgnored(
     ctx,
     frameId,
-    guardsIgnored(ctx.state, ctx.deps, event.attackerInstanceId, event.targetInstanceId, event.playerId),
+    guardsIgnored(
+      ctx.state,
+      ctx.deps,
+      event.attackerInstanceId,
+      event.targetInstanceId,
+      event.playerId,
+      event.ignoresGuard === true,
+    ),
   );
   const damage: DamageEvent = {
     kind: "dealDamage",
@@ -2831,7 +2911,9 @@ function applyPlayerAttack(
   // ruling Q47, `attack-ability.ts`): its target is named as attacked once the whole ability has resolved, with every
   // other enemy the ability dealt damage to.
   if (attackFrame?.kind === "event" && attackAwaitsAbility(ctx.state, attackFrame)) {
-    setFrame(ctx, { ...attackFrame, attacked: [...(attackFrame.attacked ?? []), attacked] });
+    // Read from the stack as it is now, not `attackFrame` (read above): the guard minions recorded as ignored since
+    // (`recordKeywordsIgnored`) would otherwise be dropped, and "after you ignore guard" never answer the attack.
+    updateFrame(ctx, frameId, (f) => (f.kind === "event" ? { ...f, attacked: [...(f.attacked ?? []), attacked] } : f));
     pushEvents(ctx, [damage]);
     return;
   }
@@ -2960,7 +3042,7 @@ function readyAndAnnounce(ctx: Ctx, id: InstanceId, sourceInstanceId: InstanceId
 function askThwartCost(ctx: Ctx, frame: Frame<"event">): boolean {
   const event = frame.event;
   if (event.kind !== "thwart") return false;
-  const cost = thwartCostFor(ctx.state, ctx.deps, event.schemeInstanceId);
+  const cost = thwartCostFor(ctx.state, ctx.deps, event.schemeInstanceId, event.playerId);
   if (!cost) return false;
   setFrame(ctx, { ...frame, thwartCostAsked: true });
   // docs/phase7-wave5.md §4.1 Q30 (RRG 1.8 "Cost", p. 13: a "take damage" cost "is not considered paid unless all of
