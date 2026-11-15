@@ -55,7 +55,8 @@ const GADGET = stubUpgrade({ id: "gadget", cost: 0 });
 const MINION = stubMinion({ id: "thug", atk: 1, sch: 1, hp: 3 });
 const SCHEME = stubSideScheme({ id: "plot", startingThreat: 2 });
 // A permanent encounter attachment whose "attach to" names no other host once its minion is gone: removed from the game
-// (owner decision 2026-11-15, #525 item 8, revising wave 5 §4.1 row 26; RRG 1.8 "Permanent" p. 32). One whose text names a host in play goes there instead (docs/phase7-wave10.md §3.19; MC56 p. 20).
+// (owner decision 2026-11-15, #525 item 8, revising wave 5 §4.1 row 26; RRG 1.8 "Permanent" p. 32). One whose text
+// names a host in play goes there instead (docs/phase7-wave10.md §3.19; MC56 p. 20).
 const CURSE = stubAttachment({ id: "curse", attachesTo: { kind: "minion" }, keywords: [{ name: "permanent" }] });
 const BRAND = stubAttachment({ id: "brand", attachesTo: { kind: "villain" }, keywords: [{ name: "permanent" }] });
 

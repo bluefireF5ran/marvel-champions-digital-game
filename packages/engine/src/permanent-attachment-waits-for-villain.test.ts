@@ -118,3 +118,66 @@ describe("#525 item 8: a permanent attachment waits for the next villain (ruling
     expect(state.encounterDecks[activeEncounterDeckId(state)]!.discard).toContain(id);
   });
 });
+
+/**
+ * Several villains (The Wrecking Crew insert, "Multiple Villains and Encounter Decks"; Four Horsemen): the active
+ * villain is defeated while others remain. Its attachments go as its stage is removed, before the active counter
+ * passes (`removeDefeatedVillain`), so "attach to the villain" has no target at that moment; the card waits and goes to
+ * the new active villain once the counter has moved. Ruling Sep 26, 2024 (#15 note): "attach them to the current
+ * active villain". With no side scheme in play every villain ties at 0 threat, and the first player picks.
+ */
+function multiVillain(count: 2 | 3) {
+  const villains = Array.from({ length: count }, (_, i) =>
+    stubVillain({ id: `horse-${i + 1}`, name: `Horse ${i + 1}`, stages: [{ hp: flat(10), atk: 0, sch: 0 }] }),
+  );
+  const multiDeps = depsOf(SLAY_ABILITY);
+  const created = createGame(
+    {
+      seed: 3,
+      cards: [...DEFAULT_CARDS, ...villains, MAIN, FILLER, SLAY, WINGS],
+      villainCardId: villains[0]!.id,
+      villains: villains.map((villain) => ({ villainCardId: villain.id, encounterDeck: [] })),
+      sharedEncounterDeck: true,
+      mainSchemeCardId: MAIN.id,
+      encounterDeck: [WINGS.id, ...copiesOf(FILLER.id, 20)],
+      includeIdentitySets: false,
+      players: [{ identityCardId: HERO.id, deck: [...DEFAULT_DECK, ...copiesOf(SLAY.id, 3)] }],
+    },
+    multiDeps,
+  );
+  if (!created.ok) throw new Error(created.error.message);
+  const begun = driveSession(startSession(created.state), multiDeps).session.state;
+  const first = begun.villains.find((v) => v.cardId === villains[0]!.id)!.instanceId;
+  const taken = encounterCardInVillainArea(begun, WINGS.id);
+  const state: GameState = {
+    ...taken.state,
+    activeVillainId: first,
+    villainArea: taken.state.villainArea.filter((id) => id !== taken.id),
+    instances: {
+      ...taken.state.instances,
+      [taken.id]: { ...mustInstance(taken.state, taken.id), attachedTo: first, controllerId: null },
+      [first]: { ...mustInstance(taken.state, first), attachments: [taken.id] },
+    },
+  };
+  return { state, deps: multiDeps, first, wings: taken.id };
+}
+
+describe("#525 item 8, several villains: the active villain is defeated while others remain (ruling Sep 26, 2024)", () => {
+  for (const count of [2, 3] as const) {
+    it(`${count} villains: the permanent attachment goes to the new active villain, not out of the game; replay deep-equal`, () => {
+      const t = multiVillain(count);
+      const { state, session } = playFree(t.state, t.deps, SLAY.id);
+      expect(state.villains.find((v) => v.instanceId === t.first)?.defeated).toBe(true);
+      expect(state.outcome).toBeNull();
+      const active = state.activeVillainId!;
+      expect(active).not.toBe(t.first);
+      expect(mustInstance(state, t.wings).attachedTo).toBe(active);
+      expect(mustInstance(state, active).attachments).toContain(t.wings);
+      expect(state.removedFromGame).not.toContain(t.wings);
+      expect(state.villainArea).not.toContain(t.wings);
+      const replayed = replay(session.log, t.deps);
+      if (!replayed.ok) throw new Error(replayed.error.message);
+      expect(replayed.state).toEqual(session.state);
+    });
+  }
+});

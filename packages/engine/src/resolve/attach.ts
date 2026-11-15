@@ -284,14 +284,28 @@ export function permanentRehostFor(
 }
 
 /**
- * An unowned permanent encounter attachment whose host leaves play, whose "attach to" names a villain (`villain`,
- * `namedVillain`), when no villain but the leaving host is in play: it stays in play, unattached in the villain's play
- * area, until a villain it can attach to enters play (`attachWaitingPermanents`, `state-checks.ts`). Ruling May 10,
- * 2024 (165), naming Morlock Siege and Mansion Attack: "attach Flight to a villain in play if the villain it was
- * attached to left play", and with no villain in play (The Sinister Six) "keep the attachment in play (because it's
- * permanent) and attach it immediately to the next eligible villain that enters play". Any other unowned permanent
- * attachment with no valid target is removed from the game (RRG 1.8 "Permanent", p. 32). Owner decision 2026-11-15
+ * An unowned permanent encounter attachment whose host leaves play and whose "attach to" names a villain (`villain`,
+ * `namedVillain`) with no valid target yet: it stays in play, unattached in the villain's play area, until a villain it
+ * can attach to is there (`attachWaitingPermanents`, `state-checks.ts`, between frames). It waits when:
+ * - no villain but the leaving host is in play: ruling May 10, 2024 (165), naming Morlock Siege and Mansion Attack,
+ *   "attach Flight to a villain in play if the villain it was attached to left play", and with no villain in play (The
+ *   Sinister Six) "keep the attachment in play (because it's permanent) and attach it immediately to the next eligible
+ *   villain that enters play";
+ * - "attach to the villain" and the leaving host held the active counter, which has not moved yet (a villain defeated
+ *   while others remain, `removeDefeatedVillain`: its attachments go before the counter passes, and a tie is the first
+ *   player's choice through a frame): ruling Sep 26, 2024 (#15 note), "attach them to the current active villain".
+ * Any other unowned permanent attachment with no valid target is removed from the game. Owner decision 2026-11-15
  * (#525 item 8), revising docs/phase7-wave5.md §4.1 row 26 (it was discarded to its encounter discard pile).
+ *
+ * Source conflict, flagged (CLAUDE.md authority order): RRG 1.8 "Permanent" (p. 32, July 2026) reads as removal: "If it
+ * has none or that text does not have a valid target, remove the attachment from the game." The wait comes from the
+ * older rulings above, which also differ from each other: May 10, 2024 keeps the attachment in play, Sep 26, 2024 says
+ * "set them aside and attach them to the next active villain". The owner chose the rulings' wait (2026-11-15, #525
+ * item 8); the engine keeps the card in play, per May 10, 2024 and the owner.
+ *
+ * The client's board does not draw an unattached attachment in the villain's play area (`board-model.ts`); today one
+ * waits only for an effect step (Morlock Siege's Routed, Mansion Attack's response, the active counter passing), so the
+ * client is left as it is.
  */
 export function waitsForVillainHost(
   state: GameState,
@@ -305,7 +319,11 @@ export function waitsForVillainHost(
   if (card?.type !== "attachment" || card.attachesTo === undefined) return false;
   if (card.attachesTo.kind !== "villain" && card.attachesTo.kind !== "namedVillain") return false;
   if (isFacedownAttachment(state, id) || !isPermanent(state, id, deps)) return false;
-  return undefeatedVillains(state).every((villain) => villain.instanceId === leavingHostId);
+  if (undefeatedVillains(state).every((villain) => villain.instanceId === leavingHostId)) return true;
+  if (card.attachesTo.kind !== "villain" || leavingHostId === null) return false;
+  return (
+    state.activeVillainId === leavingHostId || state.gameAreas.some((area) => area.activeVillainId === leavingHostId)
+  );
 }
 
 /**

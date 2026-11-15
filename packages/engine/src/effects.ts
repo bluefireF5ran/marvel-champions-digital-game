@@ -1729,9 +1729,11 @@ function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: Insta
  * "'Cannot'", p. 11).
  *
  * An unowned permanent encounter attachment (Flight, `next_evol` 40151) is removed from the game the same way, unless
- * its "attach to" names a villain and no villain is in play: then it waits in play for the next one
- * (`waitsForVillainHost`). Owner decision 2026-11-15 (#525 item 8), revising docs/phase7-wave5.md §4.1 row 26, which
- * discarded it to its encounter discard pile; RRG 1.8 "Permanent" p. 32; ruling May 10, 2024 (165).
+ * its "attach to" names a villain that is not there yet (no villain in play, or the active counter still to pass):
+ * then it waits in play for that villain (`waitsForVillainHost`). Owner decision 2026-11-15 (#525 item 8), revising
+ * docs/phase7-wave5.md §4.1 row 26, which discarded it to its encounter discard pile; ruling May 10, 2024 (165) and
+ * Sep 26, 2024. Flagged conflict: RRG 1.8 "Permanent" p. 32 reads as removal; the owner chose the rulings' wait
+ * (`waitsForVillainHost` has the detail).
  */
 function removedWithoutHost(state: GameState, deps: EngineDeps, id: InstanceId): boolean {
   const instance = getInstance(state, id);

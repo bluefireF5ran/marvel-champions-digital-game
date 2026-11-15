@@ -494,7 +494,8 @@ describe("§4.1 Q53 a cancelled attachment on a host that flips but stays in pla
 // p. 32, and "Attach To", p. 8), and an unowned permanent encounter attachment with no new host waits in play for the
 // next villain when its "attach to" names one and no villain is in play, and is otherwise removed from the game (owner
 // decision 2026-11-15, #525 item 8, revising wave 5 §4.1 row 26; RRG 1.8 "Permanent" p. 32; ruling May 10, 2024
-// (165)). A host that flips and stays in play keeps it attached: only the Flip rule's discard (RRG 1.8 "Flip", p. 20) is stopped.
+// (165)). A host that flips and stays in play keeps it attached: only the Flip rule's discard (RRG 1.8 "Flip", p. 20)
+// is stopped.
 
 const PERMANENT_GADGET = stubUpgrade({ id: "villain-gadget", cost: 0, keywords: [{ name: "permanent" }] });
 const PERMANENT_STAGE_GADGET = stubUpgrade({ id: "stage-gadget", cost: 0, keywords: [{ name: "permanent" }] });
