@@ -25,16 +25,28 @@ import {
   type AnyCard,
   type PackIndex,
 } from "@mc/content";
-import { accent, hit, ink, signal, surface, typeRole } from "../tokens.js";
-import { CAMPAIGN_TOP_BAR, bangers, campaignFrame, drawPicture, drawTopBar } from "../ui/campaign-chrome.js";
+import { accent, hit, ink, motion, signal, surface, typeRole } from "../tokens.js";
+import {
+  CAMPAIGN_TOP_BAR,
+  bangers,
+  campaignFrame,
+  drawPicture,
+  drawTopBar,
+  drawnPictureKey,
+  heroPicture,
+  isPhoneWidth,
+  preloadDrawnPicture,
+} from "../ui/campaign-chrome.js";
+import { isPictureSettled, onPictureLoadFailed } from "../art/pictures.js";
+import { PictureWait, settleWithin } from "../ui/picture-wait.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { cssOf, textStyle } from "../ui/theme.js";
 import { GlyphHints, specsForShortcuts } from "../ui/glyph-hints.js";
 import { McButton, McScrollPanel, McTabs, fitText, fitWrapped } from "../ui/widgets.js";
 import { McVirtualList, type VirtualListRow } from "../ui/virtual-list.js";
-import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
+import { fadeScreenIn, goToScreen, holdScreenFor } from "../ui/transitions.js";
 import { ListScroll } from "../view/list-scroll.js";
-import type { Rect } from "../view/layout.js";
+import { formFactorFor, type Rect } from "../view/layout.js";
 import { extrasRowCount, extrasTileAt, extrasTileRect, type ExtrasGrid } from "../view/extras-model.js";
 import {
   LOADING_TEXT,
@@ -108,7 +120,9 @@ import { FocusRoute, type FocusStop } from "./focus-route.js";
 import { SCENES } from "./keys.js";
 import { modNoticeSeen } from "../platform/mod-notice-seen.js";
 import {
+  MOD_NOTICE_LINES,
   MOD_STORE_BETA_CAPTION,
+  modNoticeLayoutOf,
   modNoticeControlLabelOf,
   showNoticeBeforeInstall,
   showNoticeOnOpen,
@@ -242,10 +256,48 @@ export class ModStoreScene extends Phaser.Scene {
     });
     this.#draw();
     fadeScreenIn(this);
-    void this.#load();
-    // The first time the store opens, the heads-up about mods shows over it (remembered once answered).
-    if (showNoticeOnOpen(modNoticeSeen())) this.#showNotice();
+    // The catalog (usually the saved copy, at once) before the store fades in, not a "Loading" page swapped for it.
+    holdScreenFor(this, this.#load());
+    // The first time the store opens, the heads-up about mods shows over it (remembered once answered), once its two
+    // portraits are in: they load while the store is held, so the notice opens with them rather than with letters
+    // that turn into faces a moment later (issue #716). A portrait that never loads holds it no longer than the hold.
+    // Tied to this visit, and asked again when they are in: the player may have opened the notice (About mods) and
+    // answered it meanwhile, or left the store and come back.
+    if (showNoticeOnOpen(modNoticeSeen())) {
+      const visit = ++this.#visit;
+      const portraits = settleWithin(this.#loadNoticePortraits(), motion.screenHoldMaxMs);
+      holdScreenFor(this, portraits);
+      void portraits.then(() => {
+        if (visit === this.#visit && this.sys.isActive() && showNoticeOnOpen(modNoticeSeen())) this.#showNotice();
+      });
+    }
   }
+
+  /** The mods notice's speaker portraits, loading: settles once both are in the texture manager. */
+  #loadNoticePortraits(): Promise<void> {
+    const wait = new PictureWait((key) => isPictureSettled(this, key));
+    // A portrait that fails to load is settled too, so the notice opens without it rather than at the cap.
+    const offFailures = onPictureLoadFailed(wait.arrived);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, offFailures);
+    const { width, height } = this.scale.gameSize;
+    const layout = modNoticeLayoutOf(width, height, isPhoneWidth(formFactorFor(width, height)));
+    MOD_NOTICE_LINES.forEach((line, index) => {
+      const picture = heroPicture(line.identityId);
+      const portrait = layout.speakers[index]?.portrait;
+      if (!picture || !portrait) return;
+      // The same copy the notice draws (`drawPicture` in `scenes/mod-notice.ts`), baked for its portrait's size.
+      if (preloadDrawnPicture(this, picture, portrait, wait.arrived) === null) {
+        const key = drawnPictureKey(picture, portrait);
+        if (key) wait.expect(key);
+      }
+    });
+    const settled = wait.settled();
+    void settled.then(offFailures);
+    return settled;
+  }
+
+  /** Each opening of the store: the first-visit notice, opened once its portraits are in, belongs to one of them. */
+  #visit = 0;
 
   /** Inspect or the mods notice is over the store: the list's hand cursor stands down. */
   #overlayUp(): boolean {

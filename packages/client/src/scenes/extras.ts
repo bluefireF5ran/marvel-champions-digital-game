@@ -17,7 +17,7 @@
  */
 import Phaser from "phaser";
 import { accent, hit, ink, signal, surface, typeRole } from "../tokens.js";
-import { bangers, campaignFrame, drawPicture, drawTopBar } from "../ui/campaign-chrome.js";
+import { bangers, campaignFrame, drawPicture, drawTopBar, drawnPictureKey } from "../ui/campaign-chrome.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { cssOf, textStyle } from "../ui/theme.js";
 import { McButton, McTabs, fitText } from "../ui/widgets.js";
@@ -25,7 +25,8 @@ import { GlyphHints, specsForShortcuts } from "../ui/glyph-hints.js";
 import { McVirtualList, type VirtualListRow } from "../ui/virtual-list.js";
 import { drawNowPlayingPanel, type NowPlayingPanel } from "../ui/now-playing-panel.js";
 import { earnedSongsOf } from "../view/music-player.js";
-import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
+import { fadeScreenIn, goToScreen, holdScreenFor, isScreenHeld, revealWhenPainted } from "../ui/transitions.js";
+import { paintScrolledIn } from "../ui/lazy-text.js";
 import { ListScroll } from "../view/list-scroll.js";
 import type { Rect } from "../view/layout.js";
 import {
@@ -54,6 +55,9 @@ import type { SideStoryReaderData } from "./side-story-reader.js";
 import { t } from "../i18n/translate.js";
 import { openReplay, pickReplayFile, replayErrorKey } from "../replay/replay-files.js";
 import { watchReplay } from "./replay-entry.js";
+import { isPictureSettled, onPictureLoadFailed } from "../art/pictures.js";
+import { PictureWait } from "../ui/picture-wait.js";
+import { markRenderDirty } from "../ui/idle-render.js";
 
 export interface ExtrasSceneData {
   /** The tab to open on: a story read comes back to Stories. Defaults to the tab open last time. */
@@ -61,6 +65,12 @@ export interface ExtrasSceneData {
 }
 
 const TAB_HEIGHT = 44;
+
+/**
+ * The shelf's first build, while the screen is held on the void, draws rows for this long in a frame and the rest on
+ * the frames after (issue #722): the whole window at once was a 30 ms frame on its own.
+ */
+const FIRST_BUILD_BUDGET_MS = 4;
 
 /** Emitted on this scene by the viewer when a promo card is picked or dropped. */
 export const PROMO_CHANGED = "promo-changed";
@@ -77,6 +87,11 @@ export class ExtrasScene extends Phaser.Scene {
   #hints!: GlyphHints;
   #obstacles: Rect[] = [];
   #redrawQueued = false;
+  /**
+   * The next draw shows a different tab's shelf: its tiles' labels are painted off the main thread and the shelf
+   * fades in once they are, so the tap that changes tab isn't held while some forty labels are painted.
+   */
+  #freshShelf = false;
   /** Between `create` and shutdown. Not `sys.isActive()`, which is still false while `create` itself draws. */
   #alive = false;
   /** The Music tab's expanded player (#191), whose progress bar moves every frame. */
@@ -85,6 +100,10 @@ export class ExtrasScene extends Phaser.Scene {
   #hover: HoverPreview | null = null;
   /** The Promo Cards tab's tiles as drawn, for the hover popover: a locked one shows what there is to earn. */
   #promoTiles: (() => ReadonlyMap<string, HoverCardIdRect>) | null = null;
+  /** Tiles drawn before their pictures loaded: the screen's entrance waits for them (issue #716). */
+  #pictures = new PictureWait(() => false);
+  /** True until the first draw of this visit: the one built while the screen is held on the void. */
+  #firstBuild = false;
 
   constructor() {
     super(SCENES.extras);
@@ -98,6 +117,11 @@ export class ExtrasScene extends Phaser.Scene {
     this.#tab = data.tab ?? this.#tab;
     this.#redrawQueued = false;
     this.#alive = true;
+    this.#pictures = new PictureWait((key) => isPictureSettled(this, key));
+    this.#firstBuild = true;
+    // A picture that fails to load is settled too: the wait checks again, rather than holding to the cap.
+    const offFailures = onPictureLoadFailed(() => this.#pictures.arrived());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, offFailures);
     this.cameras.main.setBackgroundColor(cssOf(surface.paper.hex));
     this.scale.on("resize", this.#draw, this);
     // A glyph that would hang over another control is not drawn (the phone's Back hint, over the Trophy Room button).
@@ -130,10 +154,44 @@ export class ExtrasScene extends Phaser.Scene {
     });
     this.#draw();
     fadeScreenIn(this);
-    void refreshUnlocks()
-      .catch(() => false)
-      .then(() => this.#draw());
+    // The shelf as the saves have it now: drawn before the screen fades in, rather than redrawn as it does. Its tiles'
+    // pictures are waited for too, so the screen arrives with them in place and their first upload and render happen
+    // while it is still on the void, not across the fade (issue #716). The hold is capped, so a slow picture can't
+    // keep the screen dark.
+    // The shelf's rows (built over a few frames, `FIRST_BUILD_BUDGET_MS`), then the pictures those rows asked for.
+    holdScreenFor(
+      this,
+      (this.#list?.ready ?? Promise.resolve()).then(() => this.#pictures.settled()),
+    );
+    // Drawn again only when the read changed something the shelf shows (an unlock, or Extras progress, which makes a
+    // new `extras()`): a redraw of the whole screen was a second long frame on every visit (issue #722).
+    const shown = extras();
+    holdScreenFor(
+      this,
+      refreshUnlocks()
+        .catch(() => false)
+        .then((changed) => {
+          if (!changed && extras() === shown) return;
+          this.#draw();
+          holdScreenFor(
+            this,
+            (this.#list?.ready ?? Promise.resolve()).then(() => this.#pictures.settled()),
+          );
+        }),
+    );
   }
+
+  /**
+   * Pictures arrived (once per batch, `ensurePictureLoaded`): the drawn tiles waiting for them fill themselves in
+   * (`McVirtualList#refreshRows`) rather than the whole screen being drawn again, which made the first fade into
+   * Extras step through 100–190 ms frames (issue #716). One stable function, so the loader tells it once per batch.
+   */
+  readonly #pictureArrived = (): void => {
+    if (!this.#alive) return;
+    this.#list?.refreshRows();
+    markRenderDirty();
+    this.#pictures.arrived();
+  };
 
   #scroll(tab: ExtrasTab): ListScroll {
     let scroll = this.#scrolls.get(tab);
@@ -181,6 +239,7 @@ export class ExtrasScene extends Phaser.Scene {
   #select(tab: ExtrasTab): void {
     if (tab === this.#tab) return;
     this.#tab = tab;
+    this.#freshShelf = true;
     this.#draw();
   }
 
@@ -418,20 +477,36 @@ export class ExtrasScene extends Phaser.Scene {
     const rows = extrasRowCount(tiles.length, grid);
     const playing = appSession().music?.nowPlaying()?.key ?? null;
 
-    let list: McVirtualList;
-    list = new McVirtualList(this, {
-      rect: listRect,
-      rowHeight: grid.rowHeight,
-      count: rows,
-      scroll: this.#scroll(this.#tab),
-      background: false,
-      renderRow: (rowIndex, rect) => this.#renderRow(tiles, rowIndex, rect, grid, playing),
-      onRowActivate: (rowIndex, pointer) => {
-        const index = extrasTileAt(pointer.x, rowIndex, grid, listRect.x, tiles.length);
-        if (index !== null) this.#activate(tiles[index]!);
-      },
-      rowPressableAt: (rowIndex, pointer) => extrasTileAt(pointer.x, rowIndex, grid, listRect.x, tiles.length) !== null,
-    });
+    const fresh = this.#freshShelf;
+    this.#freshShelf = false;
+    // The first build, and any other while the screen is still held (a resize, the redraw after the progress read).
+    const firstBuild = this.#firstBuild || isScreenHeld(this);
+    this.#firstBuild = false;
+    const appearing: Phaser.GameObjects.GameObject[] = [];
+    let collecting = fresh;
+    const makeList = (): McVirtualList =>
+      new McVirtualList(this, {
+        rect: listRect,
+        rowHeight: grid.rowHeight,
+        count: rows,
+        scroll: this.#scroll(this.#tab),
+        background: false,
+        ...(firstBuild ? { buildBudgetMs: FIRST_BUILD_BUDGET_MS } : {}),
+        renderRow: (rowIndex, rect) => {
+          const row = this.#renderRow(tiles, rowIndex, rect, grid, playing);
+          if (collecting) appearing.push(...row.objects);
+          return row;
+        },
+        onRowActivate: (rowIndex, pointer) => {
+          const index = extrasTileAt(pointer.x, rowIndex, grid, listRect.x, tiles.length);
+          if (index !== null) this.#activate(tiles[index]!);
+        },
+        rowPressableAt: (rowIndex, pointer) =>
+          extrasTileAt(pointer.x, rowIndex, grid, listRect.x, tiles.length) !== null,
+      });
+    const list = fresh ? paintScrolledIn(makeList) : makeList();
+    collecting = false;
+    if (fresh) revealWhenPainted(this, appearing);
     this.#list = list;
     this.#promoTiles =
       this.#tab === "promos"
@@ -490,18 +565,19 @@ export class ExtrasScene extends Phaser.Scene {
     playing: string | null,
   ): VirtualListRow {
     const objects: Phaser.GameObjects.GameObject[] = [];
+    const waiting: (() => void)[] = [];
     for (let column = 0; column < grid.columns; column += 1) {
       const index = rowIndex * grid.columns + column;
       const tile = tiles[index];
       if (!tile) break;
       const tileRect = extrasTileRect(index, grid, rect);
       if (this.#tab === "music") objects.push(...this.#drawTrackRow(tile, tileRect, playing));
-      else objects.push(...this.#drawTile(tile, tileRect));
+      else objects.push(...this.#drawTile(tile, tileRect, waiting));
     }
-    return { objects };
+    return waiting.length > 0 ? { objects, refresh: () => waiting.forEach((fill) => fill()) } : { objects };
   }
 
-  #drawTile(tile: ExtrasTileView, rect: Rect): Phaser.GameObjects.GameObject[] {
+  #drawTile(tile: ExtrasTileView, rect: Rect, waiting: (() => void)[]): Phaser.GameObjects.GameObject[] {
     const objects: Phaser.GameObjects.GameObject[] = [];
     const captionHeight = 52;
     const art: Rect = { x: rect.x, y: rect.y, width: rect.width, height: rect.height - captionHeight };
@@ -512,22 +588,36 @@ export class ExtrasScene extends Phaser.Scene {
     objects.push(ground);
 
     const portrait = this.#tab === "heroes" || this.#tab === "villains" || this.#tab === "promos";
-    const image = drawPicture(this, tile.thumb, art, () => this.#requestRedraw(), {
+    const pictureOptions = {
       focusY: portrait ? 0.2 : 0.4,
       // Locked: a gray ghost of the picture on the ink ground, so the shelf shows what there is to earn.
       ...(tile.open ? {} : { grayscale: true, alpha: 0.3 }),
-    });
+      // A shelf of tiles, each a large picture drawn small (issue #722).
+      scaleToSlot: true,
+    };
+    const image = drawPicture(this, tile.thumb, art, this.#pictureArrived, pictureOptions);
     if (image) {
       objects.push(image);
     } else {
-      // No picture yet: the entry's initial, big and faint, so the shelf still reads as a shelf.
-      objects.push(
-        this.add
-          .text(art.x + art.width / 2, art.y + art.height / 2, tile.title.charAt(0).toUpperCase(), {
-            ...textStyle(bangers(Math.round(art.height * 0.5)), surface.paper.hex, 0.18),
-          })
-          .setOrigin(0.5),
-      );
+      // No picture yet: the entry's initial, big and faint, so the shelf still reads as a shelf, in a slot the picture
+      // takes over in place when it arrives.
+      const initial = this.add
+        .text(art.x + art.width / 2, art.y + art.height / 2, tile.title.charAt(0).toUpperCase(), {
+          ...textStyle(bangers(Math.round(art.height * 0.5)), surface.paper.hex, 0.18),
+        })
+        .setOrigin(0.5);
+      const slot = this.add.container(0, 0, [initial]);
+      objects.push(slot);
+      // Only a picture whose load was started is waited for (an empty slot starts none).
+      if (tile.thumb && art.width > 0 && art.height > 0) {
+        const key = drawnPictureKey(tile.thumb, art, !tile.open, true);
+        if (key) this.#pictures.expect(key);
+        waiting.push(() => {
+          if (!slot.active || slot.list[0] !== initial) return;
+          const arrived = drawPicture(this, tile.thumb, art, this.#pictureArrived, pictureOptions);
+          if (arrived) slot.removeAll(true).add(arrived);
+        });
+      }
     }
 
     // The status chip, top-left: what a tap does, or that it's locked.

@@ -2,18 +2,19 @@
 
 Community heroes and scenarios now install from inside the game.
 
-🛒 **Mod Store (Beta)**: open Extras ▸ Mod Store (Beta) to browse fan-made packs, see their cards, and install, update or remove them. Eight packs to start: Carnage, Gwenpool, Night Thrasher and Yondu, the Mephisto and The Punisher scenarios, and the Lost Traits and GMW Fixes house rules. It's a beta, so if something looks off, Report a problem is right there in the store.
-🏆 **Mod achievements**: 15 new ones in the Trophy Room. They give no points, so mods never move your rank.
-🎬 **Replays**: watch any game back on the board. Play, pause, step, skip and seek at 1×, 2× or 4×, then export the replay or the log, or share a link. Find it on Game over, beside Resume on the title screen, and in Extras ▸ Open a replay.
-🗂️ **Past games**: a new list beside Extras on the title screen keeps every game you've finished, won or lost and why. Pick one to watch it, share it, export it or read its log.
-🏠 **A home of its own**: the game has its own website, https://champions-digital-game.com, with news, every hero and villain, the mods and downloads. The game itself moves to its own address soon, and I'll post here when it does.
-🛠️ **Fixes**: the Briefing no longer goes blank on some Android phones, and Stealth Training answers Secure the Landing Pad's defeat.
+🛒 **Mod Store (Beta)**: open Extras ▸ Mod Store (Beta) to browse fan-made packs and install, update or remove them. Eight packs to start: Carnage, Gwenpool, Night Thrasher and Yondu, the Mephisto and The Punisher scenarios, and the Lost Traits and GMW Fixes house rules. It's a beta: Report a problem is right there in the store.
+🏆 **Mod achievements**: 15 new ones, worth no points, so mods never move your rank.
+🎬 **Replays**: watch any game back on the board. Play, pause, step and seek, then export it or share a link.
+🗂️ **Past games**: every game you've finished, won or lost and why, on the title screen, to watch, share or export.
+🏠 **A home of its own**: the game has its own website, https://champions-digital-game.com, with news, the mods and downloads. The game itself has moved: play at https://marvel.champions-digital-game.com.
+🛠️ **Fixes**: the Briefing stays drawn on Android, Stealth Training answers Secure the Landing Pad's defeat, Kang's obligations take only the named printed resource, and Build Support, Call for Backup and Lock and Load offer only cards that can enter play.
+✨ **Smoother screens**: screens fade in fully drawn, and Extras tabs switch without a hitch.
 🥋 Elektra and Iron Fist are on the way.
 
 Full report: https://champions-digital-game.com/releases/v0.45.0/
 Downloads: https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.45.0
 
-Thank you to bluefireF5ran for curating every pack, to Neptune, DesignHacker, BlueHG, Patatasaurio, PermaKarma and Gideon's Gaming for making them, to Kravenprime for asking for them, and to AlecHolland1582 for both bug reports!
+Thank you to bluefireF5ran for curating every pack, fixing two rules and translating the New game screens, to Neptune, DesignHacker, BlueHG, Patatasaurio, PermaKarma and Gideon's Gaming for making them, to Kravenprime for asking for them, and to AlecHolland1582 and Funguykawhi for their bug reports!
 
 🇪🇸 **Español**
 
@@ -21,15 +22,16 @@ Thank you to bluefireF5ran for curating every pack, to Neptune, DesignHacker, Bl
 
 Los héroes y escenarios de la comunidad ahora se instalan desde el propio juego.
 
-🛒 **Mod Store (Beta)**: abre Extras ▸ Mod Store (Beta) para ver packs hechos por fans, mirar sus cartas, e instalarlos, actualizarlos o quitarlos. Para empezar hay ocho: Carnage, Gwenpool, Night Thrasher y Yondu, los escenarios Mephisto y The Punisher, y las reglas de la casa Lost Traits y GMW Fixes. Es una beta: si algo se ve raro, Report a problem está en la misma tienda.
-🏆 **Logros de mods**: 15 nuevos en la Trophy Room. No dan puntos, así que los mods nunca cambian tu rango.
-🎬 **Repeticiones**: vuelve a ver cualquier partida en el tablero. Reproduce, pausa, avanza paso a paso, salta y busca a 1×, 2× o 4×, y luego exporta la repetición o el registro, o comparte un enlace. Está en Game over, junto a Resume en la pantalla de inicio y en Extras ▸ Open a replay.
-🗂️ **Past games**: una lista nueva junto a Extras en la pantalla de inicio guarda cada partida que terminaste, si ganaste o perdiste y por qué. Elige una para verla, compartirla, exportarla o leer su registro.
-🏠 **Una casa propia**: el juego ya tiene su propio sitio web, https://champions-digital-game.com, con noticias, cada héroe y villano, los mods y las descargas. El juego en sí se muda pronto a su propia dirección, y lo anunciaré aquí cuando lo haga.
-🛠️ **Correcciones**: el Briefing ya no se queda en blanco en algunos teléfonos Android, y Stealth Training responde a la derrota de Secure the Landing Pad.
+🛒 **Mod Store (Beta)**: abre Extras ▸ Mod Store (Beta) para ver packs hechos por fans e instalarlos, actualizarlos o quitarlos. Para empezar hay ocho: Carnage, Gwenpool, Night Thrasher y Yondu, los escenarios Mephisto y The Punisher, y las reglas de la casa Lost Traits y GMW Fixes. Es una beta: Report a problem está en la misma tienda.
+🏆 **Logros de mods**: 15 nuevos, sin puntos, así que los mods nunca cambian tu rango.
+🎬 **Repeticiones**: vuelve a ver cualquier partida en el tablero. Reproduce, pausa, avanza paso a paso y busca, y luego expórtala o comparte un enlace.
+🗂️ **Past games**: cada partida que terminaste, si ganaste o perdiste y por qué, en la pantalla de inicio, para verla, compartirla o exportarla.
+🏠 **Una casa propia**: el juego ya tiene su propio sitio web, https://champions-digital-game.com, con noticias, los mods y las descargas. El juego en sí ya se mudó: juega en https://marvel.champions-digital-game.com.
+🛠️ **Correcciones**: el Briefing ya no queda en blanco en Android, Stealth Training responde a la derrota de Secure the Landing Pad, las obligaciones de Kang solo aceptan el recurso impreso que nombran, y Build Support, Call for Backup y Lock and Load solo ofrecen cartas que pueden entrar en juego.
+✨ **Pantallas más fluidas**: las pantallas aparecen ya dibujadas, y las pestañas de Extras cambian sin tirones.
 🥋 Elektra e Iron Fist están en camino.
 
 Informe completo: https://champions-digital-game.com/releases/v0.45.0/index.es.html
 Descargas: https://github.com/quincarter/marvel-champions-digital-game/releases/tag/v0.45.0
 
-¡Gracias a bluefireF5ran por revisar cada pack, a Neptune, DesignHacker, BlueHG, Patatasaurio, PermaKarma y Gideon's Gaming por crearlos, a Kravenprime por pedirlos y a AlecHolland1582 por los dos reportes!
+¡Gracias a bluefireF5ran por revisar cada pack, corregir dos reglas y traducir las pantallas de New game, a Neptune, DesignHacker, BlueHG, Patatasaurio, PermaKarma y Gideon's Gaming por crearlos, a Kravenprime por pedirlos y a AlecHolland1582 y Funguykawhi por sus reportes!
