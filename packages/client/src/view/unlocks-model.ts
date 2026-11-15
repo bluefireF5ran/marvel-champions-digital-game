@@ -20,6 +20,7 @@ import {
   type Unlocks,
 } from "../progression/unlocks.js";
 import { POOL_SCENARIOS } from "../content/pool.js";
+import { artLanguageNow } from "../art/art-source.js";
 import { t } from "../i18n/translate.js";
 
 const formatPoints = (points: number): string => points.toLocaleString("en-US");
@@ -274,7 +275,7 @@ function subjectOf(
   switch (target.kind) {
     case "hero": {
       const name = UNLOCK_HEROES.find((h) => h.identityCardId === target.identityCardId)?.name ?? t("unlock.thisHero");
-      const hint = unlocks.heroHint(target.identityCardId);
+      const hint = unlocks.heroHint(target.identityCardId, artLanguageNow());
       return {
         name,
         title: t("unlock.unlockByHand", { name }),

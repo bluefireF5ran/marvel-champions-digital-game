@@ -1,3 +1,0 @@
-kind: Fixed
-body: Spanish scenario text no longer leaks into the English log and board, and the search placeholder follows a language switch (#390)
-time: 2026-11-15T03:02:07.6560872+01:00

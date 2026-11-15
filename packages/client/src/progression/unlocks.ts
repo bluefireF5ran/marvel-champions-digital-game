@@ -622,11 +622,13 @@ export class Unlocks {
   }
 
   /** How a hero is opened by play: "Beat Ultron", "Beat Rhino", or null for an always-open Core hero. */
-  heroHint(identityCardId: string): string | null {
+  heroHint(identityCardId: string, lang: CardLanguage = "en"): string | null {
     const wave = this.#waveOfHero(identityCardId);
     if (!wave || wave.gate === null) return null;
     const reward = wave.heroRewards.find((r) => r.identityCardId === identityCardId);
-    return reward ? t("unlock.beat", { villain: villainLabelOf(reward.scenarioId) }) : gateHintOf(wave.gate);
+    return reward
+      ? t("unlock.beat", { villain: villainLabelOf(reward.scenarioId) }, lang)
+      : gateHintOf(wave.gate, lang);
   }
 
   /** Opened by hand: one hero's switch, its campaign's switch, or everything. */
@@ -642,21 +644,28 @@ export class Unlocks {
   }
 
   /** Null when the hero may sit at a table; otherwise what opens it. */
-  heroLock(identityCardId: string): string | null {
+  heroLock(identityCardId: string, lang: CardLanguage = "en"): string | null {
     // An installed custom pack's hero is not on the unlock path: it seats whenever the pack is installed.
     if (isCustomCardCode(identityCardId)) return null;
     if (this.heroEarned(identityCardId) || this.heroManual(identityCardId)) return null;
-    const waveLock = this.waveLock(heroCycleOf(identityCardId));
+    const waveLock = this.waveLock(heroCycleOf(identityCardId), lang);
     if (waveLock) return waveLock;
-    return t("unlock.toUnlock", {
-      hint: this.heroHint(identityCardId) ?? t("unlock.playOn"),
-      name: heroNameOf(identityCardId),
-    });
+    return t(
+      "unlock.toUnlock",
+      {
+        hint: this.heroHint(identityCardId, lang) ?? t("unlock.playOn", undefined, lang),
+        name: heroNameOf(identityCardId),
+      },
+      lang,
+    );
   }
 
   /** `heroLock` for a deck: only a preconstructed deck is ever locked; an imported or built deck always seats. */
-  deckLock(deck: { readonly identityCardId: string; readonly source: { readonly kind: string } }): string | null {
-    return deck.source.kind === "precon" ? this.heroLock(deck.identityCardId) : null;
+  deckLock(
+    deck: { readonly identityCardId: string; readonly source: { readonly kind: string } },
+    lang: CardLanguage = "en",
+  ): string | null {
+    return deck.source.kind === "precon" ? this.heroLock(deck.identityCardId, lang) : null;
   }
 
   /** The campaign's wave was opened by play. */
