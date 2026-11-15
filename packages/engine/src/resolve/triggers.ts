@@ -42,6 +42,7 @@ import {
   controllerOf,
   type EffectContext,
   evaluate,
+  hasBoostAbility,
   matchesQuery,
   resolvePlayers,
   sourcePlayerOf,
@@ -86,22 +87,37 @@ import { enteredPlaySince } from "../entered-since.js";
  */
 function cancelHasNoTarget(state: GameState, deps: EngineDeps, definition: AbilityDefinition, event: TriggerEvent) {
   if (interruptBarredByUnpreventable(definition, event)) return true;
-  if (event.kind === "boostCardTurnedFaceup") return boostAbilityCancelGone(state, definition, event.boostInstanceId);
+  if (event.kind === "boostCardTurnedFaceup")
+    return boostAbilityCancelGone(state, deps, definition, event.boostInstanceId);
   if (event.kind !== "encounterCardRevealing" && event.kind !== "encounterCardBeingRevealed") return false;
   const cancels = definition.effects.some((e) => e.kind === "cancelWhenRevealed" || e.kind === "cancelRevealedCard");
   return cancels && revealCannotBeCanceled(state, deps, event.instanceId);
 }
 
 /**
- * An ability whose only effect is "cancel that card's boost ability", once that ability can no longer be cancelled: it
- * has resolved (a Response to the card being turned faceup comes after it, RRG 1.8 "Simultaneous Timing Priority",
- * p. 5; owner decision, 2026-10-16, audit finding 10 B), is already cancelled, or is ignored. As for a reveal cancel
- * above, the cancel has no valid target, so it can't be initiated (RRG 1.8 "Initiating Abilities", p. 24, step 2) and
- * no cost is paid (Target Acquired, `bkw` 08024). An ability with any other effect is still offered for that one.
+ * An ability whose only effect is "cancel that card's boost ability", on a card with no "Boost" ability to cancel, or
+ * once that ability can no longer be cancelled: it has resolved (a Response to the card being turned faceup comes after
+ * it, RRG 1.8 "Simultaneous Timing Priority", p. 5; owner decision, 2026-10-16, audit finding 10 B), is already
+ * cancelled, or is ignored. As for a reveal cancel above, the cancel has no valid target, so it can't be initiated
+ * (RRG 1.8 "Initiating Abilities", p. 24, step 2) and no cost is paid (Target Acquired, `bkw` 08024). An ability with
+ * any other effect is still offered for that one.
  */
-function boostAbilityCancelGone(state: GameState, definition: AbilityDefinition, boostId: InstanceId): boolean {
-  if (definition.effects.length === 0 || !definition.effects.every((e) => e.kind === "cancelBoostAbility"))
-    return false;
+function boostAbilityCancelGone(
+  state: GameState,
+  deps: EngineDeps,
+  definition: AbilityDefinition,
+  boostId: InstanceId,
+): boolean {
+  // Post-"Then" text is not an independent part of the ability when judging whether it can be initiated (RRG 1.8
+  // "'Then'", p. 44; `EffectSpec then`): "cancel its 'Boost' ability. Then, that card gains [boost]" (Killer Instinct,
+  // 63001a) is a cancel-only ability for this.
+  const independent = definition.effects.filter((e) => e.kind !== "then");
+  if (independent.length === 0 || !independent.every((e) => e.kind === "cancelBoostAbility")) return false;
+  // A card with no "Boost" ability, printed or gained, has none to cancel: the cancel has no valid target, so the
+  // ability cannot be initiated and its cost is not paid (RRG 1.8 "Target", p. 42, "Cost", p. 13; FAQ "Attacrobatics
+  // (#6)", p. 59, on a card with no boost icons to cancel). A bare cancel (Wraith 22012, Target Acquired 08024) and one
+  // with a "Then" (Killer Instinct 63001a, whose post-"Then" text could not happen either; RRG 1.8 "'Then'", p. 44).
+  if (!hasBoostAbility(state, deps, boostId)) return true;
   const procedure = state.stack.find(
     (f) =>
       (f.kind === "enemyAttack" || f.kind === "enemyScheme" || f.kind === "characterBoost") &&

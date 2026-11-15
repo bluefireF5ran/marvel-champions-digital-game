@@ -13,7 +13,7 @@ import {
 } from "./resources.js";
 import type { BasicPowerName, EffectSpec, StatName } from "./spec.js";
 import type { PlayedFrom, TriggerEvent } from "./trigger-events.js";
-import type { ZoneId } from "./state.js";
+import type { GameState, ZoneId } from "./state.js";
 
 /**
  * The resolution stack. `state.stack[0]` is what is resolving right now;
@@ -286,6 +286,16 @@ export type StackFrame =
        * the "X attacks" effects ask before they push their event and do not set this.
        */
       readonly statusReplaces?: true;
+      /**
+       * On a basic attack's, thwart's or recovery's own event (`attack` / `thwart` with `basic`, `basicRecovery`): the
+       * power's `basicPowerUsing` announcement, waiting for this event's "would" interrupts. Villainous ("when this
+       * character uses a basic power", RRG 1.8 p. 47) and the other "when … uses a basic power" interrupts (Stick
+       * 60029, Moondragon 63038) answer it, and the "would" interrupts to the attack or thwart go before them: one that
+       * cancels or replaces the power leaves it never announced, so no card is given ("'Would'", p. 48). Pushed as the
+       * event's interrupt window passes its "would" tier (`resolve/window.ts`), or at its apply step when it has no
+       * window; cleared as it is pushed (`pushUsingAfterWould`).
+       */
+      readonly usingAfterWould?: Extract<TriggerEvent, { kind: "basicPowerUsing" }>;
       /**
        * Events whose *response* window was deferred to the end of this activation: RRG 1.8 "Defend, Defense" (p. 16),
        * "Abilities that trigger after a character defends an attack resolve after that attack ends." Only an
@@ -851,6 +861,12 @@ export type StackFrame =
        * Absent in a game where nothing listens for that event (the step deals the damage on its first run).
        */
       readonly damageStepAnnounced?: true;
+      /**
+       * A defending hero with boost cards of its own to resolve this attack (`resolve/villainous.ts`): whose boost
+       * cards step 3 resolves first, the enemy's or the defender's, as the defending player chose (rulings September
+       * 10, 2026 - Ruling 3 (B); October 12, 2026 - Ruling 1). Set once step 3 has begun; absent otherwise.
+       */
+      readonly boostOrder?: "enemy" | "defender";
     })
   /** RRG "Scheme (Enemy Activation)". */
   | (FrameBase & {
@@ -896,15 +912,19 @@ export type StackFrame =
       /** The frame the use is (`basicPowerUseFrameId`); its end ends the icons' modifiers. */
       readonly useFrameId: FrameId;
       /**
-       * `use`: the facedown boost cards the character held before this use. They stay facedown: only the card this use
-       * gave is resolved (RRG 1.8 "Boost, Boost Icon", p. 11).
+       * `use`: the facedown boost cards on the character as this use began that it cannot use (not held for its basic
+       * powers: an enemy's text placed them). They stay facedown (RRG 1.8 "Boost, Boost Icon", p. 11; ruling September
+       * 10, 2026 - Ruling 3 (C)), as does any such card placed during the use (`boostCardsToResolve` reads the mark).
        */
       readonly heldBefore: readonly InstanceId[];
       /** `use`: the cards turned faceup for this use, in order. */
       readonly turned: readonly InstanceId[];
       /** `use`: the lasting stat modifiers carrying their icons (`LastingEffect.id`). */
       readonly bonuses: readonly string[];
-      /** `use`: its `resolve` frame has been pushed (a basic defense's waits for the enemy's boost cards). */
+      /**
+       * `use`: its `resolve` frame has been pushed: as the use's own event resolves, after its interrupt window
+       * (`startCharacterBoost`), or for a basic defense in the enemy attack's step 3 (`startDefenderBoost`).
+       */
       readonly started?: true;
       /** `resolve`: its `use` record. */
       readonly recordFrameId?: FrameId;
@@ -1347,6 +1367,36 @@ export function basicPowerUseFrameId(
     (f) => f.kind === "event" && f.event.kind === "basicRecovery" && f.event.characterInstanceId === characterId,
   );
   return recovery?.frameId ?? null;
+}
+
+/**
+ * Whether `defenderId`'s defense is a use of a basic power: only a player's identity's is. Allies "aren't considered to
+ * 'use a basic power' when they defend" (ruling March 16, 2025, Melinda May; RRG 1.8 "Basic Power", p. 10: "Generally,
+ * only heroes have defense power"; "Defend, Defense", p. 15). One reading for `basicDefenseInProgress` and the
+ * villainous use record (`resolve/villainous.ts`).
+ */
+export const defendsWithBasicPower = (state: GameState, defenderId: InstanceId): boolean =>
+  state.players.some((player) => player.identity.instanceId === defenderId);
+
+/**
+ * A hero's basic defense of an enemy attack still resolving, read from the attack's `enemyAttack` frame: from the
+ * moment its defender is declared (`basicDefense`) until the attack is done. She is using her basic defense throughout,
+ * the attack's boost cards included (RRG 1.8 "Attack (Enemy Activation)", p. 9; rules verdict Q3 of
+ * docs/phase7-elektra-iron-fist.md). One reading shared by the `usingBasicPower` predicate (`select.ts`) and "+N to
+ * that power for this use" (`basicPowerBeingUsed`, `resolve/apply-effect.ts`), so the two never disagree on a stage.
+ * Null for any other frame, an attack with no basic defense, or one that is done, and for an ally's defense: allies
+ * "aren't considered to 'use a basic power' when they defend" (ruling March 16, 2025, Melinda May; RRG 1.8 "Basic
+ * Power", p. 10: "Generally, only heroes have defense power"), so only a player's identity defends with one.
+ */
+export function basicDefenseInProgress(
+  state: GameState,
+  frame: StackFrame,
+): { readonly defenderId: InstanceId; readonly attackEventFrameId: FrameId | null } | null {
+  if (frame.kind !== "enemyAttack" || !frame.basicDefense || frame.defenderInstanceId === null) return null;
+  if (frame.stage === "done") return null;
+  const defenderId = frame.defenderInstanceId;
+  if (!defendsWithBasicPower(state, defenderId)) return null;
+  return { defenderId: frame.defenderInstanceId, attackEventFrameId: frame.eventFrameId };
 }
 
 /**

@@ -229,7 +229,12 @@ import {
 } from "./resolve/target-validity.js";
 import { moveCardsTo } from "./resolve/cards.js";
 import { addFrameSlots, eventFrame } from "./resolve/frames.js";
-import { pushCharacterBoost, retargetCharacterBoost } from "./resolve/villainous.js";
+import {
+  deferUsingAfterWould,
+  pushCharacterBoost,
+  resolvesBoostCards,
+  retargetCharacterBoost,
+} from "./resolve/villainous.js";
 import {
   addPools,
   combineRequirements,
@@ -1935,14 +1940,31 @@ export function mostFromEachHandCard(
  * pile" is the pile as it stood before the payment — never a card this same
  * payment is spending (FAQ "Pepper Potts (#33)", RRG 1.8 p. 58).
  */
-/** "This card can be spent for any player" (`spendableForAnyPlayer`, docs/phase7-wave5.md §3.17), read in its owner's hand. */
-function spendableForAnyPlayer(state: GameState, deps: EngineDeps, id: InstanceId, ownerId: PlayerId): boolean {
-  const context: EffectContext = { selfInstanceId: id, controllerId: ownerId, event: null, bindings: {}, deps };
-  return printedConstants(state, deps, id).some(
-    (trigger) =>
-      trigger.spendableForAnyPlayer !== undefined &&
-      (!trigger.spendableForAnyPlayer.while || evaluate(state, trigger.spendableForAnyPlayer.while, context)),
-  );
+/**
+ * "This card can be spent for any player" (`spendableForAnyPlayer`, docs/phase7-wave5.md §3.17), read in its owner's
+ * hand toward `forPlayerId`'s payment: its `while` with "you" the owner, its `forPlayer` ("another player whose identity
+ * has the Defender trait", The Defenders 64033) with "you" the player it is spent for.
+ */
+export function spendableForAnyPlayer(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  ownerId: PlayerId,
+  forPlayerId: PlayerId,
+): boolean {
+  const context = (playerId: PlayerId): EffectContext => ({
+    selfInstanceId: id,
+    controllerId: playerId,
+    event: null,
+    bindings: {},
+    deps,
+  });
+  return printedConstants(state, deps, id).some((trigger) => {
+    const permission = trigger.spendableForAnyPlayer;
+    if (permission === undefined) return false;
+    if (permission.while && !evaluate(state, permission.while, context(ownerId))) return false;
+    return !permission.forPlayer || evaluate(state, permission.forPlayer, context(forPlayerId));
+  });
 }
 
 /**
@@ -2202,7 +2224,7 @@ export function priceOf(
         (!tucked &&
           ownerId !== playerId &&
           !group &&
-          !spendableForAnyPlayer(ctx.state, ctx.deps, entry.fromHand, ownerId))
+          !spendableForAnyPlayer(ctx.state, ctx.deps, entry.fromHand, ownerId, playerId))
       ) {
         return { code: "card_not_in_zone", message: `payment card ${entry.fromHand} is not in hand` };
       }
@@ -2355,14 +2377,16 @@ export function paymentOptions(
   const options: ChoiceOption[] = [];
   // An alliance card: every player's hand, the paying player's first (docs/phase7-wave4.md §3.17).
   const group = paidAsGroup(ctx.state, ctx.deps, excludeInstanceId, payingFor);
-  const payers = group
-    ? [playerId, ...playerOrder(ctx.state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
-    : [playerId];
+  // Without one, another player's hand still offers a card that "can be spent for" this player (`spendableForAnyPlayer`,
+  // docs/phase7-wave5.md §3.17; The Defenders 64033), plainly spent, after the paying player's own.
+  const payers = [playerId, ...playerOrder(ctx.state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))];
   const discardedAsCost = asIfInHandSpentSource(ctx.state, ctx.deps, playerId, excludeInstanceId ?? payingFor);
   for (const payerId of payers) {
     const payer = mustPlayer(ctx.state, payerId);
+    const helping = payerId !== playerId && !group;
     for (const id of payer.hand) {
       if (id === excludeInstanceId || id === discardedAsCost) continue;
+      if (helping && !spendableForAnyPlayer(ctx.state, ctx.deps, id, payerId, playerId)) continue;
       const spendableIn = printedConstants(ctx.state, ctx.deps, id).find((trigger) => trigger.spendableIn)?.spendableIn;
       if (spendableIn && spendableIn !== payer.identity.form) continue;
       options.push({
@@ -2370,6 +2394,7 @@ export function paymentOptions(
         label: displayNameOf(ctx.state, id),
         ref: { kind: "card", instanceId: id },
       });
+      if (helping) continue;
       // The same card spent with its own "When you spend this card" ability (`whenSpent`): one more option per legal
       // pick of the ability's cost, after the plain spending, each showing what it generates. One of them at most
       // joins a payment (`isWhenSpentUse`).
@@ -2408,6 +2433,7 @@ export function paymentOptions(
     // "Any player may spend the resource card tucked here as if it were in their hand" (`RuleSpec
     // spendableFromTucked`, docs/phase7-wave9.md §3.46 (c)): after that player's hand, named as a hand card is. The
     // label says where it is. A group payment lists it once, under the first payer who may spend it.
+    if (helping) continue;
     for (const { instanceId: id, hostInstanceId } of tuckedSpendSources(ctx.state, ctx.deps, payerId)) {
       if (id === excludeInstanceId || options.some((option) => option.optionId === `hand:${id}`)) continue;
       const spendableIn = printedConstants(ctx.state, ctx.deps, id).find((trigger) => trigger.spendableIn)?.spendableIn;
@@ -7709,7 +7735,13 @@ export function basicRecover(ctx: Ctx, command: Command & { type: "basicRecover"
   const identityId = player.identity.instanceId;
   const recovery: TriggerEvent = { kind: "basicRecovery", characterInstanceId: identityId, playerId: command.playerId };
   const using: TriggerEvent = { ...recovery, kind: "basicPowerUsing", power: "recover", stat: "rec" };
-  if (!heard(ctx.state, ctx.deps, recovery) && !heard(ctx.state, ctx.deps, using)) {
+  // An identity whose recovery resolves boost cards (villainous, or holding some for its basic powers; ruling
+  // September 10, 2026 - Ruling 3 (A)) takes the announced path, where its cards are recorded (`pushCharacterBoost`).
+  if (
+    !heard(ctx.state, ctx.deps, recovery) &&
+    !heard(ctx.state, ctx.deps, using) &&
+    !resolvesBoostCards(ctx.state, ctx.deps, identityId)
+  ) {
     healDamage(ctx, identityId, profile.rec, identityId);
     announceBasicPower(ctx, identityId, "recover", command.playerId);
     return null;
@@ -7737,10 +7769,13 @@ export function announceBasicPower(
 }
 
 /**
- * "When you use one of your hero's basic powers" (docs/phase7-wave2.md §17.4): pushed *on top of* the power's own
- * events, so its interrupt window resolves before the power's value is read. Like its "used" twin it goes on the stack
- * only when an ability could react, and a stunned attack or confused thwart never reaches either of them (the cancel
- * returns before both), so a power that is cancelled is not "used" for any timing.
+ * "When you use one of your hero's basic powers" (docs/phase7-wave2.md §17.4), announced before the power's value is
+ * read. Like its "used" twin it goes on the stack only when an ability could react, and a stunned attack or confused
+ * thwart never reaches either of them (the cancel returns before both), so a power that is cancelled is not "used" for
+ * any timing. A basic attack, thwart or recovery holds it on its own event frame (`deferUsingAfterWould`,
+ * `Frame<"event">.usingAfterWould`) until that event's "would" interrupts have resolved: it is pushed as the event's
+ * interrupt window passes its "would" tier, so a "would" cancel leaves the power never announced and Villainous gives
+ * no card (RRG 1.8 "'Would'", p. 48). A basic defense's is pushed on top at once.
  */
 export function announceBasicPowerUsing(
   ctx: Ctx,
@@ -7749,10 +7784,21 @@ export function announceBasicPowerUsing(
   playerId: PlayerId,
   stat: StatName = BASIC_POWER_STAT[power],
 ): void {
-  const event: TriggerEvent = { kind: "basicPowerUsing", characterInstanceId: characterId, power, stat, playerId };
-  // A villainous ally or hero resolves its boost card beneath this event (docs/phase7-wave11-scenarios.md §S3.7).
+  const event: Extract<TriggerEvent, { kind: "basicPowerUsing" }> = {
+    kind: "basicPowerUsing",
+    characterInstanceId: characterId,
+    power,
+    stat,
+    playerId,
+  };
+  // A villainous ally or hero, or one holding boost cards for its basic powers, gets its use recorded beneath the use's
+  // own frame (docs/phase7-wave11-scenarios.md §S3.7). Its cards turn faceup at that frame's apply step, once the
+  // power's own interrupts have resolved (`startCharacterBoost`), not beneath this event.
   pushCharacterBoost(ctx, characterId, power, stat, playerId);
-  if (heard(ctx.state, ctx.deps, event)) pushEvent(ctx, event);
+  if (!heard(ctx.state, ctx.deps, event)) return;
+  // A basic attack, thwart or recovery announces it after its own "would" interrupts (`deferUsingAfterWould`).
+  if (deferUsingAfterWould(ctx, event)) return;
+  pushEvent(ctx, event);
 }
 
 /**
@@ -7778,6 +7824,16 @@ export function setBasicPowerStat(
     if (frame?.kind !== "event" || frame.event.kind !== kind || frame.event.stat === stat) continue;
     setFrame(ctx, { ...frame, event: { ...frame.event, stat } });
   }
+  // One still waiting on its power's event for the "would" interrupts (`Frame<"event">.usingAfterWould`).
+  const waiting = ctx.state.stack.find(
+    (f) =>
+      f.kind === "event" &&
+      f.usingAfterWould !== undefined &&
+      (characterId === null || f.usingAfterWould.characterInstanceId === characterId) &&
+      f.usingAfterWould.power === power,
+  );
+  if (waiting?.kind === "event" && waiting.usingAfterWould)
+    setFrame(ctx, { ...waiting, usingAfterWould: { ...waiting.usingAfterWould, stat } });
   // A villainous character's boost icons go to the stat actually powering the use (§S3.7, `resolve/villainous.ts`).
   retargetCharacterBoost(ctx, characterId, power, stat);
 }

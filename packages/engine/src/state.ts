@@ -7,7 +7,7 @@ import type { RngState } from "./rng.js";
 import type { StackFrame } from "./stack.js";
 import type { LastingEffect } from "./lasting.js";
 import type { RuleSpec } from "./abilities.js";
-import type { EffectSpec, StatusName } from "./spec.js";
+import type { EffectSpec, StatusName, TargetCategory } from "./spec.js";
 import type { EncounterDealSource, LeaveCauseSide, TriggerEvent } from "./trigger-events.js";
 import type { PodState } from "./pod.js";
 import type { GameMode } from "./game-mode.js";
@@ -247,8 +247,20 @@ export interface CardInstance {
   readonly counters: Readonly<Record<string, number>>;
   readonly attachedTo: InstanceId | null;
   readonly attachments: readonly InstanceId[];
-  /** Facedown boost cards given to this enemy for an activation (RRG "Boost"). */
+  /**
+   * Facedown boost cards given to this card (RRG "Boost"): an enemy's for its next activation, or a friendly
+   * character's. Of a friendly character's, those marked `heldForBasicPowers` resolve on its next basic power; the
+   * others stay facedown (`resolve/villainous.ts`).
+   */
   readonly boostCards: readonly InstanceId[];
+  /**
+   * On a facedown boost card a friendly character holds: it was given "to Elektra" for her basic powers ("Give her 1
+   * facedown boost card", Acrobatic Prowess 63006; `EffectSpec giveBoostCard.forBasicPower`), so it is turned faceup
+   * and resolved on that character's next basic power, recovery included (ruling September 10, 2026 - Ruling 3 (A)).
+   * Not on a card placed by an enemy's text ("place 1 facedown boost card on your identity", Venom), which she cannot
+   * use (the same ruling, (C)). Removed by every move (`relocateCard`); absent on every other instance.
+   */
+  readonly heldForBasicPowers?: true;
   /** Cards tucked under this card (RRG "Tuck"; Highway Robbery's facedown cards). Not in play. */
   readonly tucked: readonly InstanceId[];
   /** Set while this card is in play facedown as something else (a facedown Drone minion). */
@@ -1021,6 +1033,18 @@ export interface AttackThisTurn {
   readonly targetInstanceId: InstanceId;
 }
 
+/**
+ * One attack in `GameState.attacksThisPhase`: who attacked whom, with what the attacker **was** when it attacked (its
+ * categories, such as `hero`, and its traits, printed and gained), so "an enemy who has been attacked by a hero this
+ * phase" still holds after that hero changed form, and "by another Martial Artist character" after that ally left play.
+ */
+export interface AttackThisPhase {
+  readonly attackerInstanceId: InstanceId;
+  readonly targetInstanceId: InstanceId;
+  readonly attackerCategories: readonly TargetCategory[];
+  readonly attackerTraits: readonly Trait[];
+}
+
 /** One entry of `GameState.characterActsThisPhase`: a character, and what it did (docs/phase7-wave7.md §3.36). */
 export interface CharacterActThisPhase {
   readonly characterInstanceId: InstanceId;
@@ -1332,6 +1356,23 @@ export interface GameState {
    * nothing recorded.
    */
   readonly characterActsThisPhase?: readonly CharacterActThisPhase[];
+  /**
+   * Every attack made **this phase**, against any character, each attacker/target/snapshot once, in attack order: "an
+   * enemy who has been attacked by a hero this phase" (Iron Fist, `iron_fist` 64014), "an enemy who has been attacked by
+   * another Martial Artist character this phase" (Colleen Wing 64021; `Predicate attackedThisPhase`).
+   *
+   * - **Written** where `characterActsThisPhase` records an attack, at the `characterAttacked` event every attack ends
+   *   with (basic, an "(attack)" ability, an enemy's attack), in either phase. A canceled attack (a stunned attacker) is
+   *   none, and an attack into a tough status card is one.
+   * - **The attacker as it was**: its categories (`categoriesOf`) and traits (`traitsOf`) when it attacked, read then
+   *   and kept (RRG 1.8 "Referential Ability", p. 36: the record is a fact about the attack). The attacked character is
+   *   kept by instance id, so a minion the attack defeated is still the one recorded.
+   * - **Removed** at every phase boundary with `characterActsThisPhase` (the player phase is one phase across every
+   *   player's turn, RRG 1.8 "Player Phase", p. 34).
+   *
+   * Absent until a phase's first attack and again after each phase boundary, so an older save reads as nothing recorded.
+   */
+  readonly attacksThisPhase?: readonly AttackThisPhase[];
   /**
    * Every card revealed this round, in order, with who revealed it and in which phase (RRG 1.8 "Reveal", p. 37): "The
    * first [Technique] attachment revealed each round gains surge" (Nebula I–III, `gmw`), "The first treachery the engaged

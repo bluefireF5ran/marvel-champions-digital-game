@@ -82,12 +82,14 @@ import {
   actingCharacterOf,
   cannotBeDefeatedAgain,
   cardsInPlay,
+  categoriesOf,
   characterIgnores,
   controllerOf,
   isProtectedMainScheme,
   resolveValue,
   sourcePlayerOf,
   thwartAmount,
+  traitsOf,
 } from "../select.js";
 import {
   applyLeavingPlay,
@@ -101,7 +103,7 @@ import {
 import { defendedActivationFrameId, playFrameOf, type StackFrame, type Vars } from "../stack.js";
 import { releaseWaitingAbilities, resumeSuspended } from "./suspend.js";
 import { forgetEnteredWhileApplying } from "../entered-since.js";
-import { STATUS_NAMES, type GameState } from "../state.js";
+import { type AttackThisPhase, STATUS_NAMES, type GameState } from "../state.js";
 import type { TriggerEvent } from "../trigger-events.js";
 import { announceStatusDiscarded } from "./status-discarded.js";
 import {
@@ -116,6 +118,7 @@ import {
   damageTakenKey,
   eventSubjects,
   EXCESS_AS_DEALT_RESULT,
+  EXACTLY_DEFEATED_RESULT,
   spillDefeatedKey,
 } from "../trigger-events.js";
 import type { AttackKeyword, DefeatFollowUp, DefeatPlacement, EffectSpec, Predicate } from "../spec.js";
@@ -174,6 +177,7 @@ import {
 } from "./attack-ability.js";
 import { cancelThwartSession, foldThwartInstance, openThwartSession, thwartSessionOf } from "./thwart-session.js";
 import { awaitEnclosingAbility, dropHeldResponses, refreshHeldResponses } from "./initiated-activation.js";
+import { pushUsingAfterWould, startCharacterBoost } from "./villainous.js";
 
 export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
   switch (frame.stage) {
@@ -300,7 +304,11 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       // (`engagingAsItEnters`, RRG 1.8 "Engage", p. 18, and "Triggering Condition", p. 45). No frame of its own: its
       // responses are announced after the minion's keywords.
       const engaging = engagingAsItEnters(ctx, frame.event);
+      // A basic power's event holding its `basicPowerUsing` announcement (`usingAfterWould`) always opens its window: the
+      // announcement is made there, after the "would" tier, and its interrupts (Psi-Energy Control turning a Knife into
+      // a Katana) can make this event's own interrupts eligible (Directed Force 41019), read as the next tier opens.
       const interrupts =
+        frame.usingAfterWould !== undefined ||
         engaging !== null ||
         hasCandidates(ctx.state, ctx.deps, frame.event, "interrupt") ||
         companions.some((companion) => hasCandidates(ctx.state, ctx.deps, companion.event, "interrupt"));
@@ -451,6 +459,14 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
         if (frame.event.kind === "dealDamage") announceStatusDiscarded(ctx, piercedBeforeInterrupts(frame.event));
         return;
       }
+      // A basic power's own event (its attack, thwart or recovery) with no interrupt window still holds its power's
+      // `basicPowerUsing` announcement (`usingAfterWould`): it is announced now, before the power resolves.
+      if (pushUsingAfterWould(ctx, frame.frameId)) return;
+      // That event has had its interrupt window: its "would" tier, then the `basicPowerUsing` window (the Villainous
+      // give, then "when … uses a basic power" interrupts), then its other tiers ("'Would'" p. 48, "Forced" p. 20,
+      // "Interrupt" p. 25). Its user's boost cards flip now, as the power resolves (RRG 1.8 "Villainous", p. 47), and
+      // the event waits here, at `apply`, until they have resolved.
+      if (startCharacterBoost(ctx, frame.frameId)) return;
       setFrame(ctx, { ...frame, stage: "responses" });
       const beforeApply = ctx.state;
       const happened = applyEvent(ctx, frame) !== false;
@@ -1061,6 +1077,7 @@ function applyEvent(ctx: Ctx, frame: Frame<"event">): boolean | void {
     case "characterAttacked":
       recordAttackThisTurn(ctx, event.attackerInstanceId, event.targetInstanceId);
       recordActThisPhase(ctx, event.attackerInstanceId, "attack");
+      recordAttackThisPhase(ctx, event.attackerInstanceId, event.targetInstanceId);
       return applyRetaliate(ctx, event);
     case "characterDefeated":
       return applyDefeat(ctx, event);
@@ -2340,6 +2357,28 @@ function recordAttackThisTurn(ctx: Ctx, attackerId: InstanceId, targetId: Instan
 }
 
 /**
+ * Remembers that `attackerId` attacked `targetId` this phase, with the attacker's categories and traits as they are now
+ * (`GameState.attacksThisPhase`, which says why). A set: the same attacker attacking the same target again as the same
+ * thing changes nothing, and a replay builds the same array.
+ */
+function recordAttackThisPhase(ctx: Ctx, attackerId: InstanceId, targetId: InstanceId): void {
+  const record: AttackThisPhase = {
+    attackerInstanceId: attackerId,
+    targetInstanceId: targetId,
+    attackerCategories: categoriesOf(ctx.state, attackerId),
+    attackerTraits: traitsOf(ctx.state, attackerId, ctx.deps),
+  };
+  const attacks = ctx.state.attacksThisPhase ?? [];
+  const same = (a: AttackThisPhase) =>
+    a.attackerInstanceId === record.attackerInstanceId &&
+    a.targetInstanceId === record.targetInstanceId &&
+    a.attackerCategories.join() === record.attackerCategories.join() &&
+    a.attackerTraits.join() === record.attackerTraits.join();
+  if (attacks.some(same)) return;
+  ctx.state = { ...ctx.state, attacksThisPhase: [...attacks, record] };
+}
+
+/**
  * Remembers that `characterId` attacked or thwarted this phase (`GameState.characterActsThisPhase`, which says where
  * each is written and why; docs/phase7-wave7.md §3.36). In any phase, unlike `attacksThisTurn`: "this phase" has a
  * villain phase too. A set, so a second attack by the same character changes nothing and a replay builds the same
@@ -2678,7 +2717,16 @@ function applySchemeDefeated(ctx: Ctx, event: Extract<TriggerEvent, { kind: "sch
   // "If that thwart defeats attached scheme" (docs/phase7-wave11-hero-packs.md H3.12): the thwart's `defeated` result,
   // read by an `atEndOfThwart` effect or the thwart's responses. Recorded here, past the defeat's interrupt window, so
   // a defeat an interrupt cancelled (or a scheme it removed first) is not one.
-  if (event.thwartFrameId) addFrameVars(ctx, event.thwartFrameId, { defeated: 1 });
+  // …and `exactlyDefeated` when that thwart attempted no more threat than the scheme had (MC60 p. 4; FFG ruling
+  // August 3, 2026 (6) for the enemy half). Recorded on the thwart itself, so an ally's consequential damage, which the
+  // thwart reports into (`pushConsequentialDamage`, prefix `thwart.`), reads it: "Each Martial Artist ally you control
+  // takes -2 consequential damage after they exactly defeat an enemy or side scheme" (Sensei, `iron_fist` 64032).
+  if (event.thwartFrameId) {
+    addFrameVars(ctx, event.thwartFrameId, {
+      defeated: 1,
+      ...(event.excessThreat === 0 ? { [EXACTLY_DEFEATED_RESULT]: 1 } : {}),
+    });
+  }
   // "Shuffle it into the encounter deck instead of discarding it." (Time Portal; `defeatedIntoEncounterDeck`, §3.11;
   // the general `defeatDestination`, docs/phase7-wave3.md §3.45).
   const effectsFrame = leaveAfterWhenDefeated(

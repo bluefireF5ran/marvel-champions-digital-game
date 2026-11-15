@@ -1899,6 +1899,21 @@ export type Predicate =
    */
   | { readonly kind: "characterDidThisPhase"; readonly character: TargetQuery; readonly did: "attack" | "thwart" }
   /**
+   * "An enemy who has been attacked by a hero this phase" (Iron Fist, `iron_fist` 64014), "by another Martial Artist
+   * character" (Colleen Wing 64021): some attack this phase (`GameState.attacksThisPhase`) against a card `target`
+   * names, by an attacker that **was** of category `byCategory` and had trait `byTrait` when it attacked (each absent
+   * matching any), and is not a card `exceptBy` names ("another": `self`). The target is matched by instance id, in play
+   * or not, so a minion the attack defeated still counts; read it on `eventTarget` in a response to the attack, or
+   * `attackTarget()` in an ally's consequential-damage scope.
+   */
+  | {
+      readonly kind: "attackedThisPhase";
+      readonly target: TargetRef;
+      readonly byCategory?: TargetCategory;
+      readonly byTrait?: Trait;
+      readonly exceptBy?: TargetRef;
+    }
+  /**
    * Every player in this effect's game area is defeated (eliminated): "If all the players at this stage are defeated,
    * this stage is complete." (Kang's stage 3 cards). False outside a separate game area.
    */
@@ -1988,6 +2003,14 @@ export type Predicate =
       readonly scheme?: TargetQuery;
       readonly basic?: boolean;
     }
+  /**
+   * "If Elektra is using a basic power" (the Ninja cards 63002–63004): a character matching `character` (any, absent)
+   * is in the middle of one of its basic powers, anywhere on the stack: its basic attack or basic thwart, its basic
+   * recovery, its basic defense of an enemy attack still resolving (RRG 1.8 "Attack (Enemy Activation)", p. 9: it is
+   * using that power while the attack's boost cards are turned faceup; rules verdict Q3), or a use whose boost cards
+   * it is resolving (`characterBoost`, `resolve/villainous.ts`). False outside every such use.
+   */
+  | { readonly kind: "usingBasicPower"; readonly character?: TargetQuery }
   /**
    * "If you exhausted Wolverine's Claws to play this card, this attack gains overkill" (Lunging Strike 35010;
    * docs/phase7-wave6.md §3.42): the card being resolved was played by an ability of a card matching `card`
@@ -3093,6 +3116,14 @@ export type EffectSpec =
        * validator refuses it with any other destination.
        */
       readonly facedown?: true;
+      /**
+       * `to: "encounterDeckShuffle"` only: "shuffle … into the top 10 cards of the encounter deck (or the whole deck if
+       * there are fewer than 10 cards)" (Double-Cross, `elektra` 63034). The cards go on top of the active villain's
+       * encounter deck and only they and the `encounterTop` cards that were on top before them are shuffled; the rest
+       * of the deck keeps its order. With fewer cards in the deck than that, the whole deck is shuffled. The validator
+       * refuses it with any other destination.
+       */
+      readonly encounterTop?: ValueSpec;
     }
   /**
    * "Find Touched and set it aside" / "find Touched and attach it to another character" (Rogue, `rogue` 38001, 38007;
@@ -5052,7 +5083,24 @@ export type EffectSpec =
    * on the enemy by then (RRG 1.8 "Treachery", p. 45, discards a treachery "after resolving"; a card an effect moved
    * stays where it went, docs/phase7-wave4.md §3.45).
    */
-  | { readonly kind: "giveBoostCard"; readonly enemy: TargetRef; readonly count?: ValueSpec; readonly card?: TargetRef }
+  | {
+      readonly kind: "giveBoostCard";
+      readonly enemy: TargetRef;
+      readonly count?: ValueSpec;
+      readonly card?: TargetRef;
+      /**
+       * "Give Elektra 1 facedown boost card" (Acrobatic Prowess 63006, White Tiger 63011; "give this card to Elektra as
+       * a facedown boost card", the Ninja cards 63002–63004): the card is held for that friendly character's basic
+       * powers (`CardInstance.heldForBasicPowers`). On its next basic power (attack, thwart, a hero's defense, recovery)
+       * every such card it holds is turned faceup and resolved as a villainous character's card is, its Boost ability
+       * with its controller as "you", its icons (amplify included) added to the stat for that use, then discarded
+       * unless its Boost ability moved it (ruling September 10, 2026 - Ruling 3 (A); RRG 1.8 "Villainous", p. 47;
+       * `resolve/villainous.ts`). The character need not have villainous. Absent, a card given to a friendly character
+       * stays facedown and unused ("place 1 facedown boost card on your identity", Venom; the same ruling, (C)).
+       * Meaningless on an enemy, whose boost cards resolve at its activation either way.
+       */
+      readonly forBasicPower?: true;
+    }
   /**
    * "When Carnage uses a basic power, you may give him a boost card." (Klyntar Bond, a custom-content card; docs/
    * custom-content-packs.md §6): in an interrupt to a `basicPowerUsing` event, give the character using the power a
@@ -5071,6 +5119,29 @@ export type EffectSpec =
    * Icon", p. 11). Moved during an activation before its flip step, they resolve in it. Log `boostCardMoved`.
    */
   | { readonly kind: "moveBoostCards"; readonly from: TargetRef; readonly to: TargetRef }
+  /**
+   * "Discard 1 boost card from the attacker" (Moon Knight, `elektra` 63039): up to `count` (default 1) of the facedown
+   * boost cards on each card in play `from` names, discarded unturned to their encounter discard pile, so they are
+   * never turned faceup and add nothing (RRG 1.8 "Boost, Boost Icon", p. 11). Used by an interrupt to an enemy's attack
+   * or defense before its flip step, the activation turns up only the cards left. A faceup boost card (one already
+   * turned up) is not taken. Logged as `boostCancelled` with `scope: "discarded"`, as Defiance's "discard it instead"
+   * is. `bind`: `<bind>.discarded`.
+   *
+   * Which cards: owner decision 7 (docs/phase7-elektra-iron-fist.md §5; RRG 1.8 "Choose", p. 12). With `choose`, when
+   * a card `from` names holds more facedown boost cards than `count`, the ability's controller picks which: the cards
+   * are offered facedown, by the order they were dealt (the first dealt first, the pick to take when nothing is known
+   * about them; the player brings what they know, a card they looked at or saw turned faceup before). Without `choose`,
+   * or with no more cards than `count`, the first dealt go, with no prompt. `cards`: only these of them (the pick, bound
+   * by the engine as it is answered).
+   */
+  | {
+      readonly kind: "discardFacedownBoostCards";
+      readonly from: TargetRef;
+      readonly count?: ValueSpec;
+      readonly choose?: true;
+      readonly cards?: TargetRef;
+      readonly bind?: string;
+    }
   /**
    * "Place 1 acceleration token here" (The Master of Time 2B). `target` names the main scheme stage it goes on;
    * absent is the central one, which is where the encounter-deck reset puts it (RRG 1.8 "Acceleration Token", p. 5).

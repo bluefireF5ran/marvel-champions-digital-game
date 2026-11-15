@@ -2,11 +2,13 @@ import { cardId, trait, type Trait, type VillainSideLetter } from "@mc/content";
 import {
   ATTACK_DAMAGE_RESULT,
   attackPreventedVars,
+  DEFENDER_DEF_RESULT,
   labeledResolvedVar,
   PAID_CARDS_SLOT,
   PAID_FOR_SLOT,
   TOGETHER_TARGETS_SLOT,
   EXCESS_AS_DEALT_RESULT,
+  EXACTLY_DEFEATED_RESULT,
   TOTAL_ATK_RESULT,
   UNRESOLVED_VAR,
 } from "@mc/engine";
@@ -881,6 +883,12 @@ export const eventResult = (key: string, of?: TargetRef): ValueSpec =>
  */
 export const attackTotalAtk: ValueSpec = eventResult(TOTAL_ATK_RESULT);
 /**
+ * "Your DEF for that attack" (Redirection Mastery, `iron_fist` 64018): the defending hero's DEF the enemy attack's
+ * damage step subtracted for a basic defense, every modifier included (engine `DEFENDER_DEF_RESULT`). Read on a
+ * `defends` / `exactlyDefends` response; 0 for an attack no hero basically defended.
+ */
+export const defenderDefForAttack: ValueSpec = eventResult(DEFENDER_DEF_RESULT);
+/**
  * "For each point of excess damage dealt to that enemy by that attack", for a card ruled to count the damage **dealt**.
  * No card reads it now: Prince of Power (`hercules` 59017), which did under February 8, 2026 - Ruling 2 and owner answer
  * 31B, counts the damage taken since RRG 1.8 p. 31 superseded that ruling (the user's order of rules authority, 2026-10-16).
@@ -1127,6 +1135,16 @@ export const thwartInProgress = (of: {
   readonly basic?: boolean;
 }): Predicate => ({ kind: "thwartInProgress", ...of });
 /**
+ * "If Elektra is using a basic power" (the Ninja cards 63002–63004): a character matching `character` (any, absent) is
+ * in the middle of a basic power of its own, its basic defense of an enemy attack included (engine `Predicate
+ * usingBasicPower`). `query(["hero"], { name: "Elektra" })` is her hero face only, so the alter-ego Elektra Natchios is
+ * not (ruling October 12, 2026 - Ruling 2).
+ */
+export const usingBasicPower = (character?: TargetQuery): Predicate => ({
+  kind: "usingBasicPower",
+  ...(character ? { character } : {}),
+});
+/**
  * Inside a `modifyStatOf` amount, or a constant modifier's `while` or amount: the card whose stat is being read (the
  * engine's `AFFECTED_SLOT`). "While Wolverine
  * or Jubilee is making a basic attack against that enemy, **they** get +2 ATK" (Jubilee 35003; docs/phase7-wave6.md
@@ -1144,6 +1162,31 @@ export const playedVia = (card: TargetQuery): Predicate => ({ kind: "playedVia",
  * it had (MC60 p. 4). Schemes only: a character's exact defeat reads `attackExcessAsDealt` (hero-pack spec H3.19).
  */
 export const exactlyDefeated: Predicate = { kind: "exactlyDefeated" };
+/**
+ * "After they exactly defeat an enemy or side scheme" (Sensei, `iron_fist` 64032), read in an ally's consequential-
+ * damage scope (`takesConsequentialDamage(…, { if })`), where the power it follows reported its results: its attack
+ * defeated an enemy and dealt no excess damage (`attack.defeated`, no `attack.excessAsDealt`: FFG ruling August 3, 2026
+ * (6), dealt rather than taken), or its thwart exactly defeated a side scheme (`thwart.exactlyDefeated`, engine
+ * `EXACTLY_DEFEATED_RESULT`: no more threat attempted than the scheme had, MC60 p. 4).
+ */
+export const exactlyDefeatedByPower: Predicate = {
+  kind: "or",
+  of: [
+    {
+      kind: "and",
+      of: [
+        { kind: "varAtLeast", name: "attack.defeated", amount: 1 },
+        {
+          kind: "compare",
+          left: { kind: "var", name: `attack.${EXCESS_AS_DEALT_RESULT}` },
+          op: "atMost",
+          right: { kind: "const", value: 0 },
+        },
+      ],
+    },
+    { kind: "varAtLeast", name: `thwart.${EXACTLY_DEFEATED_RESULT}`, amount: 1 },
+  ],
+};
 /**
  * "If Gambit's 'Throw de Card' ability removed at least: • 1 counter, this attack gains ranged. • 2 counters, …"
  * (Charged Card 37006; docs/phase7-wave6.md §3.52): the play of the card resolving carries the note `name`
@@ -1697,6 +1740,24 @@ export const characterDidThisPhase = (character: TargetQuery, did: "attack" | "t
   kind: "characterDidThisPhase",
   character,
   did,
+});
+/**
+ * "An enemy who has been attacked by a hero this phase" (Iron Fist, `iron_fist` 64014) is `attackedThisPhase(eventTarget,
+ * { category: "hero" })`; "an enemy who has been attacked by another Martial Artist character this phase" (Colleen Wing
+ * 64021) is `attackedThisPhase(attackTarget(), { trait: MARTIAL_ARTIST, except: self })` in her consequential-damage
+ * scope. Some attack this phase against that card by an attacker that was of `category` and had `trait` when it
+ * attacked (engine `GameState.attacksThisPhase`); `except` names attackers that do not count ("another"). The target is
+ * matched in play or not, so an enemy the attack defeated still counts.
+ */
+export const attackedThisPhase = (
+  target: TargetRef,
+  by: { readonly category?: TargetCategory; readonly trait?: Trait; readonly except?: TargetRef } = {},
+): Predicate => ({
+  kind: "attackedThisPhase",
+  target,
+  ...(by.category ? { byCategory: by.category } : {}),
+  ...(by.trait ? { byTrait: by.trait } : {}),
+  ...(by.except ? { exceptBy: by.except } : {}),
 });
 /**
  * "If all the players at this stage are defeated" (Kang's stage 3 cards, docs/phase7-wave2.md §3.1): every player

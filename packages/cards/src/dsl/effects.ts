@@ -1919,6 +1919,11 @@ export const moveCards = (
     readonly shuffleEvenIfEmpty?: true;
     /** `to: { scenarioArea }` only: the cards go in facedown (`EffectSpec moveCards.facedown`). */
     readonly facedown?: true;
+    /**
+     * `to: "encounterDeckShuffle"` only: "shuffle … into the top N cards of the encounter deck (or the whole deck if
+     * there are fewer than N cards)" (Double-Cross 63034; `EffectSpec moveCards.encounterTop`).
+     */
+    readonly encounterTop?: Amount;
   } = {},
 ): EffectSpec => ({
   kind: "moveCards",
@@ -1928,6 +1933,7 @@ export const moveCards = (
   ...(options.takenAwayNotCounted ? { takenAwayNotCounted: true as const } : {}),
   ...(options.shuffleEvenIfEmpty ? { shuffleEvenIfEmpty: true as const } : {}),
   ...(options.facedown ? { facedown: true as const } : {}),
+  ...(options.encounterTop !== undefined ? { encounterTop: amount(options.encounterTop) } : {}),
 });
 /**
  * "Each player shuffles 1 copy of Shawarma into their deck" (Save the Shawarma Place, `mts` 21182a): `from` is an
@@ -2351,6 +2357,22 @@ export const separateDeckCards = (name: string, player: PlayerRef = you, top?: A
   ...(top !== undefined ? { top: amount(top) } : {}),
 });
 /**
+ * "Shuffle the top card of the Ninja deck into the encounter deck" (Ninja Training 63001b; Killer Blow, Move Unseen,
+ * Sai Strike, White Tiger): the top card of `player`'s separate deck `name` goes into the active encounter deck, which
+ * is shuffled. A card of a separate deck of encounter cards becomes the scenario's there: no owner, discarded to the
+ * encounter discard pile (owner decision 2A, 2026-11-14, provisional; engine `moveCards` `encounterDeckShuffle`). An
+ * empty deck moves nothing ("do as much as you can", ruling September 10, 2026 - Ruling 1; engine reading).
+ */
+export const shuffleTopOfSeparateDeckIntoEncounterDeck = (name: string, player: PlayerRef = you): EffectSpec =>
+  moveCards(separateDeckCards(name, player, 1), "encounterDeckShuffle");
+/**
+ * "Shuffle this card into the Ninja deck" (the Ninja cards 63002–63004): `card` goes back into the separate deck its
+ * card prints (`separateDeck`) of the player who has it, and that deck is shuffled; it is that player's card again
+ * (engine `moveCards` `separateDeckShuffle`). A card that never left its separate deck's home works as before.
+ */
+export const shuffleIntoSeparateDeck = (card: TargetRef = self): EffectSpec =>
+  moveCards({ kind: "ref", ref: card }, "separateDeckShuffle");
+/**
  * "Reveal the top card of the labor deck" (Hercules 59001b; docs/phase7-wave10-hero-packs.md H3.2): two effects, to be
  * spread into an ability's list. The top card of `player`'s separate deck `name` is bound to `slot`, then revealed by
  * `player` through the whole reveal procedure (RRG 1.8 "Reveal", p. 38: "If a player is instructed by card text to
@@ -2651,6 +2673,26 @@ export const giveBoostCard = (
     : { kind: "giveBoostCard", enemy, count: amount(countOrCard) };
 };
 /**
+ * "Give Elektra 1 facedown boost card" (Acrobatic Prowess 63006, White Tiger 63011) and "give this card to Elektra as a
+ * facedown boost card" (the Ninja cards 63002–63004, `{ card: self }`, also from inside the card's own Boost ability):
+ * a boost card held by a friendly character for its basic powers (engine `EffectSpec giveBoostCard.forBasicPower`).
+ * On that character's next basic power (attack, thwart, a hero's defense, recovery, in either form) it is turned
+ * faceup and resolved as a villainous character's card is: its Boost ability with its controller as "you", its icons
+ * (amplify included) added to the stat for that use, then discarded unless its Boost ability sent it elsewhere (ruling
+ * September 10, 2026 - Ruling 3 (A); RRG 1.8 "Villainous", p. 47). Not Venom's "place 1 facedown boost card on your
+ * identity", which stays unused: that is `giveBoostCard(yourIdentity)` (the same ruling, (C)).
+ */
+export const giveHeldBoostCard = (
+  character: TargetRef,
+  countOrCard: Amount | { readonly card: TargetRef } = 1,
+): EffectSpec => {
+  if (typeof countOrCard === "object" && !("kind" in countOrCard))
+    return { kind: "giveBoostCard", enemy: character, card: countOrCard.card, forBasicPower: true };
+  return countOrCard === 1
+    ? { kind: "giveBoostCard", enemy: character, forBasicPower: true }
+    : { kind: "giveBoostCard", enemy: character, count: amount(countOrCard), forBasicPower: true };
+};
+/**
  * "Swap her with [Version 2] Ironheart" (Level Up!, `ironheart` 29001a/29002a; docs/phase7-wave5.md §3.23): the
  * player's progressing identity becomes its next version; dial, counters, statuses, attachments and form stay.
  */
@@ -2661,6 +2703,23 @@ export const swapIdentity = (player: PlayerRef = you): EffectSpec => ({ kind: "s
  * step, they resolve in it.
  */
 export const moveBoostCards = (from: TargetRef, to: TargetRef): EffectSpec => ({ kind: "moveBoostCards", from, to });
+/**
+ * "Discard 1 boost card from the attacker" (Moon Knight, `elektra` 63039): up to `n` of the facedown boost cards on each
+ * card `from` names, discarded unturned, so an activation before its flip step turns up only the rest. Pair it with
+ * `attackingEnemy` in an interrupt to the attack or its defense. `choose`: with more facedown cards than `n`, the
+ * controller picks which, offered facedown by the order dealt (owner decision 7). `bind`: `<bind>.discarded`.
+ */
+export const discardFacedownBoostCards = (
+  from: TargetRef,
+  n: Amount = 1,
+  opts: { readonly bind?: string; readonly choose?: boolean } = {},
+): EffectSpec => ({
+  kind: "discardFacedownBoostCards",
+  from,
+  ...(n === 1 ? {} : { count: amount(n) }),
+  ...(opts.choose ? { choose: true as const } : {}),
+  ...(opts.bind ? { bind: opts.bind } : {}),
+});
 /**
  * "Place 1 acceleration token here" (The Master of Time 2B) / "place one acceleration token on one of the main
  * schemes" (MC21 p. 13's campaign instructions, a multi-main-scheme scenario). `target` absent is the central main

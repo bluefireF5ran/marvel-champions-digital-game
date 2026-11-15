@@ -25,7 +25,8 @@
  * loses nothing `LocalEngineHost` (same thread, no serialization) keeps for free.
  */
 
-import { cardsOfComposedSets } from "@mc/cards";
+import { cardsOfComposedSets, playableStarterDeckSetup } from "@mc/cards";
+import { notReadySeatIdentity } from "./not-ready-seats.js";
 import { cardId } from "@mc/content";
 import { previousGameFacts } from "./previous-game-facts.js";
 import {
@@ -192,6 +193,19 @@ export function sealedEventStates(states: readonly EventState[]): readonly Seale
   }
   return kept;
 }
+
+/**
+ * The hero a base precon id seats, resolved the way the scenario builder resolves it (`playableStarterDeckSetup`, which
+ * knows every playable precon, a not-ready pack's included, not only the ones the app offers); undefined for an id it
+ * doesn't know, which `createGame` then reports.
+ */
+const identityOfStarterDeck = (starterDeckId: string): string | undefined => {
+  try {
+    return playableStarterDeckSetup(starterDeckId).identityCardId as string;
+  } catch {
+    return undefined;
+  }
+};
 
 /** Base-game precon ids: a pack deck may never take one (`seatsWithPackDecks`). */
 const BASE_DECK_IDS: ReadonlySet<string> = new Set(POOL_STARTER_DECKS.map((deck) => deck.id as string));
@@ -400,6 +414,19 @@ export class EngineSessionCore {
   /** Builds the Core scenario and runs RRG setup. Throws `SetupError` with the engine's own code and message. */
   async start(given: SessionConfig): Promise<{ readonly cardPool: CardPool; readonly snapshot: Snapshot }> {
     const config = await this.#withHistoryFacts(given);
+    // Backstop for the deck gates (`verdictOf`): a hero from a not-ready pack never starts a new game. Resume and
+    // replay (`rebuildBaseline`) are left alone so a game that already exists still loads.
+    const view = viewOf(config);
+    const notReady = notReadySeatIdentity(
+      config.players,
+      view.packs,
+      identityOfStarterDeck,
+      view.cardsById,
+      BASE_DECK_IDS,
+    );
+    if (notReady) {
+      throw new SetupError({ code: "invalid_setup", command: null, message: `${notReady.name} is not ready yet` });
+    }
     const setup = createGame(scenarioFor(config), depsOf(config));
     if (!setup.ok) throw new SetupError({ ...setup.error, message: `setup failed: ${setup.error.message}` });
 

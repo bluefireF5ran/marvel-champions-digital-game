@@ -41,7 +41,7 @@ import type {
   TypedResource,
   ZoneId,
 } from "@mc/engine";
-import { GRANTED_BY_SLOT, POD_MOMENT } from "@mc/engine";
+import { EXACTLY_DEFENDED_RESULT, GRANTED_BY_SLOT, POD_MOMENT } from "@mc/engine";
 import { flatten, ifThen, type EffectArg } from "./effects.js";
 import { amount, eachPlayer, isAlterEgo, isHero, type Amount, type AttackKeyword } from "./values.js";
 
@@ -501,7 +501,7 @@ export interface ConstantPart {
   /** "Spend this card only in hero form." (Limitless Strength). */
   readonly spendableIn?: Form;
   /** "This card can be spent for any player" (Everyday Hero, `nova` 28019; docs/phase7-wave5.md §3.17). */
-  readonly spendableForAnyPlayer?: { readonly while?: Predicate };
+  readonly spendableForAnyPlayer?: { readonly while?: Predicate; readonly forPlayer?: Predicate };
   /** "[This card] does not count toward your hand size." (Connection to the Worldmind; docs/phase7-wave5.md §3.18). */
   readonly notCountedTowardHandSize?: true;
   readonly attachedOnlyWhileInPlay?: true;
@@ -660,6 +660,15 @@ export const playOnlyIf = (condition: Predicate): ConstantPart => ({ playOnlyIf:
  */
 export const spendableForAnyPlayer = (when?: Predicate): ConstantPart => ({
   spendableForAnyPlayer: when ? { while: when } : {},
+});
+/**
+ * "This card … can be spent for another player whose identity has the Defender trait" (The Defenders, `iron_fist`
+ * 64033): `constant(spendableForPlayersWhere(youHaveTrait(DEFENDER)))`. Like `spendableForAnyPlayer`, but the condition
+ * is read with "you" the player the card is spent for, not its owner (engine `spendableForAnyPlayer.forPlayer`). The
+ * owner spending it for themselves needs no permission.
+ */
+export const spendableForPlayersWhere = (forPlayer: Predicate): ConstantPart => ({
+  spendableForAnyPlayer: { forPlayer },
 });
 /**
  * "Connection to the Worldmind does not count toward your hand size." (`nova` 28007; docs/phase7-wave5.md §3.18):
@@ -3475,6 +3484,14 @@ export const on = {
    */
   defends: (defender: TargetQuery, opts: { readonly takingNoDamage?: boolean } = {}): EventPattern =>
     pattern("defended", { targetIs: defender }, opts.takingNoDamage ? { resultsAtMost: { damage: 0 } } : {}),
+  /**
+   * "After you **exactly defend** an attack" (Redirection Mastery, `iron_fist` 64018): `defends`, for a hero's basic
+   * defense whose DEF for that attack equaled the attack's modified ATK (engine `EXACTLY_DEFENDED_RESULT`; FFG rulings
+   * September 10, 2026 (4) and October 12, 2026 (4): no prevention or reduction counts, and a "(defense)" event alone
+   * is no basic defense). "Your DEF for that attack" is `defenderDefForAttack`.
+   */
+  exactlyDefends: (defender: TargetQuery): EventPattern =>
+    pattern("defended", { targetIs: defender, requireResults: { [EXACTLY_DEFENDED_RESULT]: 1 } }),
   /** "After X enters play". */
   entersPlay: (what: Who): EventPattern => pattern("cardEntersPlay", asTarget(what)),
   /** "After you play [this card]" — playing, not merely putting into play. */

@@ -138,6 +138,7 @@ import {
 } from "./rules.js";
 import {
   awaitingAbility,
+  basicDefenseInProgress,
   currentActivationFrameId,
   PAID_AS_PREFIX,
   PLAY_NOTE_PREFIX,
@@ -3642,6 +3643,24 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
         matches(event.thwarterInstanceId, predicate.thwarter) && schemes.some((id) => matches(id, predicate.scheme))
       );
     }
+    case "usingBasicPower": {
+      const matches = (id: InstanceId | null): boolean =>
+        id !== null && (predicate.character === undefined || matchesQuery(state, id, predicate.character, context));
+      return state.stack.some((f) => {
+        if (f.kind === "characterBoost") return matches(f.characterInstanceId);
+        if (f.kind === "enemyAttack") {
+          const defense = basicDefenseInProgress(state, f);
+          return defense !== null && matches(defense.defenderId);
+        }
+        if (f.kind !== "event") return false;
+        const event = f.event;
+        if (event.kind === "attack") return event.basic === true && matches(event.attackerInstanceId);
+        if (event.kind === "thwart") return event.basic === true && matches(event.thwarterInstanceId);
+        if (event.kind === "basicRecovery" || event.kind === "basicPowerUsing")
+          return matches(event.characterInstanceId);
+        return false;
+      });
+    }
     case "revealedFromEncounterDeck": {
       // The stack is innermost-first: the reveal this card's When Revealed belongs to.
       const reveal = state.stack.find((f) => f.kind === "reveal" && f.instanceId === context.selfInstanceId);
@@ -3812,6 +3831,18 @@ export function evaluate(state: GameState, predicate: Predicate, context: Effect
           (!by || matchesQuery(state, attack.attackerInstanceId, by, context)),
       );
       return matching.length === 1;
+    }
+    case "attackedThisPhase": {
+      const targets = resolveRef(state, predicate.target, context);
+      const excluded = predicate.exceptBy ? resolveRef(state, predicate.exceptBy, context) : [];
+      const { byCategory, byTrait } = predicate;
+      return (state.attacksThisPhase ?? []).some(
+        (attack) =>
+          targets.includes(attack.targetInstanceId) &&
+          !excluded.includes(attack.attackerInstanceId) &&
+          (byCategory === undefined || attack.attackerCategories.includes(byCategory)) &&
+          (byTrait === undefined || attack.attackerTraits.includes(byTrait)),
+      );
     }
     case "characterDidThisPhase":
       return (state.characterActsThisPhase ?? []).some(
@@ -4450,6 +4481,17 @@ export function gainedAbilities(
     perDeps.delete(deps);
     throw error;
   }
+}
+
+/**
+ * Whether a boost card has a "Boost" ability, printed or gained as a boost card (`gainedBoostAbilities`): what "cancel
+ * its 'Boost' ability" needs to find (Killer Instinct 63001a; Target Acquired 08024; Wraith 22012). The printed one is
+ * read from card data (`printsBoostAbility`: the boost-area star, RRG 1.8 "Boost, Boost Icon", p. 11), never from the
+ * ability registry, so a Boost not scripted yet still counts.
+ */
+export function hasBoostAbility(state: GameState, deps: EngineDeps, id: InstanceId): boolean {
+  if (printsBoostAbility(state, id)) return true;
+  return gainedBoostAbilities(state, deps, id).length > 0;
 }
 
 /**

@@ -519,6 +519,9 @@ export {
   TAKEN_AWAY_SUFFIX,
   COUNTED_AWAY_SUFFIX,
   TOTAL_ATK_RESULT,
+  DEFENDER_DEF_RESULT,
+  EXACTLY_DEFENDED_RESULT,
+  EXACTLY_DEFEATED_RESULT,
 } from "./trigger-events.js";
 
 export type {
@@ -561,6 +564,8 @@ export { preview } from "./preview.js";
 /** The defend prompt's options as damage ranges over the facedown boost cards, plus the attack arithmetic they share. */
 export type { BoostBound, BoostScope, DefendBand, DefendOptionPreview, PlannedAttack } from "./defend-preview.js";
 export { defendPreview, plannedAttackDamage } from "./defend-preview.js";
+/** The facedown boost cards a friendly character holds for its next basic power (ruling Sep 10, 2026 R3 (A)). */
+export { heldBoostCardsOf } from "./resolve/villainous.js";
 
 export type { ActiveModifier, ModifiedStat } from "./modifiers.js";
 export { boostIconsFor, modifiersFor, statBonus } from "./modifiers.js";
