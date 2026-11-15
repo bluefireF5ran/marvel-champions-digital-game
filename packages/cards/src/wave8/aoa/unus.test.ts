@@ -640,7 +640,7 @@ describe("Infinite Prelate (45067)", () => {
     expect(inst(run.state, unus(run.state)).damage).toBe(2);
   });
 
-  it("at 9 threat: the activation is dealt an additional boost card, and tough and heal follow", () => {
+  it("at 9 threat: the activation is dealt an additional boost card, and tough and heal come first", () => {
     // Hero form: the villain phase's own attack draws a blank, the Prelate's attack draws two cards of 1 icon each.
     const run = reveal(8, { damage: 5, hero: true, after: [BOOST_1, BOOST_1B] });
     expect(poolThreat(run.state)).toBe(9);
@@ -664,11 +664,10 @@ describe("Infinite Prelate (45067)", () => {
 /**
  * Infinite Prelate (45067): FFG Game Rules Specialist (Alex), November 19, 2024, "Latest FFG Rulings post RRG 1.6"
  * ruling 43: "For Infinite Prelate, you resolve each bullet before resolving Unus' activation." RRG 1.8 "Alteration
- * Effect" (p. 6) is the rule the ruling rests on. The engine (owner decision Q8 = A, docs/phase7-wave8-handoff.md)
- * resolves the tough status card and the heal after the activation. `it.fails` marks that open bug.
+ * Effect" (p. 6) is the rule the ruling rests on. Owner decision 2026-11-15 (#525 item 9), replacing wave 8 Q8.
  */
 describe("Infinite Prelate (45067): FFG ruling 2024-11-19 (post RRG 1.6 #43)", () => {
-  it.fails("at 6 threat, the tough status card and the 3 heal resolve before Unus' activation, not after", () => {
+  it("at 6 threat, the tough status card and the 3 heal resolve before Unus' activation, not after", () => {
     const BLANK_A = "01186";
     const BLANK_B = "01187";
     const base = setupGame();

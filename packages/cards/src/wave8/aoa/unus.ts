@@ -64,8 +64,9 @@ const atLeast = (n: number) => valueAtLeast(threatOn(GENE_POOL), n);
  *   at 9) turns off when threat leaves Gene Pool.
  * Hunting Gene Traitors 1A setup: Gene Pool is already in play from its own setup keyword (§2.2 step 5), so
  *   "reveal" changes nothing; only the expert-mode facedown deal is scripted.
- * Infinite Prelate (§4.1 Q8 = A): the additional boost card is part of the activation, so it is the activation's
- *   own `extraBoostCards`; the tough card and the heal follow the activation, each tier read live when it resolves.
+ * Infinite Prelate: each bullet resolves BEFORE Unus' activation (owner decision 2026-11-15 (#525 item 9), replacing
+ *   wave 8 Q8; ruling Nov 19, 2024 (43)). The additional boost card is part of the activation, so it is the
+ *   activation's own `extraBoostCards`; the tough card and the heal come first, each tier read live when it resolves.
  *
  * Cards (8):
  * - 45059 Unus (villain)
@@ -160,12 +161,13 @@ export const UNUS: AbilityRegistry = defineAbilities({
     attachCard(self, chosen("host")),
   ),
 
-  // Infinite Prelate — When Revealed: Unus activates against you (at 9 threat with one more boost card, Q8 = A). Then,
-  // at 3: give Unus a tough status card; at 6: also heal 3 damage from Unus.
+  // Infinite Prelate — When Revealed: Unus activates against you (at 9 threat with one more boost card). Each bullet
+  // resolves BEFORE that activation: at 3 give Unus a tough status card; at 6 also heal 3 damage from Unus.
+  // Owner decision 2026-11-15 (#525 item 9), replacing wave 8 Q8; ruling Nov 19, 2024 (43).
   "45067.when-revealed": whenRevealed(
-    enemyActivates(UNUS_VILLAIN, { against: you, extraBoostCards: ifElse(atLeast(9), 1, 0) }),
     ifThen(atLeast(3), giveTough(UNUS_VILLAIN)),
     ifThen(atLeast(6), heal(3, UNUS_VILLAIN)),
+    enemyActivates(UNUS_VILLAIN, { against: you, extraBoostCards: ifElse(atLeast(9), 1, 0) }),
   ),
 
   // Endless Ranks — When Defeated: Place 3 threat on Gene Pool.
