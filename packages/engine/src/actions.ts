@@ -6509,6 +6509,16 @@ export function playIgnoringCost(
 }
 
 /**
+ * Does this card's text (current, errata applied) use the word "you" or "your" anywhere, its "attach to" line
+ * included? RRG 1.8 "Ability" (p. 4) asks this of an attachment on a player card; ruling June 8, 2023 - Ruling 21
+ * counts "Attach to your identity" (Death Factor, Counterspell). Flavor text is not card text.
+ */
+const SAYS_YOU = /\byou(?:r|rs|rself)?\b/i;
+function textSaysYou(card: AnyCard): boolean {
+  return "text" in card && SAYS_YOU.test(card.text.current);
+}
+
+/**
  * RRG "Action": triggered on a card you control or an encounter card, during your own turn or another player's
  * (`requireActionTiming`). This command triggers Action abilities and nothing else.
  */
@@ -6587,11 +6597,20 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, 
   if (!named && isCaptiveAlly(ctx.state, command.cardInstanceId)) {
     return engineError("no_valid_target", "no player controls that ally", command);
   }
-  // An encounter card may be triggered by any player (RRG 1.8 "Action", p. 6), except one attached to a player's card:
-  // RRG 1.8 "Attachment" (p. 8), "Only the player who controls the card to which that attachment is attached can
-  // trigger abilities or pay costs on that attachment." One attached to an enemy or a scheme, which no player controls,
-  // stays any player's. Text that names who may trigger it (`triggerableBy`) replaces this as it does the rule above.
-  if (!named && controller === null && instance.attachedTo !== null) {
+  // An encounter card may be triggered by any player (RRG 1.8 "Action", p. 6), except one attached to a player's card
+  // whose text says "you" or "your": RRG 1.8 "Ability" (p. 4), "Only the player who controls a player card with an
+  // attachment that uses the word 'you' or 'your' can trigger abilities or pay costs on that attachment", and the same
+  // rule nested under the "you"/"your" bullet of "Attachment" (p. 8). Without "you"/"your" any player may (ruling July 13, 2023 - Ruling 48,
+  // Restrained). Owner decision 2026-11-15 (issue #525, "A"): the "you"/"your" test gates the restriction; the
+  // 2026-10-05 call (docs/phase7-wave7.md) still holds, so it covers any card attached to a player's card, whatever its
+  // type. One attached to an enemy or a scheme, which no player controls, stays any player's. Text that names who may
+  // trigger it (`triggerableBy`, "Any player can do this") replaces this as it does the rule above.
+  if (
+    !named &&
+    controller === null &&
+    instance.attachedTo !== null &&
+    textSaysYou(mustCardOf(ctx.state, command.cardInstanceId))
+  ) {
     const hostController = controllerOf(ctx.state, instance.attachedTo);
     if (hostController !== null && hostController !== command.playerId) {
       return engineError("no_valid_target", "only the player it is attached to can use that card", command);

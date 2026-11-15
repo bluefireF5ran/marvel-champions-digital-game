@@ -611,9 +611,10 @@ function energyPhysical(state: GameState, playerId: PlayerId): { state: GameStat
  * FFG ruling July 13, 2023 - Ruling 48 (Alex): Restrained (Mad Titan's Shadow #83) has no "you" or "your", so "any
  * player can use the hero action to discard the card from the attached character" (also when it is attached to
  * another player's identity or ally). RRG 1.8 p. 4 (Ability): "Only the player who controls a player card with an
- * attachment that uses the word 'you' or 'your' can trigger abilities or pay costs on that attachment."
- * The engine (`actions.ts` useAbility, "only the player it is attached to can use that card") refuses every other
- * player for every encounter attachment on a player's card (RRG 1.8 p. 8 "Attachment", last bullet, read alone).
+ * attachment that uses the word 'you' or 'your' can trigger abilities or pay costs on that attachment." Owner decision
+ * 2026-11-15 (issue #525, "A"): the engine (`actions.ts` useAbility) limits an attachment on a player's card to that
+ * card's controller only when the attachment's text says "you" or "your". Frozen (21158, "Attach to your identity")
+ * stays its controller's.
  */
 describe("Restrained (21083): any player can use its hero action (FFG ruling July 13, 2023 - Ruling 48)", () => {
   function staged(user: PlayerId) {
@@ -633,10 +634,34 @@ describe("Restrained (21083): any player can use its hero action (FFG ruling Jul
     expect(result.ok ? "" : result.error.message).toBe("");
   });
 
-  it.fails("another player can use it on a teammate's identity", () => {
+  it("another player can use it on a teammate's identity", () => {
     const { state, id, pay } = staged(P2);
     const result = applyCommand(state, use(P2, id, "21083.restrained-action", pay), WAVE4_DEPS);
-    // Today: ok === false, "only the player it is attached to can use that card".
     expect(result.ok ? "" : result.error.message).toBe("");
+  });
+});
+
+describe("Frozen (21158): 'Attach to your identity', so only that identity's player can use its action", () => {
+  function staged(user: PlayerId) {
+    const base = startWave4Game(
+      spectrumScenario("hela", { seed: 5, extraPlayers: [{ starterDeckId: "adam-warlock-all-aspects" }] }),
+    );
+    const { state: attached, id } = attachTo(base, "21158", identityOf(base, P1));
+    // Both identities stay in alter-ego form for its Alter-Ego Action.
+    const state = user === P1 ? attached : settle(runWave4(attached, endTurn(P1)), firstLegal, undefined, WAVE4_DEPS);
+    const primed = energyPhysical(state, user);
+    return { state: primed.state, id, pay: primed.pay };
+  }
+
+  it("control: the player it is attached to can use it", () => {
+    const { state, id, pay } = staged(P1);
+    const result = applyCommand(state, use(P1, id, "21158.frozen-action", pay), WAVE4_DEPS);
+    expect(result.ok ? "" : result.error.message).toBe("");
+  });
+
+  it("another player cannot use it on a teammate's identity", () => {
+    const { state, id, pay } = staged(P2);
+    const result = applyCommand(state, use(P2, id, "21158.frozen-action", pay), WAVE4_DEPS);
+    expect(result.ok ? "" : result.error.message).toBe("only the player it is attached to can use that card");
   });
 });

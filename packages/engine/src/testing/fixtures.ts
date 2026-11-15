@@ -448,6 +448,8 @@ export function stubAttachment(spec: {
   readonly hostChosenBy?: AttachmentCard["hostChosenBy"];
   /** "(Limit N per character.)" (`AttachmentCard.playRestrictions`). */
   readonly maxPerHost?: number;
+  /** Its printed text, for rules that read the words on it ("you"/"your", RRG 1.8 "Ability", p. 4); blank by default. */
+  readonly text?: string;
 }): AttachmentCard {
   return {
     ...base(spec.id, spec.name ?? spec.id),
@@ -456,7 +458,7 @@ export function stubAttachment(spec: {
     boostIcons: spec.boostIcons ?? 0,
     traits: [],
     keywords: spec.keywords ?? [],
-    text,
+    text: spec.text === undefined ? text : unerrataedText(spec.text),
     abilities: spec.abilities ?? [],
     ...(spec.attachesTo ? { attachesTo: spec.attachesTo } : {}),
     ...(spec.statModifiers ? { statModifiers: spec.statModifiers } : {}),

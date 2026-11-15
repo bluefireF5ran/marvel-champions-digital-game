@@ -94,12 +94,28 @@ const BEACON_ACTION = stubAbility(
 );
 const BEACON = stubEnvironment({ id: "beacon", abilities: [BEACON_ACTION.ref] });
 
-/** "Action: Spend 1 resource → discard this card." on an encounter attachment, and the same naming any player. */
+/**
+ * "Attach to your identity. Action: Spend 1 resource → discard this card." on an encounter attachment, the same naming
+ * any player, and a Strap whose text has no "you" or "your" (shaped like Restrained, 21083).
+ */
 const SHACKLE_ACTION = stubAbility(
   "shackle.action",
   def({ trigger: { kind: "action" }, cost: { resources: 1 }, effects: [{ kind: "discardFromPlay", target: self }] }),
 );
-const SHACKLE = stubAttachment({ id: "shackle", abilities: [SHACKLE_ACTION.ref] });
+const SHACKLE = stubAttachment({
+  id: "shackle",
+  abilities: [SHACKLE_ACTION.ref],
+  text: "Attach to your identity.\nAction: Spend 1 resource → discard this card.",
+});
+const STRAP_ACTION = stubAbility(
+  "strap.action",
+  def({ trigger: { kind: "action" }, cost: { resources: 1 }, effects: [{ kind: "discardFromPlay", target: self }] }),
+);
+const STRAP = stubAttachment({
+  id: "strap",
+  abilities: [STRAP_ACTION.ref],
+  text: "Attach to a friendly character.\nAction: Spend 1 resource → discard this card.",
+});
 const LATCH_ACTION = stubAbility(
   "latch.action",
   def({
@@ -119,6 +135,7 @@ const ABILITIES = [
   BEACON_ACTION,
   SHACKLE_ACTION,
   LATCH_ACTION,
+  STRAP_ACTION,
 ];
 const deps: EngineDeps = depsOf(...ABILITIES);
 
@@ -127,9 +144,9 @@ const start = (): GameState =>
   gameAtFirstTurn({
     deps,
     players: 2,
-    cards: [STASH, CACHE, TOKEN, OWN, HUSH, BEACON, SHACKLE, LATCH],
+    cards: [STASH, CACHE, TOKEN, OWN, HUSH, BEACON, SHACKLE, LATCH, STRAP],
     deck: [STASH.id, CACHE.id, OWN.id, TOKEN.id],
-    encounter: [...copiesOf(TREACHERY.id, 28), HUSH.id, BEACON.id, SHACKLE.id, LATCH.id],
+    encounter: [...copiesOf(TREACHERY.id, 28), HUSH.id, BEACON.id, SHACKLE.id, LATCH.id, STRAP.id],
   });
 
 /** An encounter card out of the encounter deck and attached to `host` (surgery). */
@@ -270,13 +287,21 @@ describe("a campaign environment's 'Any player can do this' Action", () => {
   });
 });
 
-describe("an encounter attachment on a player's card (RRG 1.8 'Attachment', p. 8)", () => {
-  it("with nobody named, only the attached card's controller has it as legal, on either turn", () => {
+describe("an encounter attachment on a player's card (RRG 1.8 'Ability', p. 4, and 'Attachment', p. 8)", () => {
+  it("saying 'your' and naming nobody, only the attached card's controller has it as legal, on either turn", () => {
     const { state, id } = attachedTo(start(), SHACKLE, identityOf(start(), P1));
     const refused = "illegal: only the player it is attached to can use that card";
     expect([listed(state, P1, id), listed(state, P2, id)]).toEqual(["legal", refused]);
     const p2Turn = after(state, endTurn(P1));
     expect([listed(p2Turn, P1, id), listed(p2Turn, P2, id)]).toEqual(["legal", refused]);
+  });
+
+  // Owner decision 2026-11-15 (issue #525): without "you"/"your" on it, any player may (ruling July 13, 2023 - 48).
+  it("with no 'you' or 'your' on it, it is legal for both, on either turn", () => {
+    const { state, id } = attachedTo(start(), STRAP, identityOf(start(), P1));
+    expect([listed(state, P1, id), listed(state, P2, id)]).toEqual(["legal", "legal"]);
+    const p2Turn = after(state, endTurn(P1));
+    expect([listed(p2Turn, P1, id), listed(p2Turn, P2, id)]).toEqual(["legal", "legal"]);
   });
 
   it("naming any player, it is legal for both", () => {

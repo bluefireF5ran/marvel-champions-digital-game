@@ -430,7 +430,8 @@ function mentalPayment(
  * "Hero Action: Take 1 damage and spend [mental][mental] resources -> discard this card. Any player can do this."
  * FFG ruling after RRG 1.5 (Hall of Heroes "Latest FFG Rulings (post RRG 1.5)", Alex): "Any player can do this" is
  * rules text, so the card text beats the "you/your attachment" exception of RRG 1.8 p. 4 (Ability). The engine
- * (`actions.ts` useAbility, "only the player it is attached to can use that card") refuses every other player.
+ * (`actions.ts` useAbility) limits an attachment whose text says "you" or "your" ("Attach to your identity") to the
+ * attached card's controller unless its text names who may trigger it (`triggerableBy`).
  */
 describe("The Poison / Obedience Potion: 'Any player can do this' is rules text (RRG 1.8 p. 66)", () => {
   const twoPlayers = () =>
