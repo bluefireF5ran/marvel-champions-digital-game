@@ -698,10 +698,16 @@ describe("Infinite Prelate (45067): FFG ruling 2024-11-19 (post RRG 1.6 #43)", (
       (e: Extract<GameEvent, { type: "statusGiven" }>) =>
         e.instanceId === (villain as InstanceId) && e.status === "tough",
     );
+    const healed = of(
+      "damageHealed",
+      (e: Extract<GameEvent, { type: "damageHealed" }>) => e.targetInstanceId === (villain as InstanceId),
+    );
     expect(attacks).toHaveLength(2);
     expect(toughGiven).toHaveLength(1);
+    expect(healed).toHaveLength(1);
     // The ruling: each bullet resolves before the activation the first sentence starts (the Prelate's, the second).
     expect(toughGiven[0]!).toBeLessThan(attacks[1]!);
+    expect(healed[0]!).toBeLessThan(attacks[1]!);
   });
 });
 
