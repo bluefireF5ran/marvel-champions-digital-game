@@ -94,7 +94,7 @@ import { authorityTagOf, decisionLabel, enemyTeamNoticeOf } from "../view/villai
 import { abilityShortLabelOf } from "../view/ability-label.js";
 import { choiceTileBarsOf, type TileBar } from "../view/choice-tile-bars.js";
 import { divideSheetOf, shownDivideChoice } from "../view/divide-sheet.js";
-import { optionCounterNotesOf, spendCaptionsOf, tileCounterNote } from "../view/choice-tile-notes.js";
+import { choiceNoteOf, optionCounterNotesOf, spendCaptionsOf, tileCounterNote } from "../view/choice-tile-notes.js";
 import { isSpendChoice, shownSpendChoice, spendAnswerOf, toggleSpendPick } from "../view/spend-choice.js";
 import {
   chosenResourcesNoteOf,
@@ -2314,6 +2314,21 @@ export class ChoiceOverlay extends Phaser.Scene {
   #drawCardChoice(area: Rect, choice: PendingChoice): void {
     const collection = collectionRows(choice, (cardId) => gameCardsById().get(cardId));
     if (collection) return this.#drawCollectionGrid(area, choice, collection);
+    // A warning the prompt carries (a tucked card is out of play): above the cards, before any pick, wrapped to the
+    // sheet's width, with the cards taking the rest of the area.
+    const note = choiceNoteOf(choice);
+    if (note) {
+      const text = this.add
+        .text(area.x + 8, area.y, note, { ...textStyle(typeRole.body, surface.ink.hex), align: "left" })
+        .setOrigin(0, 0);
+      fitWrapped(text, area.width - 8, 3, 13);
+      const noteHeight = Math.ceil(text.height) + 6;
+      this.add
+        .graphics()
+        .fillStyle(signal.caution.hex, 1)
+        .fillRect(area.x, area.y, 4, noteHeight - 4);
+      area = { ...area, y: area.y + noteHeight, height: area.height - noteHeight };
+    }
     const barState = appSession().store.state.game;
     this.#tileBars = barState ? choiceTileBarsOf(barState, choice, this.#selected, gameDeps()) : new Map();
     this.#tileCounters = barState ? optionCounterNotesOf(barState, choice) : new Map();

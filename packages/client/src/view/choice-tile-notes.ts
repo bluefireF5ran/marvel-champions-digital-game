@@ -89,3 +89,13 @@ export function spendCaptionsOf(
   }
   return captions;
 }
+
+/**
+ * The warning or caption a card-choice prompt carries with its options (`chooseCards` `note`), or null when it has
+ * none. The player reads it before picking, e.g. that a tucked card is out of play (#525 item 11).
+ */
+export function choiceNoteOf(choice: PendingChoice): string | null {
+  if (choice.prompt.kind !== "chooseCards") return null;
+  const note = choice.prompt.note?.trim();
+  return note ? note : null;
+}
