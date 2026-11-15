@@ -20,6 +20,7 @@ import {
   type Picker,
 } from "../../testing/harness.js";
 import { moondragonAttack } from "../../testing/enemy-attacks-enemy.js";
+import { conjure, DEPS as PLAYABLE, playOut, rhino, withTrait } from "../../testing/qa-bench.js";
 import { driveEvents } from "../../testing/staging.js";
 import { engageMinion } from "../../wave3/drax/support.js";
 import { wave2Scenario } from "../setup.js";
@@ -480,6 +481,45 @@ describe("Kang / Temporal encounter set (kang-encounter-set.ts)", () => {
       expect(inst(after, kang).damage).toBe(0);
       expect(inst(after, "merc" as InstanceId).damage).toBe(1);
       expect(inst(after, shield).attachedTo).toBeNull();
+    });
+
+    // Ruling Mar 22, 2024 (155): Temporal Shield on Kang against Dive Bomb (17028, "Deal 7 damage to an enemy. Deal 1
+    // damage to each other enemy.", one attack with several targets) prevents only Kang's damage; each other enemy
+    // still takes its 1 (RRG 1.8 "Prevent", p. 35; owner decision 2026-11-15, #525 item 10). A Kang game on the
+    // playable pool, so Dive Bomb (wave 3) can be played: Core Spider-Man given the AERIAL trait.
+    it("Dive Bomb at Kang with a minion engaged: Kang takes 0, the minion still takes its 1, the attacker 1, the shield is discarded", () => {
+      const base = withTrait(rhino(2026, "core-spider-man-justice", "kang"), "AERIAL");
+      const kang = base.villains[0]!.instanceId;
+      const shield = Object.values(base.instances).find(
+        (i) => i.cardId === "11014" && i.attachedTo === null,
+      )!.instanceId;
+      const attached = engageMinion(
+        {
+          ...base,
+          instances: {
+            ...base.instances,
+            [shield]: { ...base.instances[shield]!, attachedTo: kang, faceup: true },
+            [kang]: { ...base.instances[kang]!, attachments: [...base.instances[kang]!.attachments, shield] },
+          },
+        },
+        "01102", // Sandman, Rhino's minion: no guard, so Kang can be chosen
+        "sandman",
+      );
+      const given = conjure(attached, "17028");
+      const identity = identityOf(given.state);
+      const identityBefore = inst(given.state, identity).damage;
+      const kangBefore = inst(given.state, kang).damage;
+      const done = playOut(given.state, given.id, 4, { target: kang });
+      expect(done.accepted).toBe(true);
+      const prevented = done.events.flatMap((e) =>
+        e.type === "damagePrevented" ? [[e.targetInstanceId, e.amount, e.reason] as const] : [],
+      );
+      expect(prevented).toEqual([[kang, 7, "effect"]]);
+      expect(inst(done.state, kang).damage).toBe(kangBefore);
+      expect(inst(done.state, "sandman" as InstanceId).damage).toBe(1);
+      expect(inst(done.state, identity).damage).toBe(identityBefore + 1);
+      expect(inst(done.state, shield).attachedTo).toBeNull();
+      expect(PLAYABLE.abilities["11014.temporal-shield-forced-interrupt"]).toBeDefined();
     });
   });
 
