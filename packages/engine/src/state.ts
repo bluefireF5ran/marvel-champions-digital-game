@@ -7,7 +7,7 @@ import type { RngState } from "./rng.js";
 import type { StackFrame } from "./stack.js";
 import type { LastingEffect } from "./lasting.js";
 import type { RuleSpec } from "./abilities.js";
-import type { EffectSpec, StatusName } from "./spec.js";
+import type { EffectSpec, StatusName, TargetCategory } from "./spec.js";
 import type { EncounterDealSource, LeaveCauseSide, TriggerEvent } from "./trigger-events.js";
 import type { PodState } from "./pod.js";
 import type { GameMode } from "./game-mode.js";
@@ -247,8 +247,20 @@ export interface CardInstance {
   readonly counters: Readonly<Record<string, number>>;
   readonly attachedTo: InstanceId | null;
   readonly attachments: readonly InstanceId[];
-  /** Facedown boost cards given to this enemy for an activation (RRG "Boost"). */
+  /**
+   * Facedown boost cards given to this card (RRG "Boost"): an enemy's for its next activation, or a friendly
+   * character's. Of a friendly character's, those marked `heldForBasicPowers` resolve on its next basic power; the
+   * others stay facedown (`resolve/villainous.ts`).
+   */
   readonly boostCards: readonly InstanceId[];
+  /**
+   * On a facedown boost card a friendly character holds: it was given "to Elektra" for her basic powers ("Give her 1
+   * facedown boost card", Acrobatic Prowess 63006; `EffectSpec giveBoostCard.forBasicPower`), so it is turned faceup
+   * and resolved on that character's next basic power, recovery included (ruling September 10, 2026 - Ruling 3 (A)).
+   * Not on a card placed by an enemy's text ("place 1 facedown boost card on your identity", Venom), which she cannot
+   * use (the same ruling, (C)). Removed by every move (`relocateCard`); absent on every other instance.
+   */
+  readonly heldForBasicPowers?: true;
   /** Cards tucked under this card (RRG "Tuck"; Highway Robbery's facedown cards). Not in play. */
   readonly tucked: readonly InstanceId[];
   /** Set while this card is in play facedown as something else (a facedown Drone minion). */
@@ -494,6 +506,18 @@ export interface EnteredHand {
   readonly playerId: PlayerId;
   readonly instanceId: InstanceId;
   readonly from: ZoneId["kind"] | null;
+}
+
+/**
+ * A card that stopped being attached to a host, waiting to be announced between frames (`TriggerEvent cardUnattached`;
+ * community pack `yondu-dh`). `hostInstanceId`: the host it left; `playerId`: its controller before the move; `to`: the
+ * kind of zone it went to.
+ */
+export interface Unattached {
+  readonly instanceId: InstanceId;
+  readonly hostInstanceId: InstanceId;
+  readonly playerId: PlayerId | null;
+  readonly to: ZoneId["kind"];
 }
 
 /**
@@ -1009,6 +1033,18 @@ export interface AttackThisTurn {
   readonly targetInstanceId: InstanceId;
 }
 
+/**
+ * One attack in `GameState.attacksThisPhase`: who attacked whom, with what the attacker **was** when it attacked (its
+ * categories, such as `hero`, and its traits, printed and gained), so "an enemy who has been attacked by a hero this
+ * phase" still holds after that hero changed form, and "by another Martial Artist character" after that ally left play.
+ */
+export interface AttackThisPhase {
+  readonly attackerInstanceId: InstanceId;
+  readonly targetInstanceId: InstanceId;
+  readonly attackerCategories: readonly TargetCategory[];
+  readonly attackerTraits: readonly Trait[];
+}
+
 /** One entry of `GameState.characterActsThisPhase`: a character, and what it did (docs/phase7-wave7.md §3.36). */
 export interface CharacterActThisPhase {
   readonly characterInstanceId: InstanceId;
@@ -1042,6 +1078,12 @@ export interface GameState {
    * round ends with no villain phase (`flow.ts` `finishPlayerPhase`). Absent is 0.
    */
   readonly villainPhasesToSkip?: number;
+  /**
+   * "Start another player phase" in place of the villain phase (`EffectSpec replaceNextVillainPhaseWithPlayerPhase`):
+   * how many of the villain phases to come are each replaced by a player phase within the same round. Read where the
+   * villain phase would begin (`flow.ts`), ahead of `villainPhasesToSkip`. Absent is 0, and it is removed again at 0.
+   */
+  readonly villainPhasesReplacedByPlayerPhase?: number;
   readonly firstPlayerId: PlayerId;
   /**
    * The number of players who started the scenario, the one count every per player value reads (RRG 1.8 "Per Player
@@ -1159,6 +1201,12 @@ export interface GameState {
    * `cardLeavesPlay` went on the stack before it moved (§4.1 Q17).
    */
   readonly pendingLeftPlay?: readonly LeftPlay[];
+  /**
+   * Cards that came off a host since the flow last looked, oldest first, recorded by `relocateCard` only when some
+   * ability in the registry triggers on it: the flow announces each as `cardUnattached` between frames and empties the
+   * list. Absent until one first comes off. Community pack `yondu-dh` (D'ast Whistlin').
+   */
+  readonly pendingUnattached?: readonly Unattached[];
   /**
    * Status cards placed since the flow last looked, oldest first, recorded by `giveStatus` only when some ability in
    * the registry triggers on it: the flow announces each as `statusPlaced` between frames and empties the list. Absent
@@ -1309,6 +1357,23 @@ export interface GameState {
    */
   readonly characterActsThisPhase?: readonly CharacterActThisPhase[];
   /**
+   * Every attack made **this phase**, against any character, each attacker/target/snapshot once, in attack order: "an
+   * enemy who has been attacked by a hero this phase" (Iron Fist, `iron_fist` 64014), "an enemy who has been attacked by
+   * another Martial Artist character this phase" (Colleen Wing 64021; `Predicate attackedThisPhase`).
+   *
+   * - **Written** where `characterActsThisPhase` records an attack, at the `characterAttacked` event every attack ends
+   *   with (basic, an "(attack)" ability, an enemy's attack), in either phase. A canceled attack (a stunned attacker) is
+   *   none, and an attack into a tough status card is one.
+   * - **The attacker as it was**: its categories (`categoriesOf`) and traits (`traitsOf`) when it attacked, read then
+   *   and kept (RRG 1.8 "Referential Ability", p. 36: the record is a fact about the attack). The attacked character is
+   *   kept by instance id, so a minion the attack defeated is still the one recorded.
+   * - **Removed** at every phase boundary with `characterActsThisPhase` (the player phase is one phase across every
+   *   player's turn, RRG 1.8 "Player Phase", p. 34).
+   *
+   * Absent until a phase's first attack and again after each phase boundary, so an older save reads as nothing recorded.
+   */
+  readonly attacksThisPhase?: readonly AttackThisPhase[];
+  /**
    * Every card revealed this round, in order, with who revealed it and in which phase (RRG 1.8 "Reveal", p. 37): "The
    * first [Technique] attachment revealed each round gains surge" (Nebula I–III, `gmw`), "The first treachery the engaged
    * player reveals each villain phase gains surge" (Mister Knife, `stld`). Written by every reveal whatever is in play,
@@ -1333,6 +1398,15 @@ export interface GameState {
    * Absent until a phase's first play, so an older save reads as nothing played.
    */
   readonly playedByPlayerThisPhase?: Readonly<Record<string, readonly InstanceId[]>>;
+  /**
+   * The cards each player has played **this round**, in play order: "If the last card you played this round was a
+   * [title] event, reduce the cost to play this card by 1" (`Predicate lastPlayedThisRound`; a custom-content card,
+   * docs/custom-content-packs.md §6). `playedThisRound` and `playedByPlayerThisRound` count by title and by type and
+   * so lose the order. Written when a play commits (with the other play records, so a card that is canceled later still
+   * counts as played, RRG 1.8 "Max, Maximum", p. 28); removed when the round ends, where `playedThisRound` is emptied.
+   * Absent until a round's first play, so an older save reads as nothing played.
+   */
+  readonly playedInOrderThisRound?: Readonly<Record<string, readonly InstanceId[]>>;
   /**
    * The scenario's own out-of-play game areas by name (`ZoneId scenarioArea`; The Collection, docs/phase7-wave3.md
    * §3.14), each in the order cards entered it. Absent until a scenario creates one, so other games serialize as before.

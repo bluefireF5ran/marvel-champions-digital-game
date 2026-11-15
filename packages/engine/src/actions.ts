@@ -42,6 +42,7 @@ import {
   discardFromPlay,
   discardRandomFromHand,
   discardStatusCards,
+  endLastingEffect,
   exhaustCard,
   giveStatus,
   healDamage,
@@ -85,6 +86,7 @@ import {
   playDestinationsOf,
   tuckedSpender,
   tuckedSpendSources,
+  generatedAsWild,
 } from "./rules.js";
 import {
   inPlayPicksOf,
@@ -227,7 +229,12 @@ import {
 } from "./resolve/target-validity.js";
 import { moveCardsTo } from "./resolve/cards.js";
 import { addFrameSlots, eventFrame } from "./resolve/frames.js";
-import { pushCharacterBoost, retargetCharacterBoost } from "./resolve/villainous.js";
+import {
+  deferUsingAfterWould,
+  pushCharacterBoost,
+  resolvesBoostCards,
+  retargetCharacterBoost,
+} from "./resolve/villainous.js";
 import {
   addPools,
   combineRequirements,
@@ -284,6 +291,7 @@ import {
   resolveRef,
   resolveValue,
   speakerOf,
+  textBoxBlankedFor,
   traitsOf,
   triggeringPlayers,
   type EffectContext,
@@ -1099,6 +1107,74 @@ export function basicPowerCost(
 }
 
 /**
+ * The lasting grants of "treat the next card you spend as if it has double the resources" (`RuleSpec
+ * doubleNextCardSpent`; community pack `yondu-dh`, Jackpot!) waiting for `playerId`'s next card, oldest first. The
+ * grant's "you" is the controller of the ability that made it (`LastingScope.controllerId`).
+ */
+export function doubleNextSpentGrants(state: GameState, playerId: PlayerId): readonly string[] {
+  return state.lastingEffects.flatMap((effect) =>
+    effect.kind === "ruleGrant" && effect.rule.kind === "doubleNextCardSpent" && effect.scope.controllerId === playerId
+      ? [effect.id]
+      : [],
+  );
+}
+
+/**
+ * Which card of `payment` a waiting `doubleNextCardSpent` grant doubles: "the next card you spend" is the first card
+ * from hand (or spent as if from hand) that the grant's player spends, in payment order, and the factor is 2 for each
+ * grant waiting for that player (they all name that same next card; engine reading, no ruling). Cards of one payment
+ * are spent together (RRG 1.8 "Cost", p. 13), so the grant's own card never sees it: the grant is made by a response
+ * after the payment it was spent in. Null when no grant waits for any spender of the payment.
+ *
+ * Several spenders (another player's cards paying an alliance cost, a card tucked under another player's card): only
+ * the first spender in payment order with a waiting grant has a card doubled, and only their grants are used up. A
+ * second spender's own grant waits for a later payment, though their card in this one was, strictly, the next they
+ * spent (engine reading, no ruling; no printed card yet gives one player's grant while another pays). The pay step
+ * (`paymentFor`'s `doubledPool`, `doubledPaymentSource`) reads the same function, so it shows what the payment does.
+ */
+export function doubledSpentCard(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  payment: readonly Payment[],
+): { readonly instanceId: InstanceId; readonly spenderId: PlayerId; readonly grants: readonly string[] } | null {
+  if (!state.lastingEffects.some((e) => e.kind === "ruleGrant" && e.rule.kind === "doubleNextCardSpent")) return null;
+  const done = new Set<PlayerId>();
+  for (const entry of payment) {
+    if (!("fromHand" in entry)) continue;
+    const spenderId = spentFromHandOf(state, deps, entry.fromHand, playerId, true) ?? playerId;
+    if (done.has(spenderId)) continue;
+    done.add(spenderId);
+    const grants = doubleNextSpentGrants(state, spenderId);
+    if (grants.length > 0) return { instanceId: entry.fromHand, spenderId, grants };
+  }
+  return null;
+}
+
+/**
+ * What a waiting `doubleNextCardSpent` grant multiplies `id`'s resources by when it is the card doubled: 2 for each
+ * grant waiting for the player who would spend it (its hand's player, or the player a tucked card is spent for). 1 when
+ * none waits.
+ */
+export function spentCardDoublingFactor(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  id: InstanceId,
+): number {
+  if (!state.lastingEffects.some((e) => e.kind === "ruleGrant" && e.rule.kind === "doubleNextCardSpent")) return 1;
+  const spenderId = spentFromHandOf(state, deps, id, playerId, true) ?? playerId;
+  return 2 ** doubleNextSpentGrants(state, spenderId).length;
+}
+
+/** A hand card's pool with every waiting `doubleNextCardSpent` grant applied, when it is the card they double. */
+export const withSpentDoubling = (
+  pool: ResourcePool,
+  id: InstanceId,
+  doubled: { readonly instanceId: InstanceId; readonly grants: readonly string[] } | null,
+): ResourcePool => (doubled?.instanceId === id ? scalePool(pool, 2 ** doubled.grants.length) : pool);
+
+/**
  * A hand card's resources, including "double … while paying for an [aspect] card" (The Power of X, read from this
  * card) and "double … generated while paying for this card" (read from the card paid for, `paidForMultiplied`).
  */
@@ -1138,7 +1214,9 @@ export function handCardResources(
     const multiplier = trigger.resourceMultiplier;
     return multiplier && "thisCardGenerates" in multiplier ? multiplyPool(state, sum, multiplier, context) : sum;
   }, generated);
-  if (!payingFor) return pool;
+  // "Each resource you generate is considered a wild resource" (`resourcesGeneratedAsWild`): last, after every
+  // multiplier; `paidForMultiplied` does the same for the paid-for path.
+  if (!payingFor) return generatedAsWild(state, deps, playerId, pool);
   // A card overpaid when played (`overpaidWhenPlayed`, ruling #87) is not "paid for", so no "while paying for" doubling.
   const overpaid = printedConstants(state, deps, payingFor).some((trigger) => trigger.overpaidWhenPlayed);
   const own = printedConstants(state, deps, cardInstanceId).find((trigger) => {
@@ -1189,7 +1267,7 @@ export function paidForMultiplied(
   /** The player generating the resources: "you" for a factor that is a value. */
   playerId: PlayerId,
 ): ResourcePool {
-  if (!payingFor) return pool;
+  if (!payingFor) return generatedAsWild(state, deps, playerId, pool);
   const context: EffectContext = {
     selfInstanceId: payingFor,
     controllerId: playerId,
@@ -1197,10 +1275,12 @@ export function paidForMultiplied(
     bindings: {},
     deps,
   };
-  return printedConstants(state, deps, payingFor).reduce((scaled, trigger) => {
+  const multiplied = printedConstants(state, deps, payingFor).reduce((scaled, trigger) => {
     const multiplier = trigger.resourceMultiplier;
     return multiplier && "forThisCard" in multiplier ? multiplyPool(state, scaled, multiplier, context) : scaled;
   }, pool);
+  // "Each resource you generate is considered a wild resource" (`resourcesGeneratedAsWild`), after every multiplier.
+  return generatedAsWild(state, deps, playerId, multiplied);
 }
 
 /**
@@ -1860,14 +1940,31 @@ export function mostFromEachHandCard(
  * pile" is the pile as it stood before the payment — never a card this same
  * payment is spending (FAQ "Pepper Potts (#33)", RRG 1.8 p. 58).
  */
-/** "This card can be spent for any player" (`spendableForAnyPlayer`, docs/phase7-wave5.md §3.17), read in its owner's hand. */
-function spendableForAnyPlayer(state: GameState, deps: EngineDeps, id: InstanceId, ownerId: PlayerId): boolean {
-  const context: EffectContext = { selfInstanceId: id, controllerId: ownerId, event: null, bindings: {}, deps };
-  return printedConstants(state, deps, id).some(
-    (trigger) =>
-      trigger.spendableForAnyPlayer !== undefined &&
-      (!trigger.spendableForAnyPlayer.while || evaluate(state, trigger.spendableForAnyPlayer.while, context)),
-  );
+/**
+ * "This card can be spent for any player" (`spendableForAnyPlayer`, docs/phase7-wave5.md §3.17), read in its owner's
+ * hand toward `forPlayerId`'s payment: its `while` with "you" the owner, its `forPlayer` ("another player whose identity
+ * has the Defender trait", The Defenders 64033) with "you" the player it is spent for.
+ */
+export function spendableForAnyPlayer(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  ownerId: PlayerId,
+  forPlayerId: PlayerId,
+): boolean {
+  const context = (playerId: PlayerId): EffectContext => ({
+    selfInstanceId: id,
+    controllerId: playerId,
+    event: null,
+    bindings: {},
+    deps,
+  });
+  return printedConstants(state, deps, id).some((trigger) => {
+    const permission = trigger.spendableForAnyPlayer;
+    if (permission === undefined) return false;
+    if (permission.while && !evaluate(state, permission.while, context(ownerId))) return false;
+    return !permission.forPlayer || evaluate(state, permission.forPlayer, context(forPlayerId));
+  });
 }
 
 /**
@@ -1982,11 +2079,16 @@ function cardsThatPaid(
   resourceVarsRead: Vars,
 ): readonly InstanceId[] {
   const paidFor = paidRequirementOf(pool, requirement, cost, resourceVarsRead);
+  const doubled = doubledSpentCard(ctx.state, ctx.deps, playerId, payment);
   return payment.flatMap((entry) => {
     if (!("fromHand" in entry)) return [];
     if (cardTypeOf(ctx.state, entry.fromHand) === null) return [];
     const ownerId = spentFromHandOf(ctx.state, ctx.deps, entry.fromHand, playerId, true) ?? playerId;
-    const generated = handCardResources(ctx.state, ctx.deps, entry.fromHand, ownerId, payingFor);
+    const generated = withSpentDoubling(
+      handCardResources(ctx.state, ctx.deps, entry.fromHand, ownerId, payingFor),
+      entry.fromHand,
+      doubled,
+    );
     return canBePaidFor(pool, generated, paidFor) ? [entry.fromHand] : [];
   });
 }
@@ -2100,6 +2202,8 @@ export function priceOf(
   const topOf = (id: PlayerId): InstanceId | null => mustPlayer(ctx.state, id).discard[0] ?? null;
   let pool = EMPTY_POOL;
   const discardedAsCost = asIfInHandSpentSource(ctx.state, ctx.deps, playerId, excludeInstanceId ?? payingFor);
+  // "Treat the next card you spend as if it has double the resources" (`RuleSpec doubleNextCardSpent`).
+  const doubled = doubledSpentCard(ctx.state, ctx.deps, playerId, payment);
   for (const entry of payment) {
     if ("fromHand" in entry) {
       const key = `hand:${entry.fromHand}`;
@@ -2120,7 +2224,7 @@ export function priceOf(
         (!tucked &&
           ownerId !== playerId &&
           !group &&
-          !spendableForAnyPlayer(ctx.state, ctx.deps, entry.fromHand, ownerId))
+          !spendableForAnyPlayer(ctx.state, ctx.deps, entry.fromHand, ownerId, playerId))
       ) {
         return { code: "card_not_in_zone", message: `payment card ${entry.fromHand} is not in hand` };
       }
@@ -2137,7 +2241,14 @@ export function priceOf(
           message: `${displayNameOf(ctx.state, entry.fromHand)} can only be spent in ${spendableIn} form`,
         };
       }
-      pool = addPools(pool, handCardResources(ctx.state, ctx.deps, entry.fromHand, ownerId, payingFor));
+      pool = addPools(
+        pool,
+        withSpentDoubling(
+          handCardResources(ctx.state, ctx.deps, entry.fromHand, ownerId, payingFor),
+          entry.fromHand,
+          doubled,
+        ),
+      );
       // "Interrupt: When you spend this card, [cost] → generate …" (`whenSpent`): what it generates joins the payment.
       const use = spentCardUse(entry);
       if (use) {
@@ -2266,14 +2377,16 @@ export function paymentOptions(
   const options: ChoiceOption[] = [];
   // An alliance card: every player's hand, the paying player's first (docs/phase7-wave4.md §3.17).
   const group = paidAsGroup(ctx.state, ctx.deps, excludeInstanceId, payingFor);
-  const payers = group
-    ? [playerId, ...playerOrder(ctx.state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
-    : [playerId];
+  // Without one, another player's hand still offers a card that "can be spent for" this player (`spendableForAnyPlayer`,
+  // docs/phase7-wave5.md §3.17; The Defenders 64033), plainly spent, after the paying player's own.
+  const payers = [playerId, ...playerOrder(ctx.state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))];
   const discardedAsCost = asIfInHandSpentSource(ctx.state, ctx.deps, playerId, excludeInstanceId ?? payingFor);
   for (const payerId of payers) {
     const payer = mustPlayer(ctx.state, payerId);
+    const helping = payerId !== playerId && !group;
     for (const id of payer.hand) {
       if (id === excludeInstanceId || id === discardedAsCost) continue;
+      if (helping && !spendableForAnyPlayer(ctx.state, ctx.deps, id, payerId, playerId)) continue;
       const spendableIn = printedConstants(ctx.state, ctx.deps, id).find((trigger) => trigger.spendableIn)?.spendableIn;
       if (spendableIn && spendableIn !== payer.identity.form) continue;
       options.push({
@@ -2281,6 +2394,7 @@ export function paymentOptions(
         label: displayNameOf(ctx.state, id),
         ref: { kind: "card", instanceId: id },
       });
+      if (helping) continue;
       // The same card spent with its own "When you spend this card" ability (`whenSpent`): one more option per legal
       // pick of the ability's cost, after the plain spending, each showing what it generates. One of them at most
       // joins a payment (`isWhenSpentUse`).
@@ -2319,6 +2433,7 @@ export function paymentOptions(
     // "Any player may spend the resource card tucked here as if it were in their hand" (`RuleSpec
     // spendableFromTucked`, docs/phase7-wave9.md §3.46 (c)): after that player's hand, named as a hand card is. The
     // label says where it is. A group payment lists it once, under the first payer who may spend it.
+    if (helping) continue;
     for (const { instanceId: id, hostInstanceId } of tuckedSpendSources(ctx.state, ctx.deps, payerId)) {
       if (id === excludeInstanceId || options.some((option) => option.optionId === `hand:${id}`)) continue;
       const spendableIn = printedConstants(ctx.state, ctx.deps, id).find((trigger) => trigger.spendableIn)?.spendableIn;
@@ -2602,10 +2717,17 @@ export function payPayment(
   const handGenerated = new Map<InstanceId, GeneratedByPlayer>();
   // The same, by type and with the card, for the log's `paymentCommitted`.
   const handSpent: { instanceId: InstanceId; cardId: CardId; spenderId: PlayerId; resources: ResourcePool }[] = [];
+  // "Treat the next card you spend as if it has double the resources" (`RuleSpec doubleNextCardSpent`): read with the
+  // rest, before anything is spent, and used up by this payment below.
+  const doubled = doubledSpentCard(ctx.state, ctx.deps, playerId, payment);
   for (const entry of payment) {
     if (!("fromHand" in entry)) continue;
     const ownerId = spentFromHandOf(ctx.state, ctx.deps, entry.fromHand, playerId, true) ?? playerId;
-    const pool = handCardResources(ctx.state, ctx.deps, entry.fromHand, ownerId, payingFor);
+    const pool = withSpentDoubling(
+      handCardResources(ctx.state, ctx.deps, entry.fromHand, ownerId, payingFor),
+      entry.fromHand,
+      doubled,
+    );
     handGenerated.set(entry.fromHand, { playerId: ownerId, amount: poolTotal(pool) });
     const cardId = getInstance(ctx.state, entry.fromHand)?.cardId;
     if (cardId) handSpent.push({ instanceId: entry.fromHand, cardId, spenderId: ownerId, resources: pool });
@@ -2699,6 +2821,16 @@ export function payPayment(
   }
   if (handSpent.length > 0) {
     emit(ctx, { type: "paymentCommitted", playerId, payingForInstanceId: payingFor, fromHand: handSpent });
+  }
+  if (doubled) {
+    emit(ctx, {
+      type: "spentCardDoubled",
+      playerId: doubled.spenderId,
+      instanceId: doubled.instanceId,
+      factor: 2 ** doubled.grants.length,
+      lastingEffectIds: doubled.grants,
+    });
+    for (const grant of doubled.grants) endLastingEffect(ctx, grant, "consumed");
   }
   return {
     cards: spent,
@@ -3241,7 +3373,8 @@ export function planCost(
     if (!cardsInPlay(state).includes(sourceId) || !(card && "flipSide" in card && card.flipSide)) {
       return { code: "card_not_in_zone", message: "the card must be in play with another face to pay this cost" };
     }
-    if (cannotFlip(state, deps, sourceId)) return { code: "no_valid_target", message: "this card cannot be flipped" };
+    if (cannotFlip(state, deps, sourceId, playerId))
+      return { code: "no_valid_target", message: "this card cannot be flipped" };
   }
   // A counter cost whose amount the board gives (a `ValueSpec`, hero-pack spec H3.5) is read below, once the cost's
   // picks are bound; a fixed one is checked here.
@@ -5356,6 +5489,11 @@ export function commitPlay(
       ...ctx.state.playedByPlayerThisPhase,
       [playerId]: [...(ctx.state.playedByPlayerThisPhase?.[playerId] ?? []), cardInstanceId],
     },
+    // "If the last card you played this round was …" (`Predicate lastPlayedThisRound`): this player's plays, in order.
+    playedInOrderThisRound: {
+      ...ctx.state.playedInOrderThisRound,
+      [playerId]: [...(ctx.state.playedInOrderThisRound?.[playerId] ?? []), cardInstanceId],
+    },
     // "…if you have played a [Thwart] event this turn" (docs/phase7-wave3.md §3.24); only during a player's turn.
     ...(turnInProgress(ctx.state)
       ? {
@@ -6394,6 +6532,10 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, 
   if (!activeAbilityRefs(ctx.state, command.cardInstanceId, ctx.deps).some((ref) => ref.id === command.abilityId)) {
     return engineError("no_valid_target", `${command.abilityId} is not active on that card`, command);
   }
+  // A player who treats the card's text box as blank (a per-player blank, `textBoxBlankedFor`) has no ability on it.
+  if (textBoxBlankedFor(ctx.state, command.cardInstanceId, ctx.deps).includes(command.playerId)) {
+    return engineError("no_valid_target", `you treat that card's text box as blank`, command);
+  }
   // An ability that works in hand works only there, and only for the hand's owner; every other ability only in play
   // (`AbilityDefinition.activeIn`, docs/phase7-wave4.md §3.13).
   const inHand = mustPlayer(ctx.state, command.playerId).hand.includes(command.cardInstanceId);
@@ -6411,7 +6553,7 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, 
     return engineError("no_valid_target", `${command.abilityId} is not active in the victory display`, command);
   }
   // "Players cannot trigger 'Alter-Ego Action' abilities on obligations." (`cannotTriggerActions`, §3.11).
-  if (cannotTriggerAction(ctx.state, ctx.deps, command.cardInstanceId, definition.trigger.form)) {
+  if (cannotTriggerAction(ctx.state, ctx.deps, command.cardInstanceId, definition.trigger.form, command.playerId)) {
     return engineError("no_valid_target", "that ability cannot be triggered right now", command);
   }
   // "You cannot resolve triggered abilities in your hero's printed text box" (`cannotResolveTriggeredAbilities`).
@@ -6648,8 +6790,10 @@ function payBasicPowerCost(
  * Returns where the basic power's own attack/thwart event(s) report their results (docs/phase7-wave3.md §3.44): into
  * this damage event, prefixed `attack.`/`thwart.`, so "After Martyr takes consequential damage from performing an
  * attack, if that attack defeated an enemy" (Martyr, `drax` 19012) reads `attack.defeated` in the damage's own response
- * window. The damage is pushed first and so resolves after the power (LIFO); the power's frame reports into it as it
- * finishes, before the damage applies. Null when the ally takes none.
+ * window. The damage is pushed first, beneath the power's `basicPowerUsed` announcement and its attack/thwart event(s),
+ * and so resolves after them (LIFO): after the "after [this ally] uses a basic power" responses too (RRG 1.8
+ * "Consequential Damage", p. 13; "Ability" timing priority, p. 5). The power's frame reports into it as it finishes,
+ * before the damage applies. Null when the ally takes none.
  *
  * `column`: the stat the damage is printed under, when it is not the power's own (a thwart made with ATK).
  */
@@ -6720,10 +6864,12 @@ const consequentialDamageEvent = (
 /**
  * "Havok takes +1 consequential damage for this attack" (Havok, `storm` 36014) when his consequential damage is 0: the
  * one-shot `modifyConsequentialDamage` has no pending damage event to change, because `pushConsequentialDamage` pushes
- * none at 0. This creates it, as if it had been pushed with the power: directly beneath the character's attack or
- * thwart event(s) still in progress, so it resolves after them (RRG 1.8 "Consequential Damage", p. 13), and those
- * events report their results into it (`attack.`/`thwart.`, as `pushConsequentialDamage` wires them). Its amount is
- * the character's consequential value (standing modifiers included) plus `delta`.
+ * none at 0. This creates it, as if it had been pushed with the power: beneath the character's attack or thwart
+ * event(s) still in progress and, when that power's `basicPowerUsed` announcement is on the stack beneath them,
+ * beneath that too, so it resolves after them and after the "after [this] uses a basic power" responses (RRG 1.8
+ * "Consequential Damage", p. 13; "Ability" timing priority, p. 5), and those events report their results into it
+ * (`attack.`/`thwart.`, as `pushConsequentialDamage` wires them). Its amount is the character's consequential value
+ * (standing modifiers included) plus `delta`.
  *
  * Returns the amount created, or null when nothing was (no attack or thwart of this character in progress, a
  * character that takes no consequential damage, or a total of 0 or less). docs/phase7-wave6.md §3.31.
@@ -6754,7 +6900,27 @@ export function insertConsequentialDamage(
   if (to <= 0) return null;
   const frame = eventFrame(ctx, consequentialDamageEvent(characterId, to, kind));
   const report: ReportTarget = { frameId: frame.frameId, prefix: kind };
-  const at = Math.max(...powerIndexes) + 1;
+  const deepest = Math.max(...powerIndexes);
+  // This power's own announcement, which `makeBasicAttack`/`makeBasicThwart` push between its events and the
+  // consequential damage: a `basicPowerUsed` of this character and power, not yet resolved, among the event frames
+  // directly beneath them. The search stops at the first frame that is not an event, so an earlier use's announcement
+  // whose response window is resolving (beneath its window and ability frames) is never taken for this one.
+  let announced = -1;
+  for (let index = deepest + 1; index < stack.length; index++) {
+    const below = stack[index]!;
+    if (below.kind !== "event") break;
+    if (
+      !below.cancelled &&
+      below.stage !== "done" &&
+      below.event.kind === "basicPowerUsed" &&
+      below.event.characterInstanceId === characterId &&
+      below.event.power === kind
+    ) {
+      announced = index;
+      break;
+    }
+  }
+  const at = (announced >= 0 ? announced : deepest) + 1;
   const current = ctx.state.stack;
   ctx.state = {
     ...ctx.state,
@@ -7002,8 +7168,9 @@ function makeBasicAttack(
   command: Command & { type: "basicAttack" },
   shares: readonly BasicPowerShare[],
 ): void {
-  announceBasicPower(ctx, command.attackerInstanceId, "attack", command.playerId);
+  // See `makeBasicThwart`: consequential damage first, so it resolves after the "used a basic power" responses.
   const consequential = pushConsequentialDamage(ctx, command.attackerInstanceId, "attack");
+  announceBasicPower(ctx, command.attackerInstanceId, "attack", command.playerId);
   const attackFrames = !command.divide
     ? [
         pushEvent(
@@ -7217,7 +7384,7 @@ function basicThwartWith(
   // is paid, the confused status card replaces the thwart below.
   if (!thwartCostPaid) {
     const schemeIds = shares.map((share) => share.targetInstanceId);
-    const cost = thwartCostTotal(ctx.state, ctx.deps, schemeIds);
+    const cost = thwartCostTotal(ctx.state, ctx.deps, schemeIds, command.playerId);
     if (cost) {
       const afterOwnCosts = createCtx(ctx.state, ctx.deps);
       const ownUnpaid = payBasicPowerCost(afterOwnCosts, command, command.thwarterInstanceId, "thwart", [], by);
@@ -7291,13 +7458,17 @@ function makeBasicThwart(
     ...(ignores?.includes("crisis") ? { ignoreCrisis: true as const } : {}),
     ...(ignores?.includes("patrol") ? { ignorePatrol: true as const } : {}),
   };
-  announceBasicPower(ctx, command.thwarterInstanceId, "thwart", command.playerId, thwartStat);
   const consequential = pushConsequentialDamage(
     ctx,
     command.thwarterInstanceId,
     "thwart",
     useAtk ? "attack" : "thwart",
   );
+  // RRG 1.8 "Consequential Damage" (p. 13): an ally takes it "after resolving abilities that are triggered by the ally
+  // attacking or thwarting", and "Ability" (p. 5) ranks responses (4) before consequential damage (5). So the damage
+  // sits beneath the `basicPowerUsed` announcement (LIFO): "after [this ally] uses a basic power" (Nick Fury 50002)
+  // resolves before the damage that may defeat him.
+  announceBasicPower(ctx, command.thwarterInstanceId, "thwart", command.playerId, thwartStat);
   const framesBefore = new Set(ctx.state.stack.map((frame) => frame.frameId));
   const thwartFrames = !command.divide
     ? [
@@ -7564,7 +7735,13 @@ export function basicRecover(ctx: Ctx, command: Command & { type: "basicRecover"
   const identityId = player.identity.instanceId;
   const recovery: TriggerEvent = { kind: "basicRecovery", characterInstanceId: identityId, playerId: command.playerId };
   const using: TriggerEvent = { ...recovery, kind: "basicPowerUsing", power: "recover", stat: "rec" };
-  if (!heard(ctx.state, ctx.deps, recovery) && !heard(ctx.state, ctx.deps, using)) {
+  // An identity whose recovery resolves boost cards (villainous, or holding some for its basic powers; ruling
+  // September 10, 2026 - Ruling 3 (A)) takes the announced path, where its cards are recorded (`pushCharacterBoost`).
+  if (
+    !heard(ctx.state, ctx.deps, recovery) &&
+    !heard(ctx.state, ctx.deps, using) &&
+    !resolvesBoostCards(ctx.state, ctx.deps, identityId)
+  ) {
     healDamage(ctx, identityId, profile.rec, identityId);
     announceBasicPower(ctx, identityId, "recover", command.playerId);
     return null;
@@ -7592,10 +7769,13 @@ export function announceBasicPower(
 }
 
 /**
- * "When you use one of your hero's basic powers" (docs/phase7-wave2.md §17.4): pushed *on top of* the power's own
- * events, so its interrupt window resolves before the power's value is read. Like its "used" twin it goes on the stack
- * only when an ability could react, and a stunned attack or confused thwart never reaches either of them (the cancel
- * returns before both), so a power that is cancelled is not "used" for any timing.
+ * "When you use one of your hero's basic powers" (docs/phase7-wave2.md §17.4), announced before the power's value is
+ * read. Like its "used" twin it goes on the stack only when an ability could react, and a stunned attack or confused
+ * thwart never reaches either of them (the cancel returns before both), so a power that is cancelled is not "used" for
+ * any timing. A basic attack, thwart or recovery holds it on its own event frame (`deferUsingAfterWould`,
+ * `Frame<"event">.usingAfterWould`) until that event's "would" interrupts have resolved: it is pushed as the event's
+ * interrupt window passes its "would" tier, so a "would" cancel leaves the power never announced and Villainous gives
+ * no card (RRG 1.8 "'Would'", p. 48). A basic defense's is pushed on top at once.
  */
 export function announceBasicPowerUsing(
   ctx: Ctx,
@@ -7604,10 +7784,21 @@ export function announceBasicPowerUsing(
   playerId: PlayerId,
   stat: StatName = BASIC_POWER_STAT[power],
 ): void {
-  const event: TriggerEvent = { kind: "basicPowerUsing", characterInstanceId: characterId, power, stat, playerId };
-  // A villainous ally or hero resolves its boost card beneath this event (docs/phase7-wave11-scenarios.md §S3.7).
+  const event: Extract<TriggerEvent, { kind: "basicPowerUsing" }> = {
+    kind: "basicPowerUsing",
+    characterInstanceId: characterId,
+    power,
+    stat,
+    playerId,
+  };
+  // A villainous ally or hero, or one holding boost cards for its basic powers, gets its use recorded beneath the use's
+  // own frame (docs/phase7-wave11-scenarios.md §S3.7). Its cards turn faceup at that frame's apply step, once the
+  // power's own interrupts have resolved (`startCharacterBoost`), not beneath this event.
   pushCharacterBoost(ctx, characterId, power, stat, playerId);
-  if (heard(ctx.state, ctx.deps, event)) pushEvent(ctx, event);
+  if (!heard(ctx.state, ctx.deps, event)) return;
+  // A basic attack, thwart or recovery announces it after its own "would" interrupts (`deferUsingAfterWould`).
+  if (deferUsingAfterWould(ctx, event)) return;
+  pushEvent(ctx, event);
 }
 
 /**
@@ -7633,6 +7824,16 @@ export function setBasicPowerStat(
     if (frame?.kind !== "event" || frame.event.kind !== kind || frame.event.stat === stat) continue;
     setFrame(ctx, { ...frame, event: { ...frame.event, stat } });
   }
+  // One still waiting on its power's event for the "would" interrupts (`Frame<"event">.usingAfterWould`).
+  const waiting = ctx.state.stack.find(
+    (f) =>
+      f.kind === "event" &&
+      f.usingAfterWould !== undefined &&
+      (characterId === null || f.usingAfterWould.characterInstanceId === characterId) &&
+      f.usingAfterWould.power === power,
+  );
+  if (waiting?.kind === "event" && waiting.usingAfterWould)
+    setFrame(ctx, { ...waiting, usingAfterWould: { ...waiting.usingAfterWould, stat } });
   // A villainous character's boost icons go to the stat actually powering the use (§S3.7, `resolve/villainous.ts`).
   retargetCharacterBoost(ctx, characterId, power, stat);
 }

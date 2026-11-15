@@ -48,7 +48,8 @@
  */
 
 import { applyCommand, type Command, type EngineDeps, type GameEvent, type GameState } from "@mc/engine";
-import { POOL_DEPS } from "../content/pool.js";
+import { poolViewOfPacks } from "../content/pool.js";
+import { gameDeps } from "../content/game-deps.js";
 import { rebuildBaseline } from "../engine/session-core.js";
 import type { SessionConfig, StateWithoutPool } from "../engine/host.js";
 
@@ -94,11 +95,34 @@ interface Checkpoint {
   readonly events: readonly GameEvent[];
 }
 
+/** Where a lenient build stopped: the first command that no longer applies, 0-based, and the engine's reason. */
+export interface ReplayFailure {
+  readonly commandIndex: number;
+  readonly message: string;
+}
+
+export interface ReplayBuildOptions {
+  /**
+   * Sees the state after every command count 0..length, and the events that got it there (setup's at 0), in order, during the one forward pass at construction: what a
+   * replay file's checksums are taken from and checked against (`replay/replay-session.ts`).
+   */
+  readonly observe?: (index: number, state: GameState, events: readonly GameEvent[]) => void;
+  /**
+   * Stop at the first command that no longer applies instead of throwing: the cursor then covers the log up to that
+   * command, and `failure` says where and why. A shared replay from another build can still be watched up to there.
+   */
+  readonly lenient?: boolean;
+}
+
 export class ReplayCursor {
   readonly #commands: readonly Command[];
   readonly #deps: EngineDeps;
   readonly #checkpoints: Map<number, Checkpoint>;
   readonly #moments: readonly ReplayMoment[];
+  /** Setup's own events, then each command's, in order: what the log shows up to any position (`historyTo`). */
+  readonly #setupEvents: readonly GameEvent[];
+  readonly #events: readonly (readonly GameEvent[])[];
+  readonly #failure: ReplayFailure | null;
   #index = 0;
   /**
    * Test-only diagnostic: how many times this cursor has actually asked the
@@ -112,11 +136,16 @@ export class ReplayCursor {
     checkpoints: Map<number, Checkpoint>,
     moments: readonly ReplayMoment[],
     deps: EngineDeps,
+    history: { readonly setup: readonly GameEvent[]; readonly perCommand: readonly (readonly GameEvent[])[] },
+    failure: ReplayFailure | null,
   ) {
     this.#commands = commands;
     this.#checkpoints = checkpoints;
     this.#moments = moments;
     this.#deps = deps;
+    this.#setupEvents = history.setup;
+    this.#events = history.perCommand;
+    this.#failure = failure;
   }
 
   /**
@@ -129,10 +158,11 @@ export class ReplayCursor {
     config: SessionConfig,
     storedInitialState: StateWithoutPool,
     commands: readonly Command[],
-    deps: EngineDeps = POOL_DEPS,
+    deps: EngineDeps = poolViewOfPacks(config.packs).deps,
+    options: ReplayBuildOptions = {},
   ): ReplayCursor {
     const baseline = rebuildBaseline(config, storedInitialState);
-    return ReplayCursor.#build(baseline.initialState, baseline.setupEvents, commands, deps);
+    return ReplayCursor.#build(baseline.initialState, baseline.setupEvents, commands, deps, options);
   }
 
   /**
@@ -141,8 +171,13 @@ export class ReplayCursor {
    * No scenario rebuild is needed or attempted; the caller's `initialState`
    * is trusted as-is (still defensively cloned, so the cursor never aliases it).
    */
-  static fromLog(initialState: GameState, commands: readonly Command[], deps: EngineDeps = POOL_DEPS): ReplayCursor {
-    return ReplayCursor.#build(initialState, [], commands, deps);
+  static fromLog(
+    initialState: GameState,
+    commands: readonly Command[],
+    deps: EngineDeps = gameDeps(),
+    options: ReplayBuildOptions = {},
+  ): ReplayCursor {
+    return ReplayCursor.#build(initialState, [], commands, deps, options);
   }
 
   static #build(
@@ -150,6 +185,7 @@ export class ReplayCursor {
     setupEvents: readonly GameEvent[],
     commands: readonly Command[],
     deps: EngineDeps,
+    options: ReplayBuildOptions,
   ): ReplayCursor {
     // Defensive copies: a cursor never holds a reference into whatever object
     // the caller passed in, so nothing it later does can reach back into the
@@ -169,13 +205,24 @@ export class ReplayCursor {
     if (phase === "villain") moments.push({ commandIndex: 0, round, label: "Villain Phase", kind: "villainPhase" });
 
     let state = clonedInitial;
+    options.observe?.(0, state, clonedSetupEvents);
+    const perCommand: (readonly GameEvent[])[] = [];
+    let failure: ReplayFailure | null = null;
     for (let i = 0; i < clonedCommands.length; i++) {
       const result = applyCommand(state, clonedCommands[i]!, deps);
       if (!result.ok) {
+        if (options.lenient) {
+          failure = { commandIndex: i, message: result.error.message };
+          clonedCommands.length = i;
+          checkpoints.set(i, { state, events: perCommand[i - 1] ?? clonedSetupEvents });
+          break;
+        }
         throw new Error(`replay diverges at command ${i + 1} of ${clonedCommands.length}: ${result.error.message}`);
       }
       state = result.state;
+      perCommand.push(result.events);
       const index = i + 1;
+      options.observe?.(index, state, result.events);
 
       /**
        * Moments are keyed off the *resting* state after the whole command,
@@ -205,12 +252,35 @@ export class ReplayCursor {
       }
     }
 
-    return new ReplayCursor(clonedCommands, checkpoints, moments, deps);
+    return new ReplayCursor(
+      clonedCommands,
+      checkpoints,
+      moments,
+      deps,
+      { setup: clonedSetupEvents, perCommand },
+      failure,
+    );
   }
 
   /** Total commands in the log. Valid indices are 0..length inclusive. */
   get length(): number {
     return this.#commands.length;
+  }
+
+  /** Where a lenient build stopped short of the whole log, or null when every command applied. */
+  get failure(): ReplayFailure | null {
+    return this.#failure;
+  }
+
+  /** Every event from setup up to the position after `n` commands (clamped), oldest first: the log at that point. */
+  historyTo(n: number): readonly GameEvent[] {
+    const target = Math.max(0, Math.min(n, this.#commands.length));
+    return [...this.#setupEvents, ...this.#events.slice(0, target).flat()];
+  }
+
+  /** The events command `n` (0-based) produced. */
+  eventsOf(n: number): readonly GameEvent[] {
+    return this.#events[n] ?? [];
   }
 
   /** The index the cursor currently sits at. */

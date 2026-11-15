@@ -1,6 +1,19 @@
 export * from "./dsl/index.js";
+export { obligation } from "./core/obligations.js";
+export { abilitiesForCards, builtinPackProblems, defineBuiltinPack, ownScriptsOf } from "./builtin-packs/define.js";
+export type { BuiltinPack, BuiltinPackManifest } from "./builtin-packs/define.js";
+export { BUILTIN_PACKS, NOT_READY_PACK_CODES, isNotReadyCard } from "./builtin-packs/index.js";
+export { WAVE4_BUILTIN_PACKS } from "./wave4/index.js";
+export { WAVE5_BUILTIN_PACKS } from "./wave5/index.js";
+export { WAVE6_BUILTIN_PACKS } from "./wave6/index.js";
+export { WAVE7_BUILTIN_PACKS } from "./wave7/index.js";
+export { WAVE8_BUILTIN_PACKS } from "./wave8/index.js";
+export { WAVE9_BUILTIN_PACKS } from "./wave9/index.js";
+export { WAVE10_BUILTIN_PACKS } from "./wave10/index.js";
+export { WAVE11_BUILTIN_PACKS } from "./wave11/index.js";
 export {
   CORE_ABILITIES,
+  CORE_BUILTIN_PACK,
   CORE_DEPS,
   coreScenario,
   encounterCardsOf,
@@ -10,6 +23,7 @@ export {
 export type { CoreDifficulty, CorePlayer, CoreScenarioOptions } from "./core/index.js";
 export {
   WAVE1_ABILITIES,
+  WAVE1_BUILTIN_PACKS,
   WAVE1_DEPS,
   WAVE1_REPRINT_ABILITIES,
   wave1ReprintPairs,
@@ -19,6 +33,7 @@ export {
 export type { Wave1ScenarioOptions } from "./wave1/index.js";
 export {
   WAVE2_ABILITIES,
+  WAVE2_BUILTIN_PACKS,
   WAVE2_DEPS,
   WAVE2_REPRINT_ABILITIES,
   wave2ReprintPairs,
@@ -28,6 +43,7 @@ export {
 export type { Wave2ScenarioOptions } from "./wave2/index.js";
 export {
   WAVE3_ABILITIES,
+  WAVE3_BUILTIN_PACKS,
   WAVE3_CARDS,
   WAVE3_DEPS,
   WAVE3_REPRINT_ABILITIES,
@@ -123,6 +139,18 @@ export { PLAYABLE_ABILITIES, PLAYABLE_DEPS, playableScenario, playableStarterDec
 export { randomCivilWarScenario } from "./playable/random-civil-war.js";
 export type { RandomCivilWarOptions, RandomCivilWarScenario } from "./playable/random-civil-war.js";
 export type { PlayableScenarioOptions } from "./playable/index.js";
+// Custom packs' scenarios and modular sets in a game (docs/custom-content-packs.md §5, §11.9).
+export {
+  CUSTOM_SCENARIO_FIELDS,
+  customContentProblems,
+  customModularPickProblem,
+  customModularSetChoices,
+  customScenarioProblems,
+  isBaseEncounterSetId,
+  isBaseScenarioId,
+  playableScenarioWithCustom,
+} from "./playable/custom.js";
+export type { CustomContent } from "./playable/custom.js";
 // Community decks: the saved, tested public MarvelCDB decklists, as a catalog a client can recommend from.
 export {
   COMMUNITY_DECK_AUTHORS,
@@ -141,7 +169,12 @@ export {
   AOS_CAMPAIGN_DEFINITION,
   CAMPAIGNS,
   campaignDefinitionOf,
+  campaignDefinitionProblems,
+  campaignInstructionsOf,
   campaignModularPickProblem,
+  cardIdsIn,
+  fieldsIn,
+  opsOfKind,
   cardsOfComposedSets,
   GMW_BALANCED_FIELD,
   GMW_BALANCED_TOGGLES,
@@ -156,7 +189,7 @@ export {
   SM_CAMPAIGN_DEFINITION,
   TRORS_CAMPAIGN_DEFINITION,
 } from "./campaigns/index.js";
-export type { GmwBalancedToggle, GmwBalancedToggleId } from "./campaigns/index.js";
+export type { CampaignCheckContext, GmwBalancedToggle, GmwBalancedToggleId } from "./campaigns/index.js";
 export {
   PLAYABLE_ENCOUNTER_SETS,
   PLAYABLE_SCENARIO_RECORDS,

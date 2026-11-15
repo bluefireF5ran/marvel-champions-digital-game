@@ -27,7 +27,7 @@ import {
   updateInstance,
 } from "../ctx.js";
 import { activationVarsOf, plannedAttackDamage } from "../defend-preview.js";
-import { currentEnemyAttackFrame, defenseBarFor, defendingCharacterOf, defenseClaimOf } from "../defense-claim.js";
+import { currentEnemyAttackFrame, defenderBarFor, defendingCharacterOf, defenseClaimOf } from "../defense-claim.js";
 import { drawEncounterCard, exhaustCard } from "../effects.js";
 import { type FrameId, type InstanceId, instanceId as asInstanceId, type PlayerId } from "../ids.js";
 import { attackKeywordsOf, hasKeyword } from "../keywords.js";
@@ -52,7 +52,8 @@ import {
   additionalPowerCostFor,
   attacksDealIndirectDamage,
   attacksDividedEvenly,
-  boostIgnored,
+  boostIconFactor,
+  boostIgnoreScope,
   mustDefendWithAlly,
   schemeActivationDestination,
   cannotDefend,
@@ -70,7 +71,13 @@ import {
 } from "../select.js";
 import { type BoostInProgress, defendedActivationFrameId, type Vars } from "../stack.js";
 import type { BoostGiven, GameState, ZoneId } from "../state.js";
-import { type SchemeThreatDivert, TOTAL_ATK_RESULT, type TriggerEvent } from "../trigger-events.js";
+import {
+  DEFENDER_DEF_RESULT,
+  EXACTLY_DEFENDED_RESULT,
+  type SchemeThreatDivert,
+  TOTAL_ATK_RESULT,
+  type TriggerEvent,
+} from "../trigger-events.js";
 import {
   addFrameSlots,
   addFrameVars,
@@ -85,7 +92,7 @@ import {
   pushEventsJoiningResponses,
 } from "./frames.js";
 import { heard } from "./triggers.js";
-import { pushCharacterBoost, startDefenderBoost } from "./villainous.js";
+import { boostCardsToResolve, pendingDefenderBoost, pushCharacterBoost, startDefenderBoost } from "./villainous.js";
 
 /**
  * RRG 1.8 "Villainous" (p. 47): a minion with the keyword is given a boost card when it activates. The keyword is read
@@ -133,19 +140,29 @@ export const dashedStatSkipsActivation = (
  *
  * A card ability naming an enemy is the authority on who gets one (RRG 1.8 "The Golden Rules", p. 4), so this is
  * deliberately *not* gated on `getsBoostCard`, which is about the automatic boost card only.
+ *
+ * `forBasicPower`: the card is held for a friendly character's next basic power (`CardInstance.heldForBasicPowers`,
+ * `EffectSpec giveBoostCard.forBasicPower`).
  */
-export function dealBoostCard(ctx: Ctx, enemyId: InstanceId, outsideActivation = false): void {
+export function dealBoostCard(ctx: Ctx, enemyId: InstanceId, outsideActivation = false, forBasicPower = false): void {
   const id = drawEncounterCard(ctx);
   if (!id) return;
   updateInstance(ctx, id, (i) => ({ ...i, faceup: false }));
   moveCard(ctx, id, { kind: "boost", hostInstanceId: enemyId });
+  if (forBasicPower) markHeldForBasicPowers(ctx, id);
   emit(ctx, {
     type: "boostCardDealt",
     enemyInstanceId: enemyId,
     instanceId: id,
     ...(outsideActivation ? { outsideActivation: true } : {}),
+    ...(forBasicPower ? { forBasicPower: true } : {}),
   });
   recordBoostGiven(ctx, enemyId, id);
+}
+
+/** Marks a facedown boost card just given as held for its holder's basic powers (`CardInstance.heldForBasicPowers`). */
+function markHeldForBasicPowers(ctx: Ctx, id: InstanceId): void {
+  updateInstance(ctx, id, (i) => ({ ...i, heldForBasicPowers: true }));
 }
 
 const LISTENS_FOR_BOOST_GIVEN = new WeakMap<EngineDeps, boolean>();
@@ -254,6 +271,8 @@ export interface BoostGiveOptions {
   readonly outsideActivation?: boolean;
   /** The chosen card given, not the encounter deck's top card. */
   readonly named?: InstanceId;
+  /** Held for a friendly character's next basic power (`EffectSpec giveBoostCard.forBasicPower`). */
+  readonly forBasicPower?: boolean;
 }
 
 /**
@@ -267,6 +286,7 @@ export function boostCardBeingGivenTo(ctx: Ctx, enemyId: InstanceId, opts: Boost
     ...activationGivingTo(ctx, enemyId),
     ...(opts.outsideActivation ? { outsideActivation: true as const } : {}),
     ...(opts.named !== undefined ? { named: { instanceId: opts.named } } : {}),
+    ...(opts.forBasicPower ? { forBasicPower: true as const } : {}),
   };
 }
 
@@ -276,10 +296,15 @@ export function boostCardBeingGivenTo(ctx: Ctx, enemyId: InstanceId, opts: Boost
  * apply step gives the card, and this returns true, for a caller to wait for that frame. Returns false when the card
  * was given at once (or there was none to give).
  */
-export function dealBoostCardOrAnnounce(ctx: Ctx, enemyId: InstanceId, outsideActivation = false): boolean {
-  const event = boostAwaitingInterrupt(ctx, enemyId, { outsideActivation });
+export function dealBoostCardOrAnnounce(
+  ctx: Ctx,
+  enemyId: InstanceId,
+  outsideActivation = false,
+  forBasicPower = false,
+): boolean {
+  const event = boostAwaitingInterrupt(ctx, enemyId, { outsideActivation, forBasicPower });
   if (!event) {
-    dealBoostCard(ctx, enemyId, outsideActivation);
+    dealBoostCard(ctx, enemyId, outsideActivation, forBasicPower);
     return false;
   }
   pushEvent(ctx, event);
@@ -296,13 +321,19 @@ export function applyBoostCardBeingGiven(ctx: Ctx, event: BoostCardBeingGiven): 
   const inPlay = cardsInPlay(ctx.state);
   if (!inPlay.includes(event.enemyInstanceId)) return;
   if (!event.named) {
-    dealBoostCard(ctx, event.enemyInstanceId, event.outsideActivation === true);
+    dealBoostCard(ctx, event.enemyInstanceId, event.outsideActivation === true, event.forBasicPower === true);
     return;
   }
   const id = event.named.instanceId;
   const zone = locateCard(ctx.state, id)?.kind;
-  const givable = zone !== undefined && (BOOST_SOURCE_ZONES.has(zone) || beingRevealed(ctx.state, id));
-  if (givable && !inPlay.includes(id)) dealChosenBoostCard(ctx, event.enemyInstanceId, id);
+  const givable =
+    zone !== undefined &&
+    (BOOST_SOURCE_ZONES.has(zone) ||
+      beingRevealed(ctx.state, id) ||
+      resolvingBoostCard(ctx.state, id, event.enemyInstanceId));
+  if (givable && !inPlay.includes(id)) {
+    dealChosenBoostCard(ctx, event.enemyInstanceId, id, event.forBasicPower === true);
+  }
 }
 
 /**
@@ -348,6 +379,21 @@ function giveBoostStep(
   next: "declareDefender" | "flipBoosts",
   activation: "attack" | "scheme",
 ): void {
+  // `EffectSpec enemyActivation.boostCards`: "apply this card's boost icons for this activation as if it were a boost
+  // card". Given first, whatever else this step gives (its own cards may be withheld): each is a boost card of this
+  // activation, flipped, resolved and discarded with the others (RRG 1.8 "Boost, Boost Icon", p. 11).
+  if (frame.appliedBoostCards !== undefined) {
+    const { appliedBoostCards, ...without } = frame;
+    setFrame(ctx, without as typeof frame);
+    for (const id of appliedBoostCards) {
+      const at = locateCard(ctx.state, id);
+      if (!at || !BOOST_SOURCE_ZONES.has(at.kind)) continue;
+      updateInstance(ctx, id, (i) => ({ ...i, faceup: false }));
+      moveCard(ctx, id, { kind: "boost", hostInstanceId: frame.enemyInstanceId });
+      emit(ctx, { type: "boostCardDealt", enemyInstanceId: frame.enemyInstanceId, instanceId: id });
+    }
+    return giveBoostStep(ctx, without as typeof frame, next, activation);
+  }
   const { boostsGiven: given = 0, ...rest } = frame;
   const advance = () => setFrame(ctx, { ...rest, stage: next } as typeof frame);
   // "That attack does not get a boost card": no boost card at all, additional ones included.
@@ -398,16 +444,36 @@ export function beingRevealed(state: GameState, id: InstanceId): boolean {
 }
 
 /**
+ * Whether `id` is a boost card turned faceup and resolving that may be given to `holderId` as a facedown boost card:
+ * the other card outside `BOOST_SOURCE_ZONES` that `giveBoostCard.card` may give, for a Boost ability that says where
+ * its own card goes instead of the discard pile ("Otherwise, give this card to Elektra as a facedown boost card", the
+ * Ninja cards 63002–63004). A friendly character's card (a `characterBoost` frame's) may go to anyone, itself included,
+ * since its use turns each card up once (`turned`). An enemy activation's may go only to another card: the activation
+ * would turn it up again on its own enemy (engine reading, authority step 5; no printed card asks for that).
+ */
+export function resolvingBoostCard(state: GameState, id: InstanceId, holderId: InstanceId): boolean {
+  const zone = locateCard(state, id);
+  if (zone?.kind !== "boost" || getInstance(state, id)?.faceup !== true) return false;
+  return state.stack.some(
+    (frame) =>
+      ((frame.kind === "characterBoost" && frame.stage === "resolve") ||
+        ((frame.kind === "enemyAttack" || frame.kind === "enemyScheme") && zone.hostInstanceId !== holderId)) &&
+      frame.boost?.instanceId === id,
+  );
+}
+
+/**
  * "Take the topmost [Magnetic] card in the encounter discard pile and give it to Magneto as a facedown boost card"
  * (Master of Magnetism 32151; docs/phase7-wave6.md §3.16): `cardId` itself, not the encounter deck's top, goes
  * facedown onto `holderId` as a boost card dealt outside its activation (RRG 1.8 "Boost, Boost Icon", p. 11). From
  * there it is any other waiting boost card: flipped in the enemy's next activation, then discarded to its own discard
  * pile (`discardZoneFor`). The caller checks the card is out of play.
  */
-export function dealChosenBoostCard(ctx: Ctx, holderId: InstanceId, cardId: InstanceId): void {
+export function dealChosenBoostCard(ctx: Ctx, holderId: InstanceId, cardId: InstanceId, forBasicPower = false): void {
   updateInstance(ctx, cardId, (i) => ({ ...i, faceup: false }));
   moveCard(ctx, cardId, { kind: "boost", hostInstanceId: holderId });
-  boostCardGivenTo(ctx, holderId, cardId);
+  if (forBasicPower) markHeldForBasicPowers(ctx, cardId);
+  boostCardGivenTo(ctx, holderId, cardId, forBasicPower);
 }
 
 /**
@@ -415,8 +481,14 @@ export function dealChosenBoostCard(ctx: Ctx, holderId: InstanceId, cardId: Inst
  * The caller has moved it there: `dealChosenBoostCard` for a card out of play, a defeat for the defeated card itself
  * ("give this card to the enemy leader as a facedown boost card", docs/phase7-wave10.md §3.10; `defeatFromPlay`).
  */
-export function boostCardGivenTo(ctx: Ctx, holderId: InstanceId, cardId: InstanceId): void {
-  emit(ctx, { type: "boostCardDealt", enemyInstanceId: holderId, instanceId: cardId, outsideActivation: true });
+export function boostCardGivenTo(ctx: Ctx, holderId: InstanceId, cardId: InstanceId, forBasicPower = false): void {
+  emit(ctx, {
+    type: "boostCardDealt",
+    enemyInstanceId: holderId,
+    instanceId: cardId,
+    outsideActivation: true,
+    ...(forBasicPower ? { forBasicPower: true as const } : {}),
+  });
   recordBoostGiven(ctx, holderId, cardId);
 }
 
@@ -495,6 +567,52 @@ function stepBoostCard(
   return stepFaceupBoostCard(ctx, frame, playerId, activation, turned);
 }
 
+/**
+ * Step 3's order when the defending hero has boost cards of its own to resolve (its villainous card, cards held for its
+ * basic powers): "you can choose to resolve either character's boost cards first, and when you do, resolve all of their
+ * boost cards in the order those cards were dealt" (ruling October 12, 2026 - Ruling 1, clarifying September 10, 2026 -
+ * Ruling 3 (B)). Asked of the defending player once, before the first card is turned up, and only when both have a
+ * card; the enemy's first is the first option. Chosen the defender's, they start now (`startDefenderBoost`); else after
+ * the enemy's, as before. True when the procedure should stop this run: it asked, or it recorded the answer.
+ */
+function defenderBoostOrder(ctx: Ctx, frame: Frame<"enemyAttack">): boolean {
+  if (frame.boostOrder !== undefined || frame.boost) return false;
+  const record = pendingDefenderBoost(ctx.state, frame.eventFrameId);
+  const enemyHas = mustInstance(ctx.state, frame.enemyInstanceId).boostCards.some(
+    (id) => !mustInstance(ctx.state, id).faceup,
+  );
+  if (!record || !enemyHas || boostCardsToResolve(ctx.state, record).length === 0) return false;
+  if (frame.answer) {
+    const defenderFirst = frame.answer[0] === "defender";
+    setFrame(ctx, { ...frame, answer: null, boostOrder: defenderFirst ? "defender" : "enemy" });
+    if (defenderFirst) startDefenderBoost(ctx, frame.eventFrameId);
+    // The procedure carries on at its next run, from the frame as now set (its order recorded, the answer cleared),
+    // never from the caller's copy of it.
+    return true;
+  }
+  const defender = record.characterInstanceId;
+  requestChoice(ctx, {
+    playerId: record.playerId,
+    prompt: { kind: "chooseOption" },
+    options: [
+      {
+        optionId: "enemy",
+        label: `Resolve ${displayNameOf(ctx.state, frame.enemyInstanceId)}'s boost cards first`,
+        ref: { kind: "card", instanceId: frame.enemyInstanceId },
+      },
+      {
+        optionId: "defender",
+        label: `Resolve ${displayNameOf(ctx.state, defender)}'s boost cards first`,
+        ref: { kind: "card", instanceId: defender },
+      },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    frameId: frame.frameId,
+  });
+  return true;
+}
+
 /** Turns `boostId` faceup and opens its `boostCardTurnedFaceup` interrupt window (`stepBoostCard`). */
 function flipBoostCard(
   ctx: Ctx,
@@ -505,10 +623,14 @@ function flipBoostCard(
 ): "busy" {
   updateInstance(ctx, boostId, (i) => ({ ...i, faceup: true }));
   // "When a boost card is turned faceup during an enemy activation, add one additional boost icon to that card for
-  // each amplify icon in play" (RRG 1.8 "Amplify Icon", p. 7; docs/phase7-wave3.md §3.6).
+  // each amplify icon in play" (RRG 1.8 "Amplify Icon", p. 7; docs/phase7-wave3.md §3.6). MC60 p. 4's updated text
+  // ("when a character resolves a boost card while using a basic power") agrees for an enemy's activation; a
+  // villainous hero's or ally's card gets amplify as well (`resolve/villainous.ts`, owner 2026-11-14).
   // An ignored card has no boost icon to count, printed or gained (an amplify icon's "Each boost card gains
   // [boost]" gives it a boost icon like any other), so the windows that follow see 0.
-  const ignored = boostIgnored(ctx.state, ctx.deps, frame.enemyInstanceId, frame.eventFrameId);
+  const scope = boostIgnoreScope(ctx.state, ctx.deps, frame.enemyInstanceId, frame.eventFrameId);
+  const ignored = scope === "all";
+  const abilityIgnored = scope === "abilities";
   const icons = ignored
     ? 0
     : boostIconsFor(ctx.state, ctx.deps, boostId, playerId) +
@@ -521,6 +643,9 @@ function flipBoostCard(
     boostIcons: icons,
   });
   if (ignored) emit(ctx, { type: "boostIgnored", enemyInstanceId: frame.enemyInstanceId, instanceId: boostId });
+  else if (abilityIgnored) {
+    emit(ctx, { type: "boostIgnored", enemyInstanceId: frame.enemyInstanceId, instanceId: boostId, abilityOnly: true });
+  }
   // RRG 1.8 "Simultaneous Timing Priority" (p. 5) and "Attack (Enemy Activation)" step 3 (p. 8: "a. Flip … b. Resolve
   // any Boost abilities"): the interrupts to the card being turned faceup, then its Boost ability, then the responses.
   // So this frame opens only the interrupt window (`responsesLater`); the responses are announced by a second frame
@@ -547,6 +672,7 @@ function flipBoostCard(
       turnedIcons: icons,
       turnedFrameId: turnedFrame.frameId,
       ...(ignored ? { ignored: true as const } : {}),
+      ...(abilityIgnored ? { abilityIgnored: true as const } : {}),
     },
   });
   pushFrames(ctx, [turnedFrame.kind === "event" ? { ...turnedFrame, responsesLater: true } : turnedFrame]);
@@ -562,17 +688,28 @@ function stepFaceupBoostCard(
   turned: BoostInProgress,
 ): number | null | "busy" {
   let boost = turned;
-  if (
-    !boost.ignored &&
-    boost.step !== "resolved" &&
-    boostIgnored(ctx.state, ctx.deps, frame.enemyInstanceId, frame.eventFrameId)
-  ) {
+  const scope =
+    !boost.ignored && boost.step !== "resolved"
+      ? boostIgnoreScope(ctx.state, ctx.deps, frame.enemyInstanceId, frame.eventFrameId)
+      : null;
+  if (scope === "all") {
     boost = { ...boost, ignored: true };
     emit(ctx, { type: "boostIgnored", enemyInstanceId: frame.enemyInstanceId, instanceId: boost.instanceId });
+  } else if (scope === "abilities" && !boost.abilityIgnored && boost.step === "window") {
+    // A rule ignoring only the ability that began while the card was faceup covers the ability still to come.
+    boost = { ...boost, abilityIgnored: true };
+    emit(ctx, {
+      type: "boostIgnored",
+      enemyInstanceId: frame.enemyInstanceId,
+      instanceId: boost.instanceId,
+      abilityOnly: true,
+    });
   }
   if (boost.step === "resolved") {
-    // After the `boostCardResolved` responses (docs/phase7-wave5.md §3.5): discarded unless one moved it.
-    if (locateCard(ctx.state, boost.instanceId)?.kind === "boost")
+    // After the `boostCardResolved` responses (docs/phase7-wave5.md §3.5): discarded unless one moved it, to another
+    // card's boost cards included (`resolvingBoostCard`).
+    const at = locateCard(ctx.state, boost.instanceId);
+    if (at?.kind === "boost" && at.hostInstanceId === frame.enemyInstanceId)
       moveCard(ctx, boost.instanceId, discardZoneFor(ctx.state, boost.instanceId), "top");
     setFrame(ctx, { ...frame, boost: null });
     return boost.icons ?? 0;
@@ -582,7 +719,7 @@ function stepFaceupBoostCard(
     boost = rest;
     setFrame(ctx, { ...frame, boost: { ...boost, step: "ability" } });
     if (boost.abilityCancelled) emit(ctx, { type: "boostCancelled", instanceId: boost.instanceId, scope: "ability" });
-    else if (!boost.ignored) {
+    else if (!boost.ignored && !boost.abilityIgnored) {
       // Its printed Boost abilities, then those it gains as a boost card ("Each boost card from the Purple Man
       // encounter set gains: '[star] Boost: …'", docs/phase7-wave11-scenarios.md §S3.6), read now it is faceup. A
       // gained one is passed as the slots to scan, so the card's own blank does not reach it: engine interpretation
@@ -631,6 +768,10 @@ function stepFaceupBoostCard(
   // Amplify is read again at the count, not carried from the flip: "Each amplify icon is equivalent to the following
   // constant ability: 'Each boost card gains [boost]'" (RRG 1.8 p. 7), and a constant applies while its card is in play
   // (the Fearless Determination ruling, Jan 11, 2026 (1): its amplify icon "remains in effect" until it leaves play).
+  // Counted wherever its own Boost ability moved it: "the boost icon(s) on Homo Superior still increases the enemy's
+  // ATK" after its Boost attached it to a minion (ruling January 11, 2024 #134). A card given to a character to hold
+  // that way (a Ninja card's "Otherwise, give this card to Elektra", `resolvingBoostCard`) counts too, and again on the
+  // later use that turns it faceup: owner decision 4 (docs/phase7-elektra-iron-fist.md §5), on the same ruling.
   const counted =
     boostIconsFor(ctx.state, ctx.deps, boost.countFrom ?? boost.instanceId, playerId) +
     amplifyIconsInPlay(ctx.state, ctx.deps) +
@@ -643,9 +784,22 @@ function stepFaceupBoostCard(
   const applied = (boost.appliedAsBoost ?? [])
     .filter((a) => !a.iconsCancelled)
     .reduce((sum, a) => sum + boostIconsFor(ctx.state, ctx.deps, a.instanceId, playerId), 0);
-  const icons = boost.ignored
+  const added = boost.ignored
     ? 0
     : Math.max(0, (boost.iconsCancelled ? 0 : counted) + (boost.boostAbilityAdjust ?? 0) + applied);
+  // "Each boost icon counts twice" (`RuleSpec boostIconsMultiplied`): every icon this card adds, whatever set it.
+  const factor = added > 0 ? boostIconFactor(ctx.state, ctx.deps, frame.enemyInstanceId) : 1;
+  const icons = added * factor;
+  if (icons !== added) {
+    emit(ctx, {
+      type: "boostIconsMultiplied",
+      enemyInstanceId: frame.enemyInstanceId,
+      instanceId: boost.instanceId,
+      factor,
+      counted: added,
+      icons,
+    });
+  }
   // "After you resolve a boost card during Mysterio's activation, place that card in your discard pile" (§3.5 of wave
   // 5): a response window between the count and the discard, only when an ability listens.
   const resolved: TriggerEvent = {
@@ -660,8 +814,10 @@ function stepFaceupBoostCard(
     return "busy";
   }
   // Discarded to its home deck's discard (docs/phase7-wave1.md §4.3, proposed), unless its own Boost ability already
-  // moved it ("Put Goblin Thrall into play engaged with you").
-  if (locateCard(ctx.state, boost.instanceId)?.kind === "boost")
+  // moved it ("Put Goblin Thrall into play engaged with you"), to another card's boost cards included
+  // (`resolvingBoostCard`).
+  const at = locateCard(ctx.state, boost.instanceId);
+  if (at?.kind === "boost" && at.hostInstanceId === frame.enemyInstanceId)
     moveCard(ctx, boost.instanceId, discardZoneFor(ctx.state, boost.instanceId), "top");
   setFrame(ctx, { ...frame, boost: null });
   return icons;
@@ -837,7 +993,7 @@ export function declareLabeledDefense(ctx: Ctx, playerId: PlayerId): void {
   const activation = defendedActivationFrameId(ctx.state.stack);
   const frame = activation ? ctx.state.stack.find((f) => f.frameId === activation) : undefined;
   if (frame?.kind !== "event" || frame.event.kind !== "enemyAttack" || (frame.vars.labeledDefense ?? 0) > 0) return;
-  // "…if there is not already a defender" (p. 14): one an effect declared while the attack was being initiated, this
+  // "…if there is not already a defender" (p. 15): one an effect declared while the attack was being initiated, this
   // hero included, stays the defender, and the label announces no second defense.
   if ((frame.slots[DEFENDER_SLOT] ?? []).length > 0) return;
   const enemyInstanceId = frame.event.enemyInstanceId;
@@ -906,7 +1062,7 @@ export function declareDefenderByEffect(ctx: Ctx, defenderId: InstanceId, exhaus
   if (exhaust) exhaustCard(ctx, defenderId);
   // "While a player is defending, other players cannot defend against that same attack" (RRG 1.8 "Defend, Defense",
   // p. 15): no character of another player's is declared.
-  if (defenseBarFor(ctx.state, defenderPlayer) !== null) return false;
+  if (defenderBarFor(ctx.state, defenderPlayer) !== null) return false;
   // "While a hero [an ally] is defending against an attack, other friendly characters cannot defend against that
   // attack" (p. 15). #49: "once one character defends, only that character can defend the attack unless that
   // character leaves play before the attack finishes." A second declaration does not replace the defender.
@@ -982,7 +1138,7 @@ export function settleDeclaredDefenderCost(
 ): "notOwed" | "asked" | "unpaid" | SpentPayment {
   const payer = controllerOf(ctx.state, defenderId);
   const ruled = additionalPowerCostFor(ctx.state, ctx.deps, defenderId, "defend");
-  if (!ruled || payer === null || defenseBarFor(ctx.state, payer) !== null) return "notOwed";
+  if (!ruled || payer === null || defenderBarFor(ctx.state, payer) !== null) return "notOwed";
   if (!currentEnemyAttackFrame(ctx.state)) return "notOwed";
   // Already this character's defense, or another character's that the declaration cannot replace (p. 15).
   if (defendingCharacterOf(ctx.state) !== null) return "notOwed";
@@ -1048,6 +1204,7 @@ export function pushEnemyAttackFrame(
       stage: "giveBoost",
       eventFrameId,
       ...(event.noBoost ? { noBoost: true } : {}),
+      ...(event.appliedBoostCards ? { appliedBoostCards: event.appliedBoostCards } : {}),
     },
   ]);
 }
@@ -1199,8 +1356,9 @@ export function legalDefenders(
 }
 
 /**
- * `legalDefenders` less the characters of a player the attack in progress is closed to (`defenseBarFor`): once a player
- * has resolved a "(defense)"-labeled ability for it, no other player defends it. The Declare Defender step offers these.
+ * `legalDefenders` less the characters of a player the attack in progress is closed to (`defenderBarFor`): while
+ * another player is defending it (a defender of theirs, or their "(defense)" ability made their identity the defender),
+ * no other player defends it. The Declare Defender step offers these.
  */
 export const declarableDefenders = (
   state: GameState,
@@ -1209,7 +1367,7 @@ export const declarableDefenders = (
   attackerId: InstanceId | null = null,
 ): readonly InstanceId[] =>
   legalDefenders(state, attackedPlayerId, deps, attackerId).filter(
-    (id) => defenseBarFor(state, controllerOf(state, id)) === null && defenseCostPayable(state, deps, id),
+    (id) => defenderBarFor(state, controllerOf(state, id)) === null && defenseCostPayable(state, deps, id),
   );
 
 /**
@@ -1305,6 +1463,77 @@ function endedByLeavingPlay(
 }
 
 /**
+ * `EffectSpec cancelBoostedActivation`: "[star] Boost: … cancel this activation". The activation is the innermost enemy
+ * attack or scheme whose boost card in progress is `boostInstanceId` (the Boost ability's own card). Its event frame is
+ * marked cancelled the way an interrupt's `cancelTriggeringEvent` marks it (an attack also `endedEarly`, as there:
+ * FFG ruling Feb 15, 2024, Ruling 148), and put back to its `apply` stage so that, once the procedure above it has
+ * ended, it takes the same cancel path as an activation cancelled in its interrupt window (`resolve/event.ts`): "after
+ * … defends" responses and "at the end of this attack" effects still resolve (RRG 1.8 pp. 9, 16), and no "after …
+ * attacks / schemes / activates" response can trigger (RRG 1.8 "Cancel", p. 11: "Abilities dependent on the canceled
+ * effect cannot trigger"; FFG ruling, Infinity Gauntlet / Grasping Tendrils, RRG 1.0-1.4 rulings: a cancelled
+ * activation "did not resolve"). The procedure itself is told (`cancelledByBoost`) and ends after the Boost ability
+ * has finished (`endedByBoostCancel`), so the rest of that ability still resolves ("If you do, put Blackheart into
+ * play"). False, cancelling nothing, when there is no such activation or it is already cancelled.
+ */
+export function cancelBoostedActivation(ctx: Ctx, boostInstanceId: InstanceId): boolean {
+  const procedure = ctx.state.stack.find(
+    (f): f is Frame<"enemyAttack"> | Frame<"enemyScheme"> =>
+      (f.kind === "enemyAttack" || f.kind === "enemyScheme") && f.boost?.instanceId === boostInstanceId,
+  );
+  if (!procedure || procedure.stage === "done" || procedure.cancelledByBoost !== undefined) return false;
+  const eventFrameId = procedure.eventFrameId;
+  const activation = eventFrameId ? findFrame(ctx.state, eventFrameId) : undefined;
+  if (eventFrameId && activation?.kind === "event") {
+    if (activation.cancelled) return false;
+    const endsAnyway = activation.event.kind === "enemyAttack" || activation.event.kind === "enemyAttacksEnemy";
+    updateFrame(ctx, eventFrameId, (f) =>
+      f.kind === "event"
+        ? {
+            ...f,
+            cancelled: true,
+            ...(endsAnyway ? { endedEarly: true as const } : {}),
+            ...(f.stage === "responses" ? { stage: "apply" as const } : {}),
+          }
+        : f,
+    );
+  }
+  setFrame(ctx, { ...procedure, cancelledByBoost: boostInstanceId });
+  return true;
+}
+
+/**
+ * The activation was cancelled by one of its boost cards' "Boost" ability (`cancelBoostedActivation`), which has now
+ * resolved: the procedure ends here. No further boost card is turned faceup and no icons are counted, so no damage is
+ * dealt and no threat placed. The cancelling card (unless its ability moved it) and the boost cards still facedown on
+ * the enemy are discarded, each to its own discard pile: they were given for this activation (RRG 1.8 "Boost, Boost
+ * Icon", p. 11, "After applying a boost card to an activation, discard it"), and nothing in the RRG keeps one for a
+ * later activation. Engine interpretation (RRG 1.8 is silent on boost cards left when an activation is cancelled
+ * mid-flip); the alternative reading, leaving them facedown on the enemy like cards "dealt … outside of its own
+ * activation", was not taken (rules-expert reading, 2026-11-12). The cancelling card's own later steps (its icons being
+ * counted, its being applied and resolved) are skipped too: they are steps of the cancelled activation (RRG 1.8
+ * "Cancel" p. 11; "Activation" p. 6, "no further steps of that activation resolve"). Responses to its being turned
+ * faceup already resolved at step 3.a, before its Boost ability (FFG ruling, Sept 2024 part 2, Ruling 173).
+ */
+function endedByBoostCancel(
+  ctx: Ctx,
+  frame: Frame<"enemyAttack"> | Frame<"enemyScheme">,
+  activation: "attack" | "scheme",
+): boolean {
+  if (frame.stage === "done" || frame.cancelledByBoost === undefined) return false;
+  const discarded = [...(getInstance(ctx.state, frame.enemyInstanceId)?.boostCards ?? [])];
+  for (const id of discarded) moveCard(ctx, id, discardZoneFor(ctx.state, id), "top");
+  emit(ctx, {
+    type: "activationCancelled",
+    enemyInstanceId: frame.enemyInstanceId,
+    activation,
+    byInstanceId: frame.cancelledByBoost,
+    discardedBoostCards: discarded,
+  });
+  setFrame(ctx, { ...frame, stage: "done", boost: null });
+  return true;
+}
+
+/**
  * RRG 1.8 "Attack (Enemy Activation)" step 5 (p. 9): "If the defending ally leaves play prior to damage from the
  * attack being dealt, the attack is considered to have no character defending and the identity of that ally's
  * controller becomes the target of the attack." "Defend, Defense" (p. 16): "if a defending ally is defeated before
@@ -1361,21 +1590,22 @@ function defenderLeftPlay(ctx: Ctx, frame: Frame<"enemyAttack">): Frame<"enemyAt
 
 /**
  * Who answers the Declare Defender step. Normally the attacked player (the co-op table convention in
- * `legalDefenders`). But once a player is defending the attack, or has resolved a "(defense)"-labeled ability for it,
- * only that player's characters can still defend it (RRG 1.8 "Defend, Defense", p. 15: "While a player is defending,
- * other players cannot defend against that same attack"; "Once a player resolves a defense-labeled ability during an
- * enemy attack, other players cannot resolve defense-labeled abilities"), and step 2 is "If a player wishes to defend,
- * that player exhausts a hero or ally" (p. 8): so that player decides, not the attacked player. This covers a
- * "(defense)" interrupt that redirected an attack aimed at another player (p. 15: "the defending player becomes the
- * new target of that attack"), where the original target has nothing left to declare.
+ * `legalDefenders`). But once a player is defending the attack, only that player's characters can still defend it
+ * (RRG 1.8 "Defend, Defense", p. 15: "While a player is defending, other players cannot defend against that same
+ * attack"), and step 2 is "If a player wishes to defend, that player exhausts a hero or ally" (p. 8): so that player
+ * decides, not the attacked player. This covers a "(defense)" interrupt that redirected an attack aimed at another
+ * player (p. 16: "the defending player becomes the new target of that attack"), where the original target has nothing
+ * left to declare. A player who resolved a "(defense)" ability without becoming the defender (their identity "cannot
+ * defend", Taunt) is not defending, so the attacked player still decides (`defenderBarFor`; by analogy with FFG
+ * ruling Aug 10, 2023 #60, the Taunt player's own Mutant Protectors: "the defender would still be you").
  */
 function defenseDecider(state: GameState, frame: Frame<"enemyAttack">): PlayerId {
-  const claim = defenseClaimOf(state);
-  return claim?.defendingPlayerId ?? claim?.labeledPlayerId ?? frame.attackedPlayerId;
+  return defenseClaimOf(state)?.defendingPlayerId ?? frame.attackedPlayerId;
 }
 
 export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): void {
   if (endedByLeavingPlay(ctx, frame, "attack")) return;
+  if (endedByBoostCancel(ctx, frame, "attack")) return;
   switch (frame.stage) {
     case "giveBoost":
       return giveBoostStep(ctx, frame, frame.versusEnemy ? "flipBoosts" : "declareDefender", "attack");
@@ -1454,7 +1684,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       );
       // "Must defend with an ally they control, if able" (Melter): only the engaged player's ready allies, no declining.
       // Engine reading, untested: after a "(defense)" redirect this still reads the originally attacked player.
-      const forcedAllies = mustDefendWithAlly(ctx.state, ctx.deps, frame.enemyInstanceId)
+      const forcedAllies = mustDefendWithAlly(ctx.state, ctx.deps, frame.enemyInstanceId, frame.attackedPlayerId)
         ? all.filter((id) => isAlly(ctx.state, id) && controllerOf(ctx.state, id) === frame.attackedPlayerId)
         : [];
       const defenders = existing ? all.filter((id) => id === existing) : forcedAllies.length > 0 ? forcedAllies : all;
@@ -1490,6 +1720,7 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       return;
     }
     case "flipBoosts": {
+      if (defenderBoostOrder(ctx, frame)) return;
       // RRG "Attack (Enemy Activation)" step 3: one boost card at a time, in the order dealt.
       // A boost card's "you" is the defending player (RRG 1.8 "Defend, Defense", p. 16: "Any constant or boost abilities
       // that refer to 'you' refer to the defending player"; owner ruling 2026-10-09, docs/phase7-wave8.md §4.1 row
@@ -1554,7 +1785,21 @@ export function executeEnemyAttackFrame(ctx: Ctx, frame: Frame<"enemyAttack">): 
       // "His total ATK for that attack" (docs/phase7-wave8.md §3.81): the enemy's ATK as this attack reads it, "+N ATK
       // for this attack" and the boost icons counted included, before any defense (RRG 1.8 "Attack (Enemy Activation)"
       // step 4, p. 9). The attack event's result `totalAtk`; `damage` is what the attack then dealt.
-      addFrameVars(ctx, frame.eventFrameId, { [TOTAL_ATK_RESULT]: planned.baseAtk + frame.boostIcons });
+      const totalAtk = planned.baseAtk + frame.boostIcons;
+      addFrameVars(ctx, frame.eventFrameId, { [TOTAL_ATK_RESULT]: totalAtk });
+      // "Your DEF for that attack" and "after you exactly defend an attack" (`DEFENDER_DEF_RESULT`,
+      // `EXACTLY_DEFENDED_RESULT`): a hero's basic defense only, the defense whose DEF this step subtracts.
+      const defender = frame.defenderInstanceId;
+      if (
+        frame.basicDefense &&
+        defender !== null &&
+        ctx.state.players.some((p) => p.identity.instanceId === defender)
+      ) {
+        addFrameVars(ctx, frame.eventFrameId, {
+          [DEFENDER_DEF_RESULT]: planned.defenseReduction,
+          ...(planned.defenseReduction === totalAtk ? { [EXACTLY_DEFENDED_RESULT]: 1 } : {}),
+        });
+      }
       const vars = activationVars(ctx, frame.eventFrameId);
       addFrameSlots(ctx, frame.eventFrameId, { target: [frame.targetInstanceId] });
       // "Damage from that attack is dealt to the chosen enemy instead of you" (`modifyAttack.damageTo`, Psychic
@@ -1794,12 +2039,14 @@ export function pushEnemySchemeFrame(
       stage: "giveBoost",
       eventFrameId,
       ...(event.noBoost ? { noBoost: true } : {}),
+      ...(event.appliedBoostCards ? { appliedBoostCards: event.appliedBoostCards } : {}),
     },
   ]);
 }
 
 export function executeEnemySchemeFrame(ctx: Ctx, frame: Frame<"enemyScheme">): void {
   if (endedByLeavingPlay(ctx, frame, "scheme")) return;
+  if (endedByBoostCancel(ctx, frame, "scheme")) return;
   switch (frame.stage) {
     case "giveBoost":
       return giveBoostStep(ctx, frame, "flipBoosts", "scheme");

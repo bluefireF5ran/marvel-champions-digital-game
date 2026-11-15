@@ -1,6 +1,6 @@
 import type { EngineDeps } from "./abilities.js";
 import type { InstanceId, PlayerId } from "./ids.js";
-import { cardOf, mainSchemeStageMatches, mainSchemeStateOf } from "./query.js";
+import { cardOf, identityFace, isMinion, mainSchemeStageMatches, mainSchemeStateOf } from "./query.js";
 import { grantedIcons, iconLossTest, printedAmplifyOn } from "./rules.js";
 import {
   activeRules,
@@ -16,6 +16,7 @@ import {
   resolveValue,
   type EffectContext,
   reachOf,
+  ruleKindMayApply,
 } from "./select.js";
 import type { SchemeValueName, StatName } from "./spec.js";
 import type { GameState } from "./state.js";
@@ -44,6 +45,40 @@ export interface ActiveModifier {
   readonly origin: "attachment" | "constant" | "lasting" | "rule";
   /** Replaces the printed base value instead of adding to it ("has a base ATK of 1"). */
   readonly setBase?: boolean;
+}
+
+/**
+ * An identity's printed stat box for a stat its showing face does not have: an alter-ego has no ATK, THW or DEF, a
+ * hero no REC, and neither has SCH. RRG v1.8 "Attachment" (p. 8): "If an attachment modifies a value the attached
+ * character does not have, that modifier is ignored" (an alter-ego given "+1 ATK" does not get 1 ATK), and a
+ * "SCH/THW" box modifies THW only on a hero or ally. The attachment stays on through a flip ("Form", p. 20), and its
+ * boxes count again on the hero side. Agrees: FFG ruling April 8, 2025 (Warrior of the Great Web).
+ */
+function identityFormLacks(state: GameState, targetId: InstanceId, stat: string): boolean {
+  const player = state.players.find((p) => p.identity.instanceId === targetId);
+  if (!player) return false;
+  const has = identityFace(state, player).form === "hero" ? ["atk", "thw", "def", "hp"] : ["rec", "hp"];
+  return !has.includes(stat);
+}
+/**
+ * A combined "SCH/THW" box (the card data emits it as both `sch` and `thw`: Power Stone, Motorcycle) "modifies the
+ * attached character's SCH if that character is a villain or minion, and modifies the attached character's THW if
+ * that character is a hero or ally" (RRG v1.8 "Attachment", p. 8). The half that does not fit the host is dropped
+ * here, so an ally treated as a minion whose SCH is read from its THW (Malice, docs/phase7-wave7.md §3.44) gets the
+ * box once, as SCH, not once through its THW and again as SCH.
+ */
+function combinedBoxMisses(
+  state: GameState,
+  targetId: InstanceId,
+  stat: string,
+  box: { readonly sch?: number; readonly thw?: number },
+): boolean {
+  if ((stat !== "sch" && stat !== "thw") || box.sch === undefined || box.thw === undefined) return false;
+  // `isMinion` counts a facedown Drone made from any card and a character treated as a minion (RRG 1.8 "Facedown").
+  const enemy =
+    isMinion(state, targetId) ||
+    (state.instances[targetId]?.treatedAs?.kind !== "ally" && cardOf(state, targetId)?.type === "villain");
+  return stat === (enemy ? "thw" : "sch");
 }
 
 /**
@@ -89,6 +124,7 @@ export function modifiersFor(
       card.statModifiers;
     if (!showing) continue;
     for (const [s, amount] of Object.entries(showing)) {
+      if (identityFormLacks(state, targetId, s) || combinedBoxMisses(state, targetId, s, showing)) continue;
       if (typeof amount === "number" && amount !== 0 && wanted(s as ModifiedStat)) {
         found.push({ sourceInstanceId: attachmentId, stat: s as ModifiedStat, amount, origin: "attachment" });
       }
@@ -231,6 +267,45 @@ export function cardEffectBonus(
     }
   }
   return total;
+}
+
+/**
+ * The product of every `multiplyStat` factor on this character's `stat` ("Double the THW value of your identity"), 1
+ * when none applies. RRG 1.8 "Modifiers" (p. 29): applied after the base and every additive modifier
+ * (`withMultipliers`).
+ */
+export function statMultiplier(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+  stat: "atk" | "thw" | "def" | "rec" | "sch" | "hp",
+): number {
+  if (!ruleKindMayApply(state, deps, "multiplyStat")) return 1;
+  let factor = 1;
+  // Filtered by stat before any `while` is read, so a doubling of ATK "while" some THW condition never re-enters THW.
+  for (const { rule, context } of activeRules(state, deps, "multiplyStat", (r) => r.stat === stat)) {
+    const reading = { ...context, bindings: { ...context.bindings, [AFFECTED_SLOT]: [targetId] } };
+    if (matchesQuery(state, targetId, rule.target, reading)) factor *= rule.factor;
+  }
+  return factor;
+}
+
+/**
+ * A stat's base plus its additive modifiers (`summed`), with its doubling/halving applied after them, rounded up and
+ * floored at 0: RRG 1.8 "Modifiers" (p. 29), "all additive and subtractive modifiers are calculated before doubling
+ * and/or halving modifiers", "fractional values are rounded up after all modifiers have been applied", and a value
+ * below zero is treated as zero. The sum is floored at 0 first, so a doubled negative stays 0.
+ */
+export function withMultipliers(
+  state: GameState,
+  deps: EngineDeps,
+  targetId: InstanceId,
+  stat: "atk" | "thw" | "def" | "rec" | "sch" | "hp",
+  summed: number,
+): number {
+  const floored = Math.max(0, summed);
+  const factor = statMultiplier(state, deps, targetId, stat);
+  return factor === 1 ? floored : Math.max(0, Math.ceil(floored * factor));
 }
 
 /** The base value set by a "has a base X of N" ability, if any (the last one in play order wins). */

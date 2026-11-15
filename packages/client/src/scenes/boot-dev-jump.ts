@@ -306,6 +306,12 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
   }
   // `?screen=credits`: Art & Credits.
   if (screen === "credits") return { key: SCENES.credits, data: {} };
+  // `?screen=mod-store&catalog=/packs/fixture.json&pack=fan-x`: the Mod Store, optionally on another catalog and open on a pack.
+  if (screen === "mod-store") {
+    const catalogUrl = params.get("catalog");
+    const packId = params.get("pack");
+    return { key: SCENES.modStore, data: { ...(catalogUrl ? { catalogUrl } : {}), ...(packId ? { packId } : {}) } };
+  }
   // `?screen=extras-reader&book=book:rrg`: one rulebook in the Extras reader.
   if (screen === "extras-reader")
     return { key: SCENES.extrasReader, data: { bookId: params.get("book") ?? "book:rrg" } };
@@ -373,6 +379,36 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     const { startDevHorsemenGame } = await import("../store/dev-mission-game.js");
     await startDevHorsemenGame();
     return { key: SCENES.board, data: {} };
+  }
+
+  // `?screen=replay[&commands=N][&at=N][&other=1]` (issue #693): plays a short real game in the page, opens it as a replay and
+  // shows it on the Board with the transport over it (`store/dev-replay-game.ts`). `at` starts it at that position.
+  if (screen === "replay") {
+    const [{ openDevReplay }, { enterReplay }] = await Promise.all([
+      import("../store/dev-replay-game.js"),
+      import("../replay/replay-mode.js"),
+    ]);
+    const host = await openDevReplay(intParam(params.get("commands"), 120), {
+      otherBuild: params.get("other") === "1",
+    });
+    const at = intParam(params.get("at"), 0);
+    if (at > 0) await host.seek(at);
+    await enterReplay(host);
+    return { key: SCENES.board, data: {} };
+  }
+
+  // `?screen=gameover`: a fresh Rhino game conceded at once, on Game over (its "Watch replay" action, issue #693).
+  if (screen === "gameover") {
+    const { store } = appSession();
+    await store.start({
+      scenarioId: "rhino",
+      difficulty: "standard",
+      players: [{ starterDeckId: "core-spider-man-justice" }],
+      seed: 2026,
+    });
+    const game = store.state.game;
+    if (game) await store.dispatch({ type: "concede", playerId: game.firstPlayerId });
+    return { key: SCENES.gameOver, data: {} };
   }
 
   // `&fixture=drones[&seats=N]`: a two-seat Ultron game at the first turn (up to four with `seats`), each seat with its own
@@ -883,6 +919,8 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
   // Briefing. Dev builds only.
   if (screen === "campaign-briefing" && import.meta.env.DEV) {
     const fixtures = await import("../campaign/dev-fixtures.js");
+    // A pack's campaign (`<pack-id>-<name>`) needs its installed pack loaded before a run can be signed.
+    await (await import("../packs/active-packs.js")).refreshActivePacks();
     const record = await fixtures.seedFreshRun(campaignService(), params.get("campaign") ?? "trors");
     return { key: SCENES.campaignBriefing, data: { runId: record.id } };
   }

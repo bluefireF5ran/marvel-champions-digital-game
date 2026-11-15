@@ -1,5 +1,5 @@
 {
-  "$comment": "Media bundles on the content repo's releases (issue #495). pnpm assets:fetch installs them; pnpm assets:pack <bundle> uploads a changed one and rewrites its tag, file, size and sha256. Card-art prefixes are the pack numbers that start a card code. CONTRIBUTING.md#media-assets.",
+  "$comment": "Media bundles on the content repo's releases (issue #495). pnpm assets:fetch installs them; pnpm assets:pack <bundle> uploads a changed one and rewrites its tag, file, size and sha256. Card-art prefixes are the pack numbers that start a card code. pack-art bundles (optional: fetched only by name or group, pnpm assets:fetch pack-art) hold a community content pack's pictures, the media files under its folder; the publish-packs workflow builds the packs with them. CONTRIBUTING.md#media-assets.",
   "repo": "quincarter/marvel-champions-content",
   "bundles": [
     {
@@ -18,10 +18,10 @@
       "group": "card-art",
       "dir": "assets/card-art/bundles/cards",
       "prefixes": ["02", "03", "05", "06", "07", "08", "09", "10"],
-      "tag": "card-art-wave1-1b82c67e562b",
+      "tag": "card-art-wave1-6a2ba125e41c",
       "file": "card-art-wave1.zip",
-      "size": 20101178,
-      "sha256": "1b82c67e562b6c381620f139d16e838375944458f8d3eebc0cef0e4129910de8",
+      "size": 21566596,
+      "sha256": "6a2ba125e41cfff58126dc63502e4dae0a833f0b18558bdc4cbc7de9b3270ff1",
       "files": 303
     },
     {
@@ -51,10 +51,10 @@
       "group": "card-art",
       "dir": "assets/card-art/bundles/cards",
       "prefixes": ["21", "22", "23", "24", "25", "26"],
-      "tag": "card-art-mts-f5f7223f53b2",
+      "tag": "card-art-mts-20bc520d129c",
       "file": "card-art-mts.zip",
-      "size": 26307234,
-      "sha256": "f5f7223f53b23f27ada8e1c8814707f31c8c0e2b4c2591930c4e89772c3736aa",
+      "size": 26319254,
+      "sha256": "20bc520d129ccd1acd65d1fc366d2590aaab16ff5a43d1c01821870e5ae47c60",
       "files": 399
     },
     {
@@ -128,11 +128,11 @@
       "group": "card-art",
       "dir": "assets/card-art/bundles/cards",
       "prefixes": ["60", "61", "62", "63", "64", "65"],
-      "tag": "card-art-fne-19c7442939c7",
+      "tag": "card-art-fne-5111cac5d060",
       "file": "card-art-fne.zip",
-      "size": 35310092,
-      "sha256": "19c7442939c76477e96a927f117dd125e099dacb081346fb7ae4a7fd6fa52f85",
-      "files": 466
+      "size": 38050878,
+      "sha256": "5111cac5d0600bc2fd1d317e415ff7bc5e8784dc13c1ff6687de1dee678d7cc2",
+      "files": 527
     },
     {
       "name": "card-art-promo",
@@ -259,11 +259,11 @@
       "name": "art-heroes",
       "group": "art",
       "dir": "art/heroes",
-      "tag": "art-heroes-487834176cd9",
+      "tag": "art-heroes-3611bd43b155",
       "file": "art-heroes.zip",
-      "size": 22276114,
-      "sha256": "487834176cd93a1df7a791221e9eeb25112e21558d697269271bd0fbd09ebcd3",
-      "files": 69
+      "size": 22428592,
+      "sha256": "3611bd43b155ba66c9351a285e737f692bd42788799150930ef4dc4f5c7e2314",
+      "files": 71
     },
     {
       "name": "art-outcomes",
@@ -309,11 +309,11 @@
       "name": "art-teamups",
       "group": "art",
       "dir": "art/teamups",
-      "tag": "art-teamups-de652db2ada6",
+      "tag": "art-teamups-eea3fc890538",
       "file": "art-teamups.zip",
-      "size": 9968292,
-      "sha256": "de652db2ada6b8b3e60e9d6a87a60ec7c412e0eef7d4250c59e48822494f1b58",
-      "files": 40
+      "size": 10045366,
+      "sha256": "eea3fc8905388e8c7b8b53ee704453f41a414b0539b557edbdb1acb484b73176",
+      "files": 41
     },
     {
       "name": "art-title",
@@ -334,6 +334,105 @@
       "size": 2081069,
       "sha256": "08d0d8fd26c6e8942e090ab1dafbf2156e89b96119320461bcc0d9d94b46e73d",
       "files": 6
+    },
+    {
+      "name": "pack-art-carnage-nep",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/carnage-nep",
+      "tag": "pack-art-carnage-nep-e189046817c9",
+      "file": "pack-art-carnage-nep.zip",
+      "size": 7812252,
+      "sha256": "e189046817c988ce065f77dd153b6ea6cdbe9075c64187c92324b6b267c28624",
+      "files": 71
+    },
+    {
+      "name": "pack-art-gwenpool-ptt",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/gwenpool-ptt",
+      "tag": "pack-art-gwenpool-ptt-5dc9a0a1b4ca",
+      "file": "pack-art-gwenpool-ptt.zip",
+      "size": 3536514,
+      "sha256": "5dc9a0a1b4ca9695f36a4350268f36102404edc4980141cd41f2e9837cc625d8",
+      "files": 33
+    },
+    {
+      "name": "pack-art-night-thrasher-dh",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/night-thrasher-dh",
+      "tag": "pack-art-night-thrasher-dh-d3ccfaa82458",
+      "file": "pack-art-night-thrasher-dh.zip",
+      "size": 4034820,
+      "sha256": "d3ccfaa82458677546f64d47c2cb2426f101b10e5d7de037d3848343e42e15bb",
+      "files": 39
+    },
+    {
+      "name": "pack-art-mephisto-nep",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/mephisto-nep",
+      "tag": "pack-art-mephisto-nep-1e1bb51c2834",
+      "file": "pack-art-mephisto-nep.zip",
+      "size": 13703176,
+      "sha256": "1e1bb51c283407006b9be49ab51439698d1ed5d116d9aef5827c1bd1036df92c",
+      "files": 121
+    },
+    {
+      "name": "pack-art-punisher-pk",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/punisher-pk",
+      "tag": "pack-art-punisher-pk-5f6a925e79bf",
+      "file": "pack-art-punisher-pk.zip",
+      "size": 4317612,
+      "sha256": "5f6a925e79bf1141ddc5d5b55e0fcdbc5e3ba915e1a6fa8b6cf2d7f0400a72c0",
+      "files": 45
+    },
+    {
+      "name": "pack-art-yondu-dh",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/yondu-dh",
+      "tag": "pack-art-yondu-dh-a6951ce68532",
+      "file": "pack-art-yondu-dh.zip",
+      "size": 4968288,
+      "sha256": "a6951ce68532f9aecc0cb4f33de69deb1ce77e9b80fdc34a1f0c4c6e0d57035f",
+      "files": 39
+    },
+    {
+      "name": "pack-art-throg-ptt",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/throg-ptt",
+      "tag": "pack-art-throg-ptt-b7350cb71d87",
+      "file": "pack-art-throg-ptt.zip",
+      "size": 2986674,
+      "sha256": "b7350cb71d87d1b2a350608d30c3cd1cded5c44bc23a772da7a14504f44ff530",
+      "files": 31
+    },
+    {
+      "name": "pack-art-lost-traits-bf",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/lost-traits-bf",
+      "tag": "pack-art-lost-traits-bf-8250d02d8b05",
+      "file": "pack-art-lost-traits-bf.zip",
+      "size": 3428292,
+      "sha256": "8250d02d8b05efbbdb568908a0e567d75b83294a087a69424175b23566fb601e",
+      "files": 27
+    },
+    {
+      "name": "pack-art-gmw-fixes-gg",
+      "group": "pack-art",
+      "optional": true,
+      "dir": "content-packs/community/gmw-fixes-gg",
+      "tag": "pack-art-gmw-fixes-gg-dddd36ac6889",
+      "file": "pack-art-gmw-fixes-gg.zip",
+      "size": 2562590,
+      "sha256": "dddd36ac6889b68d2206a9e0d0d8c246bbd0be5fb81aa3446879828722f854db",
+      "files": 23
     },
     {
       "name": "artifacts",

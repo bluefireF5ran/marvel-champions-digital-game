@@ -9,6 +9,7 @@ import type {
   SideSchemeCard,
 } from "../../../src/schema/index.ts";
 import { brand } from "./brand.ts";
+import { hasLinkedKeyword } from "./encounter-sets.ts";
 import {
   checkNoSchemeFields,
   expectNoAttach,
@@ -55,11 +56,15 @@ export function normalizeEncounterCard(
     // A hero-kit obligation belongs to a hero kit, not an encounter set; it reaches the encounter deck through
     // HeroIdentityCard.obligationCardId. A campaign-specific obligation has no hero kit and belongs to its own
     // (campaign-specific) encounter set instead, like any other encounter card.
+    // Elektra (docs/phase7-elektra-iron-fist.md): the same holds for a Linked card filed under the hero's own set
+    // (Backstab, Misdirect and Sabotage, "Linked (Double-Cross)"), which only its linking card shuffles in; any other
+    // encounter card under a hero set stays in its set.
     // Wave 6 fix: only a hero-kit obligation (its set code is some hero's identity set) is empty. A scenario or
     // modular set's own obligation (Project Wideawake's Warn the Others 32099, Mojo Mania's sitcom set) is an
     // ordinary member of its encounter set, so the encounter deck builder can shuffle it in.
     encounterSetIds:
-      separateDeck || (r.type_code === "obligation" && !isCampaignCard && ctx.heroBySet.has(set))
+      separateDeck ||
+      (!isCampaignCard && ctx.heroBySet.has(set) && (r.type_code === "obligation" || hasLinkedKeyword(r)))
         ? []
         : [brand("encounterSet", set)],
     ...(separateDeck ? { separateDeck: separateDeck.deckName } : {}),
@@ -163,7 +168,7 @@ export function normalizeEncounterCard(
       // Curated only (`Correction.hostChosenBy`): the chooser picks among the data hosts, so a card with none has no use
       // for one.
       if (p.hostChosenBy && !attachesTo) errors.push(`${r.code}: hostChosenBy on an attachment with no data host`);
-      const mods = attachmentStatModifiers(ctx, r.code, p, r.scheme);
+      const mods = attachmentStatModifiers(ctx, r.code, p, r.scheme, r.thwart);
       const flipMods = attachmentFlipStatModifiers(ctx, mods, r.linked_card, flipParts[0]);
       const attachment: AttachmentCard = {
         ...common,
@@ -277,6 +282,7 @@ function attachmentStatModifiers(
   code: string,
   p: Prepared,
   rawScheme: number | null | undefined,
+  rawThwart: number | null | undefined,
 ): PrintedStatModifiers {
   const mods: { -readonly [K in keyof PrintedStatModifiers]: number } = {};
   // MarvelCDB's -1 is its printed-X encoding (the same sentinel the minion branch above reads), but
@@ -293,13 +299,21 @@ function attachmentStatModifiers(
     mods.atk = p.attack;
   }
   // MarvelCDB has no THW field for an attachment and files a printed "-1 THW" badge under `scheme` (Psychic
-  // Inertia, `next_evol` 40173, which attaches to an identity). `Correction.thwart` emits it as THW instead.
-  if (p.thwart !== undefined) mods.thw = p.thwart;
-  // A SCH badge of -1 beside an X ATK badge is the same printed X (Reverse Engineering, `aos` 50119, "+X SCH" and
-  // "+X ATK"), omitted like the ATK one; a card whose ATK is a real number keeps its SCH as sent.
-  else if (rawScheme === -1 && printedX && ctx.curation.cardNotes[code]) {
-    // printed X: no flat number
-  } else if (rawScheme !== null && rawScheme !== undefined) mods.sch = rawScheme;
+  // Inertia, `next_evol` 40173, which attaches to an identity). `Correction.thwart` emits it as THW instead, and then
+  // raw's `scheme` is that THW badge, not a SCH one. A record this repo writes itself (Pull of Power, `shadowland`
+  // 65065, "+2 THW") carries `thwart` directly.
+  const thwart = p.thwart ?? rawThwart;
+  if (thwart !== null && thwart !== undefined) mods.thw = thwart;
+  // A combined "SCH/THW" badge modifies a villain's or minion's SCH and a hero's or ally's THW (RRG v1.8
+  // "Attachment", p. 8), so it is emitted as both (Power Stone, `gmw` 16149; MarvelCDB sends neither, so
+  // `Correction.scheme` with `Correction.thwart` supplies them).
+  if (p.scheme !== undefined) mods.sch = p.scheme;
+  else if (p.thwart === undefined) {
+    // A SCH badge of -1 beside an X ATK badge is the same printed X (Reverse Engineering, `aos` 50119, "+X SCH" and
+    // "+X ATK"), omitted like the ATK one; a card whose ATK is a real number keeps its SCH as sent.
+    const schemeIsX = rawScheme === -1 && printedX && ctx.curation.cardNotes[code];
+    if (!schemeIsX && rawScheme !== null && rawScheme !== undefined) mods.sch = rawScheme;
+  }
   return mods;
 }
 
@@ -315,7 +329,7 @@ function attachmentFlipStatModifiers(
   pBack: Prepared | undefined,
 ): PrintedStatModifiers | undefined {
   if (!back || !pBack) return undefined;
-  const mods = attachmentStatModifiers(ctx, back.code, pBack, back.scheme);
+  const mods = attachmentStatModifiers(ctx, back.code, pBack, back.scheme, back.thwart);
   const keys = new Set([...Object.keys(front), ...Object.keys(mods)]) as Set<keyof PrintedStatModifiers>;
   return [...keys].every((k) => (front[k] ?? 0) === (mods[k] ?? 0)) ? undefined : mods;
 }

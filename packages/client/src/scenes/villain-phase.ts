@@ -131,7 +131,7 @@ import { cardOf, type GameState, type InstanceId, type PlayerId } from "@mc/engi
 import { artFor, CARD_BACKS } from "../art/art-source.js";
 import { drawFlipCard } from "../ui/flip-card.js";
 import { cardArt, drawArt } from "../art/card-art.js";
-import { POOL_DEPS } from "../content/pool.js";
+import { gameDeps } from "../content/game-deps.js";
 import { accent, border, hit, ink, signal, surface, typeRole } from "../tokens.js";
 import { bindHoldTarget } from "../ui/hold-target.js";
 import { textStyle } from "../ui/theme.js";
@@ -215,6 +215,7 @@ import {
 } from "../view/villain-walkthrough.js";
 import { villainDefendFocusOrder, villainPhaseFocusOrder, villainRailFocusOrder } from "../view/screen-focus.js";
 import { appSession } from "../session.js";
+import { activeReplay } from "../replay/replay-mode.js";
 import type { SessionState } from "../store/session-store.js";
 import { openPauseOverBoard } from "./extra-input.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
@@ -312,6 +313,13 @@ const DOCK_GROW_GRACE_MS = 600;
 
 /** Below this height the inline interrupt panel lays out sideways (`#drawInterrupt`). */
 const INTERRUPT_SHORT_PANEL = 300;
+
+/** The same state with no open decision, for a walkthrough that is only watching. */
+function withoutDecision(state: SessionState): SessionState {
+  const game = state.game;
+  if (!game?.pendingChoice) return state;
+  return { ...state, game: { ...game, pendingChoice: null } };
+}
 
 export class VillainPhaseOverlay extends Phaser.Scene {
   #walkthrough: Walkthrough = emptyWalkthrough(1);
@@ -498,7 +506,9 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     const { store } = appSession();
     // Before the subscribe, which runs the first draw (or closes at once, drawing nothing): the last run's cards go.
     resetHoverCards(this);
-    this.#unsubscribe = store.subscribe((state) => this.#onState(state));
+    // A replay answers no decision: the walkthrough narrates the phase straight through, and the table behind it
+    // shows the choice that was pending (the replay's next command is its answer).
+    this.#unsubscribe = store.subscribe((state) => this.#onState(activeReplay() ? withoutDecision(state) : state));
     const onResize = (): void => this.#draw();
     // A boost card's scan is requested lazily and may not have arrived on the
     // first draw; without this the panel stays blank until something else
@@ -531,6 +541,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         const overlays = Object.values(SCENES).filter(
           (key) =>
             key !== SCENES.board &&
+            key !== SCENES.replayTransport &&
             key !== SCENES.music &&
             !CHROME_SCENES.has(key) &&
             key !== SCENES.villainPhase &&
@@ -555,7 +566,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
           return hoverCardHitsOf(this).map((hit) => ({
             ...hit,
             hidden:
-              !game || perspectiveId === null || inspectModel(game, hit.id, null, perspectiveId, POOL_DEPS).hidden,
+              !game || perspectiveId === null || inspectModel(game, hit.id, null, perspectiveId, gameDeps()).hidden,
           }));
         },
         shown: () => this.#hover?.shownKey ?? null,
@@ -601,6 +612,26 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         delete (window as unknown as { __mcVillainHoverDebug?: unknown }).__mcVillainHoverDebug;
       }
     });
+  }
+
+  /**
+   * What happens when the phase has been shown: the player's setting, except in a replay, which plays on by itself
+   * ("on": the last beat gets one beat interval and the screen closes), so autoplay never waits for a Start player phase.
+   */
+  #autoAdvance(): "off" | "afterPause" | "on" {
+    return activeReplay() ? "on" : appSession().settings.villainAutoAdvance;
+  }
+
+  /**
+   * Whether autoplay of a replay must wait: the beats are still being shown, or the phase is shown and about to close
+   * itself. A phase paused on a decision with every beat so far shown does not hold it: the replay's next command is the
+   * answer. Under reduced motion nothing closes on a timer, so a finished phase does not hold it either.
+   */
+  replayHolds(): boolean {
+    if (this.#motion.leaving) return true;
+    if (this.#review) return false;
+    if (this.#revealed < totalBeatsOf(this.#walkthrough)) return true;
+    return this.#walkthrough.complete && !appSession().settings.reducedMotion;
   }
 
   /** A reopened, finished phase (the Board's drawer handle), as opposed to the live replay. */
@@ -694,7 +725,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     const offered = choice ? (inlineInterruptFor(choice, viewer) ?? []) : [];
     // The cards the player drew as their turn ended read "New · …" for the whole phase.
     const fresh = new Set(viewer ? (this.#endOfTurn?.bySeat.get(viewer) ?? []) : []);
-    return villainHandTagsOf(game, viewer, POOL_DEPS, new Set(offered.map((option) => option.instanceId)), fresh);
+    return villainHandTagsOf(game, viewer, gameDeps(), new Set(offered.map((option) => option.instanceId)), fresh);
   }
 
   /** "You drew 3 cards: …", from the draws that ended the player phase; empty when nobody drew. */
@@ -816,7 +847,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         state.lastEvents,
         state.game,
         state.perspectiveId,
-        POOL_DEPS,
+        gameDeps(),
         state.lastStates,
       );
       const after = totalBeatsOf(this.#walkthrough);
@@ -883,7 +914,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     if (this.#waitingToStart() || !this.#decisionDue() || this.#guideActive()) return;
     const game = this.#latest?.game;
     if (!game) return;
-    const only = soleAnswerOf(game, choice, POOL_DEPS);
+    const only = soleAnswerOf(game, choice, gameDeps());
     if (only === null) return;
     this.#soleAnswered.add(choice.choiceId);
     this.#resolve([only]);
@@ -1023,7 +1054,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
   #gateEligible(): boolean {
     if (this.#review) return false;
     const settings = appSession().settings;
-    if (settings.villainAutoAdvance !== "off") return false;
+    if (this.#autoAdvance() !== "off") return false;
     const { width, height } = this.scale.gameSize;
     const formFactor = formFactorFor(width, height);
     // A lesson narrates the sheet's own options (its GUIDE PICK stamp and spotlight), so it keeps the sheet on top.
@@ -1146,7 +1177,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         activation: activation ? activationHeadline(activation, game, choice.playerId) : null,
         subject: subject ? cardName(game, subject) : null,
       }),
-      text: decisionNoticeOf(game, choice, viewer, POOL_DEPS),
+      text: decisionNoticeOf(game, choice, viewer, gameDeps()),
       cardInstanceId: subject,
       onPress: () => (peekedAt !== null ? this.#setPeeking(false) : this.#answer(id)),
     };
@@ -1258,7 +1289,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
      * would give the player who asked for less motion the *least* time to read it. The only ways out are the ones
      * the player drives: Start player phase, Hide (Skip), or Esc.
      */
-    const mode = appSession().settings.villainAutoAdvance;
+    const mode = this.#autoAdvance();
     const delay =
       mode === "on"
         ? villainBeatIntervalMs(appSession().settings.villainBeatSpeed)
@@ -1281,7 +1312,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
    */
   #heldCard(revealed = this.#revealed): string | null {
     const settings = appSession().settings;
-    if (!settings.holdEncounterCards || this.#shownPause()) return null;
+    if (!settings.holdEncounterCards || this.#shownPause() || activeReplay()) return null;
     if (this.#flipGate(revealed) !== null || this.#flipTurning() !== null) return null;
     // The first catch-up of a phase runs before its first draw, while `#presentation` is still create's "full".
     const shape = this.#shaped ? this.#presentation : this.#dockedShape();
@@ -1314,7 +1345,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
    */
   #flipGate(revealed = this.#revealed): string | null {
     const settings = appSession().settings;
-    if (!settings.flipEncounterCards || this.#review) return null;
+    if (!settings.flipEncounterCards || this.#review || activeReplay()) return null;
     if (this.#shownPause() || this.#waitingToStart()) return null;
     const total = totalBeatsOf(this.#walkthrough);
     if (this.#walkthrough.complete && revealed >= total) return null;
@@ -1398,7 +1429,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     if (this.#latest?.game?.outcome) return false;
     if (!(this.#walkthrough.complete && reveal.caughtUp)) return false;
     // "on" skips the recap, except under reduced motion where nothing may close on a timer.
-    return appSession().settings.villainAutoAdvance !== "on" || appSession().settings.reducedMotion;
+    return this.#autoAdvance() !== "on" || appSession().settings.reducedMotion;
   }
 
   /** The recap's AUTO-ADVANCE toggle: OFF to "afterPause", anything else back to "off". Saved like any setting. */
@@ -1742,10 +1773,10 @@ export class VillainPhaseOverlay extends Phaser.Scene {
         // L02's own point: the team rail stays legible behind the interrupt.
         this.#drawTeamStatus(
           layout.teamStatus,
-          teamStatusOf(game, POOL_DEPS, activationTargetOf(reveal.current?.activation ?? null)),
+          teamStatusOf(game, gameDeps(), activationTargetOf(reveal.current?.activation ?? null)),
           viewer,
         );
-        this.#drawMainScheme(layout.mainScheme, mainSchemeCalloutOf(game, POOL_DEPS));
+        this.#drawMainScheme(layout.mainScheme, mainSchemeCalloutOf(game, gameDeps()));
         this.#drawPhaseLog(layout.phaseLog, reveal);
       }
       // On a short viewport the footer's row falls inside the interrupt panel. All it would say while a decision is
@@ -1755,13 +1786,13 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     } else {
       this.#drawHappeningNow(layout.happeningNow, reveal, game, viewer, stops);
       this.#drawBoosts(layout.boosts, reveal.current?.activation ?? null, game, viewerId, formFactor);
-      this.#drawQueued(layout.queued, queuedActivationsOf(game, POOL_DEPS), game, viewer);
+      this.#drawQueued(layout.queued, queuedActivationsOf(game, gameDeps()), game, viewer);
       this.#drawTeamStatus(
         layout.teamStatus,
-        teamStatusOf(game, POOL_DEPS, activationTargetOf(reveal.current?.activation ?? null)),
+        teamStatusOf(game, gameDeps(), activationTargetOf(reveal.current?.activation ?? null)),
         viewer,
       );
-      this.#drawMainScheme(layout.mainScheme, mainSchemeCalloutOf(game, POOL_DEPS));
+      this.#drawMainScheme(layout.mainScheme, mainSchemeCalloutOf(game, gameDeps()));
       this.#drawPhaseLog(layout.phaseLog, reveal);
       finished = this.#drawFooter(layout.footer, reveal);
     }
@@ -2049,7 +2080,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     const choice = game.pendingChoice;
     if (!choice) return false;
     const picked = this.#defendPick?.choiceId === choice.choiceId ? this.#defendPick.optionId : null;
-    const view = defendChoiceViewOf(game, choice, POOL_DEPS, viewer, picked ? [picked] : []);
+    const view = defendChoiceViewOf(game, choice, gameDeps(), viewer, picked ? [picked] : []);
     const layout = view ? villainDefendLayout({ panel, kind, optionCount: view.options.length, footer }) : null;
     if (view && layout?.fits) this.#unfitSince = null;
     else {
@@ -2137,7 +2168,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     // A review shows the phase as it ended, not the table as it is now.
     const shownGame = this.#review ? this.#review.after : game;
     const shownViewer = this.#review ? this.#review.viewer : viewer;
-    const recap = villainRecapOf(this.#walkthrough, this.#before, shownGame, shownViewer, POOL_DEPS);
+    const recap = villainRecapOf(this.#walkthrough, this.#before, shownGame, shownViewer, gameDeps());
     const formFactor = formFactorFor(width, height);
     // The tab's ordinary layout keeps a margin round its panel; inflated by it, the panel fills the dock's own.
     const margin = kind === "tab" ? recapMarginFor(formFactor) : 0;
@@ -2152,7 +2183,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       formFactor,
       recap,
       game: shownGame,
-      autoAdvance: appSession().settings.villainAutoAdvance,
+      autoAdvance: this.#autoAdvance(),
       scrolls: this.#recapScrolls,
       buttons: this.#buttons,
       onHide: () => this.#skip(),
@@ -2185,13 +2216,13 @@ export class VillainPhaseOverlay extends Phaser.Scene {
 
   /** The held-open recap (D3/T3/P4): `ui/villain-recap-panel.ts` paints it; this wires it to the scene. */
   #drawRecap(bounds: Rect, formFactor: FormFactor, game: GameState, viewer: PlayerId | null): void {
-    const recap = villainRecapOf(this.#walkthrough, this.#before, game, viewer, POOL_DEPS);
+    const recap = villainRecapOf(this.#walkthrough, this.#before, game, viewer, gameDeps());
     const { layout, stops } = drawVillainRecapPanel(this, {
       bounds,
       formFactor,
       recap,
       game,
-      autoAdvance: appSession().settings.villainAutoAdvance,
+      autoAdvance: this.#autoAdvance(),
       scrolls: this.#recapScrolls,
       buttons: this.#buttons,
       onHide: () => this.#skip(),
@@ -2418,7 +2449,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     const cardHeight = Math.max(40, Math.min(rect.height - 40, 170));
     const cardWidth = Math.round(cardHeight * (63 / 88));
     const card: Rect = { x: rect.x + 14, y: rect.y + 30, width: cardWidth, height: cardHeight };
-    const face = inspectModel(state, facedown.card as InstanceId, null, state.firstPlayerId, POOL_DEPS);
+    const face = inspectModel(state, facedown.card as InstanceId, null, state.firstPlayerId, gameDeps());
     drawFlipCard(this, card, CARD_BACKS.encounter, face.art, face.name, facedown.elapsedMs, this.#flipMs());
     const x = card.x + card.width + 16;
     const width = rect.x + rect.width - 14 - x;
@@ -2568,7 +2599,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       if (slot.text.width <= 0) return;
       const { x: textX, y: textY, width: textWidth } = slot.text;
       label(this, textX, textY, `BOOST CARD ${i + 1}`, typeRole.label, surface.ink.hex, ink.label);
-      const model = inspectModel(state, boost.instanceId, null, viewerId, POOL_DEPS);
+      const model = inspectModel(state, boost.instanceId, null, viewerId, gameDeps());
       const nameText = this.add
         .text(
           textX,
@@ -2863,7 +2894,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
           state,
           activation.enemyInstanceId,
           viewerId,
-          POOL_DEPS,
+          gameDeps(),
           activationHeadline(activation, state, viewerId),
         );
         drawSourceCardPanel(this, sourceStripPlacement(strips.enemy), sourcePanel, () =>
@@ -2873,7 +2904,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       if (counted && strips.boost) {
         const icons = counted.icons === null ? "" : ` · ${counted.icons} boost icon${counted.icons === 1 ? "" : "s"}`;
         const heading = `${counted.reason === "turnedUp" ? "Turned up" : "Being counted"}${icons}`;
-        const boostPanel = sourceCardPanelFor(state, counted.instanceId, viewerId, POOL_DEPS, heading);
+        const boostPanel = sourceCardPanelFor(state, counted.instanceId, viewerId, gameDeps(), heading);
         drawSourceCardPanel(this, sourceStripPlacement(strips.boost), boostPanel, () =>
           this.scene.launch(SCENES.inspect, { instanceId: counted.instanceId }),
         );
@@ -2919,7 +2950,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       if (!slot) return;
       // The side that prints the ability on offer (an identity's alter-ego interrupt shows the alter-ego), else the live one.
       const face = abilityFaceOf(state, option.instanceId, option.abilityId);
-      const model = inspectModel(state, option.instanceId, null, viewerId, POOL_DEPS, { face });
+      const model = inspectModel(state, option.instanceId, null, viewerId, gameDeps(), { face });
       const cg = this.add.graphics();
       paintPanel(cg, slot.card, "card", "rest");
 
@@ -2969,7 +3000,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       const rulesLines = Math.floor((textY + textHeight - rulesTop) / 15);
       if (rulesLines >= 1) {
         // The ability on offer first (`abilityFirst`), and a pointer at the card when the text is cut.
-        const trigger = option.abilityId ? POOL_DEPS.abilities[option.abilityId]?.trigger : undefined;
+        const trigger = option.abilityId ? gameDeps().abilities[option.abilityId]?.trigger : undefined;
         const rulesText = trigger ? abilityFirst(model.rulesText, triggerLabel(trigger)) : model.rulesText;
         const rules = this.add
           .text(textX, rulesTop, rulesText, textStyle(typeRole.body, surface.ink.hex))
@@ -3073,7 +3104,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
     const gate = this.#gate(game, viewer, subject);
     if (gate?.kind === "start") inline = null;
     // What the first option on offer would prevent of the damage about to be dealt (#394).
-    const prevention = inline?.[0] ? preventionPreviewOf(game, POOL_DEPS, inline[0]) : null;
+    const prevention = inline?.[0] ? preventionPreviewOf(game, gameDeps(), inline[0]) : null;
     const input = {
       panel,
       revealing,
@@ -3158,7 +3189,7 @@ export class VillainPhaseOverlay extends Phaser.Scene {
       log,
       onNext: this.#heldCard() !== null ? () => this.#nextCard() : null,
       onFlip: this.#flipGate() !== null ? () => this.#pressFlip() : null,
-      autoAdvance: appSession().settings.villainAutoAdvance,
+      autoAdvance: this.#autoAdvance(),
       buttons: this.#buttons,
       hint: (button, ids, ground, primary, enabled) =>
         this.#hintButton(button, ids, ground ?? "ink", primary ?? null, enabled ?? true),

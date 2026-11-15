@@ -54,6 +54,9 @@ export default defineConfig({
         },
       ],
     },
+    // English for the whole suite: the app's language follows the browser's (`Settings.cardLanguage`), and specs find
+    // menu text by its English label (#390). A spec about another language sets it itself.
+    locale: "en-US",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "off",
@@ -93,10 +96,13 @@ export default defineConfig({
       // tips.spec.ts only click focus-rect actions that exist on the phone board's default tab, so those two run
       // here unchanged.
       testMatch: [
+        "mod-store-play.spec.ts",
+        "power-stone-holder-stats.spec.ts",
         "crushing-blow-mixed-hand.spec.ts",
         "miles-morales-alter-ego-shuffle.spec.ts",
         "holdon.spec.ts",
         "campaign-deck-edit-parity.spec.ts",
+        "gmw-market-sold-out-tier.spec.ts",
         "release-history.spec.ts",
         "deck-builder-quick-filters.spec.ts",
         "victory-display.spec.ts",

@@ -64,11 +64,15 @@ describe("the achievement list", () => {
     }
   });
 
-  it("gives the funny ones no points and a reward pack, and every other one points", () => {
+  it("gives the funny ones no points and a reward pack, the mod ones no points at all, and every other one points", () => {
     for (const a of ACHIEVEMENTS) {
       if (a.family === "funny") {
         expect(a.points, a.id).toBe(0);
         expect(a.rewardPackId, a.id).toBeTruthy();
+      } else if (a.family === "mods") {
+        // Owner decision (2026-11-13): mods never move a rank, so no mod achievement is worth a point or a pack.
+        expect(a.points, a.id).toBe(0);
+        expect(a.rewardPackId, a.id).toBeUndefined();
       } else {
         expect(a.points, a.id).toBeGreaterThan(0);
         expect(a.rewardPackId, a.id).toBeUndefined();
@@ -248,7 +252,10 @@ describe("doppelgangers, arch-enemies and team-ups (#615)", () => {
     expect(earned(`archenemy-${hero}`, hist([game("mutagen-formula", "won")]))).toBe(true);
     const widow = `archenemy-${heroId("Black Widow")}`;
     expect(earned(widow, hist([game("taskmaster", "won", seated("Black Widow"))]))).toBe(true);
-    expect(earned(widow, hist([game("black-widow", "won", seated("Black Widow"))]))).toBe(true);
+    // #643: the Black Widow villain counts toward Seeing Double only, not her arch-enemy trophy too.
+    const won = hist([game("black-widow", "won", seated("Black Widow"))]);
+    expect(earned(widow, won)).toBe(false);
+    expect(earned("doppelganger-black-widow", won)).toBe(true);
     const thor = `archenemy-${heroId("Thor")}`;
     expect(earned(thor, hist([game("god-of-lies", "won", seated("Thor"))]))).toBe(true);
   });

@@ -292,6 +292,12 @@ export type TriggerEventBody =
       /** "This attack gains piercing/ranged": keywords this attack has that its attacker need not (`AttackKeyword`). */
       readonly keywords?: readonly ("piercing" | "ranged" | "overkill")[];
       /**
+       * "This attack ignores guard" (`EffectSpec attack.ignores`): this attack is not stopped by guard, so the guard
+       * minions it got past are recorded as ignored (`guardsIgnored`) and "resolve this attack against …" keeps the
+       * waiver. Set on the event an `attack` instruction makes, and on the attack its ability begins with.
+       */
+      readonly ignoresGuard?: true;
+      /**
        * The attack in progress deals its damage with the attacker's ATK (docs/phase7-wave10.md §3.17): written as the
        * event is made for an `attack` instruction marked `usesAtk` and for a friendly character made to attack, and
        * as the attack deals its damage for a basic attack (`attackUsesAtk`, `rules.ts`, which reads a basic attack
@@ -438,6 +444,8 @@ export type TriggerEventBody =
       readonly additionalResolution?: boolean;
       /** "That attack does not get a boost card" (Escaped Convict, I See You): step 1 deals nothing. */
       readonly noBoost?: boolean;
+      /** `EffectSpec enemyActivation.boostCards`: given as this activation's boost cards at its step 1. */
+      readonly appliedBoostCards?: readonly InstanceId[];
       /** `EffectSpec enemyAttack.statBonusTiming`: the `atkBonus` read once this attack's interrupts have resolved. */
       readonly deferredBonus?: DeferredActivationBonus;
       /** As on `attack`: a condition derived for a character this attack's overkill damaged. */
@@ -472,6 +480,8 @@ export type TriggerEventBody =
       readonly enemyInstanceId: InstanceId;
       readonly playerId: PlayerId;
       readonly noBoost?: boolean;
+      /** `EffectSpec enemyActivation.boostCards`: given as this activation's boost cards at its step 1. */
+      readonly appliedBoostCards?: readonly InstanceId[];
       /**
        * A Boost ability started this scheme during an enemy attack, or during a scheme that was itself so started: it
        * follows that attack (RRG 1.8 "Activation", p. 6), and a boost card's "after this attack" still has one to answer
@@ -547,6 +557,8 @@ export type TriggerEventBody =
       readonly playerId: PlayerId | null;
       readonly outsideActivation?: true;
       readonly named?: { readonly instanceId: InstanceId };
+      /** Held for the friendly holder's next basic power (`EffectSpec giveBoostCard.forBasicPower`). */
+      readonly forBasicPower?: true;
     }
   /**
    * A facedown boost card is about to be turned faceup during an enemy's activation: "When a boost card … would be
@@ -971,6 +983,14 @@ export type TriggerEventBody =
        * H3.12). Absent for any other defeat.
        */
       readonly thwartFrameId?: FrameId;
+      /**
+       * What the scheme was as its defeat was initiated (`DefeatedSnapshot`), the `characterDefeated` field of the same
+       * name. A side scheme whose When Defeated turns it over to another card (Secure the Landing Pad into the ally
+       * Cosmo, `mts` 21180) is no side scheme by the response window, yet "After you thwart and exactly defeat a side
+       * scheme" (Stealth Training 60028) answers it: a response reads the game as its triggering condition happened
+       * (RRG 1.8 "Response", p. 38; issue #700). Absent on an event stamped before the field existed.
+       */
+      readonly asDefeated?: DefeatedSnapshot;
     }
   | { readonly kind: "villainStageAdvanced"; readonly stageIndex: number; readonly instanceId: InstanceId }
   /** `schemeInstanceId` is set only for a separate game area's own stage (docs/phase7-wave2.md §3.1). */
@@ -1187,6 +1207,25 @@ export type TriggerEventBody =
        * `sourceInstanceId`: the card whose ability attaches it, null for a placement.
        */
       readonly imminent?: ImminentAttach;
+    }
+  /**
+   * A card stopped being attached to a host, however it went (community pack `yondu-dh`, D'ast Whistlin': "After the
+   * Yaka Arrow upgrade is attached to or removed from an enemy, deal 1 damage to that enemy"): moved to another host,
+   * returned to a hand, discarded, or taken out of play with its host. An announcement (response only), recorded by the
+   * one move every zone change makes (`relocateCard`, `pendingUnattached`) and announced between frames, only when an
+   * ability listens. The attached card is the source, `hostInstanceId` (the host it left, which may have left play
+   * itself) the target, so `eventTarget` is "that enemy". A move from one host to another is heard twice, this first and
+   * then that move's `cardAttached`; RRG 1.8 "Attach To" (p. 8) makes the move one change, and the engine reads "removed
+   * from" as having happened before "attached to" (an engine reading, no ruling). Not announced for a facedown card
+   * coming off its host (out of play, RRG 1.8 p. 23). `to`: the kind of zone it went to. `playerId`: the card's
+   * controller before the move (null for one no player controlled).
+   */
+  | {
+      readonly kind: "cardUnattached";
+      readonly instanceId: InstanceId;
+      readonly hostInstanceId: InstanceId;
+      readonly playerId: PlayerId | null;
+      readonly to: ZoneId["kind"];
     }
   /**
    * A character ignored a guard or patrol keyword, or a crisis icon, that would otherwise have stopped the attack or
@@ -1953,6 +1992,26 @@ export type TriggerEventBody =
    */
   | { readonly kind: "discardRedirected"; readonly instanceId: InstanceId; readonly area: string }
   /**
+   * A card went into the scenario out-of-play area `area` (`moveCards` to `{ scenarioArea }`, or a `setAsideDestination`
+   * redirect): "When a card is put into Damnation from a player's deck, put 1 additional card into Damnation from that
+   * player's deck" (Exposing Intentions, community pack `mephisto-nep` 14). One event per card, announced once the
+   * whole move is done (the cards of one move share one window), and only when an ability listens, so a game without
+   * one logs nothing new. `from` is the zone kind it left and `fromPlayerId` that zone's player (null for a zone of no
+   * player); `ownerId` is the card's owner; `sourceInstanceId` the card whose ability moved it (null for none). The
+   * event player is `fromPlayerId`, else the owner ("that player"). Narrow it with `eventIs: { area, from }`. Both
+   * windows hear it after the move: a "When … is put into" interrupt resolves as its response would (engine reading,
+   * authority step 5: what such text does, "put 1 additional card", does not depend on the card still being on its way).
+   */
+  | {
+      readonly kind: "cardPutIntoScenarioArea";
+      readonly instanceId: InstanceId;
+      readonly area: string;
+      readonly ownerId: PlayerId | null;
+      readonly from: ZoneId["kind"] | "unknown";
+      readonly fromPlayerId: PlayerId | null;
+      readonly sourceInstanceId: InstanceId | null;
+    }
+  /**
    * Damage was prevented, by the card `preventerInstanceId` (docs/phase7-wave4.md §3.20): "After Abjuration prevents 2
    * or more damage from a single attack, discard it" (Abjuration, `mts` 21082) is a forced response with `selfIs:
    * "source"`, `fromAttack: true` and `eventAtLeast: { amount: 2 }`. Announced (response only) when an ability listens,
@@ -1981,6 +2040,8 @@ export interface CardCausedActivation {
   readonly targetInstanceId?: InstanceId;
   readonly additionalResolution?: boolean;
   readonly noBoost?: boolean;
+  /** Handed on to the attack's or scheme's event (`TriggerEvent enemyAttack.appliedBoostCards`). */
+  readonly appliedBoostCards?: readonly InstanceId[];
   /** Handed on to the scheme's event (`TriggerEvent enemyScheme.startedByAttackBoost`). */
   readonly startedByAttackBoost?: true;
   readonly divert?: SchemeThreatDivert;
@@ -2056,8 +2117,9 @@ export interface SchemeWouldPlaceThreat {
  * `defeated`, `undefended`, `threatPlaced`, `threatRemoved`, and one
  * `damageTaken.<instanceId>` per character that took damage, `damageTakenKey`). A `removeThreat` that took its scheme
  * from some threat to none records `lastThreatRemoved` (docs/phase7-wave7.md §3.34). An enemy attack that reached its
- * damage step records `totalAtk` (`TOTAL_ATK_RESULT`). Damage, and the attack it belongs to, records `excessDealt` (the
- * excess of the damage taken) and `excessAsDealt` (of the damage dealt, `EXCESS_AS_DEALT_RESULT`).
+ * damage step records `totalAtk` (`TOTAL_ATK_RESULT`), and for a hero's basic defense `defenderDef` and
+ * `exactlyDefended` (`DEFENDER_DEF_RESULT`, `EXACTLY_DEFENDED_RESULT`). Damage, and the attack it belongs to, records
+ * `excessDealt` (the excess of the damage taken) and `excessAsDealt` (of the damage dealt, `EXCESS_AS_DEALT_RESULT`).
  */
 export type TriggerEvent = TriggerEventBody & {
   readonly results?: Vars;
@@ -2077,6 +2139,40 @@ export type TriggerEvent = TriggerEventBody & {
  * cancelled attack. The result `damage` is what the attack then dealt.
  */
 export const TOTAL_ATK_RESULT = "totalAtk";
+
+/**
+ * The result key an enemy attack records its defending hero's DEF for that attack under (Redirection Mastery, `iron_fist`
+ * 64018: "deal damage to the attacker equal to your DEF for that attack"): the stat the attack's damage step subtracted
+ * for a hero's basic defense (RRG 1.8 "Attack (Enemy Activation)" step 4, p. 9), every modifier included. Recorded only
+ * for a basic defense by a player's identity, the only defense that subtracts DEF; absent (read as 0) for an
+ * undefended attack, an ally's defense, a defense made by a "(defense)" ability alone, and an attack that never reached
+ * its damage step. Where an effect has the hero use another stat instead (`modifyAttack.defenseUsesAtk`, The Best
+ * Defense), that stat's value stands in for DEF here and in `EXACTLY_DEFENDED_RESULT` (with Redirection Mastery: owner
+ * question pending, built to A).
+ */
+export const DEFENDER_DEF_RESULT = "defenderDef";
+
+/**
+ * The result key (1) an enemy attack records when its defender **exactly defended** it: a hero's basic defense whose
+ * DEF for that attack (`DEFENDER_DEF_RESULT`) equals the attack's total ATK (`TOTAL_ATK_RESULT`: modifiers, "+N ATK for
+ * this attack" and boost icons included). FFG ruling September 10, 2026 (4): "the defender's modified DEF must equal
+ * the attacker's modified ATK for that attack; damage prevention/reduction effects cannot be used to meet this
+ * requirement". The comparison is DEF against ATK at the damage step, before any damage exists to prevent or reduce,
+ * so a prevention or reduction can never make it hold. A basic defense is required: an identity made the defender only
+ * by a "(defense)" ability (an event alone) does not exactly defend (FFG ruling October 12, 2026 (4)). Absent (read as
+ * 0) otherwise. Read on the `defended` response, which carries the attack's results (`after.exactlyDefends`).
+ */
+export const EXACTLY_DEFENDED_RESULT = "exactlyDefended";
+
+/**
+ * The result key (1) a thwart records when its removal **exactly defeated** a side scheme: the scheme's defeat got past
+ * its interrupt window and the removal attempted no more threat than the scheme had (`schemeDefeated.excessThreat` 0;
+ * MC60 p. 4: "defeated by a thwart that did not attempt to remove more threat than was necessary"). Beside the thwart's
+ * `defeated`. It reaches an ally's consequential damage as `thwart.exactlyDefeated`. An attack's exact defeat of an
+ * enemy is its `defeated` with no `excessAsDealt` (FFG ruling August 3, 2026 (6): no excess damage **dealt**), which
+ * the cards DSL composes (`exactlyDefeatedByPower`).
+ */
+export const EXACTLY_DEFEATED_RESULT = "exactlyDefeated";
 
 /**
  * The result key an attack records "the damage dealt by this attack" under: every point of damage it dealt to the
@@ -2573,6 +2669,8 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
       return of([], [event.instanceId], [event.playerId ?? null]);
     case "discardRedirected":
       return of([], [event.instanceId], []);
+    case "cardPutIntoScenarioArea":
+      return of([event.sourceInstanceId], [event.instanceId], [event.fromPlayerId ?? event.ownerId]);
     case "mainSchemeCompleted":
     case "mainSchemeCompleting":
     case "mainSchemeTurnsToB":
@@ -2649,6 +2747,9 @@ export function eventSubjects(event: TriggerEvent): EventSubjects {
     // The attached card is the source ("a Frostbite upgrade"), its host the target ("to an enemy"), the attacher "you".
     case "cardAttached":
       return of([event.instanceId], [event.hostInstanceId], [event.playerId]);
+    // The card that came off is the source ("the Yaka Arrow"), the host it left the target ("from an enemy").
+    case "cardUnattached":
+      return of([event.instanceId], [event.hostInstanceId], [event.playerId]);
     // The character whose hit points were reset is the target ("After MaGog's hit points are reset").
     case "hitPointsReset":
       return of([], [event.instanceId], []);
@@ -2706,6 +2807,33 @@ export function hearsEncounterDeckDiscard(pattern: EventPattern): boolean {
   if (!kinds.includes("cardDiscardedFromDeck")) return false;
   const deck = pattern.eventIs?.deck;
   return deck === "encounter" || (Array.isArray(deck) && deck.includes("encounter"));
+}
+
+/**
+ * Whether a pattern hears `kind` among its own `on` kinds, or through the one alias the engine makes: a pattern on
+ * `attack` whose target is this card or the card it is attached to also hears an `enemyAttacksEnemy` with that card the
+ * attacked enemy, however the pattern names it: `selfIs: "target"` (`on.thisIsAttacked`, "When/After [this card] is
+ * attacked"), `targetIs: { self: true }` ("After a character attacks and damages Gorgon", `shadowland` 65021) or
+ * `targetIs: { hostOfSelf: true }` ("When Kang is attacked" on Temporal Shield, `toafk` 11014). Whether the attacked
+ * card is an enemy is left to the event: an `enemyAttacksEnemy` only ever attacks one.
+ *
+ * An enemy is a character (RRG 1.8 "Character", p. 12: "Identities, allies, villains and minions are characters"), so an
+ * enemy's attack on this card is "a character attacks" it; and the owner's decision on enemy-against-enemy attacks
+ * (docs/phase7-wave3.md §4 Q12, §3.23) already gives the target its tough status, damage reduction and retaliate as for
+ * any attack. No FFG ruling covers an enemy's attack against an enemy with such an ability (Sinister Syndicate's Shocker
+ * 24045, Speed Demon 24046; The Punisher community scenario), so this is the rules-expert's reading of the RRG
+ * (2026-11-12), at authority step 5. A text that names who attacks still has to say so: "a character **you control**
+ * attacks Black Widow" (`aos` 50064) adds a `sourceIs` with a controller. The rest of the pattern reads the
+ * `enemyAttacksEnemy` event as it is: its source is the attacking enemy, it has no player subject (so a `playerIs`
+ * pattern never matches it), and the `attack`-only fields (`attackKind`, `attackHas`, `sourceAbility`) never match it.
+ * A "cannot attack" or "cannot be stunned" rule then stops what the ability does, not the trigger (RRG 1.8 "'Cannot'",
+ * p. 11).
+ */
+export function patternHearsKind(pattern: EventPattern, kind: TriggerEventKind): boolean {
+  const kinds: readonly TriggerEventKind[] = typeof pattern.on === "string" ? [pattern.on] : pattern.on;
+  if (kinds.includes(kind)) return true;
+  if (kind !== "enemyAttacksEnemy" || !kinds.includes("attack")) return false;
+  return pattern.selfIs === "target" || pattern.targetIs?.self === true || pattern.targetIs?.hostOfSelf === true;
 }
 
 /**

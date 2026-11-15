@@ -1,8 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { CORE_CARDS, CORE_POOL_VERSION, CORE_STARTER_DECKS, deckFromStarterDeck, deckId, type Deck } from "@mc/content";
 import { CORE_DEPS } from "@mc/cards";
-import { POOL_STARTER_DECKS } from "../content/pool.js";
-import { deckOptionOf, deckOptionsOf, deckRowIndexOf, preconDecks, shortWarningOf } from "./deck-list-model.js";
+import { legalDeckFor } from "./not-ready-fixture.js";
+import { POOL_CARDS, POOL_DEPS, POOL_STARTER_DECKS } from "../content/pool.js";
+import {
+  NOT_READY_REASON,
+  deckOptionOf,
+  deckOptionsOf,
+  deckRowIndexOf,
+  preconDecks,
+  shortWarningOf,
+} from "./deck-list-model.js";
 
 describe("preconDecks", () => {
   test("every precon in the app's pool is present, one per starter deck (Core's six plus wave 1's six)", () => {
@@ -89,5 +97,16 @@ describe("deckRowIndexOf", () => {
   });
   test("is -1 for a deck the filter hides", () => {
     expect(deckRowIndexOf([row("a"), { kind: "newDeck" }], "b")).toBe(-1);
+  });
+});
+
+describe("not-ready packs", () => {
+  test.each(["63001a", "64001a"])("a LEGAL deck led by %s says Not ready yet and is never seatable", (identity) => {
+    const deck = legalDeckFor(identity);
+    const option = deckOptionOf(deck, POOL_CARDS, CORE_POOL_VERSION, POOL_DEPS);
+    expect(option.legal).toBe(true);
+    expect(option.seatable).toBe(false);
+    expect(option.blockedReason).toBe(NOT_READY_REASON);
+    expect(NOT_READY_REASON).toBe("Not ready yet");
   });
 });
