@@ -103,6 +103,15 @@ export interface DefendAttackSummaryView {
   readonly boostAbilityNote: string | null;
 }
 
+/**
+ * The "+ N boost facedown" line under the attack arrow (`narrow`: the short "+N boost"), or null for a friendly
+ * character's attack (Old Rivals), which gets no boost card.
+ */
+export function boostLabelOf(summary: DefendAttackSummaryView, narrow: boolean): string | null {
+  if (summary.cause.kind === "friendlyAttack") return null;
+  return narrow ? `+${summary.facedownCount} boost` : `+ ${summary.facedownCount} boost facedown`;
+}
+
 export interface DefendStackRowView {
   readonly frameId: string;
   readonly label: string;

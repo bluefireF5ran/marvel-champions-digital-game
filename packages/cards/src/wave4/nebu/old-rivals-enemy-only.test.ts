@@ -13,12 +13,14 @@ const COUNTER_PUNCH = "01077";
 const COUNTERATTACK = "08030";
 const DAREDEVIL = "31014";
 const ELECTROSTATIC_ARMOR = "10031";
+const FREEZE = "46001a.freeze";
+const FROSTBITE = "46002";
 const GAMORA = "22002";
 const OLD_RIVALS = "22031";
 
 /** A Rhino table with the Gamora ally in play and Old Rivals the next encounter card dealt to P1 (Rhino is stunned). */
-function table(stunned = true) {
-  const base = rhino(3);
+function table(stunned = true, starterDeckId?: string) {
+  const base = rhino(3, starterDeckId);
   const gamora = intoPlay(base, GAMORA, {}, 2);
   const villain = gamora.state.activeVillainId!;
   // A stunned villain discards the status instead of activating: no attack of his muddies what Old Rivals' answers.
@@ -148,6 +150,33 @@ describe("Old Rivals: cards that need an enemy attack or 'the attacking enemy' (
     const control = reveal(t.state, hero);
     expect(inst(state, t.gamora).damage).toBe(inst(control.state, t.gamora).damage + 1);
     expect(events.some((e) => e.type === "damageDealt" && e.targetInstanceId === t.gamora)).toBe(true);
+  });
+
+  // Iceman's "Freeze!" (46001a): "When Iceman basic defends, freeze the attacking enemy" (`freeze(attackingEnemy)`). A
+  // Frostbite attaches to that enemy (and Rhino's own Frostbite response may send it back after his attack).
+  const frozen = (events: readonly GameEvent[], host: InstanceId) =>
+    events.some(
+      (e) =>
+        e.type === "cardMoved" &&
+        (e.cardId as string) === FROSTBITE &&
+        e.to.kind === "attachment" &&
+        e.to.hostInstanceId === host,
+    );
+
+  it("control: Iceman basic defending Rhino's attack freezes Rhino (a Frostbite attaches to him)", () => {
+    const t = table(false, "iceman-aggression");
+    const { events } = reveal(t.state, identityOf(t.state), [FREEZE]);
+    expect(frozen(events, t.villain)).toBe(true);
+  });
+
+  it("Iceman basic defending her attack freezes nobody: 'the attacking enemy' names no one", () => {
+    const t = table(true, "iceman-aggression");
+    const hero = identityOf(t.state);
+    const { state, events } = reveal(t.state, hero, [FREEZE]);
+    expect(inst(state, hero).exhausted).toBe(true); // he did defend
+    expect(attackedBy(events, t.gamora)).toBe(true);
+    expect(frozen(events, t.gamora)).toBe(false);
+    expect(events.some((e) => e.type === "cardMoved" && (e.cardId as string) === FROSTBITE)).toBe(false);
   });
 
   it("is deterministic: the same staged table reaches the same state", () => {

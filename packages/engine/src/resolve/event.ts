@@ -386,6 +386,16 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
       // and FAQ Spider-Man (#1A) p. 57, "when attacks" interrupts resolve before the Declare Defender step; ruling Oct
       // 26, 2023 (102) allows defending.
       if (declareFriendlyDefender(ctx, frame)) return;
+      // With nothing to ask, the step may still have recorded itself on the frame (its slot set, a declined answer
+      // cleared): go on from the frame as it now is, so the writes below do not restore the old one.
+      const declared =
+        frame.event.kind === "attack" && frame.event.attackedPlayerId !== undefined
+          ? findFrame(ctx.state, frame.frameId)
+          : frame;
+      if (declared?.kind === "event" && declared !== frame) {
+        executeEventFrame(ctx, declared);
+        return;
+      }
       if (frame.cancelled && frame.thwartInstanceCancelled) {
         // A later instance of a "(thwart)" ability whose thwart was cancelled: the cancellation is already logged.
         reportResults(ctx, frame, false);

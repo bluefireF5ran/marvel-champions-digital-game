@@ -15,7 +15,7 @@ import { noteHoverCard, type HoverHpPreview } from "./card-hover-preview.js";
 import { bindHoldTarget } from "./hold-target.js";
 import { accent, border, ink, signal, surface, typeRole, type TypeSpec } from "../tokens.js";
 import { faceOf } from "../view/board-model.js";
-import type { DefendChoiceView, DefendOptionView } from "../view/defend-choice.js";
+import { boostLabelOf, type DefendChoiceView, type DefendOptionView } from "../view/defend-choice.js";
 import { defendMiddleLayout } from "../view/defend-choice-layout.js";
 import type { Rect } from "../view/layout.js";
 import { OPTION_PAD, villainDefendOptionParts, type VillainDefendLayout } from "../view/villain-defend-layout.js";
@@ -303,8 +303,9 @@ function drawMatchup(scene: Phaser.Scene, layout: VillainDefendLayout, view: Def
         g.fillStyle(surface.ink.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
     }
   }
-  const boostText = mid.width < 120 ? `+${summary.facedownCount} boost` : `+ ${summary.facedownCount} boost facedown`;
-  label(scene, midX, column.boostLabelY, boostText, typeRole.label, surface.ink.hex, ink.secondary).setOrigin(0.5, 0);
+  const boostText = boostLabelOf(summary, mid.width < 120);
+  if (boostText !== null)
+    label(scene, midX, column.boostLabelY, boostText, typeRole.label, surface.ink.hex, ink.secondary).setOrigin(0.5, 0);
 
   // The notes, only where they have a readable width, clipped to their own rect.
   const notes = parts.notes;

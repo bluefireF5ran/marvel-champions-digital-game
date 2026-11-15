@@ -123,7 +123,7 @@ import {
 import { drawInstructionSourcePanel, drawSourceCardPanel, instructionStripHeight } from "../ui/source-card-panel.js";
 import { aosOptionLabelOf, secretTargetNotesOf, wrapOptionLabel } from "../view/board-secret-notes.js";
 import { optionLabelOf, playerName, seatIdentityName, shortSeatName } from "../view/names.js";
-import { defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
+import { boostLabelOf, defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
 import {
   defendChoiceLayout,
   defendMatchupLayout,
@@ -1839,9 +1839,9 @@ export class ChoiceOverlay extends Phaser.Scene {
           summaryG.fillStyle(surface.ink.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
       }
     }
-    const boostText =
-      mid.width < 120 ? `+${view.summary.facedownCount} boost` : `+ ${view.summary.facedownCount} boost facedown`;
-    label(this, midX, boostLabelY, boostText, typeRole.label, surface.ink.hex, ink.secondary).setOrigin(0.5, 0);
+    const boostText = boostLabelOf(view.summary, mid.width < 120);
+    if (boostText !== null)
+      label(this, midX, boostLabelY, boostText, typeRole.label, surface.ink.hex, ink.secondary).setOrigin(0.5, 0);
 
     // The notes, clipped to their own rect rather than allowed to run under the option cards.
     const notes = matchup.notes;

@@ -2881,10 +2881,18 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       // attack waiting for its ability counts from its initiation (RRG 1.8 FAQ "Nova (#12)", p. 59; ruling August 7,
       // 2025; ruling 147). Engine reading awaiting the owner: a later, non-dependent sentence of that ability naming "the
       // attacking enemy" names it.
-      const attack = state.stack.find((f) => f.kind === "event" && f.event.kind === "enemyAttack");
+      // Only an enemy: Gamora attacking her own player through Old Rivals (22031; a friendly attack, `attack` with
+      // `attackedPlayerId`) "is not considered 'an enemy' during the attack" (ruling Oct 26, 2023 (102); owner decision
+      // 2026-11-15, #525 item 1), so while hers is the innermost attack "the attacking enemy" names nobody, not an
+      // enemy attack beneath it; and an enemy attack's attacker names itself only while it is an enemy.
+      const attack = state.stack.find(
+        (f) =>
+          f.kind === "event" &&
+          (f.event.kind === "enemyAttack" || (f.event.kind === "attack" && f.event.attackedPlayerId !== undefined)),
+      );
       if (attack?.kind !== "event" || attack.event.kind !== "enemyAttack") return [];
       const enemy = attack.event.enemyInstanceId;
-      return cardsInPlay(state).includes(enemy) ? [enemy] : [];
+      return cardsInPlay(state).includes(enemy) && categoriesOf(state, enemy).includes("enemy") ? [enemy] : [];
     }
     case "attackedCharacter": {
       // The innermost attack (by one of `attacker`, when given), as `PlayerRef attackedPlayer` finds it.

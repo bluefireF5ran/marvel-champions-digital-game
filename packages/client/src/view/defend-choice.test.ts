@@ -15,6 +15,7 @@ import { playDefendAlliesGame } from "../store/dev-defend-allies-game.js";
 import { SessionStore } from "../store/session-store.js";
 import {
   bandFactsOf,
+  boostLabelOf,
   consequenceLinesFrom,
   damageHeadline,
   defendCauseFrom,
@@ -88,6 +89,8 @@ describe("defendChoiceViewOf: a real declareDefender choice", () => {
     expect(v.summary.attackerName).toBe("Rhino");
     expect(v.summary.baseAtk).toBeGreaterThan(0);
     expect(v.summary.facedownCount).toBeGreaterThanOrEqual(1);
+    expect(boostLabelOf(v.summary, false)).toBe(`+ ${v.summary.facedownCount} boost facedown`);
+    expect(boostLabelOf(v.summary, true)).toBe(`+${v.summary.facedownCount} boost`);
 
     // Every option the engine offered is worded, in the engine's own order, with none invented.
     expect(v.options.map((o) => o.optionId)).toEqual(choice.options.map((o) => o.optionId));
@@ -499,5 +502,8 @@ describe("a friendly character's attack (Old Rivals)", () => {
     expect(view.summary.cause.eyebrow).toBe(`${view.summary.attackerName} attacks you — Rhino`);
     expect(view.summary.cause.eyebrow).not.toMatch(/Enemy|Villain phase/);
     expect(view.rangeCaveat).toBeNull();
+    // No boost card, so no "+0 boost facedown" under the arrow.
+    expect(boostLabelOf(view.summary, false)).toBeNull();
+    expect(boostLabelOf(view.summary, true)).toBeNull();
   });
 });
