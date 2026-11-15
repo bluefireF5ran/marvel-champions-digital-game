@@ -129,8 +129,10 @@ describe("taps", () => {
 
     it("keeps Settings ▸ Unlocks' wave rows in English until that screen is translated", () => {
       useSpanish();
-      const wave1 = unlockListRowsOf(make()).find((r) => r.id === "wave:wave1");
-      expect(wave1).toMatchObject({ status: "Beat Rhino to unlock Wave 1" });
+      const rows = unlockListRowsOf(make());
+      expect(rows.find((r) => r.id === "wave:wave1")).toMatchObject({ status: "Beat Rhino to unlock Wave 1" });
+      expect(rowOf(rows, "campaign:trors")).toMatchObject({ detail: "Beat Rhino to unlock The Rise of Red Skull" });
+      expect(rowOf(rows, "scenario:red-skull")).toMatchObject({ detail: "Beat Rhino to unlock The Rise of Red Skull" });
     });
 
     it("words a confirm from the same parts", () => {

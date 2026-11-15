@@ -119,7 +119,7 @@ export function unlockListRowsOf(
     const state = switchStateOf(unlocks, unlocks.campaignEarned(campaign.campaignId), (u) =>
       u.prefs.campaignIds.includes(campaign.campaignId),
     );
-    const lock = unlocks.campaignHint(campaign.campaignId);
+    const lock = unlocks.campaignHint(campaign.campaignId, "en");
     rows.push({
       kind: "campaign",
       id: `campaign:${campaign.campaignId}`,
@@ -174,7 +174,7 @@ export function unlockListRowsOf(
             : state === "earned"
               ? "Earned"
               : state === "off"
-                ? (unlocks.scenarioLock(scenario) ?? "Locked")
+                ? (unlocks.scenarioLock(scenario, "en") ?? "Locked")
                 : state === "on"
                   ? "Unlocked by hand"
                   : "Unlocked by Unlock everything",
