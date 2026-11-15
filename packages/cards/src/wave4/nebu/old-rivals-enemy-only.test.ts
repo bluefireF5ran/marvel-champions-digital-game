@@ -1,6 +1,6 @@
 import { activeEncounterDeckId, type GameEvent, type GameState, type InstanceId } from "@mc/engine";
 import { describe, expect, it } from "vitest";
-import { conjure, DEPS, intoPlay, rhino } from "../../testing/qa-bench.js";
+import { conjure, DEPS, intoPlay, rhino, withTrait } from "../../testing/qa-bench.js";
 import { applyOk, firstLegal, identityOf, inst, P1, patchInstance, type Picker } from "../../testing/harness.js";
 
 /**
@@ -16,6 +16,10 @@ const ELECTROSTATIC_ARMOR = "10031";
 const FREEZE = "46001a.freeze";
 const FROSTBITE = "46002";
 const GAMORA = "22002";
+const ANT_MAN = "12011"; // an Avenger ally of cost 0 (Gamora is the Guardian) for Stand Together's cost
+const STAND_TOGETHER = "23034";
+const HEIGHT_ADVANTAGE = "28027";
+const ICE_WALL = "46008";
 const OLD_RIVALS = "22031";
 
 /** A Rhino table with the Gamora ally in play and Old Rivals the next encounter card dealt to P1 (Rhino is stunned). */
@@ -177,6 +181,98 @@ describe("Old Rivals: cards that need an enemy attack or 'the attacking enemy' (
     expect(attackedBy(events, t.gamora)).toBe(true);
     expect(frozen(events, t.gamora)).toBe(false);
     expect(events.some((e) => e.type === "cardMoved" && (e.cardId as string) === FROSTBITE)).toBe(false);
+  });
+
+  const damageOf = (state: GameState, id: InstanceId) => inst(state, id).damage;
+
+  describe("Stand Together (23034): prevents the damage, deals it back only to 'the attacking enemy'", () => {
+    /** Ant-Man (Avenger) and Gamora (Guardian) pay its cost; Stand Together in hand. */
+    const staged = (stunned: boolean) => {
+      const t = table(stunned);
+      const antMan = intoPlay(t.state, ANT_MAN, {}, 3);
+      const given = conjure(antMan.state, STAND_TOGETHER);
+      return { ...t, state: given.state };
+    };
+    /** Takes Stand Together when offered and pays for it (any cards), declining every defense. */
+    const standTogether = (state: GameState) => {
+      const events: GameEvent[] = [];
+      let current = applyOk(state, { type: "endTurn", playerId: P1 }, DEPS);
+      events.push(...current.events);
+      let s = current.state;
+      for (let i = 0; s.pendingChoice && !s.outcome && i < 60; i++) {
+        const c = s.pendingChoice;
+        const standOption = c.options.find((o) => (o.optionId as string).includes(`${STAND_TOGETHER}.`));
+        const pick =
+          c.prompt.kind === "declareDefender"
+            ? ["decline"]
+            : standOption
+              ? [standOption.optionId as string]
+              : c.prompt.kind === "payForCard"
+                ? c.options.map((o) => o.optionId as string)
+                : c.prompt.kind === "chooseCostCards"
+                  ? c.options.slice(0, c.maxSelections).map((o) => o.optionId as string)
+                  : firstLegal(s);
+        current = applyOk(
+          s,
+          { type: "resolveChoice", playerId: c.playerId, choiceId: c.choiceId, selectedOptionIds: pick },
+          DEPS,
+        );
+        events.push(...current.events);
+        s = current.state;
+      }
+      return { state: s, events };
+    };
+
+    it("control: against Rhino's attack the hero takes nothing and Rhino takes the damage back", () => {
+      const t = staged(false);
+      const { state } = standTogether(t.state);
+      expect(damageOf(state, identityOf(state))).toBe(0);
+      expect(damageOf(state, t.villain)).toBeGreaterThan(0);
+    });
+
+    it("against her attack the damage is still prevented and none is dealt back to her", () => {
+      const t = staged(true);
+      const { state, events } = standTogether(t.state);
+      expect(attackedBy(events, t.gamora)).toBe(true);
+      expect(damageOf(state, identityOf(state))).toBe(0);
+      // She has only the consequential damage of her own attack, as when nobody answers it: nothing came back.
+      const plain = reveal(table(true).state, "decline");
+      expect(damageOf(state, t.gamora)).toBe(damageOf(plain.state, t.gamora));
+      expect(damageOf(state, t.villain)).toBe(0);
+    });
+  });
+
+  describe("an 'enemy attack' damage rule or interrupt does not answer her attack", () => {
+    const heroDamage = (t: { state: GameState }) => {
+      const { state } = reveal(t.state, "decline");
+      return damageOf(state, identityOf(state));
+    };
+
+    it("Height Advantage (28027): 1 less from Rhino's attack, the full damage from hers", () => {
+      const withRhino = table(false);
+      const rhinoPlain = heroDamage({ state: withTrait(withRhino.state, "Aerial") });
+      const rhinoCard = heroDamage({
+        state: withUpgrade(withTrait(withRhino.state, "Aerial"), HEIGHT_ADVANTAGE).state,
+      });
+      expect(rhinoCard).toBe(rhinoPlain - 1);
+      const gamora = table(true);
+      const gamoraPlain = heroDamage({ state: withTrait(gamora.state, "Aerial") });
+      const gamoraCard = heroDamage({ state: withUpgrade(withTrait(gamora.state, "Aerial"), HEIGHT_ADVANTAGE).state });
+      expect(gamoraPlain).toBeGreaterThan(0);
+      expect(gamoraCard).toBe(gamoraPlain);
+    });
+
+    it("Ice Wall (46008): takes the damage of Rhino's attack, none of hers", () => {
+      const rhinoTable = table(false);
+      const walled = withUpgrade(rhinoTable.state, ICE_WALL);
+      const rhinoRun = reveal(walled.state, "decline");
+      expect(damageOf(rhinoRun.state, walled.id)).toBeGreaterThan(0);
+      const gamoraTable = table(true);
+      const wall = withUpgrade(gamoraTable.state, ICE_WALL);
+      const gamoraRun = reveal(wall.state, "decline");
+      expect(damageOf(gamoraRun.state, wall.id)).toBe(0);
+      expect(damageOf(gamoraRun.state, identityOf(gamoraRun.state))).toBeGreaterThan(0);
+    });
   });
 
   it("is deterministic: the same staged table reaches the same state", () => {
