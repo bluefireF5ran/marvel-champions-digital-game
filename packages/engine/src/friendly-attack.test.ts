@@ -337,6 +337,36 @@ describe("defending against Old Rivals (ruling 102, Oct 26, 2023; owner decision
     expect(mustInstance(after, hero).exhausted).toBe(false);
   });
 
+  // The Declare Defender step records a declined answer on the attack's frame (its slot empty, its answer cleared); the
+  // attack goes on from that frame (`executeEventFrame` restarts from it), so its later writes do not restore the old
+  // one, which still held the "decline" answer and no slot (code review of 9f9e02491). Nothing reads either today, so
+  // the stale frame changes no outcome: this pins the frame as the state records it.
+  it("declining is recorded on the attack's frame for the rest of the attack: an empty defender slot, no answer left", () => {
+    const { state, hero } = heroTable();
+    const given = giveCard(inHand(state, BACKFLIP.card.id), P1, REVEAL.card.id);
+    const attackFrames: { readonly answer: unknown; readonly defending: unknown }[] = [];
+    const result = runCommandsPicking(
+      given.state,
+      deps,
+      (s) => {
+        const choice = s.pendingChoice!;
+        if (choice.prompt.kind === "declareDefender") return ["decline"];
+        const attack = s.stack.find((f) => f.kind === "event" && f.event.kind === "attack");
+        if (attack?.kind === "event") {
+          attackFrames.push({ answer: attack.answer, defending: attack.slots["friendlyAttack.defending"] });
+        }
+        const backflip = choice.options.find((o) => o.optionId.includes("backflip"));
+        return backflip ? [backflip.optionId] : defaultPick(s);
+      },
+      { type: "playCard", playerId: P1, cardInstanceId: given.id, payment: [], attachToInstanceId: null },
+    );
+    // Backflip's window opens on her attack's damage, after the step.
+    expect(attackFrames.length).toBeGreaterThan(0);
+    for (const frame of attackFrames) expect(frame).toEqual({ answer: null, defending: [] });
+    expect(result.events.filter((e) => e.type === "defenseDeclined")).toHaveLength(1);
+    expect(mustInstance(result.session.state, hero).damage).toBe(0);
+  });
+
   // Engine reading (rules expert, 2026-11-15; no source on a non-enemy attack's order): by analogy with RRG 1.8 "Attack
   // (Enemy Activation)" p. 8 and FAQ Spider-Man (#1A) p. 57, "when attacks" interrupts resolve before the Declare
   // Defender step.
