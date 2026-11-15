@@ -76,6 +76,13 @@ const FIXED_GEAR = stubSupport({
   keywords: [{ name: "permanent" }],
   abilities: [GEAR_RESOURCE.ref],
 });
+/** "This card cannot leave play." (`RuleSpec cannotLeavePlay`) */
+const ROOTED_RULE = stubAbility(
+  "rooted.constant",
+  def({ trigger: { kind: "constant", rules: [{ kind: "cannotLeavePlay", target: { self: true } }] }, effects: [] }),
+);
+/** Gear that cannot leave play. */
+const ROOTED_GEAR = stubSupport({ id: "rooted-gear", cost: 0, abilities: [GEAR_RESOURCE.ref, ROOTED_RULE.ref] });
 /** A support whose interrupt listens for `cardBeingPlayed`. */
 const WATCHER = stubSupport({ id: "watcher", cost: 0, abilities: [BEING_INTERRUPT.ref] });
 /** A resource card printing 1 mental resource. */
@@ -252,5 +259,22 @@ describe("slot `paid.inPlayCards`: the cards in play whose resource ability paid
     expect(played.paidInPlayCards).toBeUndefined();
     expect(prompts[0]!.options).toEqual([t.note]);
     expect(mustPlayer(state, P1).playArea).toContain(fixed.id);
+  });
+
+  it("leaves out a card that cannot leave play whose resource ability paid", () => {
+    const d = depsOf(TUCK_RESPONSE, GEAR_RESOURCE, ROOTED_RULE);
+    const t = table(d, [ROOTED_GEAR]);
+    const rooted = playerCardIntoPlay(t.state, ROOTED_GEAR.id);
+    const { state, events, prompts } = run(
+      rooted.state,
+      play(t.recruit, [{ ability: { instanceId: rooted.id, abilityId: GEAR_RESOURCE.ref.id } }, { fromHand: t.note }]),
+      rooted.id,
+      d,
+    );
+    const played = playedEvent(events)!;
+    expect(played.paidCards).toEqual([t.note]);
+    expect(played.paidInPlayCards).toBeUndefined();
+    expect(prompts[0]!.options).toEqual([t.note]);
+    expect(mustPlayer(state, P1).playArea).toContain(rooted.id);
   });
 });

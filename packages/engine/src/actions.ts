@@ -2096,8 +2096,9 @@ function cardsThatPaid(
 
 /**
  * The cards in play whose "Resource" ability paid for a cost, in payment order, each once (`PAID_IN_PLAY_CARDS_SLOT`):
- * a use in the payment that is not an overpay-only one (`overpayOnlyPool`), on a card in play that is not an identity
- * and not a permanent card the played card's set cannot move (`permanentStopsLeaving`), whose generated resources are
+ * a use in the payment that is not an overpay-only one (`overpayOnlyPool`), on a card in play that is not an identity,
+ * not a permanent card the played card's set cannot move (`permanentStopsLeaving`) and not one that cannot leave play
+ * (`cannotLeavePlay`), whose generated resources are
  * among the ones **paid** (`canBePaidFor`, the judgement `cardsThatPaid` makes). Owner decision 2026-11-15 (#525 item
  * 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025 (Q2). Read before paying, while the cards are
  * still in play. Never counted by `paidCardVars`.
@@ -2126,6 +2127,8 @@ function cardsInPlayThatPaid(
     // permanent card to leave play", and a tuck takes a card in play out of play ("Tuck", p. 45). The played card's
     // own set may still move it (`permanentStopsLeaving`).
     if (permanentStopsLeaving(ctx.state, ctx.deps, instanceId, playedCardId)) continue;
+    // Nor a card that "cannot leave play" (`RuleSpec cannotLeavePlay`): a tuck is no discard.
+    if (cannotLeavePlay(ctx.state, ctx.deps, instanceId, playedCardId)) continue;
     const spender = resourceSpender(ctx.state, ctx.deps, instanceId, abilityId, playerId);
     const top = mustPlayer(ctx.state, spender).discard[0] ?? null;
     const generated = resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, top, payingFor);
