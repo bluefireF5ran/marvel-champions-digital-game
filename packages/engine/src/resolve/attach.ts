@@ -291,9 +291,14 @@ export function permanentRehostFor(
  *   "attach Flight to a villain in play if the villain it was attached to left play", and with no villain in play (The
  *   Sinister Six) "keep the attachment in play (because it's permanent) and attach it immediately to the next eligible
  *   villain that enters play";
- * - "attach to the villain" and the leaving host held the active counter, which has not moved yet (a villain defeated
- *   while others remain, `removeDefeatedVillain`: its attachments go before the counter passes, and a tie is the first
- *   player's choice through a frame): ruling Sep 26, 2024 (#15 note), "attach them to the current active villain".
+ * - "attach to the villain" and the leaving host is a defeated villain that still holds the active counter, which has
+ *   not moved yet (a villain defeated while others remain, `removeDefeatedVillain`: its attachments go before the
+ *   counter passes, and a tie is the first player's choice through a frame): ruling Sep 26, 2024 (#15 note), "attach
+ *   them to the current active villain". Only a defeat: a defeated active villain's counter always passes on, while a
+ *   villain leaving play some other way might keep it, which would park the card out of sight. Only the global counter:
+ *   a waiting card sits in the main villain's play area, where "the villain" reads `state.activeVillainId`, not a
+ *   separate game area's (`contextArea`), so a card on an area's villain is removed from the game instead of waiting
+ *   for that area's counter (no printed permanent "attach to the villain" card is in a game with separate areas).
  * Any other unowned permanent attachment with no valid target is removed from the game. Owner decision 2026-11-15
  * (#525 item 8), revising docs/phase7-wave5.md §4.1 row 26 (it was discarded to its encounter discard pile).
  *
@@ -321,9 +326,8 @@ export function waitsForVillainHost(
   if (isFacedownAttachment(state, id) || !isPermanent(state, id, deps)) return false;
   if (undefeatedVillains(state).every((villain) => villain.instanceId === leavingHostId)) return true;
   if (card.attachesTo.kind !== "villain" || leavingHostId === null) return false;
-  return (
-    state.activeVillainId === leavingHostId || state.gameAreas.some((area) => area.activeVillainId === leavingHostId)
-  );
+  const leaving = state.villains.find((villain) => villain.instanceId === leavingHostId);
+  return leaving?.defeated === true && state.activeVillainId === leavingHostId;
 }
 
 /**

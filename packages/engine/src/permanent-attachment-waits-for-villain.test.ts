@@ -19,8 +19,8 @@ import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
 import { driveSession } from "./testing/drive.js";
 import { stubAttachment, stubEvent, stubMainScheme, stubTreachery, stubVillain } from "./testing/fixtures.js";
-import { DEFAULT_CARDS, DEFAULT_DECK, HERO } from "./testing/scenario.js";
-import { copiesOf, encounterCardInVillainArea, playFree } from "./testing/wave3.js";
+import { DEFAULT_CARDS, DEFAULT_DECK, HERO, defaultPick, giveCard } from "./testing/scenario.js";
+import { P1, copiesOf, encounterCardInVillainArea, playFree } from "./testing/wave3.js";
 
 const brother = (id: string, name: string): VillainCard =>
   stubVillain({ id, name, stages: [{ hp: flat(10), atk: 0, sch: 1, keywords: [{ name: "victory", value: 1 }] }] });
@@ -162,22 +162,52 @@ function multiVillain(count: 2 | 3) {
   return { state, deps: multiDeps, first, wings: taken.id };
 }
 
+const followed = (state: GameState, wings: InstanceId, first: InstanceId): InstanceId => {
+  expect(state.villains.find((v) => v.instanceId === first)?.defeated).toBe(true);
+  expect(state.outcome).toBeNull();
+  const active = state.activeVillainId!;
+  expect(active).not.toBe(first);
+  expect(mustInstance(state, wings).attachedTo).toBe(active);
+  expect(mustInstance(state, active).attachments).toContain(wings);
+  expect(state.removedFromGame).not.toContain(wings);
+  expect(state.villainArea).not.toContain(wings);
+  return active;
+};
+
 describe("#525 item 8, several villains: the active villain is defeated while others remain (ruling Sep 26, 2024)", () => {
-  for (const count of [2, 3] as const) {
-    it(`${count} villains: the permanent attachment goes to the new active villain, not out of the game; replay deep-equal`, () => {
-      const t = multiVillain(count);
-      const { state, session } = playFree(t.state, t.deps, SLAY.id);
-      expect(state.villains.find((v) => v.instanceId === t.first)?.defeated).toBe(true);
-      expect(state.outcome).toBeNull();
-      const active = state.activeVillainId!;
-      expect(active).not.toBe(t.first);
-      expect(mustInstance(state, t.wings).attachedTo).toBe(active);
-      expect(mustInstance(state, active).attachments).toContain(t.wings);
-      expect(state.removedFromGame).not.toContain(t.wings);
-      expect(state.villainArea).not.toContain(t.wings);
-      const replayed = replay(session.log, t.deps);
-      if (!replayed.ok) throw new Error(replayed.error.message);
-      expect(replayed.state).toEqual(session.state);
-    });
-  }
+  it("2 villains: the counter passes to the other, and the permanent attachment goes with it; replay deep-equal", () => {
+    const t = multiVillain(2);
+    const { state, session } = playFree(t.state, t.deps, SLAY.id);
+    followed(state, t.wings, t.first);
+    const replayed = replay(session.log, t.deps);
+    if (!replayed.ok) throw new Error(replayed.error.message);
+    expect(replayed.state).toEqual(session.state);
+  });
+
+  it("3 villains tied: the first player picks the third villain, and the permanent attachment follows that choice; replay deep-equal", () => {
+    const t = multiVillain(3);
+    const third = t.state.villains.find((v) => v.cardId === "horse-3")!.instanceId;
+    const given = giveCard(t.state, P1, SLAY.id);
+    let offered = false;
+    // The event's damage goes to the first villain (the default pick); once he is defeated, the tie for the active
+    // counter is answered with the third.
+    const pick = (s: GameState): readonly string[] => {
+      const options = s.pendingChoice?.options.map((o) => o.optionId) ?? [];
+      const firstDown = s.villains.find((v) => v.instanceId === t.first)?.defeated === true;
+      if (!firstDown || !options.includes(third)) return defaultPick(s);
+      offered = true;
+      return [third];
+    };
+    const { session } = driveSession(
+      startSession(given.state),
+      t.deps,
+      [{ type: "playCard", playerId: P1, cardInstanceId: given.id, payment: [], attachToInstanceId: null }],
+      pick,
+    );
+    expect(offered).toBe(true);
+    expect(followed(session.state, t.wings, t.first)).toBe(third);
+    const replayed = replay(session.log, t.deps);
+    if (!replayed.ok) throw new Error(replayed.error.message);
+    expect(replayed.state).toEqual(session.state);
+  });
 });
