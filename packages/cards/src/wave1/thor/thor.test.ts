@@ -5,6 +5,7 @@ import {
   characterProfile,
   remainingHitPoints,
   traitsOf,
+  type GameEvent,
 } from "@mc/engine";
 import {
   answer,
@@ -141,7 +142,11 @@ describe("Thor kit", () => {
     const causes = played.events.flatMap((e) => (e.type === "preThenUnresolved" ? [e.cause] : []));
     expect(causes).toEqual(["searchFoundNothing"]);
     expect(played.events.some((e) => e.type === "choiceFoundNothing")).toBe(false);
+    // RRG 1.8 "Search" (p. 39): a search that finds nothing still shuffles the searched deck.
+    const shuffles = (events: readonly GameEvent[]) =>
+      events.filter((e) => e.type === "deckShuffled" && e.zone.kind === "deck");
     const after = settle(played.state, firstLegal, undefined, THOR_DEPS);
+    expect(shuffles(played.events)).toHaveLength(1);
     expect(after.pendingChoice).toBeNull();
     expect(playerOf(after, P1).hand).not.toContain(card);
     expect(playerOf(after, P1).discard).toContain(card);

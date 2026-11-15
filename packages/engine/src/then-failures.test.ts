@@ -231,6 +231,37 @@ describe("a search or 'discard until' that finds nothing", () => {
     expect(threat(playFree(full, deps, SEARCH_BOTH.card.id).state)).toBe(threat(full) + 7);
   });
 
+  it("a search of deck and discard pile with a match only in the discard pile is offered, and its 'Then' runs", () => {
+    // RRG 1.8 "Target" (p. 43): a search needs only a searchable area; RRG 1.8 "'Then'" (p. 44): the post-"then" text
+    // RRG 1.8 "Target" (p. 43): a search needs only a searchable area; RRG 1.8 "'Then'" (p. 44): the post-"then" text
+    // resolves once the pre-"then" text did. The deck holds no widget; the discard pile holds two (so the pick is a real
+    // choice and not auto-resolved).
+    const full = start({ widgets: 2 });
+    const widgets = Object.values(full.instances)
+      .filter((i) => i.cardId === WIDGET.id)
+      .map((i) => i.instanceId);
+    const base = noWidgets(full);
+    const state: GameState = {
+      ...base,
+      players: base.players.map((p, i) => (i === 0 ? { ...p, discard: [...p.discard, ...widgets] } : p)),
+    };
+    // `playFree` answers the pick itself; the events show what was offered and what was taken.
+    const { state: after, events } = playFree(state, deps, SEARCH_BOTH.card.id);
+    expect(events.some((e) => e.type === "cardPlayed")).toBe(true);
+    const offered = events.flatMap((e) =>
+      e.type === "choiceRequested" ? [e.choice.options.map((o) => o.optionId)] : [],
+    );
+    expect(offered).toHaveLength(1);
+    expect([...offered[0]!].sort()).toEqual([...widgets].sort());
+    const taken = events.flatMap((e) => (e.type === "choiceResolved" ? e.selectedOptionIds : []));
+    expect(taken).toHaveLength(1);
+    expect(widgets).toContain(taken[0]);
+    expect(after.players[0]!.discard).toContain(taken[0]);
+    expect(causes(events)).toEqual([]);
+    expect(skipped(events)).toBe(false);
+    expect(threat(after)).toBe(threat(state) + 7);
+  });
+
   it("a selectCards search behaves the same way", () => {
     const empty = noWidgets(start());
     const miss = playFree(empty, deps, SELECT.card.id);
