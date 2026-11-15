@@ -941,7 +941,7 @@ export function setDefender(
  * owner applied this on 2026-10-28 (PR #498), narrowing wave 8 §4.1 Q55 to heroes: an ally defending, at the step or
  * declared by an ability, uses no basic power.
  */
-function announceBasicDefense(ctx: Ctx, defenderId: InstanceId, defenderPlayer: PlayerId): void {
+export function announceBasicDefense(ctx: Ctx, defenderId: InstanceId, defenderPlayer: PlayerId): void {
   if (cardOf(ctx.state, defenderId)?.type !== "hero_identity") return;
   // "After you use a basic power" (docs/phase7-wave2.md §3.11): defending is the basic defense power.
   const used: TriggerEvent = {

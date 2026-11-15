@@ -438,6 +438,7 @@ export function defendPreview(
   const choice = state.pendingChoice;
   if (!choice || choice.prompt.kind !== "declareDefender") return null;
   const frame = state.stack.find((f) => f.frameId === choice.frameId);
+  if (frame?.kind === "effects") return friendlyDefendPreview(state, deps, choice, opts.scope ?? "unseen");
   if (frame?.kind !== "enemyAttack") return null;
 
   const scope = opts.scope ?? "unseen";
@@ -521,6 +522,72 @@ export function defendPreview(
       boost,
       ...(ownBoost ? { ownBoost } : {}),
       bands,
+    };
+  });
+}
+
+/**
+ * The defend prompt of a friendly character's attack (Old Rivals; `resolve/friendly-attack.ts`), asked by the effect
+ * that makes it: no boost card (one band at 0 icons), the attacker's ATK, less a defending hero's DEF, dealt to the
+ * defender or the attacked identity. A tough status card prevents it; overkill and retaliate are not previewed.
+ */
+function friendlyDefendPreview(
+  state: GameState,
+  deps: EngineDeps,
+  choice: NonNullable<GameState["pendingChoice"]>,
+  scope: BoostScope,
+): readonly DefendOptionPreview[] | null {
+  if (choice.prompt.kind !== "declareDefender") return null;
+  const { enemyInstanceId: attackerId, targetPlayerId, targetCharacterInstanceId } = choice.prompt.attack;
+  const attacker = characterProfile(state, attackerId, deps);
+  if (!attacker) return null;
+  const inPlay = cardsInPlay(state);
+  const boost: BoostBound = {
+    facedownCount: 0,
+    min: 0,
+    max: 0,
+    poolSize: 0,
+    mayTriggerBoostAbility: false,
+    poolWithBoostAbility: 0,
+    scope,
+  };
+  return choice.options.map((option) => {
+    const defenderInstanceId =
+      option.ref.kind === "card" && inPlay.includes(option.ref.instanceId) ? option.ref.instanceId : null;
+    const targetInstanceId = defenderInstanceId ?? targetCharacterInstanceId;
+    const profile = defenderInstanceId ? characterProfile(state, defenderInstanceId, deps) : undefined;
+    const defenseReduction = profile?.kind === "identity" ? profile.def : 0;
+    const damageDealt = Math.max(0, attacker.atk - defenseReduction);
+    const target = getInstance(state, targetInstanceId);
+    const toughSpent = damageDealt > 0 && (target?.statuses.tough ?? 0) > 0;
+    const damageTaken = toughSpent ? 0 : damageDealt;
+    const defeated =
+      damageTaken > 0 && (target?.damage ?? 0) + damageTaken >= (maxHitPoints(state, targetInstanceId, deps) ?? 0);
+    return {
+      optionId: option.optionId,
+      defenderInstanceId,
+      basicDefense: defenderInstanceId !== null,
+      targetInstanceId,
+      damagedInstanceId: targetInstanceId,
+      targetPlayerId: (defenderInstanceId ? controllerOf(state, defenderInstanceId) : null) ?? targetPlayerId,
+      exhausts:
+        defenderInstanceId && !defendsWithoutExhausting(state, deps, defenderInstanceId) ? [defenderInstanceId] : [],
+      baseAtk: attacker.atk,
+      defenseReduction,
+      boost,
+      bands: [
+        {
+          boostFrom: 0,
+          boostTo: 0,
+          damageDealt,
+          damageTaken,
+          toughSpent,
+          defeated,
+          overkillToInstanceId: null,
+          overkillAmount: 0,
+          retaliateToAttacker: 0,
+        },
+      ],
     };
   });
 }

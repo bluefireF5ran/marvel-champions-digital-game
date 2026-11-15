@@ -74,7 +74,6 @@ import {
   activeEncounterDeckId,
   cardBackOf,
   cardOf,
-  characterProfile,
   currentName,
   discardZoneFor,
   encounterDeckOf,
@@ -189,6 +188,7 @@ import {
   playersCannotDiscard,
   revealCannotBeCanceled,
   sustainedDamageAllowance,
+  defendsWithoutExhausting,
   schemeActivationDestination,
 } from "../rules.js";
 import {
@@ -257,10 +257,12 @@ import {
   dealBoostCardOrAnnounce,
   dealChosenBoostCard,
   cancelBoostedActivation,
+  announceBasicDefense,
   declareDefenderByLabeledEffect,
   getsBoostCard,
   giveBoostCard,
 } from "./enemy-activation.js";
+import { friendlyAttackOf, friendlyDefenderSlot, friendlyDefenders } from "./friendly-attack.js";
 import {
   checkRestrictedAfterFlip,
   enterPlay,
@@ -988,40 +990,57 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       return;
     }
     case "friendlyCharacterAttacks": {
-      // docs/phase7-wave4.md §3.26 (Old Rivals). A friendly character: a hero-form identity or an ally a player controls.
-      const inPlay = cardsInPlay(ctx.state);
-      const [attacker] = targets(effect.attacker).filter((id) => {
-        if (!inPlay.includes(id) || controllerOf(ctx.state, id) === null) return false;
-        const categories = categoriesOf(ctx.state, id);
-        return categories.includes("hero") || categories.includes("ally");
-      });
-      const [playerId] = resolvePlayers(ctx.state, effect.player, context);
-      const player = playerId ? getPlayer(ctx.state, playerId) : undefined;
+      // docs/phase7-wave4.md §3.26 (Old Rivals), with its defense step (`friendly-attack.ts`): owner decision
+      // 2026-11-15 (#525 item 1), replacing wave 4 §3.26's "no defense step"; ruling Oct 26, 2023 (102).
+      const made = friendlyAttackOf(ctx.state, ctx.deps, effect, context);
       const noAttack = () => {
         if (effect.bind) addFrameVars(ctx, frame.frameId, { [`${effect.bind}.made`]: 0 });
       };
-      if (!attacker || !player || player.eliminated) return noAttack();
-      if (characterProfile(ctx.state, attacker, ctx.deps)?.missing.includes("atk")) return noAttack();
+      if (!made) return noAttack();
+      const { attacker, playerId } = made;
+      const player = mustPlayer(ctx.state, playerId);
       if (statusActive(ctx.state, attacker, "stunned", ctx.deps)) {
         announceStatusDiscarded(ctx, discardStatusCards(ctx, attacker, "stunned", "cancelledAttack"));
         return noAttack();
       }
+      // The defender the attacked player declared (`askFriendlyDefender`), if still one that may defend.
+      const [defender] = (frame.bindings[friendlyDefenderSlot(frame.cursor)] ?? []).filter((id) =>
+        friendlyDefenders(ctx.state, ctx.deps, playerId, attacker).includes(id),
+      );
+      const defenderPlayer = defender ? (controllerOf(ctx.state, defender) ?? playerId) : playerId;
+      if (defender) {
+        const withoutExhausting = defendsWithoutExhausting(ctx.state, ctx.deps, defender);
+        emit(ctx, {
+          type: "defenderDeclared",
+          attackInstanceId: attacker,
+          defenderInstanceId: defender,
+          playerId,
+          ...(withoutExhausting ? { withoutExhausting: true as const } : {}),
+        });
+        if (!withoutExhausting) exhaustCard(ctx, defender);
+      }
+      const heroDefends =
+        defender !== undefined && defender === getPlayer(ctx.state, defenderPlayer)?.identity.instanceId;
       const consequential = pushConsequentialDamage(ctx, attacker, "attack");
       pushEvent(
         ctx,
         {
           kind: "attack",
           attackerInstanceId: attacker,
-          targetInstanceId: player.identity.instanceId,
+          // The defender takes the attack (RRG 1.8 "Attack (Enemy Activation)" step 5, p. 9), else the attacked identity.
+          targetInstanceId: defender ?? player.identity.instanceId,
           playerId: controllerOf(ctx.state, attacker)!,
           basic: false,
           // "Resolve her ATK against you": the attack deals the attacker's ATK (docs/phase7-wave10.md §3.17).
           usedStat: "atk",
+          ...(heroDefends ? { basicDefense: true as const } : {}),
           sourceInstanceId: frame.selfInstanceId,
           ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
         },
         reportTo(effect.bind) ?? consequential,
       );
+      // A hero's defense is its basic defense power: announced on top, so it resolves before the attack's damage.
+      if (heroDefends) announceBasicDefense(ctx, defender, defenderPlayer);
       return;
     }
     case "enemyAttacksEnemy": {

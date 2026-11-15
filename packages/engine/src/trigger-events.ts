@@ -306,6 +306,12 @@ export type TriggerEventBody =
        * ATK", `modifyBasicPower.useStat`), written as it deals its damage. Absent for a flat amount.
        */
       readonly usedStat?: "atk" | "thw";
+      /**
+       * The attacked hero made a basic defense against this attack: a friendly character's attack its player defended
+       * (Old Rivals; `resolve/friendly-attack.ts`), so the hero's DEF is taken off its damage (RRG 1.8 "Attack (Enemy
+       * Activation)" step 4, p. 9). Absent on every other attack.
+       */
+      readonly basicDefense?: true;
       /** The card whose ability made this attack (the event card for "Hero Action (attack)"). */
       readonly sourceInstanceId?: InstanceId | null;
       /**

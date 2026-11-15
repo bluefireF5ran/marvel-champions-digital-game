@@ -2321,6 +2321,12 @@ export type EffectSpec =
    * whose constant does not hold, or that another card already treats as something else, is left as it is.
    */
   | { readonly kind: "takeControl"; readonly target: TargetRef }
+  /**
+   * "She attacks you (resolve her ATK against you without exhausting her)" (Old Rivals, `nebu` 22031;
+   * docs/phase7-wave4.md §3.26): the first hero-form identity or ally `attacker` names attacks `player`, with no boost
+   * and no exhausting, after `player` is offered a defender (owner decision 2026-11-15, #525 item 1; ruling Oct 26,
+   * 2023 (102); `resolve/friendly-attack.ts`). `<bind>.made` is 0 when no attack is made.
+   */
   | {
       readonly kind: "friendlyCharacterAttacks";
       readonly attacker: TargetRef;

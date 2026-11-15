@@ -2850,7 +2850,11 @@ function applyPlayerAttack(
   const extra =
     (attackFrame?.kind === "event" ? (attackFrame.vars.extraDamage ?? 0) : 0) +
     attackExtraDamageAgainst(ctx.state, ctx.deps, event.attackerInstanceId, event.targetInstanceId);
-  const amount = Math.max(0, computed + extra);
+  // A hero's basic defense against a friendly character's attack (Old Rivals, `friendly-attack.ts`): its DEF comes off
+  // the attack's total, as step 4 of an enemy attack takes it off (RRG 1.8 "Attack (Enemy Activation)", p. 9).
+  const defense =
+    event.basicDefense === true ? (characterProfile(ctx.state, event.targetInstanceId, ctx.deps)?.def ?? 0) : 0;
+  const amount = Math.max(0, computed + extra - defense);
   // "Uses their ATK to attack and damage" (docs/phase7-wave10.md §3.17): the attack in progress records the stat its
   // damage is dealt with, and that damage carries it (ruling December 17, 2025 (2) #3).
   const usedStat = useThw ? "thw" : attackUsesAtk(event, undefined) ? "atk" : undefined;
