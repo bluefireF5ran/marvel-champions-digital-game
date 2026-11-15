@@ -1283,6 +1283,8 @@ does not cover.
 
 ### 3.26 A friendly character attacks its own player
 
+> **Revised 2026-11-15 (owner, [#525](https://github.com/quincarter/marvel-champions-digital-game/issues/525) item 1):** the attacked player may declare a defender against Gamora's attack, and may use defense abilities whose own condition does not need an enemy; "after … defends" responses trigger. She is not "an enemy" during it, so abilities that target an enemy cannot target her (ruling Oct 26, 2023 (102)). Still no boost and no exhausting. The "no defense step" below is superseded.
+
 Old Rivals (`nebu` 22031, errata RRG 1.8 p. 67): "When Revealed: Gamora attacks you. If the Gamora hero or ally is in
 play, she attacks you (resolve her ATK against you without exhausting her). If no attack was made this way, this card
 gains surge." Ruling Jun 25, 2026 (4) #1: the first sentence is the Gamora minion, the second the hero or ally. FAQ (RRG
