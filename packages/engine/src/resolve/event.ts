@@ -1,5 +1,6 @@
 /** Event frames (interrupts → apply → responses) and the state change each event kind makes. */
 
+import { declareFriendlyDefender } from "./friendly-attack.js";
 import { applyMainSchemeTurnsToB } from "./main-scheme-side.js";
 import type { CardId } from "@mc/content";
 import { applyStatusBeingGiven, statusGiveNotMade, statusStillToGive } from "./status-being-given.js";
@@ -378,6 +379,21 @@ export function executeEventFrame(ctx: Ctx, frame: Frame<"event">): void {
             : group;
         });
         popFrame(ctx);
+        return;
+      }
+      // A friendly character's attack on its own player (Old Rivals): its Declare Defender step (`friendly-attack.ts`).
+      // Engine reading (no source on non-enemy attack order): by analogy with RRG 1.8 "Attack (Enemy Activation)" p. 8
+      // and FAQ Spider-Man (#1A) p. 57, "when attacks" interrupts resolve before the Declare Defender step; ruling Oct
+      // 26, 2023 (102) allows defending.
+      if (declareFriendlyDefender(ctx, frame)) return;
+      // With nothing to ask, the step may still have recorded itself on the frame (its slot set, a declined answer
+      // cleared): go on from the frame as it now is, so the writes below do not restore the old one.
+      const declared =
+        frame.event.kind === "attack" && frame.event.attackedPlayerId !== undefined
+          ? findFrame(ctx.state, frame.frameId)
+          : frame;
+      if (declared?.kind === "event" && declared !== frame) {
+        executeEventFrame(ctx, declared);
         return;
       }
       if (frame.cancelled && frame.thwartInstanceCancelled) {
@@ -2850,7 +2866,11 @@ function applyPlayerAttack(
   const extra =
     (attackFrame?.kind === "event" ? (attackFrame.vars.extraDamage ?? 0) : 0) +
     attackExtraDamageAgainst(ctx.state, ctx.deps, event.attackerInstanceId, event.targetInstanceId);
-  const amount = Math.max(0, computed + extra);
+  // A hero's basic defense against a friendly character's attack (Old Rivals, `friendly-attack.ts`): its DEF comes off
+  // the attack's total, as step 4 of an enemy attack takes it off (RRG 1.8 "Attack (Enemy Activation)", p. 9).
+  const defense =
+    event.basicDefense === true ? (characterProfile(ctx.state, event.targetInstanceId, ctx.deps)?.def ?? 0) : 0;
+  const amount = Math.max(0, computed + extra - defense);
   // "Uses their ATK to attack and damage" (docs/phase7-wave10.md §3.17): the attack in progress records the stat its
   // damage is dealt with, and that damage carries it (ruling December 17, 2025 (2) #3).
   const usedStat = useThw ? "thw" : attackUsesAtk(event, undefined) ? "atk" : undefined;

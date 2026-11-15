@@ -96,7 +96,7 @@ export const COLOSSUS_SUPPORT_UPGRADES_ALLIES = defineAbilities({
   // Nightcrawler: damage from an enemy attack to any X-MEN character (the attack's damage, so a player's own attack
   // on an enemy is never it); the cost is a [energy] resource and returning himself to hand.
   "32011.nightcrawler-interrupt": interrupt(
-    when.damage(AN_X_MEN_CHARACTER, { fromAttack: true }),
+    when.damage(AN_X_MEN_CHARACTER, { fromAttack: true, fromEnemy: true }),
     { cost: [spend({ energy: 1 }), returnToHandCost(query("ally", { self: true }))] },
     preventDamage(),
   ),

@@ -84,7 +84,8 @@ export const X23_PACK_CARDS: AbilityRegistry = defineAbilities({
   "43035.defense-specialist-response": heroResponse(heroUses("defense"), { cost: exhaustThis }, draw(1)),
   "43036.front-line-specialist-constant": constant(gets("hp", 4, YOUR_IDENTITY)),
   "43036.front-line-specialist-response": response(
-    after.damage(YOUR_IDENTITY, { fromAttack: true, taken: true }),
+    // "From an enemy attack" (Gamora's Old Rivals is not one; ruling Oct 26, 2023 (102), #525 item 1).
+    after.damage(YOUR_IDENTITY, { fromAttack: true, fromEnemy: true, taken: true }),
     { cost: exhaustThis },
     draw(1),
   ),

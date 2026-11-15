@@ -127,17 +127,34 @@ describe("Build Support / Boot Camp (ruling Nov 21, 2025): put into play under a
     expect(mustInstance(state, camp).controllerId).toBe(P1);
   });
 
-  it("'Max 1 per player' is read under the chosen player", () => {
+  // Owner decision 2026-11-15 (#525, on #714); RRG 1.8 "Max, Maximum" p. 28: only the players who can take the card
+  // are listed, and one such player is bound without a question.
+  it("'Max 1 per player' is read under each player the card could go to", () => {
     const one = play(start(), FETCH.card, P2).state;
     const second = campOf(one, P1);
+    // P2 already controls a copy: P1 is the only player who can take it, so nobody is asked, even one who would pick
+    // P2.
     const two = play(one, FETCH.card, P2);
+    expect(two.asked).toEqual([]);
     expect(campsIn(two.state, P2)).toHaveLength(1);
-    expect(two.events.filter((e) => e.type === "putIntoPlayRefused")).toEqual([
-      { type: "putIntoPlayRefused", instanceId: second, playerId: P2, reason: "maxPerPlayer" },
-    ]);
-    // P2's copy does not stop P1 from taking one.
-    const three = play(one, FETCH.card, P1);
-    expect(campsIn(three.state, P1)).toEqual([second]);
+    expect(campsIn(two.state, P1)).toEqual([second]);
+    expect(two.events.some((e) => e.type === "putIntoPlayRefused")).toBe(false);
+  });
+
+  it("two players who can take it are both offered", () => {
+    const { asked } = play(start(), FETCH.card, null);
+    expect(asked).toEqual([{ playerId: P1, options: [P1, P2] }]);
+  });
+
+  it("the finder at the maximum: only the other player can take it, and it goes to them unasked", () => {
+    const one = play(start(), FETCH.card, P1).state;
+    const second = campOf(one, P1);
+    const two = play(one, FETCH.card, P1);
+    expect(two.asked).toEqual([]);
+    expect(campsIn(two.state, P1)).toHaveLength(1);
+    expect(campsIn(two.state, P2)).toEqual([second]);
+    expect(mustInstance(two.state, second)).toMatchObject({ controllerId: P2, ownerId: P1 });
+    expect(two.events.some((e) => e.type === "putIntoPlayRefused")).toBe(false);
   });
 
   it("an effect that states the controller asks nothing", () => {

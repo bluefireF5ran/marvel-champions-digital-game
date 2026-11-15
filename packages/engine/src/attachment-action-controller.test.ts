@@ -1,9 +1,11 @@
 /**
- * RRG 1.8 "Attachment" (p. 8): "Only the player who controls the card to which that attachment is attached can trigger
- * abilities or pay costs on that attachment." Beside "Action" (p. 6): "Players can only trigger action abilities on
- * cards they control or on encounter cards." An encounter attachment's Action is any player's while it is attached to
- * an enemy or a scheme, and only the attached card's controller's while it is attached to a player's card. Text naming
- * who may trigger it (`triggerableBy`) replaces the rule. Synthetic cards.
+ * RRG 1.8 "Ability" (p. 4): "Only the player who controls a player card with an attachment that uses the word 'you' or
+ * 'your' can trigger abilities or pay costs on that attachment" (the same sub-bullet under "Attachment", p. 8). Beside
+ * "Action" (p. 6): "Players can only trigger action abilities on cards they control or on encounter cards." An
+ * encounter attachment's Action is any player's while it is attached to an enemy or a scheme, and while it is attached
+ * to a player's card unless its text says "you" or "your" (owner decision 2026-11-15, issue #525; ruling July 13, 2023
+ * - Ruling 48, Restrained); then it is only the attached card's controller's. Text naming who may trigger it
+ * (`triggerableBy`) replaces the rule. Synthetic cards.
  */
 
 import { describe, expect, it } from "vitest";
@@ -29,7 +31,7 @@ import {
 
 const def = (d: AbilityDefinition) => d;
 const self = { kind: "self" } as const;
-/** "Action: Spend 1 resource → discard this card." */
+/** "Attach to your identity. Action: Spend 1 resource → discard this card." */
 const SHACKLE_ACTION = stubAbility(
   "shackle.action",
   def({
@@ -38,7 +40,17 @@ const SHACKLE_ACTION = stubAbility(
     effects: [{ kind: "discardFromPlay", target: self }],
   }),
 );
-const SHACKLE = stubAttachment({ id: "shackle", abilities: [SHACKLE_ACTION.ref] });
+const SHACKLE = stubAttachment({
+  id: "shackle",
+  abilities: [SHACKLE_ACTION.ref],
+  text: "Attach to your identity.\nAction: Spend 1 resource → discard this card.",
+});
+/** The same Action on a card with no "you" or "your" (shaped like Restrained, 21083). */
+const STRAP = stubAttachment({
+  id: "strap",
+  abilities: [SHACKLE_ACTION.ref],
+  text: "Attach to a friendly character.\nAction: Spend 1 resource → discard this card.",
+});
 /** The same, with "Any player may trigger this ability." */
 const LATCH_ACTION = stubAbility(
   "latch.action",
@@ -56,11 +68,11 @@ const deps: EngineDeps = depsOf(SHACKLE_ACTION, LATCH_ACTION);
 
 function table(): GameState {
   return gameAtFirstTurn({
-    cards: [SHACKLE, LATCH, RECRUIT, THUG],
+    cards: [SHACKLE, STRAP, LATCH, RECRUIT, THUG],
     deps,
     players: 2,
     deck: [RECRUIT.id],
-    encounter: [...copiesOf(TREACHERY.id, 28), SHACKLE.id, LATCH.id, THUG.id],
+    encounter: [...copiesOf(TREACHERY.id, 28), SHACKLE.id, STRAP.id, LATCH.id, THUG.id],
   });
 }
 
@@ -102,7 +114,7 @@ const offered = (state: GameState, player: PlayerId, id: InstanceId): boolean =>
 };
 
 describe("an encounter attachment's Action and who controls the attached card (RRG 1.8 p. 8)", () => {
-  it("attached to p1's identity: p1 pays and discards it; p2 is refused and pays nothing", () => {
+  it("saying 'your', attached to p1's identity: p1 pays and discards it; p2 is refused and pays nothing", () => {
     const { state, id } = attachedTo(table(), SHACKLE, identityOf(table(), P1));
     const mine = tryUse(state, P1, id);
     expect(mine.ok).toBe(true);
@@ -114,7 +126,7 @@ describe("an encounter attachment's Action and who controls the attached card (R
     expect(offered(state, P2, id)).toBe(false);
   });
 
-  it("attached to p2's identity: p2 may use it during p1's turn, p1 may not", () => {
+  it("saying 'your', attached to p2's identity: p2 may use it during p1's turn, p1 may not", () => {
     const { state, id } = attachedTo(table(), SHACKLE, identityOf(table(), P2));
     expect(tryUse(state, P2, id).ok).toBe(true);
     expect(tryUse(state, P1, id).ok).toBe(false);
@@ -122,11 +134,26 @@ describe("an encounter attachment's Action and who controls the attached card (R
     expect(offered(state, P1, id)).toBe(false);
   });
 
-  it("attached to an ally p1 controls: only p1", () => {
+  it("saying 'your', attached to an ally p1 controls: only p1", () => {
     const ally = playerCardIntoPlay(table(), RECRUIT.id, P1);
     const { state, id } = attachedTo(ally.state, SHACKLE, ally.id);
     expect(tryUse(state, P1, id).ok).toBe(true);
     expect(tryUse(state, P2, id).ok).toBe(false);
+  });
+
+  it("with no 'you' or 'your', attached to p1's identity: either player, and it is offered to both", () => {
+    const { state, id } = attachedTo(table(), STRAP, identityOf(table(), P1));
+    expect(tryUse(state, P1, id).ok).toBe(true);
+    expect(tryUse(state, P2, id).ok).toBe(true);
+    expect(offered(state, P1, id)).toBe(true);
+    expect(offered(state, P2, id)).toBe(true);
+  });
+
+  it("with no 'you' or 'your', attached to an ally p1 controls: either player", () => {
+    const ally = playerCardIntoPlay(table(), RECRUIT.id, P1);
+    const { state, id } = attachedTo(ally.state, STRAP, ally.id);
+    expect(tryUse(state, P1, id).ok).toBe(true);
+    expect(tryUse(state, P2, id).ok).toBe(true);
   });
 
   it("attached to the villain: any player, as before", () => {

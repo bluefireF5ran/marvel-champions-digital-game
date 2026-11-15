@@ -54,7 +54,7 @@ import type { GameState } from "../state.js";
 import { defeatHeldOff, maxSustainedDamageOf, notDefeatedWithoutThreat } from "../rules.js";
 import { limitReached } from "./ability.js";
 import { atZero, checkDefeats, checkOneMainScheme, defeatPending } from "./defeat.js";
-import { settleUpgradeControl } from "./attach.js";
+import { rehostPermanentAttachment, settleUpgradeControl } from "./attach.js";
 import {
   checkAllyLimits,
   checkPlayerSideSchemeLimit,
@@ -135,6 +135,8 @@ export function checkStateTriggers(ctx: Ctx): boolean {
   applyFirstPlayerControl(ctx);
   // …and an upgrade on a card another player controls is controlled by that player (RRG 1.8 p. 31).
   applyHostedUpgradeControl(ctx);
+  // …and a permanent attachment waiting for the next villain attaches to it the moment one is in play (ruling 165).
+  if (attachWaitingPermanents(ctx)) return true;
   // …and a lasting effect bound to an attachment ends once that card is off that host (§3.50 of wave 6).
   endDetachedLastingEffects(ctx);
   // …and the active villain is the villain of the main scheme Focused Defense is attached to (§3.2 of wave 4).
@@ -386,6 +388,27 @@ function applyHostedUpgradeControl(ctx: Ctx): void {
     if (ctx.state.instances[id]?.attachedTo == null) continue;
     settleUpgradeControl(ctx, id, ctx.state.instances[id]!.controllerId);
   }
+}
+
+/**
+ * A permanent encounter attachment left in play unattached because its host left play while no villain was in play
+ * (`waitsForVillainHost`, `resolve/attach.ts`): it resolves its "attach to" text again as soon as that text has a valid
+ * target, announcing the attaching as any re-attach does (`rehostPermanentAttachment`). Ruling May 10, 2024 (165):
+ * "keep the attachment in play (because it's permanent) and attach it immediately to the next eligible villain that
+ * enters play"; owner decision 2026-11-15 (#525 item 8), revising docs/phase7-wave5.md §4.1 row 26; RRG 1.8
+ * "Permanent" p. 32. Only an unowned faceup permanent attachment in the villain's play area is read. Returns true when
+ * the attaching put an event on the stack.
+ */
+function attachWaitingPermanents(ctx: Ctx): boolean {
+  const depth = ctx.state.stack.length;
+  for (const id of [...ctx.state.villainArea]) {
+    const instance = ctx.state.instances[id];
+    if (!instance || instance.attachedTo !== null || instance.ownerId !== null || instance.controllerId !== null)
+      continue;
+    if (cardOf(ctx.state, id)?.type !== "attachment") continue;
+    rehostPermanentAttachment(ctx, id, null);
+  }
+  return ctx.state.stack.length > depth;
 }
 
 /**

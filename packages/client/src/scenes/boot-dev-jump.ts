@@ -820,6 +820,15 @@ export async function devScreenJump(): Promise<{ readonly key: string; readonly 
     return { key: SCENES.board, data: {} };
   }
 
+  // `?screen=spectrum-tuck`: a real Falcon game stopped on Spectrum's tuck choice, paid for with Falcon's Flock's
+  // resource ability and two hand cards, so the prompt offers the Flock and carries its out-of-play warning (#525).
+  if (screen === "spectrum-tuck") {
+    const { startSpectrumTuckGame } = await import("../store/dev-spectrum-tuck-game.js");
+    const { store } = appSession();
+    if (!gameRunning(store)) await startSpectrumTuckGame(store);
+    return { key: SCENES.board, data: {} };
+  }
+
   // `?screen=villain-decision`: a real Spider-Man game whose round-one villain phase reveals an encounter card that asks
   // the player to choose (`chooseOption`, seed 17), for the decision docked beside the table (#231).
   if (screen === "villain-decision") {

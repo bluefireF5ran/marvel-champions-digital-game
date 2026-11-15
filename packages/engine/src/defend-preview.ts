@@ -47,7 +47,7 @@ import {
   mustInstance,
   printsBoostAbility,
 } from "./query.js";
-import { defendsWithoutExhausting } from "./rules.js";
+import { attackExtraDamageAgainst, defendsWithoutExhausting, statUsedInPlaceOf } from "./rules.js";
 import { heldBoostCardsOf, villainousFriendlyCharacter } from "./resolve/villainous.js";
 import { cardsInPlay, categoriesOf, characterIgnores, controllerOf, gainedBoostAbilities } from "./select.js";
 import type { StackFrame, Vars } from "./stack.js";
@@ -438,6 +438,8 @@ export function defendPreview(
   const choice = state.pendingChoice;
   if (!choice || choice.prompt.kind !== "declareDefender") return null;
   const frame = state.stack.find((f) => f.frameId === choice.frameId);
+  if (frame?.kind === "event" && frame.event.kind === "attack" && frame.event.attackedPlayerId !== undefined)
+    return friendlyDefendPreview(state, deps, choice, frame, opts.scope ?? "unseen");
   if (frame?.kind !== "enemyAttack") return null;
 
   const scope = opts.scope ?? "unseen";
@@ -521,6 +523,97 @@ export function defendPreview(
       boost,
       ...(ownBoost ? { ownBoost } : {}),
       bands,
+    };
+  });
+}
+
+/**
+ * The defend prompt of a friendly character's attack (Old Rivals; `resolve/friendly-attack.ts`), asked as its event
+ * frame applies (`frame`): no boost card (one band at 0 icons). The damage is read as `applyPlayerAttack`
+ * (`resolve/event.ts`) will deal it: the attacker's ATK with this attack's `atkBonus`, plus its `extraDamage` and the
+ * standing extra damage against that option's target (`attackExtraDamageAgainst`), less a defending hero's DEF, dealt
+ * to the defender or the attacked identity. A tough status card prevents it. The attacker defending her own attack also
+ * takes her consequential damage after it (RRG 1.8 FAQ "Old Rivals (#31)", p. 62: "allies always take consequential
+ * damage after they attack"), read off the consequential damage already pushed beneath the attack. Overkill and
+ * retaliate are not previewed.
+ */
+function friendlyDefendPreview(
+  state: GameState,
+  deps: EngineDeps,
+  choice: NonNullable<GameState["pendingChoice"]>,
+  frame: Extract<StackFrame, { kind: "event" }>,
+  scope: BoostScope,
+): readonly DefendOptionPreview[] | null {
+  if (choice.prompt.kind !== "declareDefender") return null;
+  const { enemyInstanceId: attackerId, targetPlayerId, targetCharacterInstanceId } = choice.prompt.attack;
+  const attacker = characterProfile(state, attackerId, deps);
+  if (!attacker) return null;
+  const inPlay = cardsInPlay(state);
+  const boost: BoostBound = {
+    facedownCount: 0,
+    min: 0,
+    max: 0,
+    poolSize: 0,
+    mayTriggerBoostAbility: false,
+    poolWithBoostAbility: 0,
+    scope,
+  };
+  // An ATK modifier, so not counted for an attacker using another stat in place of its ATK (as `applyPlayerAttack`).
+  const atkBonus = statUsedInPlaceOf(state, deps, attackerId, "atk") === undefined ? (frame.vars.atkBonus ?? 0) : 0;
+  const atk = Math.max(0, attacker.atk + atkBonus);
+  // The attacker's consequential damage, pushed beneath its attack (`pushConsequentialDamage`), if it takes any.
+  const consequential = state.stack.reduce(
+    (total, f) =>
+      f.kind === "event" &&
+      f.event.kind === "dealDamage" &&
+      f.event.consequential === true &&
+      f.event.targetInstanceId === attackerId
+        ? total + f.event.amount
+        : total,
+    0,
+  );
+  return choice.options.map((option) => {
+    const defenderInstanceId =
+      option.ref.kind === "card" && inPlay.includes(option.ref.instanceId) ? option.ref.instanceId : null;
+    const targetInstanceId = defenderInstanceId ?? targetCharacterInstanceId;
+    const profile = defenderInstanceId ? characterProfile(state, defenderInstanceId, deps) : undefined;
+    const defenseReduction = profile?.kind === "identity" ? profile.def : 0;
+    const extra = (frame.vars.extraDamage ?? 0) + attackExtraDamageAgainst(state, deps, attackerId, targetInstanceId);
+    const damageDealt = Math.max(0, atk + extra - defenseReduction);
+    const target = getInstance(state, targetInstanceId);
+    const hasTough = (target?.statuses.tough ?? 0) > 0;
+    const attackUsesTough = damageDealt > 0 && hasTough;
+    // Her consequential damage, when she is the one damaged: a tough card the attack did not use stops it instead.
+    const ownConsequential = targetInstanceId === attackerId ? consequential : 0;
+    const consequentialUsesTough = ownConsequential > 0 && hasTough && !attackUsesTough;
+    const damageTaken = (attackUsesTough ? 0 : damageDealt) + (consequentialUsesTough ? 0 : ownConsequential);
+    const maxHp = maxHitPoints(state, targetInstanceId, deps);
+    const defeated = damageTaken > 0 && maxHp !== undefined && (target?.damage ?? 0) + damageTaken >= maxHp;
+    return {
+      optionId: option.optionId,
+      defenderInstanceId,
+      basicDefense: defenderInstanceId !== null,
+      targetInstanceId,
+      damagedInstanceId: targetInstanceId,
+      targetPlayerId: (defenderInstanceId ? controllerOf(state, defenderInstanceId) : null) ?? targetPlayerId,
+      exhausts:
+        defenderInstanceId && !defendsWithoutExhausting(state, deps, defenderInstanceId) ? [defenderInstanceId] : [],
+      baseAtk: atk,
+      defenseReduction,
+      boost,
+      bands: [
+        {
+          boostFrom: 0,
+          boostTo: 0,
+          damageDealt,
+          damageTaken,
+          toughSpent: attackUsesTough || consequentialUsesTough,
+          defeated,
+          overkillToInstanceId: null,
+          overkillAmount: 0,
+          retaliateToAttacker: 0,
+        },
+      ],
     };
   });
 }

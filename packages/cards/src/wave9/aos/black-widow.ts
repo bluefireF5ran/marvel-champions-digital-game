@@ -1,7 +1,7 @@
 import type { AbilityRegistry, EventPattern } from "@mc/engine";
 import {
   atEndOfAttack,
-  attackPreventedTotal,
+  attackPreventedAmount,
   changeForm,
   chooseTarget,
   confuse,
@@ -198,7 +198,8 @@ export const BLACK_WIDOW: AbilityRegistry = defineAbilities({
   "50072.preparation": preparation(atEndOfAttack(putIntoPlay(self, you))),
 
   // Guard is data. Q4 = A: "this attack" is the whole attack, so all of it resolves against the Grunt (ruling January 17,
-  // 2026 - Ruling 2: Black Widow takes nothing and her retaliate does not answer).
+  // 2026 - Ruling 2: Black Widow takes nothing and her retaliate does not answer). The owner decision of 2026-11-15
+  // (#525 item 10) replaced Q4 only for prevention (50076); the move stays whole.
   "50073.preparation": preparation(putIntoPlay(self, you), retargetPlayerAttack(self)),
 
   // Hinder 1 per hero is data. The granted text is a second registry entry listed on no card, as the Goggles' is.
@@ -213,10 +214,13 @@ export const BLACK_WIDOW: AbilityRegistry = defineAbilities({
     ifThen(isAlterEgo(), changeForm(you, "hero")),
     enemyAttack(theVillain, { against: you, extraBoostCards: 1 }),
   ),
-  // The prevented amount is read at the end of the attack (the validator rejects reading it any other way).
+  // Only the damage to Black Widow is prevented: an attack that also damages minions deals them their damage, and
+  // "that much damage" is what was prevented on her (owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4;
+  // ruling Jul 11, 2025). The engine scopes `preventAllDamage` to the attacked character; the amount is read at the
+  // end of the attack (the validator rejects reading it any other way). The Goggles' grant above is scoped the same.
   "50076.preparation": preparation(
     modifyAttack({ preventAllDamage: true, bind: "prevented" }),
-    ifThen(inMode("expert"), atEndOfAttack(dealDamage(attackPreventedTotal("prevented"), eventSource))),
+    ifThen(inMode("expert"), atEndOfAttack(dealDamage(attackPreventedAmount("prevented"), eventSource))),
   ),
 
   "50077.when-revealed": whenRevealed(confuse(yourIdentity), enemyScheme(theVillain, { against: you })),

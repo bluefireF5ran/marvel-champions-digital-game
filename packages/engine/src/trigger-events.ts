@@ -13,7 +13,7 @@ import type {
   TargetCategory,
   ValueSpec,
 } from "./spec.js";
-import { PAID_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
+import { PAID_CARDS_SLOT, PAID_IN_PLAY_CARDS_SLOT, type Bindings, type Vars } from "./stack.js";
 import type { DeckDiscard, MainSchemeAdvancedBy, StatusCounts, ZoneId } from "./state.js";
 
 /**
@@ -306,6 +306,18 @@ export type TriggerEventBody =
        * ATK", `modifyBasicPower.useStat`), written as it deals its damage. Absent for a flat amount.
        */
       readonly usedStat?: "atk" | "thw";
+      /**
+       * The attacked hero made a basic defense against this attack: a friendly character's attack its player defended
+       * (Old Rivals; `resolve/friendly-attack.ts`), so the hero's DEF is taken off its damage (RRG 1.8 "Attack (Enemy
+       * Activation)" step 4, p. 9). Absent on every other attack.
+       */
+      readonly basicDefense?: true;
+      /**
+       * A friendly character's attack on its own player (Old Rivals; `resolve/friendly-attack.ts`): the player it is
+       * made against, who may defend it, by the Declare Defender question or by a "(defense)" ability
+       * (`declareLabeledDefense`). Absent on every other attack.
+       */
+      readonly attackedPlayerId?: PlayerId;
       /** The card whose ability made this attack (the event card for "Hero Action (attack)"). */
       readonly sourceInstanceId?: InstanceId | null;
       /**
@@ -420,6 +432,11 @@ export type TriggerEventBody =
   | {
       readonly kind: "defended";
       readonly defenderInstanceId: InstanceId;
+      /**
+       * The attacking character, the event's source: an enemy, except for a friendly character's attack on its own
+       * player (Old Rivals, `resolve/friendly-attack.ts`), whose attacker is no enemy (ruling Oct 26, 2023 (102)). A
+       * pattern for a defense "against an enemy attack" asks for an enemy source (`sourceIs`).
+       */
       readonly enemyInstanceId: InstanceId;
       readonly playerId: PlayerId;
       readonly basic: boolean;
@@ -673,6 +690,8 @@ export type TriggerEventBody =
        * ability reads as slot `paid.cards` (`carriedByEvent`). Absent when no card paid.
        */
       readonly paidCards?: readonly InstanceId[];
+      /** The cards in play whose resource ability paid for the play (`PAID_IN_PLAY_CARDS_SLOT`); absent when none did. */
+      readonly paidInPlayCards?: readonly InstanceId[];
       /**
        * The card whose ability or permission played this one, as the play recorded it (`PLAYED_VIA_SLOT`): the
        * `playFromHand.via` card (Wolverine's Claws; docs/phase7-wave6.md §3.42) or the hand card discarded to play it
@@ -696,6 +715,8 @@ export type TriggerEventBody =
       readonly countsAsFrom?: "hand";
       /** The cards that paid for the play, as `cardPlayed.paidCards` has them; absent when no card paid. */
       readonly paidCards?: readonly InstanceId[];
+      /** As `cardPlayed.paidInPlayCards`. */
+      readonly paidInPlayCards?: readonly InstanceId[];
     }
   | {
       readonly kind: "cardRevealed";
@@ -2899,8 +2920,18 @@ export function carriedByEvent(event: TriggerEvent | null | undefined): typeof N
     Object.fromEntries(Object.entries(record ?? {}).map(([key, item]) => [`${MOMENT_PREFIX}${key}`, item]));
   if (event?.kind === "abilityResolved" && event.carried) return { bindings: prefixed(event.carried), vars: {} };
   // The cards that paid for a play, under the slot's own name: there is one play, so nothing to keep apart (§3.46 (b)).
-  if ((event?.kind === "cardPlayed" || event?.kind === "cardBeingPlayed") && event.paidCards?.length)
-    return { bindings: { [PAID_CARDS_SLOT]: event.paidCards }, vars: {} };
+  // So do the cards in play whose resource ability paid (`PAID_IN_PLAY_CARDS_SLOT`).
+  if (
+    (event?.kind === "cardPlayed" || event?.kind === "cardBeingPlayed") &&
+    (event.paidCards?.length || event.paidInPlayCards?.length)
+  )
+    return {
+      bindings: {
+        ...(event.paidCards?.length ? { [PAID_CARDS_SLOT]: event.paidCards } : {}),
+        ...(event.paidInPlayCards?.length ? { [PAID_IN_PLAY_CARDS_SLOT]: event.paidInPlayCards } : {}),
+      },
+      vars: {},
+    };
   if (event?.kind !== "momentRaised" || (!event.carried && !event.carriedVars)) return NOTHING_CARRIED;
   return { bindings: prefixed(event.carried), vars: prefixed(event.carriedVars) };
 }

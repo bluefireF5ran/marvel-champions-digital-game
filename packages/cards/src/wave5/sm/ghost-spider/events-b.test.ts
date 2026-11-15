@@ -1,3 +1,4 @@
+import { cardId } from "@mc/content";
 import { activeEncounterDeck, cardsInPlay } from "@mc/engine";
 import { describe, expect, it } from "vitest";
 import {
@@ -23,6 +24,7 @@ import {
 } from "../../../testing/harness.js";
 import { conjure, playOut, rhino } from "../../../testing/qa-bench.js";
 import { moveToDiscard, stackSetAside, withDamage } from "../../../testing/staging.js";
+import { game, villainOf } from "../../../wave7/rulings-2026-10-06-harness.js";
 import { playFromHand, startWave5Game, WAVE5_DEPS } from "../../testing.js";
 import { ghostSpiderScenario } from "./support.js";
 
@@ -133,6 +135,28 @@ describe("Ghost-Spider's events, part B (27013–27019)", () => {
     expect(activeEncounterDeck(done.state).discard).toContain(swoop);
     expect(activeEncounterDeck(done.state).deck).not.toContain(swoop);
     expect(playerOf(done.state, P1).discard).toContain(given.id);
+  });
+
+  // Ruling April 30, 2026 (5): the effect is initiated in step 6, after the cost, so a guard minion engaged while
+  // paying
+  // the cost stops the attack. RRG 1.8 "Initiating Abilities" (p. 24); owner decision 2026-11-15 (#525 item 6): guard
+  // is checked as the attack is initiated. Mutagen Formula: P1's setup Goblin Thrall (02024, guard) is disengaged, and
+  // the cost reveals Advance (01186), whose scheme deals the next card, a Goblin Thrall, as a boost that engages it.
+  it("27015.return-the-favor-action: a guard minion engaged while paying the cost stops the 5 damage to the villain (ruling 2026-04-30)", () => {
+    const s = game("mutagen-formula", ["core-spider-man-justice"], ["bomb_scare"], 13);
+    const thrall = Object.values(s.instances).find((i) => i.cardId === cardId("02024") && i.engagedWith === P1)!;
+    const free = patchInstance(s, thrall.instanceId, { engagedWith: null });
+    const calm = patchInstance(free, free.mainScheme.instanceId, { threat: 0 });
+    const given = conjure(stackEncounterDeck(calm, "01186", "02024"), "27015");
+    const villain = villainOf(given.state);
+    const damageBefore = inst(given.state, villain).damage;
+    const done = playOut(given.state, given.id, 0);
+    expect(done.accepted).toBe(true);
+    const engaged = Object.values(done.state.instances).filter(
+      (i) => i.cardId === cardId("02024") && i.engagedWith === P1,
+    );
+    expect(engaged.length).toBeGreaterThan(0);
+    expect(inst(done.state, villain).damage).toBe(damageBefore);
   });
 
   it("27015.return-the-favor-action, control: a treachery that stuns nobody (Advance) is revealed, then the 5 damage is dealt", () => {

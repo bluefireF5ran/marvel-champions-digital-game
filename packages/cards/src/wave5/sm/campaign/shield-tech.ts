@@ -99,13 +99,17 @@ export const SHIELD_TECH_CAMPAIGN_CARDS = defineAbilities({
   "27183a.impact-dampening-suit-interrupt": heroInterrupt(
     on.phaseBeginning("villain"),
     { cost: spend(1) },
-    applyRuleUntil({ kind: "reduceDamageTaken", target: YOUR_HERO, amount: 1, fromAttack: true }, "endOfPhase"),
+    // "From each enemy attack": `onlyAttacker` keeps Gamora's Old Rivals out (ruling Oct 26, 2023 (102), #525 item 1).
+    applyRuleUntil(
+      { kind: "reduceDamageTaken", target: YOUR_HERO, amount: 1, fromAttack: true, onlyAttacker: query("enemy") },
+      "endOfPhase",
+    ),
   ),
   // Enhanced back — "Your identity gets +3 hit points.\nHero Interrupt: When your hero would take any amount of
   // damage from an enemy attack, discard the top card of your deck → prevent 1 of that damage."
   "27183b.impact-dampening-suit-constant": constant(gets("hp", 3, YOUR_IDENTITY)),
   "27183b.impact-dampening-suit-interrupt": heroInterrupt(
-    on.damage(YOUR_HERO, { fromAttack: true }),
+    on.damage(YOUR_HERO, { fromAttack: true, fromEnemy: true }),
     { cost: discardTopOfDeckCost() },
     preventDamage(1),
   ),

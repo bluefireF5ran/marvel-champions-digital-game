@@ -15,12 +15,13 @@ import {
   defineAbilities,
   discardEncounterCards,
   draw,
-  eventSource,
+  eventSourceEnemy,
   eventTarget,
   exists,
   gets,
   heal,
   heroResponse,
+  anyIn,
   ifThen,
   on,
   playOnlyIf,
@@ -81,11 +82,11 @@ const ANOTHER_WEB_WARRIOR_CARD: TargetQuery = { ...A_WEB_WARRIOR_CARD, self: fal
  * to an enemy' (capped by the damage there)" doc is for the attack-labeled shape only) — composed instead from two
  * already-landed effects: `heal(1, self, { bind: "moved" })` reports the amount actually healed (capped at the
  * damage there, RRG 1.8 "Move", p. 30) under `moved.amount` (`core/scenarios/rhino.ts`'s own "Hard to Keep Down"
- * bind precedent), then `dealDamage(varOf("moved.amount"), eventSource)` (not an attack: no guard, no retaliate,
- * `dealDamage`'s own docblock) deals exactly that much to the attacking enemy — `eventSource` on a `defended` event
- * is the attacker (Electrostatic Armor's own precedent, `wave1/hlk/pack-cards.ts` 10031). With no damage on
- * Daredevil (an attack he took no damage from) both effects move/deal 0, a no-op, matching "move 1 damage" having
- * nothing to move.
+ * bind precedent), then `dealDamage(varOf("moved.amount"), eventSourceEnemy)` (not an attack: no guard, no
+ * retaliate, `dealDamage`'s own docblock) deals exactly that much to the attacking enemy — `eventSourceEnemy` on a
+ * `defended` event is the attacker if it is an enemy. Old Rivals' Gamora is none (ruling Oct 26, 2023 (102)), so
+ * against her attack nothing moves. With no damage on Daredevil (an attack he took no damage from) both effects
+ * move/deal 0, a no-op, matching "move 1 damage" having nothing to move.
  *
  * **Spider-Man Noir (ally, 31015)** — "X is equal to the number of facedown cards attached to Spider-Man Noir.
  * \nResponse: After you resolve a treachery, if you control another Web-Warrior card, attach that treachery
@@ -136,8 +137,11 @@ export const SPDR_ALLIES = defineAbilities({
 
   "31014.daredevil-response": response(
     after.defends(query("ally", { self: true })),
-    heal(1, self, { bind: "moved" }),
-    dealDamage(varOf("moved.amount"), eventSource),
+    // No attacking enemy (Old Rivals' Gamora is none, ruling Oct 26, 2023 (102)): the move does nothing.
+    ifThen(anyIn(eventSourceEnemy), [
+      heal(1, self, { bind: "moved" }),
+      dealDamage(varOf("moved.amount"), eventSourceEnemy),
+    ]),
   ),
 
   "31015.spider-man-noir-constant": constant(

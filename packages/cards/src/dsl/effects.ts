@@ -983,8 +983,9 @@ export const modifyAttack = (change: {
    * would have dealt to the character it was against when this resolved) and `<bind>.total` (to every character).
    * The numbers exist only once the attack has dealt its damage, which is after its interrupt window, so read them
    * at the end of the attack: `atEndOfAttack(dealDamage(…, attackPreventedAmount(bind)))`, or in an "after …
-   * attacks" ability. They are not vars of this ability (`varOf` does not see them). With several targets the whole
-   * attack is prevented (owner decision §4.1 Q4 = A).
+   * attacks" ability. They are not vars of this ability (`varOf` does not see them). With several targets only the
+   * damage to the character the attack is against is prevented (owner decision 2026-11-15 (#525 item 10), replacing
+   * wave 9 Q4; ruling Jul 11, 2025).
    */
   readonly bind?: string;
   /**
@@ -1985,6 +1986,8 @@ export const chooseCards = (
      * "look at the top N" (`EffectSpec chooseCards.search`).
      */
     readonly search?: boolean;
+    /** A line the prompt carries for the player (`EffectSpec chooseCards.note`): Spectrum's out-of-play warning. */
+    readonly note?: string;
   },
 ): EffectSpec => ({
   kind: "chooseCards",
@@ -1999,6 +2002,7 @@ export const chooseCards = (
     : {}),
   ...(opts.hiddenHands ? { hiddenHands: true as const } : {}),
   ...(opts.search ? { search: true as const } : {}),
+  ...(opts.note !== undefined ? { note: opts.note } : {}),
 });
 /**
  * "Discard the [superlative] card in your hand" on an encounter card, among `from` (the tied cards): the first player

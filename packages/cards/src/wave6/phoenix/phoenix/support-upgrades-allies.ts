@@ -127,7 +127,8 @@ export const PHOENIX_SUPPORT_UPGRADES_ALLIES = defineAbilities({
   ),
 
   "34007.telekinetic-shield-forced-interrupt": forcedInterrupt(
-    when.damage("host", { fromAttack: true }),
+    // "From an enemy attack" (Gamora's Old Rivals is not one; ruling Oct 26, 2023 (102), #525 item 1).
+    when.damage("host", { fromAttack: true, fromEnemy: true }),
     instead(placeDamage(eventAmount, self), andThen(ifThen(damagedAtLeast(self, 5), discard(self)))),
   ),
 

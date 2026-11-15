@@ -151,6 +151,29 @@ describe("Taskmaster scenario", () => {
     expect(activeEncounterDeck(attacked).discard).toContain(start.card);
   });
 
+  it("Photographic Reflexes: the identity takes exactly the amount prevented on Taskmaster ('an equal amount')", () => {
+    const start = withPhotographicReflexes(taskmasterVsHeroes());
+    const hero = runWave2(start.state, toHero());
+    const villain = hero.villains[0]!.instanceId;
+    const identity = identityOf(hero);
+    const identityDamageBefore = inst(hero, identity).damage;
+    const { state: attacked, events } = driveEventsPicking(WAVE2_DEPS, hero, firstLegal, {
+      type: "basicAttack",
+      playerId: P1,
+      attackerInstanceId: identity,
+      targetInstanceId: villain,
+    });
+    const prevented = events.flatMap((e) =>
+      e.type === "damagePrevented" && e.targetInstanceId === villain ? [e.amount] : [],
+    );
+    expect(prevented.length).toBe(1);
+    expect(prevented[0]).toBeGreaterThan(0);
+    // "An equal amount" is what was prevented (engine reading): a move of the attack after Reflexes resolved would
+    // leave Taskmaster unprotected and 0 prevented, so 0 dealt (synthetic test in
+    // packages/engine/src/attack-in-progress-readers.test.ts, "a prevention, then a move of the attack").
+    expect(inst(attacked, identity).damage - identityDamageBefore).toBe(prevented[0]);
+  });
+
   it("Photographic Reflexes: heard on the attack, so a tough status card on Taskmaster does not pre-empt it (RRG 1.8 p. 14; audit finding 17)", () => {
     const start = withPhotographicReflexes(taskmasterVsHeroes());
     const hero = runWave2(start.state, toHero());

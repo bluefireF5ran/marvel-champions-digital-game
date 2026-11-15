@@ -109,7 +109,7 @@ export const CABLE_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   ),
 
   "40009.askanison-response": heroResponse(
-    on.defends(YOUR_IDENTITY),
+    on.defends(YOUR_IDENTITY, { againstEnemy: true }),
     { label: "thwart", cost: [exhaustThis, spend({ energy: 1 })] },
     aScheme(),
     thwart(statOf(yourIdentity, "thw"), chosen("scheme")),

@@ -266,6 +266,12 @@ export interface EffectContext {
    */
   readonly attackIgnoresGuard?: true;
   /**
+   * The guard minions engaged with the ability's controller as its effect was initiated (`Frame<"effects">
+   * .guardsAtInitiation`): only these can guard against its attack (`canAttack`'s `guardFrom`). Absent: guard is read
+   * live (an ability being initiated, a basic attack, an unlabeled ability's separate attacks). Set by `contextOf`.
+   */
+  readonly attackGuardFrom?: readonly InstanceId[];
+  /**
    * What this context may match inside a closed in-play scenario area (`closedScenarioPlayArea`,
    * docs/phase7-wave8.md §3.33): the area its ability declares (`AbilityDefinition.reaches`, `reachOf`), or `"all"`
    * for a read. A condition, a count and an event pattern are reads (§4.1 Q18 = A: "counting or watching them does
@@ -340,6 +346,16 @@ export const attackIgnoringOf = (definition: AbilityDefinition | undefined): { r
   }
   return ignores ? { attackIgnoresGuard: true } : {};
 };
+
+/**
+ * Whether this ability is one attack, initiated with its effect: it is labeled "(attack)" (RRG 1.8 "Labeled Ability",
+ * p. 26; one attack per ability, wave 8 Q48). Its effects frame keeps the guard minions engaged as its effect was
+ * initiated (`Frame<"effects">.guardsAtInitiation`), which its guard checks read. An unlabeled ability's `attack`
+ * instructions are each their own attack, initiated as that instruction resolves (FAQ "Dance of Death (#4)", RRG 1.8
+ * p. 59), so each reads guard live.
+ */
+export const abilityIsOneAttack = (definition: AbilityDefinition | undefined): boolean =>
+  definition?.label?.includes("attack") === true;
 
 /**
  * MC45 p. 5: "Cards in the mission area are in play but under no player's control. They cannot be affected by card
@@ -1719,7 +1735,10 @@ export function explainQuery(
   }
   if (query.attackableBy) {
     const [attacker] = resolveRef(state, query.attackableBy, context);
-    if (!attacker || !canAttack(state, attacker, id, context.deps, false, context.attackIgnoresGuard === true))
+    if (
+      !attacker ||
+      !canAttack(state, attacker, id, context.deps, false, context.attackIgnoresGuard === true, context.attackGuardFrom)
+    )
       return "cannotBeAttacked";
   }
   if (query.canTakeAttackInProgress === "player") {
@@ -2363,11 +2382,28 @@ export const rulePlayers = (
   return blanked && blanked.length > 0 ? players.filter((playerId) => !blanked.includes(playerId)) : players;
 };
 
-const guardEngagedWith = (state: GameState, playerId: PlayerId, deps: EngineDeps): boolean =>
-  cardsInPlay(state).some(
+/** The minions in play engaged with `playerId` that have guard now (RRG 1.8 "Guard", p. 21). */
+export const guardMinionsEngagedWith = (
+  state: GameState,
+  playerId: PlayerId,
+  deps: EngineDeps,
+): readonly InstanceId[] =>
+  cardsInPlay(state).filter(
     (id) =>
       isMinion(state, id) && getInstance(state, id)?.engagedWith === playerId && hasKeyword(state, id, "guard", deps),
   );
+
+/**
+ * A guard minion engaged with `playerId`; with `guardFrom`, only one of those minions counts (an attack already
+ * initiated, `canAttack`). Each is still read live: still in play, still engaged with the player, still with guard.
+ */
+const guardEngagedWith = (
+  state: GameState,
+  playerId: PlayerId,
+  deps: EngineDeps,
+  guardFrom?: readonly InstanceId[],
+): boolean =>
+  guardMinionsEngagedWith(state, playerId, deps).some((id) => guardFrom === undefined || guardFrom.includes(id));
 
 /**
  * A `characterIgnores` rule exempts this character from guard, patrol or the crisis icon (docs/phase7-wave4.md §3.24),
@@ -2451,6 +2487,16 @@ export function canAttack(
   basic = false,
   /** "This attack ignores guard" (`EffectSpec attack.ignores`): guard does not stop it; everything else still does. */
   ignoreGuard = false,
+  /**
+   * For an attack ability already initiated, the guard minions engaged with its player as it was (`EffectContext
+   * .attackGuardFrom`): only one of them still engaged and still with guard stops it; a minion that gains guard later
+   * does not. Owner decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49: guard is checked when the attack is
+   * initiated, and for its later targets only against a guard minion already engaged then; ruling May 18, 2023 (5),
+   * Swift Retribution: "Guard prevents you from initiating attacks, but does not prevent you from dealing damage". A
+   * guard minion an earlier instruction defeated stops nothing (Dive Bomb FAQ). Absent: every guard minion engaged now
+   * counts.
+   */
+  guardFrom?: readonly InstanceId[],
 ): boolean {
   const controller = controllerOf(state, attackerId);
   // An attack by an enemy is nobody's attack: neither guard nor a player-scoped `cannotAttack` (an `attacker`-scoped
@@ -2463,7 +2509,7 @@ export function canAttack(
   if (!isVillain(state, targetId)) return true;
   if (ignoreGuard || hasKeyword(state, targetId, "guard", deps)) return true;
   if (characterIgnores(state, deps, attackerId, "guard")) return true;
-  return !guardEngagedWith(state, controller, deps);
+  return !guardEngagedWith(state, controller, deps, guardFrom);
 }
 
 /**
@@ -2809,8 +2855,10 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
     }
     case "slot":
       return context.bindings[ref.slot] ?? [];
-    case "eventSource":
-      return context.event ? eventSubjects(context.event).sources : [];
+    case "eventSource": {
+      const sources = context.event ? eventSubjects(context.event).sources : [];
+      return ref.filter ? sources.filter((id) => matchesQuery(state, id, ref.filter as TargetQuery, context)) : sources;
+    }
     case "eventTarget":
       return context.event ? eventSubjects(context.event).targets : [];
     case "actingCharacter":
@@ -2833,10 +2881,18 @@ function resolveRefAnywhere(state: GameState, ref: TargetRef, context: EffectCon
       // attack waiting for its ability counts from its initiation (RRG 1.8 FAQ "Nova (#12)", p. 59; ruling August 7,
       // 2025; ruling 147). Engine reading awaiting the owner: a later, non-dependent sentence of that ability naming "the
       // attacking enemy" names it.
-      const attack = state.stack.find((f) => f.kind === "event" && f.event.kind === "enemyAttack");
+      // Only an enemy: Gamora attacking her own player through Old Rivals (22031; a friendly attack, `attack` with
+      // `attackedPlayerId`) "is not considered 'an enemy' during the attack" (ruling Oct 26, 2023 (102); owner decision
+      // 2026-11-15, #525 item 1), so while hers is the innermost attack "the attacking enemy" names nobody, not an
+      // enemy attack beneath it; and an enemy attack's attacker names itself only while it is an enemy.
+      const attack = state.stack.find(
+        (f) =>
+          f.kind === "event" &&
+          (f.event.kind === "enemyAttack" || (f.event.kind === "attack" && f.event.attackedPlayerId !== undefined)),
+      );
       if (attack?.kind !== "event" || attack.event.kind !== "enemyAttack") return [];
       const enemy = attack.event.enemyInstanceId;
-      return cardsInPlay(state).includes(enemy) ? [enemy] : [];
+      return cardsInPlay(state).includes(enemy) && categoriesOf(state, enemy).includes("enemy") ? [enemy] : [];
     }
     case "attackedCharacter": {
       // The innermost attack (by one of `attacker`, when given), as `PlayerRef attackedPlayer` finds it.
@@ -4751,14 +4807,28 @@ export function canBePutIntoPlay(
   const under = anyPlayer
     ? [putter, ...playerOrder(state).flatMap((p) => (p.playerId === putter ? [] : [p.playerId]))]
     : [putter];
-  return under.some((player) => {
-    if (uniqueEntryBlocker(state, deps, id, player, bringer)) return false;
-    if (cannotEnterPlay(state, deps, id, player)) return false;
-    if (card?.type !== "upgrade") return maxPerPlayerReached(state, id, player) === null;
-    if (putIntoPlayHostCandidates(state, deps, id, player).length > 0) return true;
-    // No host the maximum leaves it (`admitUnderPlayerMax` refuses it), or none at all (`noLegalHost`).
-    return attachedOnlyWhileInPlay(state, id, deps) && upgradeHostCandidates(state, deps, id, player).length === 0;
-  });
+  return under.some((player) => canEnterPlayUnder(state, deps, id, player, bringer));
+}
+
+/**
+ * The per-player half of `canBePutIntoPlay`: whether `id`, entering play from out of play, could enter under `player`'s
+ * control. The unique rule (RRG 1.8 "Unique Icon", pp. 45-46), no `RuleSpec cannotEnterPlay`, "Max N per player" (RRG
+ * 1.8 "Max, Maximum", p. 28) and, for an upgrade, a legal host under that player (`putIntoPlayHostCandidates`). The
+ * "[type] form only" check reads the player putting it in and is the caller's (`formOnlyFault`).
+ */
+export function canEnterPlayUnder(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  player: PlayerId,
+  bringer: InstanceId | null,
+): boolean {
+  if (uniqueEntryBlocker(state, deps, id, player, bringer)) return false;
+  if (cannotEnterPlay(state, deps, id, player)) return false;
+  if (cardOf(state, id)?.type !== "upgrade") return maxPerPlayerReached(state, id, player) === null;
+  if (putIntoPlayHostCandidates(state, deps, id, player).length > 0) return true;
+  // No host the maximum leaves it (`admitUnderPlayerMax` refuses it), or none at all (`noLegalHost`).
+  return attachedOnlyWhileInPlay(state, id, deps) && upgradeHostCandidates(state, deps, id, player).length === 0;
 }
 
 /**

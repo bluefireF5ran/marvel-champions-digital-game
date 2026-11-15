@@ -7,7 +7,8 @@
  *   Ability" (p. 26): "When a player resolves an ability labeled '(attack),' that ability is considered to be an attack
  *   made by that player's identity."
  * - **Q49 = A, qualified.** Guard restricts attack targeting, and is checked for every enemy the attack targets at the
- *   time that enemy would be attacked. RRG 1.8 "Guard" (p. 21): "that player cannot use cards they control to attack a
+ *   time that enemy would be attacked; narrowed 2026-11-15 (#525 item 6) to the guard minions engaged when the attack
+ *   was initiated. RRG 1.8 "Guard" (p. 21): "that player cannot use cards they control to attack a
  *   villain without this keyword."
  * - **Q50 = B.** Each enemy the attack targets is attacked; an enemy that only takes its damage is not. RRG 1.8
  *   "Attack (Player Ability Type)" (p. 10): "Each attacked enemy with the retaliate X keyword that is still in play

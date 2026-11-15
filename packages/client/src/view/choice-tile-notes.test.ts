@@ -1,6 +1,6 @@
 import type { GameState, InstanceId, PendingChoice } from "@mc/engine";
 import { describe, expect, test } from "vitest";
-import { optionCounterNotesOf, tileCounterNote } from "./choice-tile-notes.js";
+import { choiceNoteOf, optionCounterNotesOf, tileCounterNote } from "./choice-tile-notes.js";
 
 const game = {
   instances: {
@@ -24,5 +24,20 @@ describe("two copies of a Uses card (issue #571)", () => {
   test("a divided or ordered prompt has no notes", () => {
     const choice = { prompt: { kind: "divide" }, options: [option("a"), option("b")] } as unknown as PendingChoice;
     expect(optionCounterNotesOf(game, choice).size).toBe(0);
+  });
+});
+
+describe("a card choice's note (#525 item 11)", () => {
+  const withPrompt = (prompt: object) => ({ prompt, options: [option("a")] }) as unknown as PendingChoice;
+
+  test("the note a chooseCards prompt carries is shown", () => {
+    const note = "A tucked card is out of play: its text stops working, and it is discarded when Spectrum leaves play.";
+    expect(choiceNoteOf(withPrompt({ kind: "chooseCards", slot: "tuck", note }))).toBe(note);
+  });
+
+  test("no note, an empty note or another prompt kind has no note line", () => {
+    expect(choiceNoteOf(withPrompt({ kind: "chooseCards", slot: "tuck" }))).toBeNull();
+    expect(choiceNoteOf(withPrompt({ kind: "chooseCards", slot: "tuck", note: "  " }))).toBeNull();
+    expect(choiceNoteOf(withPrompt({ kind: "chooseTarget", note: "x" }))).toBeNull();
   });
 });

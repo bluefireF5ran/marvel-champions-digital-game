@@ -935,13 +935,12 @@ describe("Attacrobatics (50076)", () => {
 describe("Attacrobatics prevents only the damage dealt to Black Widow (ruling July 11, 2025)", () => {
   // "Like Temporal Shield preventing just the damage dealt to Kang, Attacrobatics only prevents the damage that would be
   // dealt to Black Widow during the attack. Spray Fire would still deal damage to engaged minions."
-  // RRG 1.8 p. 10 ("an ability labeled as an attack is considered a single attack") does not say that a Preparation's
-  // "this attack" covers every target; "Prevent" (p. 35) is per damage instance. The engine follows owner decision Q4 = A
-  // (`engine/src/resolve/attack-ability.ts` header, `wave9/aos/scenarios-rulings.qa.test.ts`), which pins the opposite.
+  // RRG 1.8 "Prevent" (p. 35) is per damage instance. Owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4:
+  // only the damage to Black Widow is prevented (`engine/src/resolve/attack-ability.ts` header).
   const SPRAY_FIRE = "50039";
   const ABDUCTOR = "50080"; // A.I.M. Abductor, a minion in the Black Widow encounter deck
   const SPRAY_DEPS: EngineDeps = { abilities: mergeRegistries(WAVE8_ABILITIES, AOS_BUILTIN_PACK.abilities) };
-  it.fails("Spray Fire on Black Widow with Attacrobatics on top: she takes nothing, the engaged minion still takes 3", () => {
+  it("Spray Fire on Black Widow with Attacrobatics on top: she takes nothing, the engaged minion still takes 3", () => {
     const config = wave9Scenario("black-widow", {
       players: [{ starterDeckId: "nick-fury-justice" }],
       seed: 1,
@@ -994,7 +993,7 @@ describe("Attacrobatics prevents only the damage dealt to Black Widow (ruling Ju
     );
     const villain = after.villains[0]!.instanceId;
     expect(inst(after, villain).damage).toBe(0); // setup check: Attacrobatics prevented the damage to her
-    expect(inst(after, minion).damage).toBe(3); // actual: 0 (the whole attack was prevented)
+    expect(inst(after, minion).damage).toBe(3);
   });
 });
 

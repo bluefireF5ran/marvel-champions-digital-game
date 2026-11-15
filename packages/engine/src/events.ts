@@ -1068,8 +1068,9 @@ export type GameEvent =
   /**
    * A damage instruction of an "(attack)" ability named an enemy its player's identity may not attack right now (a
    * guard minion engaged with that player and the villain, a `cannotAttack` rule), so that enemy is not attacked and is
-   * dealt none of that instruction's damage (RRG 1.8 "Guard", p. 21; owner ruling Q49, docs/phase7-wave8.md §4.1: guard
-   * is checked for every enemy the attack targets, at the time that enemy would be attacked). The instruction's other
+   * dealt none of that instruction's damage (RRG 1.8 "Guard", p. 21; owner ruling Q49, docs/phase7-wave8.md §4.1,
+   * narrowed 2026-11-15 by #525 item 6: only guard minions engaged when the attack was initiated count, still engaged
+   * and with guard as that enemy would be attacked). The instruction's other
    * targets are dealt theirs. `sourceInstanceId`: the card whose ability it is.
    *
    * `reason: "attackCancelled"`: the enemy could be attacked, but the ability's attack was cancelled, so the

@@ -110,7 +110,7 @@ export const ROGUE_SUPPORT_UPGRADES_ALLIES = defineAbilities({
   "38013.unflappable-response": DRS_PACK_CARDS["09020.unflappable-response"]!,
 
   "38014.judoka-skill-interrupt": interrupt(
-    on.defends(YOUR_IDENTITY),
+    on.defends(YOUR_IDENTITY, { againstEnemy: true }),
     { cost: removeCounter("judo") },
     modifyStat("atk", -2, eventSource, "endOfAttack"),
   ),

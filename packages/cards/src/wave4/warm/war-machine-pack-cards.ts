@@ -18,7 +18,7 @@ import {
   discard,
   encounterCards,
   eventAmount,
-  eventSource,
+  eventSourceEnemy,
   exhaustEachCost,
   exhaustThis,
   gets,
@@ -224,7 +224,8 @@ export const WAR_MACHINE_PACK_CARDS = defineAbilities({
     on.damage(query(["identity", "ally"]), { fromAttack: true }),
     { cost: avengerAndGuardian },
     preventDamage(),
-    dealDamage(eventAmount, eventSource),
+    // "The attacking enemy": Gamora's Old Rivals attacker is none (ruling Oct 26, 2023 (102), #525 item 1).
+    dealDamage(eventAmount, eventSourceEnemy),
   ),
 
   // Sidearm (upgrade ×3, 23035, Basic) — Attach to an ally. Max 1 per ally (data). Attached ally gets +1 ATK and

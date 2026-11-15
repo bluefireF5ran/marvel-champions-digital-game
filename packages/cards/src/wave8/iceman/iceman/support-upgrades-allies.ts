@@ -163,7 +163,8 @@ export const ICEMAN_SUPPORT_UPGRADES_ALLIES: AbilityRegistry = defineAbilities({
   ),
 
   "46008.ice-wall-forced-interrupt": forcedInterrupt(
-    when.damage(query("identity"), { fromAttack: true }),
+    // "From an enemy attack" (Gamora's Old Rivals is not one; ruling Oct 26, 2023 (102), #525 item 1).
+    when.damage(query("identity"), { fromAttack: true, fromEnemy: true }),
     instead(
       placeDamage(eventAmount, self),
       andThen(ifThen(damagedAtLeast(self, 8), [discard(self), attachFrostbite(attackingEnemy)])),

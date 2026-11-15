@@ -94,7 +94,7 @@ import { authorityTagOf, decisionLabel, enemyTeamNoticeOf } from "../view/villai
 import { abilityShortLabelOf } from "../view/ability-label.js";
 import { choiceTileBarsOf, type TileBar } from "../view/choice-tile-bars.js";
 import { divideSheetOf, shownDivideChoice } from "../view/divide-sheet.js";
-import { optionCounterNotesOf, spendCaptionsOf, tileCounterNote } from "../view/choice-tile-notes.js";
+import { choiceNoteOf, optionCounterNotesOf, spendCaptionsOf, tileCounterNote } from "../view/choice-tile-notes.js";
 import { isSpendChoice, shownSpendChoice, spendAnswerOf, toggleSpendPick } from "../view/spend-choice.js";
 import {
   chosenResourcesNoteOf,
@@ -123,7 +123,7 @@ import {
 import { drawInstructionSourcePanel, drawSourceCardPanel, instructionStripHeight } from "../ui/source-card-panel.js";
 import { aosOptionLabelOf, secretTargetNotesOf, wrapOptionLabel } from "../view/board-secret-notes.js";
 import { optionLabelOf, playerName, seatIdentityName, shortSeatName } from "../view/names.js";
-import { defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
+import { boostLabelOf, defendChoiceViewOf, type DefendOptionView } from "../view/defend-choice.js";
 import {
   defendChoiceLayout,
   defendMatchupLayout,
@@ -1839,9 +1839,9 @@ export class ChoiceOverlay extends Phaser.Scene {
           summaryG.fillStyle(surface.ink.hex, 1).fillRect(rect.x, rect.y, rect.width, rect.height);
       }
     }
-    const boostText =
-      mid.width < 120 ? `+${view.summary.facedownCount} boost` : `+ ${view.summary.facedownCount} boost facedown`;
-    label(this, midX, boostLabelY, boostText, typeRole.label, surface.ink.hex, ink.secondary).setOrigin(0.5, 0);
+    const boostText = boostLabelOf(view.summary, mid.width < 120);
+    if (boostText !== null)
+      label(this, midX, boostLabelY, boostText, typeRole.label, surface.ink.hex, ink.secondary).setOrigin(0.5, 0);
 
     // The notes, clipped to their own rect rather than allowed to run under the option cards.
     const notes = matchup.notes;
@@ -1849,7 +1849,7 @@ export class ChoiceOverlay extends Phaser.Scene {
       ...view.summary.forcedNotes.map((text) => ({ text, role: "body" as const })),
       ...(view.summary.boostAbilityNote ? [{ text: view.summary.boostAbilityNote, role: "body" as const }] : []),
       { text: `Play a defense event: ${view.defenseEventsNote}`, role: "body" },
-      { text: view.rangeCaveat, role: "label" },
+      ...(view.rangeCaveat ? [{ text: view.rangeCaveat, role: "label" as const }] : []),
     ];
     let sy = notes.y;
     if (notes.width >= 120) {
@@ -2314,6 +2314,21 @@ export class ChoiceOverlay extends Phaser.Scene {
   #drawCardChoice(area: Rect, choice: PendingChoice): void {
     const collection = collectionRows(choice, (cardId) => gameCardsById().get(cardId));
     if (collection) return this.#drawCollectionGrid(area, choice, collection);
+    // A warning the prompt carries (a tucked card is out of play): above the cards, before any pick, wrapped to the
+    // sheet's width, with the cards taking the rest of the area.
+    const note = choiceNoteOf(choice);
+    if (note) {
+      const text = this.add
+        .text(area.x + 8, area.y, note, { ...textStyle(typeRole.body, surface.ink.hex), align: "left" })
+        .setOrigin(0, 0);
+      fitWrapped(text, area.width - 8, 3, 13);
+      const noteHeight = Math.ceil(text.height) + 6;
+      this.add
+        .graphics()
+        .fillStyle(signal.caution.hex, 1)
+        .fillRect(area.x, area.y, 4, noteHeight - 4);
+      area = { ...area, y: area.y + noteHeight, height: area.height - noteHeight };
+    }
     const barState = appSession().store.state.game;
     this.#tileBars = barState ? choiceTileBarsOf(barState, choice, this.#selected, gameDeps()) : new Map();
     this.#tileCounters = barState ? optionCounterNotesOf(barState, choice) : new Map();

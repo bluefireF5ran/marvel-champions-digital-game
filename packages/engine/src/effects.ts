@@ -67,7 +67,7 @@ import {
   staysInHand,
 } from "./rules.js";
 import { addFrameSlots, eventFrame, pushEvent } from "./resolve/frames.js";
-import { permanentRehostFor, rehostPermanentAttachment } from "./resolve/attach.js";
+import { permanentRehostFor, rehostPermanentAttachment, waitsForVillainHost } from "./resolve/attach.js";
 import { moveCardsTo } from "./resolve/cards.js";
 import { boostCardGivenTo } from "./resolve/enemy-activation.js";
 import { staysInGameForScenarioDeck } from "./resolve/scenario-deck-top.js";
@@ -1529,9 +1529,11 @@ export function discardAtOnce(ctx: Ctx, id: InstanceId): void {
  * - a permanent or "cannot leave play" one stays in play (`staysInPlayWithoutHost`): a player card is unattached into
  *   its controller's play area (§3.30); a permanent encounter attachment resolves its "attach to" text again and
  *   moves to that host (`rehostPermanentAttachment`, docs/phase7-wave10.md §3.19; MC56 p. 20), and so does a
- *   player's permanent upgrade that prints one; an unowned permanent encounter card with no such host is discarded
- *   past the keyword (§4.2 Q26), through `leaveNow` itself rather than `leavePlayAtOnce`; a player's permanent card
- *   with no such host is removed from the game (`removedWithoutHost`), unless its own text answers its host leaving.
+ *   player's permanent upgrade that prints one; an unowned permanent encounter card with no such host waits in play,
+ *   unattached, for the next villain when its "attach to" names one and no villain is in play (`waitsForVillainHost`,
+ *   ruling May 10, 2024 (165)), and is otherwise removed from the game; so is a player's permanent card with no such
+ *   host (`removedWithoutHost`), unless its own text answers its host leaving. Through `leaveNow` itself rather than
+ *   `leavePlayAtOnce`.
  *   The host leaving is a game rule with no source card, so Permanent's own-set exception (§4.1 Q46) never applies
  *   here.
  */
@@ -1539,7 +1541,6 @@ export function discardWithLeavingHost(ctx: Ctx, id: InstanceId): void {
   if (leavingCancelled(ctx.state, id)) unattachInPlay(ctx, id);
   else if (!staysInPlayWithoutHost(ctx, id)) discardAtOnce(ctx, id);
   else if (rehostPermanentAttachment(ctx, id, getInstance(ctx.state, id)?.attachedTo ?? null, true)) return;
-  else if (discardedWithoutHost(ctx, id)) leaveNow(ctx, id, discardZoneFor(ctx.state, id), "top", true, true);
   else if (removedWithoutHost(ctx.state, ctx.deps, id))
     leaveNow(ctx, id, { kind: "removedFromGame" }, "top", false, true);
   else unattachInPlay(ctx, id);
@@ -1655,8 +1656,8 @@ export function defeatFromPlay(ctx: Ctx, id: InstanceId, placement?: DefeatPlace
  * With no source card the move is the game's own rule, not a card ability, and the keyword stops it as before: a
  * defeat for reaching zero hit points or zero threat, the Uses keyword's discard, the uniqueness, ally limit and
  * Restricted discards, a villain's signature side scheme removed with its villain, a flipped attachment with no valid
- * host. The rules that get past the keyword on purpose do not ask (an attachment whose host leaves, §3.30 and §4.2 Q26;
- * player elimination, `eliminatePlayer`).
+ * host. The rules that get past the keyword on purpose do not ask (an attachment whose host leaves, §3.30 and #525
+ * item 8; player elimination, `eliminatePlayer`).
  *
  * `isPermanent` still decides whether the card is permanent at all, so a granted keyword (§4.1 Q45), a blanked text box
  * and a facedown card read as before.
@@ -1700,22 +1701,21 @@ const staysWithoutHost = (state: GameState, deps: EngineDeps, id: InstanceId): b
   isPermanent(state, id, deps) || cannotLeavePlay(state, deps, id, undefined, true, true);
 
 /**
- * The attachments on `hostId` that its leaving play will leave in play, unattached (`discardWithLeavingHost`: a player's
- * permanent or "cannot leave play" card; a facedown one is out of play and an unowned permanent encounter one is
- * discarded). Read while the host is still in play, for `TriggerEvent cardLeavesPlay.strandedAttachments`.
+ * The attachments on `hostId` that its leaving play will leave in play, unattached (`discardWithLeavingHost`: a
+ * "cannot leave play" card, a player's permanent card whose own text keeps it, an unowned permanent encounter one
+ * waiting for the next villain; a facedown one is out of play, and one re-attached or removed from the game is not
+ * stranded). Read while the host is still in play, for `TriggerEvent cardLeavesPlay.strandedAttachments`.
  */
 function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: InstanceId): readonly InstanceId[] {
   return mustInstance(state, hostId).attachments.filter((id) => {
     const attachment = getInstance(state, id);
     if (!attachment || isFacedownAttachment(state, id) || !staysWithoutHost(state, deps, id)) return false;
-    const unowned = playerCardOwnerOf(state, id) === null && attachment.controllerId === null;
-    if (unowned) return cannotLeavePlay(state, deps, id, undefined, true, true);
     return permanentRehostFor(state, deps, id, hostId, true) === null && !removedWithoutHost(state, deps, id);
   });
 }
 
 /**
- * A player's permanent attachment whose host leaves play and whose "attach to" text names no other legal host
+ * A permanent attachment whose host leaves play and whose "attach to" text names no other legal host
  * (`permanentRehostFor`): removed from the game. RRG 1.8 "Permanent" (p. 32): "If the card to which a permanent
  * attachment was attached leaves play, resolve that attachment's 'attach to' text. If it has none or that text does
  * not have a valid target, remove the attachment from the game." Before #238 the engine left it unattached in its
@@ -1726,13 +1726,21 @@ function strandedAttachmentsOf(state: GameState, deps: EngineDeps, hostId: Insta
  * is defeated). Card text takes precedence over the
  * Rules Reference where they contradict (RRG 1.8 "The Golden Rules", p. 4); no ruling covers either card, so this is
  * an engine interpretation, kept to those cards (owner, 2026-10-18). "Cannot leave play" stays absolute (RRG 1.8
- * "'Cannot'", p. 11). An unowned permanent encounter attachment keeps its own fallback (`discardedWithoutHost`).
+ * "'Cannot'", p. 11).
+ *
+ * An unowned permanent encounter attachment (Flight, `next_evol` 40151) is removed from the game the same way, unless
+ * its "attach to" names a villain that is not there yet (no villain in play, or the active counter still to pass):
+ * then it waits in play for that villain (`waitsForVillainHost`). Owner decision 2026-11-15 (#525 item 8), revising
+ * docs/phase7-wave5.md §4.1 row 26, which discarded it to its encounter discard pile; ruling May 10, 2024 (165) and
+ * Sep 26, 2024. Flagged conflict: RRG 1.8 "Permanent" p. 32 reads as removal; the owner chose the rulings' wait
+ * (`waitsForVillainHost` has the detail).
  */
 function removedWithoutHost(state: GameState, deps: EngineDeps, id: InstanceId): boolean {
   const instance = getInstance(state, id);
   if (!instance || !isPermanent(state, id, deps) || cannotLeavePlay(state, deps, id, undefined, true, true))
     return false;
-  if (playerCardOwnerOf(state, id) === null && instance.controllerId === null) return false;
+  if (playerCardOwnerOf(state, id) === null && instance.controllerId === null)
+    return !waitsForVillainHost(state, deps, id, instance.attachedTo);
   return !staysForOwnText(state, deps, id, instance.attachedTo);
 }
 
@@ -1753,27 +1761,13 @@ function staysForOwnText(state: GameState, deps: EngineDeps, id: InstanceId, hos
 }
 
 /**
- * A permanent encounter attachment with no player owner or controller, whose host leaves play, when its printed
- * "attach to" names no other legal host (`permanentRehostFor`): discarded to its encounter discard pile, permanent
- * notwithstanding (user ruling, docs/phase7-wave5.md §4.2 Q26). "Cannot leave play" stays absolute (RRG 1.8
- * "'Cannot'", p. 11). Player cards keep §3.30's unattach.
- */
-function discardedWithoutHost(ctx: Ctx, id: InstanceId): boolean {
-  const instance = mustInstance(ctx.state, id);
-  return (
-    playerCardOwnerOf(ctx.state, id) === null &&
-    instance.controllerId === null &&
-    !cannotLeavePlay(ctx.state, ctx.deps, id, undefined, true, true)
-  );
-}
-
-/**
  * "(Return this card to your play area.)" when its host leaves play (Wrist Navigator, `sm` 27189a; docs/phase7-wave5.md
  * §3.30). The card does not leave play: it keeps its state (counters, exhaustion) and its controller, and moves
  * unattached to its controller's play area (its owner's if it has no controller). A player card whose player was
  * eliminated stays in the villain's play area (player elimination itself re-resolves "attach to", `eliminatePlayer`).
- * A permanent encounter card with no player owner or controller does not come here: it is discarded
- * (`discardedWithoutHost`).
+ * A permanent encounter card with no player owner or controller comes here, past an uncancelled leaving, only to wait
+ * for the next villain (`waitsForVillainHost`): it stays in the villain's play area, unattached, until
+ * `attachWaitingPermanents` (`state-checks.ts`) attaches it.
  */
 function unattachInPlay(ctx: Ctx, id: InstanceId): void {
   const instance = mustInstance(ctx.state, id);
@@ -2045,8 +2039,9 @@ export function attachmentsWaitForHost(ctx: Ctx, hostId: InstanceId): boolean {
  * The `cardLeavesPlay` (with `leaving: withHost`) of each attachment on `hostId` that leaves play because the host
  * does, and that something hears (docs/phase7-wave5.md §4.1 Q32). `how` mirrors the path that will move them:
  * - `leaveNow`: the host leaves play (`discardWithLeavingHost`: a permanent or "cannot leave play" one stays, an
- *   unowned permanent encounter one is discarded, §4.2 Q26), through `leavePlay` or a host step (a villain removed,
- *   set aside or defeated while others remain, a main scheme stage removed; §4.1 Q50);
+ *   unowned permanent encounter one with no new host waits for the next villain or is removed from the game, #525
+ *   item 8), through `leavePlay` or a host step (a villain removed, set aside or defeated while others remain, a main
+ *   scheme stage removed; §4.1 Q50);
  * - `defeat`: the same, but a Victory X one goes to the victory display (`defeatFromPlay`);
  * - `flip`: the host flips to another card type and stays in play (RRG 1.8 "Flip", p. 20): its attachments are
  *   discarded (`discardAtOnce`), except a permanent or "cannot leave play" one, which stays attached.
@@ -2077,7 +2072,7 @@ export function leavingWithHost(
     // A permanent encounter attachment that goes to the host its "attach to" names does not leave play (§3.19).
     else if (blocked && permanentRehostFor(ctx.state, ctx.deps, attachment, hostId, true) !== null) to = null;
     else if (blocked && removedWithoutHost(ctx.state, ctx.deps, attachment)) to = "removedFromGame";
-    else to = !blocked || discardedWithoutHost(ctx, attachment) ? discarded() : null;
+    else to = blocked ? null : discarded();
     if (to === null) continue;
     const event: TriggerEvent = {
       kind: "cardLeavesPlay",

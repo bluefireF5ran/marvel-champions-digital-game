@@ -247,7 +247,7 @@ export const ADAM_WARLOCK_PACK_CARDS = defineAbilities({
 
   // Counter-Punch (21062) — Core's own Counter-Punch (01077), reprinted verbatim.
   "21062.counter-punch-response": response(
-    after.defends(YOUR_HERO),
+    after.defends(YOUR_HERO, { againstEnemy: true }),
     { label: "attack" },
     attack(statOf(yourIdentity, "atk"), eventSource),
   ),

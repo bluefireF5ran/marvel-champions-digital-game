@@ -22,7 +22,7 @@ import {
   each,
   encounterCards,
   eventDealt,
-  eventSource,
+  eventSourceEnemy,
   exhaustEachCost,
   exhaustThis,
   gainTraitsOfUntil,
@@ -166,13 +166,13 @@ export const NCRAWLER_ASPECT_BASIC: AbilityRegistry = defineAbilities({
     on.defends(YOUR_HERO),
     { label: "defense" },
     modifyStat("def", 2, yourIdentity, "endOfAttack"),
-    atEndOfAttack(ifThen(not(eventDealt("damage")), dealDamage(3, eventSource))),
+    atEndOfAttack(ifThen(not(eventDealt("damage")), dealDamage(3, eventSourceEnemy))),
   ),
 
   "48019.the-power-of-protection-constant": reprintOf("01079.the-power-of-protection-constant"),
 
   "48020.astonishing-x-men-response": response(
-    on.defends(query(["hero", "ally"], { trait: X_MEN }), { takingNoDamage: true }),
+    on.defends(query(["hero", "ally"], { trait: X_MEN }), { takingNoDamage: true, againstEnemy: true }),
     removeThreat(1, self),
   ),
   "48020.when-defeated": whenDefeated(stun(each(query("enemy"))), confuse(each(query("enemy")))),

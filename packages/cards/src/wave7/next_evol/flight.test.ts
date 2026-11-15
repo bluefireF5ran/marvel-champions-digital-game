@@ -98,11 +98,15 @@ describe("Flight as a modular set: Setup, Attach to the villain, Permanent", () 
 /**
  * Morlock Siege's own rule (NeXt Evolution rulebook, MC40 p. 9): "Unlike other scenarios, when one of these villains is
  * defeated, all tokens, status cards, and attachments on the just-defeated villain are discarded instead of carrying
- * over to the next villain." A scenario's rules take precedence over the permanent rules (FFG ruling Feb 28, 2026 #3),
- * so ruling 165 (May 10, 2024: Flight moves to the next villain) does not apply here (issue #525, item 8).
+ * over to the next villain." That discard is kept for attachments that are not permanent. Flight is permanent: owner
+ * decision 2026-11-15 (#525 item 8), revising wave 5 row 26; RRG 1.8 "Permanent" p. 32; ruling May 10, 2024 (165),
+ * which names Morlock Siege: "attach Flight to a villain in play if the villain it was attached to left play", and with
+ * no villain in play "keep the attachment in play (because it's permanent) and attach it immediately to the next
+ * eligible villain that enters play". Routed tucks the defeated villain before the next one is added, so Flight waits
+ * in play, unattached, and attaches to the next villain as it enters play.
  */
-describe("Morlock Siege (MC40 p. 9): attachments on a defeated villain are discarded, Flight's permanent included", () => {
-  it("Flight (40151) on a Morlock Siege villain: it is discarded, the next villain does not get it", () => {
+describe("Morlock Siege (MC40 p. 9): Flight, being permanent, goes to the next villain (ruling 165)", () => {
+  it("Flight (40151) on a defeated Morlock Siege villain: it stays in play and attaches to the next villain", () => {
     let s: GameState | null = null;
     for (let seed = 1; seed < 400 && !s; seed++) {
       const created = createGame(
@@ -132,6 +136,7 @@ describe("Morlock Siege (MC40 p. 9): attachments on a defeated villain are disca
     const flight = Object.keys(hero.instances).find(
       (id) => hero.instances[id as never]!.cardId === "40151",
     )! as InstanceId;
+    expect(hero.instances[flight]!.attachedTo).toBe(target);
     const clear = { stunned: 0, confused: 0, tough: 0 };
     const armed = patchInstance(patchInstance(hero, target, { damage: 999, statuses: clear }), identityOf(hero), {
       exhausted: false,
@@ -146,8 +151,15 @@ describe("Morlock Siege (MC40 p. 9): attachments on a defeated villain are disca
     } as never);
     const next = activeVillain(run.state).instanceId;
     expect(next).not.toBe(target);
-    expect(run.state.instances[flight]!.attachedTo).not.toBe(next);
-    expect(attachmentsOf(run.state, next)).not.toContain("Flight");
+    expect(run.state.instances[flight]!.attachedTo).toBe(next);
+    expect(attachmentsOf(run.state, next)).toContain("Flight");
+    expect(traitNames(run.state, next)).toContain("AERIAL");
+    expect(discardNames(run.state)).not.toContain("Flight");
+    expect(run.state.removedFromGame).not.toContain(flight);
+    const rehosted = run.events.filter((e) => e.type === "permanentAttachmentRehosted");
+    expect(rehosted).toEqual([
+      { type: "permanentAttachmentRehosted", instanceId: flight, fromInstanceId: null, hostInstanceId: next },
+    ]);
   });
 });
 

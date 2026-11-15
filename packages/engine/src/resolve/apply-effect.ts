@@ -74,7 +74,6 @@ import {
   activeEncounterDeckId,
   cardBackOf,
   cardOf,
-  characterProfile,
   currentName,
   discardZoneFor,
   encounterDeckOf,
@@ -261,6 +260,7 @@ import {
   getsBoostCard,
   giveBoostCard,
 } from "./enemy-activation.js";
+import { friendlyAttackOf } from "./friendly-attack.js";
 import {
   checkRestrictedAfterFlip,
   enterPlay,
@@ -900,6 +900,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           ctx.deps,
           false,
           ignoresGuard,
+          context.attackGuardFrom,
         ),
       );
       // Once an attack of that ability was cancelled, the ability's one attack makes no more (owner decision,
@@ -987,25 +988,22 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       return;
     }
     case "friendlyCharacterAttacks": {
-      // docs/phase7-wave4.md §3.26 (Old Rivals). A friendly character: a hero-form identity or an ally a player controls.
-      const inPlay = cardsInPlay(ctx.state);
-      const [attacker] = targets(effect.attacker).filter((id) => {
-        if (!inPlay.includes(id) || controllerOf(ctx.state, id) === null) return false;
-        const categories = categoriesOf(ctx.state, id);
-        return categories.includes("hero") || categories.includes("ally");
-      });
-      const [playerId] = resolvePlayers(ctx.state, effect.player, context);
-      const player = playerId ? getPlayer(ctx.state, playerId) : undefined;
+      // docs/phase7-wave4.md §3.26 (Old Rivals), with its defense step (`friendly-attack.ts`): owner decision
+      // 2026-11-15 (#525 item 1), replacing wave 4 §3.26's "no defense step"; ruling Oct 26, 2023 (102).
+      const made = friendlyAttackOf(ctx.state, ctx.deps, effect, context);
       const noAttack = () => {
         if (effect.bind) addFrameVars(ctx, frame.frameId, { [`${effect.bind}.made`]: 0 });
       };
-      if (!attacker || !player || player.eliminated) return noAttack();
-      if (characterProfile(ctx.state, attacker, ctx.deps)?.missing.includes("atk")) return noAttack();
+      if (!made) return noAttack();
+      const { attacker, playerId } = made;
+      const player = mustPlayer(ctx.state, playerId);
       if (statusActive(ctx.state, attacker, "stunned", ctx.deps)) {
         announceStatusDiscarded(ctx, discardStatusCards(ctx, attacker, "stunned", "cancelledAttack"));
         return noAttack();
       }
       const consequential = pushConsequentialDamage(ctx, attacker, "attack");
+      // Made against the attacked identity; its Declare Defender step is taken after its interrupt window, as its event
+      // frame applies (`declareFriendlyDefender`).
       pushEvent(
         ctx,
         {
@@ -1016,6 +1014,7 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
           basic: false,
           // "Resolve her ATK against you": the attack deals the attacker's ATK (docs/phase7-wave10.md §3.17).
           usedStat: "atk",
+          attackedPlayerId: playerId,
           sourceInstanceId: frame.selfInstanceId,
           ...(frame.abilityId !== undefined ? { sourceAbilityId: frame.abilityId } : {}),
         },
@@ -1153,7 +1152,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       for (const keyword of effect.keywords ?? []) delta[keyword] = 1;
       if (effect.preventAllDamage) {
         delta.preventAllDamage = 1;
-        // Where what it stops is recorded (`bind`), and the rest of an "(attack)" ability's one attack (§3.4, Q4 = A).
+        // Records the character it protects (and `bind`): damage to that character is stopped for the rest of an
+        // "(attack)" ability's attack, not other targets' (owner #525 item 10; ruling Jul 11, 2025).
         preventAbilityAttackDamage(ctx, activation, effect.bind);
       }
       // "Prevent N damage from this attack" (§3.81): a budget `applyDamage` spends on the attacked character's damage.
@@ -1453,6 +1453,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const inPlay = cardsInPlay(ctx.state);
       if (!inPlay.includes(original.attackerInstanceId)) return;
       const { results: _results, ...body } = original;
+      // Guard is read live here on purpose, not against an ability's `guardsAtInitiation`: Thor (25013) and Dust (33012)
+      // add minions only, and Two-Gun Kid (56010) resolves in a basic attack's window, just as it is initiated.
       pushEvents(
         ctx,
         targets(effect.targets)

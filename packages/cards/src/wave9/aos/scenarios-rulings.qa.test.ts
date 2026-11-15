@@ -260,9 +260,10 @@ const basicAttack = (s: GameState, target: InstanceId, player: PlayerId = P1): C
 // Black Widow
 // ---------------------------------------------------------------------------------------------------------------------
 
-describe("Spray Fire (50039) on Black Widow: one attack with several targets (owner Q4 = A; MC50 p. 9; ruling January 17, 2026 - Ruling 2)", () => {
-  // Spray Fire deals 3 damage "to the villain and each minion engaged with that player" as one attack. Q4 = A: "this
-  // attack" in a Preparation is the whole attack.
+describe("Spray Fire (50039) on Black Widow: one attack with several targets (owner Q4; MC50 p. 9; ruling January 17, 2026 - Ruling 2)", () => {
+  // Spray Fire deals 3 damage "to the villain and each minion engaged with that player" as one attack. Q4 = A: a move
+  // in a Preparation moves the whole attack. Prevention is scoped to her (owner decision 2026-11-15 (#525 item 10),
+  // replacing wave 9 Q4 for prevention; ruling Jul 11, 2025).
 
   function sprayed(top: string, withGoggles = false) {
     let t = open("black-widow", [FURY], { cleared: true });
@@ -295,19 +296,19 @@ describe("Spray Fire (50039) on Black Widow: one attack with several targets (ow
     expect(damageOf(r.state, merc)).toBe(0);
   });
 
-  it("Night Vision Goggles attached and a card with no Preparation on top: all the damage to every target is prevented, then the Goggles are discarded", () => {
+  it("Night Vision Goggles attached and a card with no Preparation on top: only her damage is prevented, the engaged minion takes 3, then the Goggles are discarded", () => {
     const { t, merc, r } = sprayed(BLANK, true);
     expect(damageOf(r.state, t.villain)).toBe(0);
-    expect(damageOf(r.state, merc)).toBe(0);
+    expect(damageOf(r.state, merc)).toBe(3);
     expect(attachedCodes(r.state, t.villain)).not.toContain(GOGGLES);
     expect(discardCodes(r.state)).toContain(GOGGLES);
   });
 });
 
-describe("Attacrobatics (50076), expert mode, against a Spray Fire (owner Q4 = A; card text 50076)", () => {
-  // "Prevent all damage from this attack. In expert mode, deal that much damage to the attacking character." Under Q4 = A
-  // the attack is the whole of Spray Fire, so all of its damage to every target is prevented and "that much" is all of
-  // it: 3 for her and 3 for the engaged minion.
+describe("Attacrobatics (50076), expert mode, against a Spray Fire (owner decision 2026-11-15, #525 item 10; card text 50076)", () => {
+  // "Prevent all damage from this attack. In expert mode, deal that much damage to the attacking character." Only the
+  // damage to her is prevented (owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul 11, 2025):
+  // the engaged minion takes its 3, and "that much" is the 3 prevented on her.
   function sprayedAtAttacrobatics() {
     let t = open("black-widow", [FURY], { mode: "expert", cleared: true });
     const merc = engage(t, MERCENARY);
@@ -318,16 +319,15 @@ describe("Attacrobatics (50076), expert mode, against a Spray Fire (owner Q4 = A
     return { t, merc: merc.id, r };
   }
 
-  it("all the damage to both targets is prevented", () => {
+  it("only the damage to her is prevented: she takes 0, the engaged minion 3", () => {
     const { t, merc, r } = sprayedAtAttacrobatics();
     expect(damageOf(r.state, t.villain)).toBe(0);
-    expect(damageOf(r.state, merc)).toBe(0);
+    expect(damageOf(r.state, merc)).toBe(3);
   });
 
-  // Was a finding (Black Widow 2): the script read the share aimed at her; it now reads the total over every target.
-  it("the attacking Fury takes all that was prevented, 6", () => {
+  it("the attacking Fury takes what was prevented on her, 3", () => {
     const { r } = sprayedAtAttacrobatics();
-    expect(damageOf(r.state, identityOf(r.state))).toBe(6);
+    expect(damageOf(r.state, identityOf(r.state))).toBe(3);
   });
 });
 

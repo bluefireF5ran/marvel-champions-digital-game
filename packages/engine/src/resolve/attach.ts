@@ -20,7 +20,7 @@
 import { type Ctx, emit, moveCard, updateInstance } from "../ctx.js";
 import type { EngineDeps } from "../abilities.js";
 import type { InstanceId, PlayerId } from "../ids.js";
-import { cardOf, getInstance, mustInstance, isOwnedEncounterCard } from "../query.js";
+import { cardOf, getInstance, mustInstance, isOwnedEncounterCard, undefeatedVillains } from "../query.js";
 import { canHaveAttached, cannotBeUnattached } from "../rules.js";
 import { attachedOnlyWhileInPlay, cardsInPlay, controllerOf, isFacedownAttachment } from "../select.js";
 import { attachmentHostCandidates } from "../attachment-hosts.js";
@@ -281,6 +281,53 @@ export function permanentRehostFor(
     (candidate) => candidate !== leavingHostId && candidate !== id && canAttachTo(state, deps, id, candidate),
   );
   return host ?? null;
+}
+
+/**
+ * An unowned permanent encounter attachment whose host leaves play and whose "attach to" names a villain (`villain`,
+ * `namedVillain`) with no valid target yet: it stays in play, unattached in the villain's play area, until a villain it
+ * can attach to is there (`attachWaitingPermanents`, `state-checks.ts`, between frames). It waits when:
+ * - no villain but the leaving host is in play: ruling May 10, 2024 (165), naming Morlock Siege and Mansion Attack,
+ *   "attach Flight to a villain in play if the villain it was attached to left play", and with no villain in play (The
+ *   Sinister Six) "keep the attachment in play (because it's permanent) and attach it immediately to the next eligible
+ *   villain that enters play";
+ * - "attach to the villain" and the leaving host is a defeated villain that still holds the active counter, which has
+ *   not moved yet (a villain defeated while others remain, `removeDefeatedVillain`: its attachments go before the
+ *   counter passes, and a tie is the first player's choice through a frame): ruling Sep 26, 2024 (#15 note), "attach
+ *   them to the current active villain". Only a defeat: a defeated active villain's counter always passes on, while a
+ *   villain leaving play some other way might keep it, which would park the card out of sight. Only the global counter:
+ *   a waiting card sits in the main villain's play area, where "the villain" reads `state.activeVillainId`, not a
+ *   separate game area's (`contextArea`), so a card on an area's villain is removed from the game instead of waiting
+ *   for that area's counter (no printed permanent "attach to the villain" card is in a game with separate areas).
+ * Any other unowned permanent attachment with no valid target is removed from the game. Owner decision 2026-11-15
+ * (#525 item 8), revising docs/phase7-wave5.md §4.1 row 26 (it was discarded to its encounter discard pile).
+ *
+ * Source conflict, flagged (CLAUDE.md authority order): RRG 1.8 "Permanent" (p. 32, July 2026) reads as removal: "If it
+ * has none or that text does not have a valid target, remove the attachment from the game." The wait comes from the
+ * older rulings above, which also differ from each other: May 10, 2024 keeps the attachment in play, Sep 26, 2024 says
+ * "set them aside and attach them to the next active villain". The owner chose the rulings' wait (2026-11-15, #525
+ * item 8); the engine keeps the card in play, per May 10, 2024 and the owner.
+ *
+ * The client's board does not draw an unattached attachment in the villain's play area (`board-model.ts`); today one
+ * waits only for an effect step (Morlock Siege's Routed, Mansion Attack's response, the active counter passing), so the
+ * client is left as it is.
+ */
+export function waitsForVillainHost(
+  state: GameState,
+  deps: EngineDeps,
+  id: InstanceId,
+  leavingHostId: InstanceId | null,
+): boolean {
+  const instance = getInstance(state, id);
+  if (!instance || instance.ownerId !== null || instance.controllerId !== null) return false;
+  const card = state.cardPool[instance.cardId];
+  if (card?.type !== "attachment" || card.attachesTo === undefined) return false;
+  if (card.attachesTo.kind !== "villain" && card.attachesTo.kind !== "namedVillain") return false;
+  if (isFacedownAttachment(state, id) || !isPermanent(state, id, deps)) return false;
+  if (undefeatedVillains(state).every((villain) => villain.instanceId === leavingHostId)) return true;
+  if (card.attachesTo.kind !== "villain" || leavingHostId === null) return false;
+  const leaving = state.villains.find((villain) => villain.instanceId === leavingHostId);
+  return leaving?.defeated === true && state.activeVillainId === leavingHostId;
 }
 
 /**

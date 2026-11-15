@@ -4,15 +4,16 @@
  * plain data.
  */
 
-import { PAID_CARDS_SLOT } from "@mc/engine";
+import { PAID_CARDS_SLOT, PAID_IN_PLAY_CARDS_SLOT } from "@mc/engine";
 import { describe, expect, it } from "vitest";
 import { after, constant, gets, response } from "./abilities.js";
-import { chooseCards, cards, tuckCards, zone } from "./effects.js";
+import { anyOfCards, chooseCards, cards, tuckCards, zone } from "./effects.js";
 import {
   chosen,
   eachPlayer,
   PAID_CARDS,
   paidCards,
+  paidInPlayCards,
   query,
   refCount,
   self,
@@ -38,6 +39,30 @@ describe("§3.46 (b) `paidCards`", () => {
     expect(definition.effects[0]).toMatchObject({
       kind: "chooseCards",
       from: { kind: "zone", zone: "discard", player: { kind: "each" }, filter: { inSlot: "paid.cards" } },
+    });
+    expect(validateDefinition(definition)).toEqual([]);
+  });
+
+  // Owner decision 2026-11-15 (#525 item 11), replacing §3.46 (b) on this point; ruling Aug 22, 2025.
+  it("`paidInPlayCards` is the engine's slot `paid.inPlayCards`, the cards in play whose resource ability paid", () => {
+    expect(paidInPlayCards).toEqual({ kind: "slot", slot: PAID_IN_PLAY_CARDS_SLOT });
+    expect(PAID_IN_PLAY_CARDS_SLOT).toBe("paid.inPlayCards");
+  });
+
+  it("validates a tuck offering both kinds of payer, with a note the prompt carries", () => {
+    const definition = response(
+      after.youPlayThis(),
+      chooseCards(
+        "tucked",
+        anyOfCards(zone("discard", eachPlayer, { filter: { inSlot: PAID_CARDS } }), cards(paidInPlayCards)),
+        { min: 1, max: 1, note: "A tucked card is out of play." },
+      ),
+      tuckCards(cards(chosen("tucked")), self),
+    );
+    expect(definition.effects[0]).toMatchObject({
+      kind: "chooseCards",
+      from: { kind: "anyOf" },
+      note: "A tucked card is out of play.",
     });
     expect(validateDefinition(definition)).toEqual([]);
   });

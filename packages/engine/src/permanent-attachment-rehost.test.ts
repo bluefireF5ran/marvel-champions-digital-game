@@ -176,12 +176,15 @@ describe("docs/phase7-wave10.md §3.19: a permanent encounter attachment resolve
     expect(toughOn(run.state, villainOf(run.state))).toBe(0);
   });
 
-  it("'attach to a minion' with no other minion in play names no host: discarded (wave 5 §4.2 Q26), never back onto the leaving host", () => {
+  // Owner decision 2026-11-15 (#525 item 8), revising wave 5 §4.1 row 26 (which discarded it): RRG 1.8 "Permanent"
+  // (p. 32), "If it has none or that text does not have a valid target, remove the attachment from the game."
+  it("'attach to a minion' with no other minion in play names no host: removed from the game, never back onto the leaving host", () => {
     const thug = minionEngagedWith(start(), THUG.id);
     const leech = attach(thug.state, LEECH.id, thug.id);
     expect(permanentRehostFor(leech.state, deps, leech.id, thug.id)).toBeNull();
     const run = playFree(leech.state, deps, DEFEAT_THUG.card.id);
-    expect(discardOf(run.state)).toContain(leech.id);
+    expect(run.state.removedFromGame).toContain(leech.id);
+    expect(discardOf(run.state)).not.toContain(leech.id);
     expect(of(run.events, "permanentAttachmentRehosted")).toEqual([]);
   });
 

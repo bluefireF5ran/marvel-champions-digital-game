@@ -14,7 +14,7 @@ import {
   discard,
   discardThis,
   eventDealt,
-  eventSource,
+  eventSourceEnemy,
   exhaustThis,
   FRIENDLY_CHARACTER,
   forcedResponse,
@@ -95,7 +95,7 @@ export const QSV_PACK_CARDS = defineAbilities({
     on.defends(YOUR_IDENTITY),
     { label: "defense" },
     modifyStat("def", 2, yourIdentity, "endOfAttack"),
-    atEndOfAttack(ifThen(not(eventDealt("damage")), stun(eventSource))),
+    atEndOfAttack(ifThen(not(eventDealt("damage")), stun(eventSourceEnemy))),
   ),
 
   // Side Step (14015, Protection event) — Hero Interrupt (defense): when you would take any amount of damage,
@@ -104,7 +104,7 @@ export const QSV_PACK_CARDS = defineAbilities({
     on.damage(YOUR_IDENTITY),
     { label: "defense" },
     preventDamage(3),
-    ifThen(paidWith("energy"), dealDamage(1, eventSource)),
+    ifThen(paidWith("energy"), dealDamage(1, eventSourceEnemy)),
   ),
 
   // Armored Vest (14016) is a verbatim Core reprint, aliased by `../reprints.ts` — not scripted here.

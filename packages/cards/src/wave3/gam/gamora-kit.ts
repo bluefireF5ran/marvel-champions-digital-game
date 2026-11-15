@@ -248,7 +248,7 @@ export const GAMORA_KIT = defineAbilities({
   // True Grit — Response (thwart): After your hero defends against an enemy attack, remove threat from a scheme
   // equal to your hero's THW.
   "18031.true-grit-response": response(
-    after.defends(YOUR_HERO),
+    after.defends(YOUR_HERO, { againstEnemy: true }),
     { label: "thwart" },
     aScheme(),
     thwart(statOf(yourIdentity, "thw"), chosen("scheme")),

@@ -491,24 +491,33 @@ describe("§4.1 Q53 a cancelled attachment on a host that flips but stays in pla
 //
 // A host that leaves play through a host step treats a permanent attachment as `leaveNow` does
 // (`discardWithLeavingHost`): a player card is unattached into its controller's play area (§3.30; RRG 1.8 "Permanent",
-// p. 32, and "Attach To", p. 8), and an unowned permanent encounter attachment is discarded (§4.2 Q26). A host that
-// flips and stays in play keeps it attached: only the Flip rule's discard (RRG 1.8 "Flip", p. 20) is stopped.
+// p. 32, and "Attach To", p. 8), and an unowned permanent encounter attachment with no new host waits in play for the
+// next villain when its "attach to" names one and no villain is in play, and is otherwise removed from the game (owner
+// decision 2026-11-15, #525 item 8, revising wave 5 §4.1 row 26; RRG 1.8 "Permanent" p. 32; ruling May 10, 2024
+// (165)). A host that flips and stays in play keeps it attached: only the Flip rule's discard (RRG 1.8 "Flip", p. 20)
+// is stopped.
 
 const PERMANENT_GADGET = stubUpgrade({ id: "villain-gadget", cost: 0, keywords: [{ name: "permanent" }] });
 const PERMANENT_STAGE_GADGET = stubUpgrade({ id: "stage-gadget", cost: 0, keywords: [{ name: "permanent" }] });
 const PERMANENT_FACE_GADGET = stubUpgrade({ id: "face-gadget", cost: 0, keywords: [{ name: "permanent" }] });
 const PERMANENT_AREA_GADGET = stubUpgrade({ id: "area-gadget", cost: 0, keywords: [{ name: "permanent" }] });
-/** A permanent encounter attachment, which no printed card is (§4.2 Q26's shape). */
+/** A permanent encounter attachment that attaches to the villain (Flight's shape, `next_evol` 40151). */
 const CURSE = stubAttachment({ id: "curse", attachesTo: { kind: "villain" }, keywords: [{ name: "permanent" }] });
+/** A permanent encounter attachment whose "attach to" names a minion: with none in play it has no valid target. */
+const MINION_CURSE = stubAttachment({
+  id: "minion-curse",
+  attachesTo: { kind: "minion" },
+  keywords: [{ name: "permanent" }],
+});
 /** "Forced Interrupt: When this leaves play, …" on the curse: its discard waits in the removal's window. */
 const CURSE_INTERRUPT = stubAbility("curse.interrupt", {
   trigger: { kind: "interrupt", forced: true, on: { on: "cardLeavesPlay", selfIs: "target" } },
   effects: [mark("interrupt", one), mark("hostStillThere", villainStillThere)],
 });
-const LISTENING_CURSE = { ...CURSE, abilities: [CURSE_INTERRUPT.ref] };
+const LISTENING_CURSE = { ...MINION_CURSE, abilities: [CURSE_INTERRUPT.ref] };
 
 /** The villain with the unowned permanent curse attached, and the tracker in P1's play area. */
-function curseTable(curse: typeof CURSE, abilities: readonly StubAbility[]) {
+function curseTable(curse: typeof CURSE | typeof MINION_CURSE, abilities: readonly StubAbility[]) {
   const TRACKER = trackerWith();
   const deps = depsOf(...abilities, REMOVE_VILLAIN.ability);
   const start = gameAtFirstTurn({
@@ -556,20 +565,31 @@ describe("§4.1 Q50 a permanent attachment on a host that leaves play through a 
     expectReplays(session, t.deps);
   });
 
-  it("a villain removed from the game: an unowned permanent encounter attachment is discarded to its encounter discard pile (§4.2 Q26); replay deep-equal", () => {
+  it("the only villain removed from the game: an unowned permanent 'attach to the villain' attachment stays in play, unattached, for the next villain (ruling 165); replay deep-equal", () => {
     const t = curseTable(CURSE, []);
     const { state, session } = playFree(t.state, t.deps, REMOVE_VILLAIN.card.id);
     expect(mustInstance(state, t.curse).attachedTo).toBeNull();
     expect(mustInstance(state, t.villainId).attachments).toEqual([]);
-    expect(state.encounterDecks[activeEncounterDeckId(state)]!.discard).toContain(t.curse);
+    expect(state.villainArea).toContain(t.curse);
+    expect(state.encounterDecks[activeEncounterDeckId(state)]!.discard).not.toContain(t.curse);
+    expect(state.removedFromGame).not.toContain(t.curse);
     expectReplays(session, t.deps);
   });
 
-  it("that discard waits for the curse's own leave interrupt, resolved in the removal's window with the villain still in play", () => {
+  it("one whose 'attach to' has no valid target is removed from the game, not discarded (RRG 1.8 p. 32); replay deep-equal", () => {
+    const t = curseTable(MINION_CURSE, []);
+    const { state, session } = playFree(t.state, t.deps, REMOVE_VILLAIN.card.id);
+    expect(state.removedFromGame).toContain(t.curse);
+    expect(state.villainArea).not.toContain(t.curse);
+    expect(state.encounterDecks[activeEncounterDeckId(state)]!.discard).not.toContain(t.curse);
+    expectReplays(session, t.deps);
+  });
+
+  it("that removal waits for the curse's own leave interrupt, resolved in the removal's window with the villain still in play", () => {
     const t = curseTable(LISTENING_CURSE, [CURSE_INTERRUPT]);
     const { state, events, session } = playFree(t.state, t.deps, REMOVE_VILLAIN.card.id);
     expect(mustInstance(state, t.tracker).counters).toMatchObject({ interrupt: 1, hostStillThere: 1 });
-    expect(state.encounterDecks[activeEncounterDeckId(state)]!.discard).toContain(t.curse);
+    expect(state.removedFromGame).toContain(t.curse);
     const resolvedAt = index(events, (e) => e.type === "abilityResolved" && e.abilityId === CURSE_INTERRUPT.ref.id);
     expect(resolvedAt).toBeGreaterThanOrEqual(0);
     expect(resolvedAt).toBeLessThan(index(events, (e) => e.type === "villainRemoved"));

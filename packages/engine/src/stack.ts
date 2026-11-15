@@ -449,6 +449,13 @@ export type StackFrame =
        */
       readonly preventAllReports?: readonly { readonly bind: string; readonly targetInstanceId: InstanceId | null }[];
       /**
+       * On an attack whose damage is all prevented (`modifyAttack.preventAllDamage`, `bind` or not): the character a
+       * player attack was against as each such effect resolved, in order (`preventAbilityAttackDamage`). Only damage
+       * to these is prevented (`protectsTarget`), so an attack moved afterwards deals its damage to its new target.
+       * Null: the attack had named no character yet; it protects the character the attack is first made against.
+       */
+      readonly preventAllTargets?: readonly (InstanceId | null)[];
+      /**
        * On a `cardEntersPlay` event not yet initiated: a standing check of the card (`stateCheck.fromEntering`) resolved
        * the moment the card was in play, before this event's windows. If the card is out of play when the event's turn
        * comes, the event ends there: no interrupt, no enter-play keyword, no response (`resolve/state-checks.ts`).
@@ -696,6 +703,17 @@ export type StackFrame =
        */
       readonly abilityId?: AbilityId;
       /**
+       * The guard minions engaged with the controller as an "(attack)" ability's effect was initiated
+       * (`abilityIsOneAttack`, `guardsAsInitiated`), after its costs were paid (RRG 1.8 "Initiating Abilities", p. 24,
+       * step 6; ruling April 30, 2026 (5): a guard minion engaged while paying the cost stops it): taken as its
+       * effects frame is pushed, or, for a cost written as its leading effects (`costEffectsPending`), once the cursor
+       * reaches the effect (`beginEffectAfterCost`), and absent until then. Carried into its branches. Only these can
+       * guard against its attack as it resolves, each still read live for being engaged and having guard
+       * (`EffectContext.attackGuardFrom`, `canAttack`); owner decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49.
+       * Absent on every other frame.
+       */
+      readonly guardsAtInitiation?: readonly InstanceId[];
+      /**
        * This frame is the step where a defeated card leaves play, after its When Defeated abilities (RRG 1.8 "When
        * Defeated Abilities", p. 48; `resolve/event.ts` `leaveAfterWhenDefeated`). While it waits, the card is still in
        * play at zero remaining hit points but already defeated, so the defeat sweep does not defeat it again.
@@ -735,10 +753,11 @@ export type StackFrame =
       readonly attackCancelled?: true;
       /**
        * On the root frame of an "(attack)"-labeled ability: all damage of the attack it makes with its controller's
-       * identity is prevented (`modifyAttack.preventAllDamage` in the window of one of its `attack` events, the frame
-       * named here; `preventAbilityAttackDamage`, `resolve/attack-ability.ts`). The ability is one attack (RRG 1.8
-       * "Attack (Player Ability Type)", p. 10), so the damage of its other `attack` events and of its damage
-       * instructions is prevented too (owner decision, docs/phase7-wave9.md §4.1 Q4 = A).
+       * identity to the character it protects is prevented (`modifyAttack.preventAllDamage` in the window of one of its
+       * `attack` events, the frame named here; `preventAbilityAttackDamage`, `resolve/attack-ability.ts`). The ability
+       * is one attack (RRG 1.8 "Attack (Player Ability Type)", p. 10), so the damage its other `attack` events and its
+       * damage instructions deal to that frame's target is prevented too; damage to anyone else is not (owner decision
+       * 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul 11, 2025).
        */
       readonly attackDamagePrevented?: FrameId;
       /**
@@ -1221,13 +1240,29 @@ export function paymentVarsIn(vars: Vars): Vars {
 export const PAID_CARDS_SLOT = "paid.cards";
 
 /**
+ * The cards in play whose resource ability paid for a play (`cardsInPlayThatPaid`, `actions.ts`), in payment order:
+ * a "Resource" ability used in the payment whose resources are among the ones **paid** (`canBePaidFor`, as for
+ * `PAID_CARDS_SLOT`), its card not an identity nor a permanent card (RRG 1.8 "Permanent", p. 32). Owner decision
+ * 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025 (Q2): "you can use a
+ * resource ability to pay for Spectrum and then tuck that card under her". Kept apart from `PAID_CARDS_SLOT` so the
+ * `paid.cards.<cardType>` counts (§3.51) still read only cards
+ * spent as cards ("paid with a resource card", Concussive Blast). Bound and carried as `PAID_CARDS_SLOT` is.
+ */
+export const PAID_IN_PLAY_CARDS_SLOT = "paid.inPlayCards";
+
+/**
  * The cards that paid for the play of `instanceId` while that play is still resolving, as the bindings its own
  * abilities start with (`PAID_CARDS_SLOT`); empty when none did or the card is not being played. The slot twin of
  * `playPaymentVars`.
  */
 export function playPaidCards(stack: readonly StackFrame[], instanceId: InstanceId): Bindings {
-  const paid = playFrameOf(stack, instanceId)?.bindings[PAID_CARDS_SLOT];
-  return paid && paid.length > 0 ? { [PAID_CARDS_SLOT]: paid } : {};
+  const bindings = playFrameOf(stack, instanceId)?.bindings;
+  const paid = bindings?.[PAID_CARDS_SLOT];
+  const inPlay = bindings?.[PAID_IN_PLAY_CARDS_SLOT];
+  return {
+    ...(paid && paid.length > 0 ? { [PAID_CARDS_SLOT]: paid } : {}),
+    ...(inPlay && inPlay.length > 0 ? { [PAID_IN_PLAY_CARDS_SLOT]: inPlay } : {}),
+  };
 }
 
 /** The var prefix of the paid resources by the type each was used as (`paid.as.<type>`; docs/phase7-wave8.md §3.62). */

@@ -301,6 +301,7 @@ import {
 import {
   describeFrame,
   PAID_CARDS_SLOT,
+  PAID_IN_PLAY_CARDS_SLOT,
   paidAsVars,
   PRINTED_COST_PAID_SLOT,
   type Bindings,
@@ -2091,6 +2092,49 @@ function cardsThatPaid(
     );
     return canBePaidFor(pool, generated, paidFor) ? [entry.fromHand] : [];
   });
+}
+
+/**
+ * The cards in play whose "Resource" ability paid for a cost, in payment order, each once (`PAID_IN_PLAY_CARDS_SLOT`):
+ * a use in the payment that is not an overpay-only one (`overpayOnlyPool`), on a card in play that is not an identity,
+ * not a permanent card the played card's set cannot move (`permanentStopsLeaving`) and not one that cannot leave play
+ * (`cannotLeavePlay`), whose generated resources are
+ * among the ones **paid** (`canBePaidFor`, the judgement `cardsThatPaid` makes). Owner decision 2026-11-15 (#525 item
+ * 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025 (Q2). Read before paying, while the cards are
+ * still in play. Never counted by `paidCardVars`.
+ */
+function cardsInPlayThatPaid(
+  ctx: Ctx,
+  playerId: PlayerId,
+  payment: readonly Payment[],
+  payingFor: InstanceId | null,
+  pool: ResourcePool,
+  requirement: ResolvedRequirement,
+  cost: AbilityCost | undefined,
+  resourceVarsRead: Vars,
+): readonly InstanceId[] {
+  const paidFor = paidRequirementOf(pool, requirement, cost, resourceVarsRead);
+  const inPlay = cardsInPlay(ctx.state);
+  const playedCardId = payingFor ? getInstance(ctx.state, payingFor)?.cardId : undefined;
+  const found: InstanceId[] = [];
+  for (const entry of payment) {
+    if (!("ability" in entry)) continue;
+    const { instanceId, abilityId } = entry.ability;
+    if (found.includes(instanceId) || !inPlay.includes(instanceId)) continue;
+    if (overpaysOnly(ctx.deps, abilityId)) continue;
+    if (categoriesOf(ctx.state, instanceId).includes("identity")) continue;
+    // RRG 1.8 "Permanent" (p. 32): permanent cards "are not valid targets for card effects that would cause the
+    // permanent card to leave play", and a tuck takes a card in play out of play ("Tuck", p. 45). The played card's
+    // own set may still move it (`permanentStopsLeaving`).
+    if (permanentStopsLeaving(ctx.state, ctx.deps, instanceId, playedCardId)) continue;
+    // Nor a card that "cannot leave play" (`RuleSpec cannotLeavePlay`): a tuck is no discard.
+    if (cannotLeavePlay(ctx.state, ctx.deps, instanceId, playedCardId)) continue;
+    const spender = resourceSpender(ctx.state, ctx.deps, instanceId, abilityId, playerId);
+    const top = mustPlayer(ctx.state, spender).discard[0] ?? null;
+    const generated = resourceAbilityGenerates(ctx.state, ctx.deps, entry.ability, spender, top, payingFor);
+    if (canBePaidFor(pool, generated, paidFor)) found.push(instanceId);
+  }
+  return found;
 }
 
 /**
@@ -5093,6 +5137,8 @@ export interface PricedPlay {
   readonly types?: PaidTypesSettled;
   /** The cards that paid (`cardsThatPaid`; docs/phase7-wave9.md §3.46 (b)); absent when no card did. */
   readonly paidCards?: readonly InstanceId[];
+  /** The cards in play whose resource ability paid (`cardsInPlayThatPaid`, `PAID_IN_PLAY_CARDS_SLOT`); absent if none. */
+  readonly paidInPlayCards?: readonly InstanceId[];
 }
 
 /**
@@ -5286,7 +5332,11 @@ export function logAbilityWildTypes(
  * `paid.cards` (`PAID_CARDS_SLOT`; docs/phase7-wave9.md §3.46 (b)), and any wilds still to declare.
  */
 export const playFrameCost = (priced: PricedPlay, bindings: Bindings = priced.plan.bindings) => ({
-  bindings: priced.paidCards ? { ...bindings, [PAID_CARDS_SLOT]: priced.paidCards } : bindings,
+  bindings: {
+    ...bindings,
+    ...(priced.paidCards ? { [PAID_CARDS_SLOT]: priced.paidCards } : {}),
+    ...(priced.paidInPlayCards ? { [PAID_IN_PLAY_CARDS_SLOT]: priced.paidInPlayCards } : {}),
+  },
   vars: priced.vars,
   ...(priced.types?.undeclared ? { undeclaredWilds: priced.types.undeclared } : {}),
 });
@@ -5409,7 +5459,24 @@ export function pricePlay(
     paidTypes.wildAs,
   );
   if (isFault(settled)) return settled;
-  return { pool: everything, plan, ...settled, ...(paidCards.length > 0 ? { paidCards } : {}) };
+  // Not counted in `paid.cards.*` (`paidCardVars`): only bound, for "tuck 1 card used to pay for her" (Spectrum).
+  const paidInPlayCards = cardsInPlayThatPaid(
+    ctx,
+    playerId,
+    payment,
+    payingFor,
+    pool,
+    requirement,
+    plan.cost ?? cost,
+    vars,
+  );
+  return {
+    pool: everything,
+    plan,
+    ...settled,
+    ...(paidCards.length > 0 ? { paidCards } : {}),
+    ...(paidInPlayCards.length > 0 ? { paidInPlayCards } : {}),
+  };
 }
 
 /**
@@ -6509,6 +6576,16 @@ export function playIgnoringCost(
 }
 
 /**
+ * Does this card's text (current, errata applied) use the word "you" or "your" anywhere, its "attach to" line
+ * included? RRG 1.8 "Ability" (p. 4) asks this of an attachment on a player card; ruling June 8, 2023 - Ruling 21
+ * counts "Attach to your identity" (Death Factor, Counterspell). Flavor text is not card text.
+ */
+const SAYS_YOU = /\byou(?:r|rs|rself)?\b/i;
+function textSaysYou(card: AnyCard): boolean {
+  return "text" in card && SAYS_YOU.test(card.text.current);
+}
+
+/**
  * RRG "Action": triggered on a card you control or an encounter card, during your own turn or another player's
  * (`requireActionTiming`). This command triggers Action abilities and nothing else.
  */
@@ -6587,11 +6664,21 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, 
   if (!named && isCaptiveAlly(ctx.state, command.cardInstanceId)) {
     return engineError("no_valid_target", "no player controls that ally", command);
   }
-  // An encounter card may be triggered by any player (RRG 1.8 "Action", p. 6), except one attached to a player's card:
-  // RRG 1.8 "Attachment" (p. 8), "Only the player who controls the card to which that attachment is attached can
-  // trigger abilities or pay costs on that attachment." One attached to an enemy or a scheme, which no player controls,
-  // stays any player's. Text that names who may trigger it (`triggerableBy`) replaces this as it does the rule above.
-  if (!named && controller === null && instance.attachedTo !== null) {
+  // An encounter card may be triggered by any player (RRG 1.8 "Action", p. 6), except one attached to a player's card
+  // whose text says "you" or "your": RRG 1.8 "Ability" (p. 4), "Only the player who controls a player card with an
+  // attachment that uses the word 'you' or 'your' can trigger abilities or pay costs on that attachment", and the same
+  // rule nested under the "you"/"your" bullet of "Attachment" (p. 8). Without "you"/"your" any player may (ruling
+  // July 13, 2023 - Ruling 48, Restrained). Owner decision 2026-11-15 (issue #525, "A"): the "you"/"your" test gates
+  // the restriction; the 2026-10-05 call (docs/phase7-wave7.md) still holds, so it covers any card attached to a
+  // player's card, whatever its type. One attached to an enemy or a scheme, which no player controls, stays any
+  // player's. Text that names who may trigger it (`triggerableBy`, "Any player can do this") replaces this as it does
+  // the rule above.
+  if (
+    !named &&
+    controller === null &&
+    instance.attachedTo !== null &&
+    textSaysYou(mustCardOf(ctx.state, command.cardInstanceId))
+  ) {
     const hostController = controllerOf(ctx.state, instance.attachedTo);
     if (hostController !== null && hostController !== command.playerId) {
       return engineError("no_valid_target", "only the player it is attached to can use that card", command);

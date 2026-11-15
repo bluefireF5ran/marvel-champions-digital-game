@@ -169,6 +169,11 @@ export type ChoicePrompt =
        * played from hand (`playFromHand`). The client's Undo reads it (`view/undo.ts`).
        */
       readonly ownHand?: true;
+      /**
+       * A line the client shows with the options, from `EffectSpec chooseCards.note` (Spectrum's warning that a tucked
+       * card is out of play). Text for the player only; absent on most choices.
+       */
+      readonly note?: string;
     }
   /**
    * `EffectSpec lookAt`: the options are cards the player is looking at (RRG 1.8 "Look, Looked-At", p. 27), offered

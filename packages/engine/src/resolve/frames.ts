@@ -5,10 +5,12 @@ import { type Ctx, nextFrameId, pushFrames, updateFrame } from "../ctx.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardOf, villainOf, villainStageOf } from "../query.js";
 import {
+  abilityIsOneAttack,
   activeAbilityRefs,
   categoriesOf,
   controllerOf,
   countsAsExtras,
+  guardMinionsEngagedWith,
   ignoredAbilities,
   TOGETHER_TARGETS_SLOT,
   traitsOf,
@@ -339,8 +341,49 @@ export function pushEffects(
       ...(spec.sentence ? { sentence: true as const } : {}),
       ...(spec.eachTimePass ? { eachTimePass: true as const } : {}),
       ...(spec.replacesEvent !== undefined ? { replacesEvent: spec.replacesEvent } : {}),
+      ...guardsAtInitiationOf(ctx, spec),
     },
   ]);
+}
+
+/**
+ * `Frame<"effects">.guardsAtInitiation` for effects being pushed: a branch of an ability whose frame is resolving
+ * (the frame on top, same ability and card) carries that frame's; an "(attack)" ability's own effects take the guard
+ * minions engaged with its controller now, as its effect is initiated (`guardsAsInitiated`).
+ */
+function guardsAtInitiationOf(
+  ctx: Ctx,
+  spec: {
+    readonly abilityId?: AbilityId | undefined;
+    readonly selfInstanceId: InstanceId | null;
+    readonly controllerId: PlayerId | null;
+  },
+): { readonly guardsAtInitiation?: readonly InstanceId[] } {
+  const parent = ctx.state.stack[0];
+  if (
+    spec.abilityId !== undefined &&
+    parent?.kind === "effects" &&
+    parent.abilityId === spec.abilityId &&
+    parent.selfInstanceId === spec.selfInstanceId
+  )
+    return parent.guardsAtInitiation ? { guardsAtInitiation: parent.guardsAtInitiation } : {};
+  return guardsAsInitiated(ctx, spec.abilityId, spec.controllerId);
+}
+
+/**
+ * The guard minions engaged with `controllerId` now, for an "(attack)" ability whose effect is being initiated
+ * (`abilityIsOneAttack`): `Frame<"effects">.guardsAtInitiation`. Taken as its effects frame is pushed, after its costs
+ * are paid, or, for a cost written as its leading effects, once that cost is paid (`beginEffectAfterCost`). Empty
+ * for any other ability.
+ */
+export function guardsAsInitiated(
+  ctx: Ctx,
+  abilityId: AbilityId | undefined,
+  controllerId: PlayerId | null,
+): { readonly guardsAtInitiation?: readonly InstanceId[] } {
+  if (abilityId === undefined || controllerId === null) return {};
+  if (!abilityIsOneAttack(ctx.deps.abilities[abilityId])) return {};
+  return { guardsAtInitiation: guardMinionsEngagedWith(ctx.state, controllerId, ctx.deps) };
 }
 
 export function abilityFrame(
