@@ -154,7 +154,7 @@ export function unlockListRowsOf(
             ? "Unlocked"
             : status.unlocked
               ? "Unlocked by setting"
-              : (status.lockReason ?? "Locked"),
+              : (status.lockReasonIn("en") ?? "Locked"),
       open: status.unlocked,
     });
     for (const scenario of POOL_SCENARIOS.filter((sc) => scenarioCycleOf(sc) === status.wave.cycleId)) {

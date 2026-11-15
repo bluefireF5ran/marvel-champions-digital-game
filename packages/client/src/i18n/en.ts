@@ -176,6 +176,8 @@ export const en = {
   "scenario.oneShot": "ONE-SHOT",
   "scenario.skip": "SKIP ▸▸",
   "scenario.backCaps": "◂ BACK",
+  "scenario.introNext": "NEXT ▸",
+  "scenario.introSuitUp": "SUIT UP ▸",
   "scenario.record": "Your record",
   "scenario.wins_one": "{count} win",
   "scenario.wins_other": "{count} wins",

@@ -796,7 +796,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
         this,
         this.#hints,
         layout.filtersButton,
-        filtersLabel(this.#draft.scenarioFilter.product ? 1 : 0, !folded),
+        filtersLabel(this.#draft.scenarioFilter.product ? 1 : 0, !folded, artLanguageNow()),
         inspectHint,
         () => this.#toggleFilters(),
         this.#buttons,

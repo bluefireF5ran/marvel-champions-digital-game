@@ -176,6 +176,8 @@ export const es: Readonly<Partial<Record<keyof typeof en, string>>> = {
   "scenario.oneShot": "PARTIDA ÚNICA",
   "scenario.skip": "SALTAR ▸▸",
   "scenario.backCaps": "◂ ATRÁS",
+  "scenario.introNext": "SIGUIENTE ▸",
+  "scenario.introSuitUp": "¡A LA ACCIÓN! ▸",
   "scenario.record": "Tu historial",
   "scenario.wins_one": "{count} victoria",
   "scenario.wins_other": "{count} victorias",

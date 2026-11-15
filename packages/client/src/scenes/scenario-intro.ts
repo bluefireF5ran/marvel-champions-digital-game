@@ -8,6 +8,7 @@
  */
 import Phaser from "phaser";
 import { CAMPAIGN_ART, campaignRulebookPageFor } from "../art/campaign-art.js";
+import { artLanguageNow } from "../art/art-source.js";
 import { introArtFor, ART_CATALOG } from "../art/scenario-art.js";
 import type { ComicBeat } from "../campaign/story.js";
 import { scenarioIntroFor, type ScenarioIntro } from "../campaign/scenario-intros.js";
@@ -25,6 +26,7 @@ import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
 import { McButton, fitText, label } from "../ui/widgets.js";
 import {
   comicReaderViewOf,
+  introCtaLabelOf,
   nextComicBeat,
   prevComicBeat,
   resolveComicBeats,
@@ -269,7 +271,7 @@ export class ScenarioIntroScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: "primary",
-        label: view.ctaLabel,
+        label: introCtaLabelOf(view.isLast, artLanguageNow()),
         type: typeRole.barTitle,
         rect: ctaRect,
         onClick: () => this.#advance(),
