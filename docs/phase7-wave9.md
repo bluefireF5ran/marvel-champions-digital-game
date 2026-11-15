@@ -1088,7 +1088,7 @@ original attack).
 5. "After this attack" (50071, 50072, 50079) is `atEndOfAttack`; "the attacking character" is the attack's attacker,
    a hero or an ally, and may have left play by then (the effect then does nothing).
 
-**An attack with several targets** is §4.1 Q4 (default A: "this attack" is the whole attack).
+**An attack with several targets** is §4.1 Q4 (default A: "this attack" is the whole attack). **Revised 2026-11-15 (owner, #525 item 10):** for _prevention_, "prevent all damage from this attack" now protects only the character the attack was against when the prevention resolved (Attacrobatics, Night Vision Goggles; rulings Jul 11, 2025 and Mar 22, 2024 (155)); the A.I.M. Grunt move still takes the whole attack.
 
 **Tests (exact numbers).**
 
