@@ -935,22 +935,25 @@ export class ScenarioSelectScene extends Phaser.Scene {
     g.lineStyle(3, surface.ink.hex, 1).strokeRect(rect.x + 1.5, rect.y + 1.5, rect.width - 3, rect.height - 3);
     const firstStage = detail.stages[0];
     const accelerating = detail.startingAcceleration.base > 0 || detail.startingAcceleration.perPlayer > 0;
-    const accel = accelerating ? t("scenario.accel", { accel: formatScaling(detail.startingAcceleration) }) : "";
+    const accel = accelerating
+      ? t("scenario.accel", { accel: formatScaling(detail.startingAcceleration, artLanguageNow()) })
+      : "";
     const cells: readonly { readonly label: string; readonly value: string }[] = [
       { label: t("scenario.mainScheme"), value: detail.mainSchemeName },
       {
         label: t("scenario.startingThreat"),
-        value: `${t("scenario.threatStart", { threat: formatScaling(detail.startingThreat) })}${accel}`,
+        value: `${t("scenario.threatStart", { threat: formatScaling(detail.startingThreat, artLanguageNow()) })}${accel}`,
       },
       {
         label: t("scenario.foeHp", { foe: detail.foeWord }),
         value: detail.villainIsRandom
           ? t("scenario.varies")
-          : detail.stages.map((stage) => formatScaling(stage.hp).split(" ")[0]).join(" · ") ||
-            (firstStage ? formatScaling(firstStage.hp) : "—"),
+          : detail.stages.map((stage) => formatScaling(stage.hp, artLanguageNow()).split(" ")[0]).join(" · ") ||
+            (firstStage ? formatScaling(firstStage.hp, artLanguageNow()) : "—"),
       },
       {
-        label: t("scenario.encounterSets"),
+        // The strip's cell is narrow: its own, shorter label in a language that needs one (#390).
+        label: t("scenario.encounterSetsCell"),
         value: encounterSetsCellText(detail),
       },
     ];
@@ -964,7 +967,12 @@ export class ScenarioSelectScene extends Phaser.Scene {
       const y = rect.y + row * rowHeight;
       if (col > 0) g.lineStyle(2, surface.ink.hex, 1).lineBetween(x, y + 6, x, y + rowHeight - 6);
       if (row > 0) g.lineStyle(2, surface.ink.hex, 1).lineBetween(x, y, x + cellWidth, y);
-      label(this, x + 12, y + 8, cell.label, typeRole.label, surface.ink.hex, ink.label);
+      // A longer translated label (#390: "CONJUNTOS DE ENCUENTROS") shrinks to its cell rather than run into the next.
+      fitText(
+        label(this, x + 12, y + 8, cell.label, typeRole.label, surface.ink.hex, ink.label),
+        cellWidth - 20,
+        typeRole.label.size,
+      );
       const value = this.add.text(x + 12, y + 22, cell.value, textStyle(typeRole.sectionHeader, surface.ink.hex));
       // One line at full size when it fits; else it wraps to the lines the cell has room for, stepping the type down
       // until it does. Never cut with an ellipsis.
@@ -1118,7 +1126,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
         y + 26,
         detail.villainIsRandom
           ? t("scenario.drawnAtRandom")
-          : t("scenario.stageStats", { sch: stage.sch, hp: formatScaling(stage.hp), atk: stage.atk }),
+          : t("scenario.stageStats", { sch: stage.sch, hp: formatScaling(stage.hp, artLanguageNow()), atk: stage.atk }),
         textStyle(typeRole.label, surface.paper.hex, current ? ink.label : ink.disabled),
       );
       y += boxHeight + 8;
