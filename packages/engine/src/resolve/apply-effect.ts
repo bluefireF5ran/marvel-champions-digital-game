@@ -1152,7 +1152,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       for (const keyword of effect.keywords ?? []) delta[keyword] = 1;
       if (effect.preventAllDamage) {
         delta.preventAllDamage = 1;
-        // Where what it stops is recorded (`bind`), and the rest of an "(attack)" ability's one attack (§3.4, Q4 = A).
+        // Records the character it protects (and `bind`): damage to that character is stopped for the rest of an
+        // "(attack)" ability's attack, not other targets' (owner #525 item 10; ruling Jul 11, 2025).
         preventAbilityAttackDamage(ctx, activation, effect.bind);
       }
       // "Prevent N damage from this attack" (§3.81): a budget `applyDamage` spends on the attacked character's damage.

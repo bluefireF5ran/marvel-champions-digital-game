@@ -140,7 +140,8 @@ const CAPTAINS_SHIELD = query("upgrade", { name: "Captain America's Shield" });
  * 2025, Q2: "you can use a resource ability to pay for Spectrum and then tuck that card under her"). The player picks
  * 1 of those still in a discard pile, or an in-play payer still in play or in a discard pile (owner decision
  * 2026-11-15, #525 item 11; a permanent one is never bound, RRG 1.8 "Permanent", p. 32), whoever owns it; the choice
- * warns that a tucked card is out of play (`SPECTRUM_TUCK_NOTE`). An in-play card leaves play as it is tucked (its text stops, its
+ * warns that a tucked card is out of play (`SPECTRUM_TUCK_NOTE`). An in-play card leaves play as it is tucked (its text
+ * stops, its
  * attachments are handled as for any card leaving play). It is tucked faceup and stays its owner's. Each
  * bonus reads the printed resources of what is tucked under her: [mental] +2 THW, [physical] +2 ATK, [energy] +2 hit
  * points, each once however many icons, and a printed [wild] gives all three. A card of any type can be tucked (the

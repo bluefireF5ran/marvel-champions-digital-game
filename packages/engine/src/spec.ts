@@ -3239,7 +3239,8 @@ export type EffectSpec =
       readonly search?: true;
       /**
        * A line for the player about what choosing does, copied to the prompt (`ChoicePrompt chooseCards.note`) for the
-       * client to show with the options: Spectrum's tuck (53018) warns that a card chosen from play leaves it ("A tucked
+       * client to show with the options: Spectrum's tuck (53018) warns that a card chosen from play leaves it ("A
+       * tucked
        * card is out of play…"; RRG 1.8 "Tuck", p. 45; owner decision 2026-11-15, #525 item 11). Rules never read it.
        */
       readonly note?: string;

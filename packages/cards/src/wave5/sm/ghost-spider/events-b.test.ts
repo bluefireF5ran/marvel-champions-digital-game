@@ -137,7 +137,8 @@ describe("Ghost-Spider's events, part B (27013–27019)", () => {
     expect(playerOf(done.state, P1).discard).toContain(given.id);
   });
 
-  // Ruling April 30, 2026 (5): the effect is initiated in step 6, after the cost, so a guard minion engaged while paying
+  // Ruling April 30, 2026 (5): the effect is initiated in step 6, after the cost, so a guard minion engaged while
+  // paying
   // the cost stops the attack. RRG 1.8 "Initiating Abilities" (p. 24); owner decision 2026-11-15 (#525 item 6): guard
   // is checked as the attack is initiated. Mutagen Formula: P1's setup Goblin Thrall (02024, guard) is disengaged, and
   // the cost reveals Advance (01186), whose scheme deals the next card, a Goblin Thrall, as a boost that engages it.

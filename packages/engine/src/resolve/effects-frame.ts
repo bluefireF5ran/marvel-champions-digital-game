@@ -623,7 +623,8 @@ function askPutIntoPlayController(
     // A "[type] form only" card the effect will refuse (`admitFormOnly`) has no controller to ask about.
     if (formOnlyFault(ctx.state, id, putter) !== null) continue;
     const able = players.filter((p) => canEnterPlayUnder(ctx.state, ctx.deps, id, p.playerId, frame.selfInstanceId));
-    // Nobody can take it: the candidate filter should not have offered it; the effect refuses it (`putIntoPlayRefused`).
+    // Nobody can take it: the candidate filter should not have offered it; the effect refuses it
+    // (`putIntoPlayRefused`).
     if (able.length === 0) continue;
     if (able.length === 1) {
       setFrame(ctx, { ...frame, bindings: { ...frame.bindings, [slot]: [able[0]!.identity.instanceId] } });

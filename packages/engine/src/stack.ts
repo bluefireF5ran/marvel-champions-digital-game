@@ -1244,7 +1244,8 @@ export const PAID_CARDS_SLOT = "paid.cards";
  * a "Resource" ability used in the payment whose resources are among the ones **paid** (`canBePaidFor`, as for
  * `PAID_CARDS_SLOT`), its card not an identity nor a permanent card (RRG 1.8 "Permanent", p. 32). Owner decision
  * 2026-11-15 (#525 item 11), replacing wave 9 §3.46 (b) on this point; ruling Aug 22, 2025 (Q2): "you can use a
- * resource ability to pay for Spectrum and then tuck that card under her". Kept apart from `PAID_CARDS_SLOT` so the `paid.cards.<cardType>` counts (§3.51) still read only cards
+ * resource ability to pay for Spectrum and then tuck that card under her". Kept apart from `PAID_CARDS_SLOT` so the
+ * `paid.cards.<cardType>` counts (§3.51) still read only cards
  * spent as cards ("paid with a resource card", Concussive Blast). Bound and carried as `PAID_CARDS_SLOT` is.
  */
 export const PAID_IN_PLAY_CARDS_SLOT = "paid.inPlayCards";

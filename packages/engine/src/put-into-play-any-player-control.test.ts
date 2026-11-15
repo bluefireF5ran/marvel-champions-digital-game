@@ -132,7 +132,8 @@ describe("Build Support / Boot Camp (ruling Nov 21, 2025): put into play under a
   it("'Max 1 per player' is read under each player the card could go to", () => {
     const one = play(start(), FETCH.card, P2).state;
     const second = campOf(one, P1);
-    // P2 already controls a copy: P1 is the only player who can take it, so nobody is asked, even one who would pick P2.
+    // P2 already controls a copy: P1 is the only player who can take it, so nobody is asked, even one who would pick
+    // P2.
     const two = play(one, FETCH.card, P2);
     expect(two.asked).toEqual([]);
     expect(campsIn(two.state, P2)).toHaveLength(1);

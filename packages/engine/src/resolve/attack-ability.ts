@@ -91,7 +91,8 @@
  * (`attackPreventingDamage`, `protectsTarget`). The protected character is the one the attack was against when the
  * prevention resolved (`preventAllTargets`): if the attack is moved afterwards, its new target takes its damage, and
  * Photographic Reflexes' "an equal amount" (what was prevented) is then 0. A player attack that names no character
- * yet, and an enemy attack, protect every instance. Unlike a cancelled attack, a prevented one still attacks: every enemy named is attacked and retaliates,
+ * yet, and an enemy attack, protect every instance. Unlike a cancelled attack, a prevented one still attacks: every
+ * enemy named is attacked and retaliates,
  * "after … attacks" answers, and its `damage` result is 0 for the protected character. This engine's interpretation,
  * with its alternatives:
  *
@@ -137,7 +138,8 @@
  *   does not, and the event takes the first enemy an instruction attacks as its target then
  *   (`noteAttackedByAbility`). No later window opens for that enemy. (Alternative: a second window as each enemy is
  *   named; not built.)
- * - **Guard is not read as the attack begins**, only for each enemy as it would be attacked (Q49, below). An attack
+ * - **Guard is read from the minions engaged with guard when the attack was initiated** (owner #525 item 6, narrowing
+ *   Q49; see below), checked again for each enemy as it would be attacked. An attack
  *   that begins and whose every enemy turns out to be guarded attacked nobody: it resolves with an empty
  *   `attack.attacked`, nothing retaliates, "after you attack" with no target clause answers it (the identity made an
  *   attack, p. 26) and "after you attack [an enemy]" does not. An ability whose attack names only enemies that cannot

@@ -273,7 +273,8 @@ export const chosen = (slot: string): TargetRef => ({ kind: "slot", slot });
  * an interrupt or response to the play (`when.youPlayCard`, `after.youPlayedCard`, …). They are the cards spent as
  * cards: discarded from a hand (another player's too, for an alliance card), or spent from under a Resource Reserve
  * (§3.46 (c)); a card in play whose "Resource" ability paid is not one here but in `paidInPlayCards`, a card whose
- * every resource was overpaid is not one, and at a cost of 0 there is none. Each is read where it is now, usually a discard
+ * every resource was overpaid is not one, and at a cost of 0 there is none. Each is read where it is now, usually a
+ * discard
  * pile: count them with `refCount(paidCards)` or `countInRef`, read their icons with `totalPrintedResources`, choose
  * among those still in a discard pile with `chooseCards(slot, zone("discard", eachPlayer, { filter: { inSlot: PAID_CARDS } }), …)`.
  * Nothing paid, or the card was put into play without being played: the slot is empty.
