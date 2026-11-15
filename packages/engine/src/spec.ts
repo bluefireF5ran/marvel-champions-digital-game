@@ -3220,6 +3220,13 @@ export type EffectSpec =
        * prompt. The slot binds the instances picked, as any `chooseCards` does.
        */
       readonly hiddenHands?: true;
+      /**
+       * The choice is a search even though `from` names only a deck's top cards with no filter: "That player searches
+       * the top X cards of their deck for a card" (X-Bunker, `psylocke` 41023). Without it such a choice is a look at
+       * the top cards ("look at the top 2 cards of your deck"), which searches nothing, so an optional one that finds
+       * no card logs no `searchFoundNothing` (`isOptionalSearch`). A filtered or whole-deck choice is a search anyway.
+       */
+      readonly search?: true;
     }
   /**
    * Shuffle a player's deck (RRG "Search": searching any part of a deck shuffles it afterwards). `separateDeck`: that

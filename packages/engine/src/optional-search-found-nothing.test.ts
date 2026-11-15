@@ -13,7 +13,8 @@ import { mustPlayer } from "./query.js";
 import type { CardSelector, EffectSpec } from "./spec.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
-import { runCommandsPicking } from "./testing/drive.js";
+import { driveSession, runCommandsPicking } from "./testing/drive.js";
+import { startSession } from "./engine.js";
 import { stubEvent } from "./testing/fixtures.js";
 import { giveCard } from "./testing/scenario.js";
 import { copiesOf, gameAtFirstTurn, P1, playFree } from "./testing/wave3.js";
@@ -40,6 +41,17 @@ const search = (min: number): EffectSpec => ({
   min,
   max: 1,
 });
+/** A `chooseCards` of up to 1 among the top 2 cards of P1's deck. */
+function topTwo(opts: { readonly filter?: { readonly name: string } }): Extract<EffectSpec, { kind: "chooseCards" }> {
+  return {
+    kind: "chooseCards",
+    slot: "found",
+    from: { kind: "zone", zone: "deck", player: you, top: { kind: "const", value: 2 }, ...opts },
+    chooser: you,
+    min: 0,
+    max: 1,
+  };
+}
 /** "You may search your deck and discard pile for a widget and add it to your hand." */
 const MAY_SEARCH = actionEvent("may-search", [
   search(0),
@@ -72,7 +84,22 @@ const MAY_DISCARD = actionEvent("may-discard", [
   { kind: "draw", player: you, amount: { kind: "const", value: 1 } },
 ]);
 
-const EVENTS = [MAY_SEARCH, MUST_SEARCH, MAY_DISCARD];
+/** "Look at the top 2 cards of your deck. You may add 1 of them to your hand.": a look, not a search. */
+const LOOK_TOP_2 = actionEvent("look-top-2", [topTwo({}), { kind: "moveCards", cards: chosen("found"), to: "hand" }]);
+/** "Search the top 2 cards of your deck for a widget and add it to your hand. (Shuffle.)" */
+const SEARCH_TOP_2 = actionEvent("search-top-2", [
+  topTwo({ filter: { name: "widget" } }),
+  { kind: "moveCards", cards: chosen("found"), to: "hand" },
+  { kind: "shuffleDeck", player: you },
+]);
+/** "Search the top 2 cards of your deck for any card …" (X-Bunker's wording): marked a search (`search: true`). */
+const SEARCH_TOP_2_ANY = actionEvent("search-top-2-any", [
+  { ...topTwo({}), search: true },
+  { kind: "moveCards", cards: chosen("found"), to: "hand" },
+  { kind: "shuffleDeck", player: you },
+]);
+
+const EVENTS = [MAY_SEARCH, MUST_SEARCH, MAY_DISCARD, LOOK_TOP_2, SEARCH_TOP_2, SEARCH_TOP_2_ANY];
 const deps: EngineDeps = depsOf(...EVENTS.map((e) => e.ability));
 
 /** The first turn with `widgets` widgets in P1's deck and none in their hand or discard pile. */
@@ -143,6 +170,43 @@ describe("an optional search that finds nothing it can take", () => {
 
   it("an optional choice that reads no deck stays silent", () => {
     const { events } = playFree(start(), deps, MAY_DISCARD.card.id);
+    expect(foundNothing(events)).toEqual([]);
+  });
+});
+
+describe("a look at a deck's top cards is not a search (`isOptionalSearch`)", () => {
+  /** `card` played by P1 with their deck and discard pile emptied by surgery: the top 2 cards are no cards. */
+  function playWithEmptyDeck(card: string) {
+    const given = giveCard(start(), P1, card);
+    const emptied: GameState = {
+      ...given.state,
+      players: given.state.players.map((p) => (p.playerId === P1 ? { ...p, deck: [], discard: [] } : p)),
+    };
+    expect(mustPlayer(emptied, P1).deck).toEqual([]);
+    return driveSession(startSession(emptied), deps, [
+      { type: "playCard", playerId: P1, cardInstanceId: given.id, payment: [], attachToInstanceId: null },
+    ]);
+  }
+
+  it("'look at the top 2 cards' with nothing there logs no searchFoundNothing", () => {
+    const { events } = playWithEmptyDeck(LOOK_TOP_2.card.id);
+    expect(events.some((e) => e.type === "cardPlayed")).toBe(true);
+    expect(foundNothing(events)).toEqual([]);
+  });
+
+  it("'search the top 2 cards for a widget' that finds none logs searchFoundNothing", () => {
+    // Two cards on top, neither a widget.
+    const { events } = playFree(start(), deps, SEARCH_TOP_2.card.id);
+    expect(foundNothing(events)).toEqual([{ type: "searchFoundNothing", playerId: P1, slot: "found" }]);
+  });
+
+  it("an unfiltered top 2 the effect marks a search (`search: true`) logs searchFoundNothing with nothing there", () => {
+    const { events } = playWithEmptyDeck(SEARCH_TOP_2_ANY.card.id);
+    expect(foundNothing(events)).toEqual([{ type: "searchFoundNothing", playerId: P1, slot: "found" }]);
+  });
+
+  it("'search the top 2 cards for a widget' with a widget on top logs nothing of the kind", () => {
+    const { events } = playFree(withWidgetInDeck(), deps, SEARCH_TOP_2.card.id);
     expect(foundNothing(events)).toEqual([]);
   });
 });
