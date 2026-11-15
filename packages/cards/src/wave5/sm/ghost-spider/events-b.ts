@@ -70,7 +70,8 @@ import {
  * Revealed" resolves as part of `revealCard`), and then "the Stun card is discarded in Step 6 instead of dealing
  * damage"; the cards discarded and the treachery revealed stay done. Owner decision 2026-10-16 (audit finding 13)
  * supersedes the 2026-10-08 behavior, where the attack began before the cost and the stun stayed. A Guard minion
- * engaged by the cost stops the attack on the villain as the `attack` instruction applies.
+ * engaged by the cost stops the attack on the villain: guard is checked as the effect is initiated, once the cost is
+ * paid (`beginEffectAfterCost`, `Frame<"effects">.guardsAtInitiation`).
  *
  * **What Doesn't Kill Me (27016)**: "Requirement ([physical])" is schema-level data (Web Binding's own precedent,
  * `events-a.ts`) — no ability ref needed for it. "Hero Action: Heal 2 damage from your hero → ready your hero." is

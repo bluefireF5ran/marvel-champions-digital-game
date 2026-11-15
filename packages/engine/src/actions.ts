@@ -6600,11 +6600,12 @@ export function useAbility(ctx: Ctx, command: Command & { type: "useAbility" }, 
   // An encounter card may be triggered by any player (RRG 1.8 "Action", p. 6), except one attached to a player's card
   // whose text says "you" or "your": RRG 1.8 "Ability" (p. 4), "Only the player who controls a player card with an
   // attachment that uses the word 'you' or 'your' can trigger abilities or pay costs on that attachment", and the same
-  // rule nested under the "you"/"your" bullet of "Attachment" (p. 8). Without "you"/"your" any player may (ruling July 13, 2023 - Ruling 48,
-  // Restrained). Owner decision 2026-11-15 (issue #525, "A"): the "you"/"your" test gates the restriction; the
-  // 2026-10-05 call (docs/phase7-wave7.md) still holds, so it covers any card attached to a player's card, whatever its
-  // type. One attached to an enemy or a scheme, which no player controls, stays any player's. Text that names who may
-  // trigger it (`triggerableBy`, "Any player can do this") replaces this as it does the rule above.
+  // rule nested under the "you"/"your" bullet of "Attachment" (p. 8). Without "you"/"your" any player may (ruling
+  // July 13, 2023 - Ruling 48, Restrained). Owner decision 2026-11-15 (issue #525, "A"): the "you"/"your" test gates
+  // the restriction; the 2026-10-05 call (docs/phase7-wave7.md) still holds, so it covers any card attached to a
+  // player's card, whatever its type. One attached to an enemy or a scheme, which no player controls, stays any
+  // player's. Text that names who may trigger it (`triggerableBy`, "Any player can do this") replaces this as it does
+  // the rule above.
   if (
     !named &&
     controller === null &&

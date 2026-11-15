@@ -1473,6 +1473,8 @@ export function applyEffect(ctx: Ctx, effect: EffectSpec, context: EffectContext
       const inPlay = cardsInPlay(ctx.state);
       if (!inPlay.includes(original.attackerInstanceId)) return;
       const { results: _results, ...body } = original;
+      // Guard is read live here on purpose, not against an ability's `guardsAtInitiation`: Thor (25013) and Dust (33012)
+      // add minions only, and Two-Gun Kid (56010) resolves in a basic attack's window, just as it is initiated.
       pushEvents(
         ctx,
         targets(effect.targets)

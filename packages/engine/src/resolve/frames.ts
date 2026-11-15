@@ -5,13 +5,13 @@ import { type Ctx, nextFrameId, pushFrames, updateFrame } from "../ctx.js";
 import type { FrameId, InstanceId, PlayerId } from "../ids.js";
 import { cardOf, villainOf, villainStageOf } from "../query.js";
 import {
-  abilityMakesAttack,
+  abilityIsOneAttack,
   activeAbilityRefs,
   categoriesOf,
   controllerOf,
   countsAsExtras,
+  guardMinionsEngagedWith,
   ignoredAbilities,
-  minionsEngagedWith,
   TOGETHER_TARGETS_SLOT,
   traitsOf,
   withSelfHost,
@@ -341,34 +341,49 @@ export function pushEffects(
       ...(spec.sentence ? { sentence: true as const } : {}),
       ...(spec.eachTimePass ? { eachTimePass: true as const } : {}),
       ...(spec.replacesEvent !== undefined ? { replacesEvent: spec.replacesEvent } : {}),
-      ...engagedAtInitiationOf(ctx, spec),
+      ...guardsAtInitiationOf(ctx, spec),
     },
   ]);
 }
 
 /**
- * `Frame<"effects">.engagedAtInitiation` for effects being pushed: a branch of an ability whose frame is resolving
- * (the frame on top, same ability and card) carries that frame's; an attack-making ability's own effects take the
- * minions engaged with its controller now, as its effect is initiated.
+ * `Frame<"effects">.guardsAtInitiation` for effects being pushed: a branch of an ability whose frame is resolving
+ * (the frame on top, same ability and card) carries that frame's; an "(attack)" ability's own effects take the guard
+ * minions engaged with its controller now, as its effect is initiated (`guardsAsInitiated`).
  */
-function engagedAtInitiationOf(
+function guardsAtInitiationOf(
   ctx: Ctx,
   spec: {
     readonly abilityId?: AbilityId | undefined;
     readonly selfInstanceId: InstanceId | null;
     readonly controllerId: PlayerId | null;
   },
-): { readonly engagedAtInitiation?: readonly InstanceId[] } {
-  if (spec.abilityId === undefined || spec.controllerId === null) return {};
-  if (!abilityMakesAttack(ctx.deps.abilities[spec.abilityId])) return {};
+): { readonly guardsAtInitiation?: readonly InstanceId[] } {
   const parent = ctx.state.stack[0];
   if (
+    spec.abilityId !== undefined &&
     parent?.kind === "effects" &&
     parent.abilityId === spec.abilityId &&
     parent.selfInstanceId === spec.selfInstanceId
   )
-    return parent.engagedAtInitiation ? { engagedAtInitiation: parent.engagedAtInitiation } : {};
-  return { engagedAtInitiation: minionsEngagedWith(ctx.state, spec.controllerId) };
+    return parent.guardsAtInitiation ? { guardsAtInitiation: parent.guardsAtInitiation } : {};
+  return guardsAsInitiated(ctx, spec.abilityId, spec.controllerId);
+}
+
+/**
+ * The guard minions engaged with `controllerId` now, for an "(attack)" ability whose effect is being initiated
+ * (`abilityIsOneAttack`): `Frame<"effects">.guardsAtInitiation`. Taken as its effects frame is pushed, after its costs
+ * are paid, or, for a cost written as its leading effects, once that cost is paid (`beginEffectAfterCost`). Empty
+ * for any other ability.
+ */
+export function guardsAsInitiated(
+  ctx: Ctx,
+  abilityId: AbilityId | undefined,
+  controllerId: PlayerId | null,
+): { readonly guardsAtInitiation?: readonly InstanceId[] } {
+  if (abilityId === undefined || controllerId === null) return {};
+  if (!abilityIsOneAttack(ctx.deps.abilities[abilityId])) return {};
+  return { guardsAtInitiation: guardMinionsEngagedWith(ctx.state, controllerId, ctx.deps) };
 }
 
 export function abilityFrame(

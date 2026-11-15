@@ -139,6 +139,21 @@ const VILLAIN_WATCH_S = support("villain-watch", VILLAIN_WATCH);
 const RANGE_WATCH_S = support("range-watch", RANGE_WATCH);
 const PARRY_S = support("parry", PARRY);
 const VILLAIN_PARRY_S = support("villain-parry", VILLAIN_PARRY);
+/** "While Prep has a counter, each minion gains guard." (a minion engaged without guard gains it mid-ability) */
+const BANNER = stubAbility("banner.constant", {
+  trigger: {
+    kind: "constant",
+    keywordGrants: [
+      {
+        keyword: { name: "guard" },
+        target: { categories: ["minion"] },
+        while: { kind: "counterAtLeast", of: marker("prep"), counterType: "prep", amount: 1 },
+      },
+    ],
+  },
+  effects: [],
+} satisfies AbilityDefinition);
+const BANNER_S = support("banner", BANNER);
 const SUPPORTS = [
   MARKED_S,
   FOLLOW_UP_S,
@@ -150,6 +165,7 @@ const SUPPORTS = [
   PREP_S,
   PARRY_S,
   VILLAIN_PARRY_S,
+  BANNER_S,
 ];
 const PASSIVES = [
   MARKED,
@@ -161,6 +177,7 @@ const PASSIVES = [
   RANGE_WATCH,
   PARRY,
   VILLAIN_PARRY,
+  BANNER,
 ];
 
 const villain = (id: string, keywords: readonly KeywordInstance[] = []) =>
@@ -209,6 +226,35 @@ const SENTRY_ARRIVES: EffectSpec = {
 /** "Hero Action (attack): [a sentry engages you]. Deal 3 damage to the villain." Label only, and with an attack effect. */
 const LATE_GUARD_JAB = event("late-guard-jab", [SENTRY_ARRIVES, damage(3, theVillain)]);
 const LATE_GUARD_HIT = event("late-guard-hit", [SENTRY_ARRIVES, attack(3, theVillain)]);
+/** "Hero Action: Deal 1 damage to an enemy. [A sentry engages you.] Deal 2 damage to an enemy." Unlabeled, its attack
+ * instructions are separate attacks (Dance of Death 08004; FAQ "Dance of Death (#4)", RRG 1.8 p. 59). */
+const LATE_GUARD_DANCE = event(
+  "late-guard-dance",
+  [
+    {
+      kind: "chooseTarget",
+      slot: "e1",
+      query: { categories: ["enemy"], attackableBy: yourIdentity },
+      chooser: { kind: "controller" },
+    },
+    attack(1, chosen("e1")),
+    SENTRY_ARRIVES,
+    {
+      kind: "chooseTarget",
+      slot: "e2",
+      query: { categories: ["enemy"], attackableBy: yourIdentity },
+      chooser: { kind: "controller" },
+    },
+    attack(2, chosen("e2")),
+  ],
+  false,
+);
+/** The same with the villain named: "Deal 1 damage to the villain. [A sentry engages you.] Deal 2 damage to the villain." */
+const LATE_GUARD_VILLAIN_DANCE = event(
+  "late-guard-villain-dance",
+  [attack(1, theVillain), SENTRY_ARRIVES, attack(2, theVillain)],
+  false,
+);
 /** "Hero Action (attack): Deal 3 damage to the villain." No attack effect: the label alone makes it an attack. */
 const JAB = event("jab", [damage(3, theVillain)]);
 /** The same text with no label: plain damage. */
@@ -360,6 +406,8 @@ const STUN_COST_HIT = costEvent(
   [{ kind: "giveStatus", target: yourIdentity, status: "stunned" }, attack(3, theVillain)],
   1,
 );
+/** "Hero Action (attack): [A sentry engages you] → deal 3 damage to the villain." (the sentry arrives with the cost) */
+const LATE_GUARD_COST_HIT = costEvent("late-guard-cost-hit", [SENTRY_ARRIVES, attack(3, theVillain)], 1);
 /** "Hero Action (attack): Place 1 counter on Prep → deal 3 damage to the villain." */
 const PREP_COST_HIT = costEvent("prep-cost-hit", [prepare, attack(3, theVillain)], 1);
 /** "Hero Action (attack): Place 1 counter on Prep. Deal 3 damage to the villain. This attack gains ranged." */
@@ -368,6 +416,9 @@ const PREP_SHOT: ReturnType<typeof event> = event("prep-shot", [
   { kind: "attack", target: theVillain, amount: n(3), keywords: ["ranged"] },
 ]);
 const EVENTS = [
+  LATE_GUARD_COST_HIT,
+  LATE_GUARD_DANCE,
+  LATE_GUARD_VILLAIN_DANCE,
   LATE_GUARD_JAB,
   LATE_GUARD_HIT,
   PREP_DOUBLE,
@@ -1156,6 +1207,59 @@ describe("Q49: guard is checked for each enemy an attack targets, as it would be
       expect(amountsTo(after.events, t.villain)).toEqual([3]);
       expect(skipped(after.events)).toEqual([]);
     }
+  });
+
+  // Ruling April 30, 2026 (5), on Return the Favor: the effect is initiated in step 6, after the cost is paid, so a
+  // guard minion engaged while paying a cost written as the leading effects stops the attack.
+  it("a guard minion that engages while its cost is paid stops the attack on the villain", () => {
+    const after = play(table(PLAIN_V), LATE_GUARD_COST_HIT);
+    expect(after.state.players[0]!.playArea.some((id) => mustInstance(after.state, id).cardId === SENTRY.id)).toBe(
+      true,
+    );
+    expect(amountsTo(after.events, after.state.villains[0]!.instanceId)).toEqual([]);
+  });
+
+  // FAQ "Dance of Death (#4)" (RRG 1.8 p. 59): each attack of an unlabeled ability is initiated as it resolves, so a
+  // guard minion that engages after the first stops the later ones on the villain.
+  it("an unlabeled ability's later attack is initiated as it resolves: a guard minion engaged after the first guards", () => {
+    const t = table(PLAIN_V);
+    const chosen = play(t, LATE_GUARD_DANCE);
+    const sentries = Object.values(chosen.state.instances)
+      .filter((i) => i.cardId === SENTRY.id && i.engagedWith === P1)
+      .map((i) => i.instanceId);
+    expect(sentries.length).toBeGreaterThan(0);
+    const [first, second] = offered(chosen.events);
+    expect(first).toEqual([t.villain]);
+    expect(second).toEqual(sentries);
+    expect(amountsTo(chosen.events, t.villain)).toEqual([1]);
+    const named = play(table(PLAIN_V), LATE_GUARD_VILLAIN_DANCE);
+    expect(amountsTo(named.events, t.villain)).toEqual([1]);
+  });
+
+  // Owner decision 2026-11-15 (#525 item 6): guard is checked as the attack is initiated, so a minion engaged then
+  // without guard that gains guard while the ability resolves does not stop it.
+  it("a minion engaged without guard that gains guard after the attack was initiated does not stop its damage", () => {
+    const t = table(PLAIN_V, [PREP_S, BANNER_S], [DUMMY]);
+    const after = play(t, PREP_JAB);
+    expect(counters(after.state, t.supports[0]!, "prep")).toBe(1);
+    expect(amountsTo(after.events, t.villain)).toEqual([3]);
+    expect(skipped(after.events)).toEqual([]);
+    // Control: with guard already granted as the attack is initiated, it cannot be played against the villain.
+    const granted = table(PLAIN_V, [PREP_S, BANNER_S], [DUMMY]);
+    const prepped = {
+      ...granted,
+      state: {
+        ...granted.state,
+        instances: {
+          ...granted.state.instances,
+          [granted.supports[0]!]: {
+            ...mustInstance(granted.state, granted.supports[0]!),
+            counters: { prep: 1 },
+          },
+        },
+      },
+    };
+    expect(playable(prepped, JAB)).toBe(false);
   });
 
   it("a division of damage does not offer the guarded villain", () => {

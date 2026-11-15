@@ -193,7 +193,15 @@ import { putIntoPlayHostCandidates } from "./reveal.js";
 import { controllerOfArea, joinGameArea } from "./game-areas.js";
 import { damageGroupFrame } from "./damage-group.js";
 import { eachEncounterCard, selectCards, shuffleSeparateDeck } from "./cards.js";
-import { abilityFrame, addFrameVars, eventFrame, type Frame, pushEffects, pushEvents } from "./frames.js";
+import {
+  abilityFrame,
+  addFrameVars,
+  eventFrame,
+  type Frame,
+  guardsAsInitiated,
+  pushEffects,
+  pushEvents,
+} from "./frames.js";
 import { giveStatusOrAnnounce } from "./status-being-given.js";
 import { splitWouldDiscard } from "./would-discard.js";
 import { hasKeyword, keywordTotal, statusActive, statusCapacity, wouldDiscardAsVulnerable } from "../keywords.js";
@@ -241,7 +249,7 @@ export const contextOf = (frame: Frame<"effects">, deps: EngineDeps): EffectCont
   vars: frame.vars,
   ...(frame.abilityId !== undefined ? reachOf(deps.abilities[frame.abilityId]) : {}),
   ...(frame.abilityId !== undefined ? attackIgnoringOf(deps.abilities[frame.abilityId]) : {}),
-  ...(frame.engagedAtInitiation ? { attackGuardFrom: frame.engagedAtInitiation } : {}),
+  ...(frame.guardsAtInitiation ? { attackGuardFrom: frame.guardsAtInitiation } : {}),
   ...(frame.controllerId !== null &&
   frame.abilityId !== undefined &&
   deps.abilities[frame.abilityId]?.label?.includes("thwart")
@@ -543,9 +551,15 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
 function beginEffectAfterCost(ctx: Ctx, frame: Frame<"effects">): boolean {
   const pending = frame.costEffectsPending;
   if (pending === undefined || frame.answer !== null || frame.effects.length - frame.cursor > pending) return false;
-  const { costEffectsPending: _paid, ...rest } = frame;
+  const { costEffectsPending: _paid, guardsAtInitiation: _unpaid, ...rest } = frame;
   const label = frame.abilityId !== undefined ? ctx.deps.abilities[frame.abilityId]?.label : undefined;
-  const begun: Frame<"effects"> = { ...rest, effectBeganAt: frame.cursor };
+  // The effect is initiated now, so an "(attack)" ability's guard minions are the ones engaged now: one the cost
+  // engaged stops it (ruling April 30, 2026 - Ruling 5, Return the Favor; `Frame<"effects">.guardsAtInitiation`).
+  const begun: Frame<"effects"> = {
+    ...rest,
+    effectBeganAt: frame.cursor,
+    ...guardsAsInitiated(ctx, frame.abilityId, frame.controllerId),
+  };
   setFrame(ctx, begun);
   if (frame.controllerId !== null && label && labelCancels(ctx, frame.controllerId, label)) {
     // Nothing of the effect resolves, and the ability is not announced as resolved, as for a labeled ability its

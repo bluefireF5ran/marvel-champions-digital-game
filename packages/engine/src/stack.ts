@@ -696,13 +696,16 @@ export type StackFrame =
        */
       readonly abilityId?: AbilityId;
       /**
-       * The minions engaged with the controller as an ability that makes an attack (`abilityMakesAttack`) was
-       * initiated: its effects frame is pushed after its costs are paid (RRG 1.8 "Initiating Abilities", step 6;
-       * ruling April 30, 2026 (5): a guard minion engaged while paying the cost stops it). Carried into its branches.
-       * Only these can guard against its attack as it resolves (`EffectContext.attackGuardFrom`, `canAttack`); owner
-       * decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49. Absent on every other frame.
+       * The guard minions engaged with the controller as an "(attack)" ability's effect was initiated
+       * (`abilityIsOneAttack`, `guardsAsInitiated`), after its costs were paid (RRG 1.8 "Initiating Abilities", p. 24,
+       * step 6; ruling April 30, 2026 (5): a guard minion engaged while paying the cost stops it): taken as its
+       * effects frame is pushed, or, for a cost written as its leading effects (`costEffectsPending`), once the cursor
+       * reaches the effect (`beginEffectAfterCost`), and absent until then. Carried into its branches. Only these can
+       * guard against its attack as it resolves, each still read live for being engaged and having guard
+       * (`EffectContext.attackGuardFrom`, `canAttack`); owner decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49.
+       * Absent on every other frame.
        */
-      readonly engagedAtInitiation?: readonly InstanceId[];
+      readonly guardsAtInitiation?: readonly InstanceId[];
       /**
        * This frame is the step where a defeated card leaves play, after its When Defeated abilities (RRG 1.8 "When
        * Defeated Abilities", p. 48; `resolve/event.ts` `leaveAfterWhenDefeated`). While it waits, the card is still in

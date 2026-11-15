@@ -322,11 +322,12 @@
  *   `target-validity.ts`, for a `chooseTarget` slot; a division's candidates), and with none to offer it does nothing;
  * - a guard minion an earlier instruction of the same ability defeated no longer guards: the villain can then be
  *   attacked by the next instruction.
- * - only a guard minion already engaged with the player as the ability was initiated guards against it (owner decision
- *   2026-11-15, #525 item 6, narrowing wave 8 Q49; ruling May 18, 2023 (5), reaffirmed July 20, 2023 (50), on Swift
- *   Retribution: "Guard prevents you from initiating attacks, but does not prevent you from dealing damage"). A guard
- *   minion a boost or a scheme brings in while it resolves does not stop its damage (`Frame<"effects">
- *   .engagedAtInitiation`, read through `EffectContext.attackGuardFrom` and `AbilityAttack.guardFrom`).
+ * - only a minion already engaged with the player and with guard as the ability's effect was initiated (after its
+ *   costs) guards against it, and only while it is still engaged and still has guard (owner decision 2026-11-15, #525
+ *   item 6, narrowing wave 8 Q49; ruling May 18, 2023 (5), reaffirmed July 20, 2023 (50), on Swift Retribution:
+ *   "Guard prevents you from initiating attacks, but does not prevent you from dealing damage"). A guard minion a
+ *   boost or a scheme brings in while it resolves, or a minion that gains guard then, does not stop its damage
+ *   (`Frame<"effects">.guardsAtInitiation`, read through `EffectContext.attackGuardFrom` and `AbilityAttack.guardFrom`).
  *
  * Guard is not read for damage that is not an attack on the enemy taking it: an overkill spill, an unlabeled
  * ability's damage, an instruction marked `fromAttack: false`.
@@ -421,7 +422,7 @@ export interface AbilityAttack {
   readonly frameId: FrameId;
   /** "This attack ignores guard" (`EffectSpec attack.ignores`, `attackIgnoringOf`): guard does not stop it. */
   readonly ignoresGuard: boolean;
-  /** The minions that can guard against it: those engaged as its ability was initiated (`engagedAtInitiation`). */
+  /** The minions that can guard against it: the guard minions engaged as its effect was initiated (`guardsAtInitiation`). */
   readonly guardFrom: readonly InstanceId[] | undefined;
 }
 
@@ -677,7 +678,7 @@ export function abilityAttackOf(
     ignoresGuard:
       attackIgnoringOf(frame.abilityId === undefined ? undefined : deps.abilities[frame.abilityId])
         .attackIgnoresGuard === true,
-    guardFrom: frame.engagedAtInitiation,
+    guardFrom: frame.guardsAtInitiation,
   };
 }
 

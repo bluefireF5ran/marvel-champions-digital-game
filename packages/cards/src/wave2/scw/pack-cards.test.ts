@@ -340,7 +340,7 @@ describe("Order and Chaos (15018): the damage waits on the cancel", () => {
 // attack with Swift Retribution and were dealt a Goblin Thrall during the activation, you could still deal the damage
 // from Swift Retribution."). Owner decision 2026-11-15 (#525 item 6), narrowing wave 8 Q49: guard is checked as the
 // attack is initiated, and for its later instructions only against a guard minion already engaged then
-// (`Frame<"effects">.engagedAtInitiation`), so a Goblin Thrall the scheme's boost engages does not stop the damage.
+// (`Frame<"effects">.guardsAtInitiation`), so a Goblin Thrall the scheme's boost engages does not stop the damage.
 describe("Swift Retribution (15014) when the villain's scheme boost brings a Guard minion (FFG ruling post-RRG 1.5)", () => {
   /** Mutagen Formula, one player; P1's setup Goblin Thrall is disengaged and a Goblin Thrall (boost: put into play engaged) is the next card. */
   const staged = (topCode: string) => {

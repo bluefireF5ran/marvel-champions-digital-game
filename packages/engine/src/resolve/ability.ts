@@ -245,8 +245,12 @@ function resolveAbility(ctx: Ctx, frame: Frame<"ability">): void {
   });
   if (labelAfterCost) {
     const pushed = ctx.state.stack[0];
-    if (pushed?.kind === "effects" && pushed.selfInstanceId === frame.instanceId && pushed.cursor === 0)
-      setFrame(ctx, { ...pushed, costEffectsPending: definition.effects.length - costEffects });
+    if (pushed?.kind === "effects" && pushed.selfInstanceId === frame.instanceId && pushed.cursor === 0) {
+      // Its effect is not initiated yet: the guard minions it reads are taken once the cost is paid (ruling April 30,
+      // 2026 - Ruling 5: a guard minion engaged while paying Return the Favor's cost stops its attack).
+      const { guardsAtInitiation: _notYet, ...unpaid } = pushed;
+      setFrame(ctx, { ...unpaid, costEffectsPending: definition.effects.length - costEffects });
+    }
   }
 }
 
