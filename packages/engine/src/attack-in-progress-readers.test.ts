@@ -169,6 +169,49 @@ const GRUNT = stubMinion({
   abilities: [GRUNT_PREPARATION.ref],
 });
 
+/** Records what Attacrobatics' `bind` reported, at the end of the attack, and deals "that much" to the attacker. */
+const REPORT_PREVENTED: EffectSpec = {
+  kind: "atEndOfAttack",
+  effects: [
+    { kind: "dealDamage", target: attacker, amount: { kind: "eventResult", key: PREVENTED.amount } },
+    record("preventedFlag", { kind: "eventResult", key: PREVENTED.prevented }),
+    record("preventedAmount", { kind: "eventResult", key: PREVENTED.amount }),
+    record("preventedTotal", { kind: "eventResult", key: PREVENTED.total }),
+  ],
+};
+const PREVENT: EffectSpec = { kind: "modifyAttack", preventAllDamage: true, bind: "prevented" };
+const MOVE_HERE: readonly EffectSpec[] = [
+  { kind: "putIntoPlay", card: self, controller: { kind: "controller" } },
+  { kind: "retargetAttack", attack: "player", character: self },
+];
+/** "Preparation: Prevent all damage from this attack. Put this card into play engaged with you; resolve this attack
+ * against it instead. After this attack, deal that much damage to the attacking character." */
+const SHIELD_THEN_MOVE_PREPARATION = stubAbility("shield-then-move.preparation", {
+  trigger: { kind: "preparation" },
+  effects: [PREVENT, REPORT_PREVENTED, ...MOVE_HERE],
+} satisfies AbilityDefinition);
+const SHIELD_THEN_MOVE = stubMinion({
+  id: "shield-then-move",
+  atk: 1,
+  sch: 1,
+  hp: 5,
+  boostIcons: 0,
+  abilities: [SHIELD_THEN_MOVE_PREPARATION.ref],
+});
+/** The same Preparation with the move first. */
+const MOVE_THEN_SHIELD_PREPARATION = stubAbility("move-then-shield.preparation", {
+  trigger: { kind: "preparation" },
+  effects: [...MOVE_HERE, PREVENT, REPORT_PREVENTED],
+} satisfies AbilityDefinition);
+const MOVE_THEN_SHIELD = stubMinion({
+  id: "move-then-shield",
+  atk: 1,
+  sch: 1,
+  hp: 5,
+  boostIcons: 0,
+  abilities: [MOVE_THEN_SHIELD_PREPARATION.ref],
+});
+
 /** "Preparation: Place 1 threat on the main scheme." */
 const OPS_PREPARATION = stubAbility("ops.preparation", {
   trigger: { kind: "preparation" },
@@ -285,6 +328,8 @@ const deps: EngineDeps = depsOf(
   WIDOW_NO_PREPARATION,
   ACRO_PREPARATION,
   GRUNT_PREPARATION,
+  SHIELD_THEN_MOVE_PREPARATION,
+  MOVE_THEN_SHIELD_PREPARATION,
   OPS_PREPARATION,
   GOGGLES_GRANTED,
   GOGGLES_CONSTANT,
@@ -297,7 +342,17 @@ const deps: EngineDeps = depsOf(
   AFTER_DAMAGE,
 );
 const PLAYER_CARDS: readonly AnyCard[] = [BLAST, SWEEP, VOLLEY, JAB, ZAP, ROOM, PAL];
-const ENCOUNTER_CARDS: readonly AnyCard[] = [ACRO, GRUNT, OPS, GOGGLES, BLANK, CRISIS, GOON];
+const ENCOUNTER_CARDS: readonly AnyCard[] = [
+  ACRO,
+  GRUNT,
+  SHIELD_THEN_MOVE,
+  MOVE_THEN_SHIELD,
+  OPS,
+  GOGGLES,
+  BLANK,
+  CRISIS,
+  GOON,
+];
 
 interface Options {
   /** The card on top of the encounter deck. */
@@ -320,7 +375,17 @@ function table(options: Options) {
     villain: WIDOW,
     mainScheme: WEB,
     deck: PLAYER_CARDS.map((card) => card.id),
-    encounter: [ACRO.id, GRUNT.id, OPS.id, GOGGLES.id, CRISIS.id, GOON.id, ...copiesOf(BLANK.id, 20)],
+    encounter: [
+      ACRO.id,
+      GRUNT.id,
+      SHIELD_THEN_MOVE.id,
+      MOVE_THEN_SHIELD.id,
+      OPS.id,
+      GOGGLES.id,
+      CRISIS.id,
+      GOON.id,
+      ...copiesOf(BLANK.id, 20),
+    ],
   });
   state = {
     ...state,
@@ -671,6 +736,39 @@ describe("§3.4 `retargetAttack` onto a minion a Preparation put into play", () 
     expect(damageOn(state, t.villain)).toBe(0);
     expect(damageOn(state, t.hero)).toBe(1 + 4);
     expect(counter(state, "preventedAmount")).toBe(4);
+  });
+});
+
+// Prevention protects the character the attack was against when it resolved (card text; rulings Jul 11, 2025 and
+// Mar 22, 2024 (155)): a moved attack's new target takes its damage. "That much" / Photographic Reflexes' "an equal
+// amount" is read as what was prevented, so 0 once the attack has moved away (engine reading).
+describe("§3.4 a prevention, then a move of the attack (or the other way round)", () => {
+  it("prevented against the villain, then moved onto the minion: the minion takes the 2; 0 was prevented, so 0 is dealt back", () => {
+    const t = table({ top: SHIELD_THEN_MOVE });
+    const { state, events } = run(t.state, basicAttack(t.hero, t.villain));
+
+    expect(attackedCharacters(events)).toEqual([t.top]);
+    expect(damageOn(state, t.top)).toBe(2);
+    expect(damageOn(state, t.villain)).toBe(0);
+    expect(preventions(events)).toEqual([]);
+    expect(counter(state, "preventedFlag")).toBe(1);
+    expect(counter(state, "preventedAmount")).toBe(0);
+    expect(counter(state, "preventedTotal")).toBe(0);
+    expect(damageOn(state, t.hero)).toBe(0);
+    expect(counter(state, "afterDamage")).toBe(1);
+  });
+
+  it("moved onto the minion, then prevented: the minion is protected; the 2 prevented on it is dealt back", () => {
+    const t = table({ top: MOVE_THEN_SHIELD });
+    const { state, events } = run(t.state, basicAttack(t.hero, t.villain));
+
+    expect(attackedCharacters(events)).toEqual([t.top]);
+    expect(damageOn(state, t.top)).toBe(0);
+    expect(damageOn(state, t.villain)).toBe(0);
+    expect(preventions(events)).toEqual([[t.top, 2, "effect"]]);
+    expect(counter(state, "preventedAmount")).toBe(2);
+    expect(damageOn(state, t.hero)).toBe(2);
+    expect(counter(state, "afterDamage")).toBe(0);
   });
 });
 

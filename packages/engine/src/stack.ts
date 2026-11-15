@@ -449,6 +449,13 @@ export type StackFrame =
        */
       readonly preventAllReports?: readonly { readonly bind: string; readonly targetInstanceId: InstanceId | null }[];
       /**
+       * On an attack whose damage is all prevented (`modifyAttack.preventAllDamage`, `bind` or not): the character a
+       * player attack was against as each such effect resolved, in order (`preventAbilityAttackDamage`). Only damage
+       * to these is prevented (`protectsTarget`), so an attack moved afterwards deals its damage to its new target.
+       * Null: the attack had named no character yet; it protects the character the attack is first made against.
+       */
+      readonly preventAllTargets?: readonly (InstanceId | null)[];
+      /**
        * On a `cardEntersPlay` event not yet initiated: a standing check of the card (`stateCheck.fromEntering`) resolved
        * the moment the card was in play, before this event's windows. If the card is out of play when the event's turn
        * comes, the event ends there: no interrupt, no enter-play keyword, no response (`resolve/state-checks.ts`).

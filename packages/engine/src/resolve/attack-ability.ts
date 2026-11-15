@@ -88,9 +88,10 @@
  * damage of the ability's later instructions while it waits. When the ability makes more than one `attack` event (one
  * per enemy of "attack each enemy"), its root frame remembers the prevented one (`attackDamagePrevented`,
  * `preventAbilityAttackDamage`), and later damage of the ability to that event's target is prevented with it
- * (`attackPreventingDamage`, `protectsTarget`). The protected character is the event's target as the damage is dealt
- * (after any move in its window); a player attack that names no character yet, and an enemy attack, protect every
- * instance. Unlike a cancelled attack, a prevented one still attacks: every enemy named is attacked and retaliates,
+ * (`attackPreventingDamage`, `protectsTarget`). The protected character is the one the attack was against when the
+ * prevention resolved (`preventAllTargets`): if the attack is moved afterwards, its new target takes its damage, and
+ * Photographic Reflexes' "an equal amount" (what was prevented) is then 0. A player attack that names no character
+ * yet, and an enemy attack, protect every instance. Unlike a cancelled attack, a prevented one still attacks: every enemy named is attacked and retaliates,
  * "after … attacks" answers, and its `damage` result is 0 for the protected character. This engine's interpretation,
  * with its alternatives:
  *
@@ -459,18 +460,24 @@ export function cancelAbilityAttack(ctx: Ctx, frame: Frame<"event">): void {
 export function preventAbilityAttackDamage(ctx: Ctx, attackFrameId: FrameId, bind: string | undefined): void {
   const frame = findFrame(ctx.state, attackFrameId);
   if (frame?.kind !== "event") return;
-  if (bind !== undefined) {
-    const targetInstanceId = frame.event.kind === "attack" ? frame.event.targetInstanceId : null;
-    updateFrame(ctx, attackFrameId, (f) =>
-      f.kind === "event"
-        ? {
-            ...f,
-            vars: { ...f.vars, [attackPreventedVars(bind).prevented]: 1 },
-            preventAllReports: [...(f.preventAllReports ?? []), { bind, targetInstanceId }],
-          }
-        : f,
-    );
-  }
+  // Prevention protects the character the attack was against when it resolved (card text; rulings Jul 11, 2025 and
+  // Mar 22, 2024 (155)): a moved attack's new target takes its damage. Recorded once here, read by both
+  // `protectsTarget` and `<bind>.amount`.
+  const targetInstanceId = frame.event.kind === "attack" ? frame.event.targetInstanceId : null;
+  updateFrame(ctx, attackFrameId, (f) =>
+    f.kind === "event"
+      ? {
+          ...f,
+          preventAllTargets: [...(f.preventAllTargets ?? []), targetInstanceId],
+          ...(bind === undefined
+            ? {}
+            : {
+                vars: { ...f.vars, [attackPreventedVars(bind).prevented]: 1 },
+                preventAllReports: [...(f.preventAllReports ?? []), { bind, targetInstanceId }],
+              }),
+        }
+      : f,
+  );
   if (frame.event.kind !== "attack" || frame.attackOf === undefined) return;
   updateFrame(ctx, frame.attackOf, (root) =>
     root.kind === "effects" && root.attackDamagePrevented === undefined
@@ -501,15 +508,18 @@ export function attackPreventingDamage(state: GameState, damage: Damage): Frame<
 
 /**
  * Whether the prevented attack `prevented` protects the character `damage` would be dealt to: on a player attack, only
- * the character that attack is against as the damage is dealt (its event's target, after any move in its window), so
- * the damage the same ability deals to anyone else is dealt as written (file header, "All damage of the attack
- * prevented"; owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4; ruling Jul 11, 2025). A player attack
- * that names no character yet, and an enemy attack (one defender, whoever defends), protect every instance.
+ * the character that attack was against as its prevention resolved (`preventAllTargets`), so the damage the same
+ * ability deals to anyone else, and the damage of an attack moved afterwards to its new target, is dealt as written
+ * (file header, "All damage of the attack prevented"; owner decision 2026-11-15 (#525 item 10), replacing wave 9 Q4;
+ * rulings Jul 11, 2025 and Mar 22, 2024 (155)). A player attack that had named no character yet protects the one it
+ * is first made against (its event's target, once named); one that names none, and an enemy attack (one defender,
+ * whoever defends), protect every instance.
  */
 function protectsTarget(prevented: Frame<"event">, damage: Damage): boolean {
   if (prevented.event.kind !== "attack") return true;
-  const target = prevented.event.targetInstanceId;
-  return target === null || target === damage.targetInstanceId;
+  const live = prevented.event.targetInstanceId;
+  const protectedTargets = prevented.preventAllTargets ?? [live];
+  return protectedTargets.some((target) => (target ?? live) === null || (target ?? live) === damage.targetInstanceId);
 }
 
 /**
