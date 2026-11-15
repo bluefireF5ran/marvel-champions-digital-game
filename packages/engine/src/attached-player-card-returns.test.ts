@@ -54,8 +54,8 @@ const NAVIGATOR = stubUpgrade({
 const GADGET = stubUpgrade({ id: "gadget", cost: 0 });
 const MINION = stubMinion({ id: "thug", atk: 1, sch: 1, hp: 3 });
 const SCHEME = stubSideScheme({ id: "plot", startingThreat: 2 });
-// A permanent encounter attachment whose "attach to" names no other host once its minion is gone: discarded with its
-// host (§4.2 Q26). One whose text names a host in play goes there instead (docs/phase7-wave10.md §3.19; MC56 p. 20).
+// A permanent encounter attachment whose "attach to" names no other host once its minion is gone: removed from the game
+// (owner decision 2026-11-15, #525 item 8, revising wave 5 §4.1 row 26; RRG 1.8 "Permanent" p. 32). One whose text names a host in play goes there instead (docs/phase7-wave10.md §3.19; MC56 p. 20).
 const CURSE = stubAttachment({ id: "curse", attachesTo: { kind: "minion" }, keywords: [{ name: "permanent" }] });
 const BRAND = stubAttachment({ id: "brand", attachesTo: { kind: "villain" }, keywords: [{ name: "permanent" }] });
 
@@ -192,11 +192,12 @@ describe("§3.30 a player card attached to an encounter card, returned when its 
     return { state, id: placed.id };
   };
 
-  it("a permanent encounter attachment whose 'attach to' names no other host is discarded with its host (§4.2 Q26)", () => {
+  it("a permanent encounter attachment whose 'attach to' names no other host is removed from the game (RRG 1.8 p. 32)", () => {
     const curse = onThug(start(), CURSE);
     const after = playFree(curse.state, deps, DEFEAT_THUG.card.id).state;
     expect(after.villainArea).not.toContain(curse.id);
-    expect(after.encounterDecks[activeEncounterDeckId(after)]!.discard).toContain(curse.id);
+    expect(after.removedFromGame).toContain(curse.id);
+    expect(after.encounterDecks[activeEncounterDeckId(after)]!.discard).not.toContain(curse.id);
     expect(mustInstance(after, curse.id).attachedTo).toBeNull();
   });
 
