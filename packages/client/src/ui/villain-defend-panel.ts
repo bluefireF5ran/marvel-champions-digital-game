@@ -313,7 +313,7 @@ function drawMatchup(scene: Phaser.Scene, layout: VillainDefendLayout, view: Def
     ...summary.forcedNotes.map((text) => ({ text, role: "body" as const })),
     ...(summary.boostAbilityNote ? [{ text: summary.boostAbilityNote, role: "body" as const }] : []),
     { text: `Play a defense event: ${view.defenseEventsNote}`, role: "body" },
-    { text: view.rangeCaveat, role: "body" },
+    ...(view.rangeCaveat ? [{ text: view.rangeCaveat, role: "body" as const }] : []),
   ];
   let y = notes.y;
   for (const line of lines) {

@@ -74,7 +74,11 @@ export interface DefendOptionView {
  * during step two of the villain phase is the ordinary activation (RRG 1.8 "Villain Phase", step 2).
  */
 export interface DefendCauseView {
-  readonly kind: "villainActivation" | "minionActivation" | "cardEffect" | "attack";
+  /**
+   * `friendlyAttack`: a friendly character made to attack its own player (Old Rivals: "Gamora attacks you"), not an
+   * enemy's attack: no boost card, no villain phase step.
+   */
+  readonly kind: "villainActivation" | "minionActivation" | "cardEffect" | "attack" | "friendlyAttack";
   /** "Villain phase · step 2 — the villain activates" / "Card effect — Gang-Up". */
   readonly eyebrow: string;
   /** The card whose effect made the attack happen, for its scan. Null for an ordinary activation. */
@@ -114,7 +118,7 @@ export interface DefendChoiceView {
   /** "Play a defense event" — always sourced from `legalActions`, never computed here (see its own doc comment). */
   readonly defenseEventsNote: string;
   /** What every range in `options` is honestly conditioned on — the design's own caveat, not a rules fact. */
-  readonly rangeCaveat: string;
+  readonly rangeCaveat: string | null;
 }
 
 /** "0 damage" / "3 damage" / "1–5 damage", off the bands' own `damageTaken` — never the client's arithmetic. */
@@ -475,6 +479,29 @@ export function defendCauseFrom(
 }
 
 /**
+ * The cause of a friendly character's attack on its own player (Old Rivals: "Gamora attacks you — Old Rivals"), or null
+ * for an enemy's attack. The engine asks its defender from the attack's own event frame (`resolve/friendly-attack.ts`),
+ * which names the attacked player (`attackedPlayerId`) and the card that made the attack.
+ */
+export function friendlyAttackCauseOf(
+  state: GameState,
+  choice: PendingChoice,
+  targetName: string,
+  nameOf: (id: InstanceId) => string,
+): DefendCauseView | null {
+  const frame = state.stack.find((f) => f.frameId === choice.frameId);
+  if (frame?.kind !== "event" || frame.event.kind !== "attack" || frame.event.attackedPlayerId === undefined)
+    return null;
+  const source = frame.event.sourceInstanceId ?? null;
+  const attacks = `${nameOf(frame.event.attackerInstanceId)} attacks ${targetName}`;
+  return {
+    kind: "friendlyAttack",
+    eyebrow: source ? `${attacks} — ${nameOf(source)}` : attacks,
+    sourceInstanceId: source,
+  };
+}
+
+/**
  * The tag under the target's scan: "Attacking you — Spider-Man", "Attacking Spider-Man" (the seat and the character are
  * one name, so it is said once), "Attacking Ana — Peter Parker". Short names throughout: the tag has a card's width.
  */
@@ -517,6 +544,9 @@ export function defendChoiceViewOf(
 
   const targetSeat = shortSeatName(state, choice.prompt.attack.targetPlayerId, viewerId);
   const targetCardName = shortFaceUpName(state, targetCharacterInstanceId);
+  const friendly = friendlyAttackCauseOf(state, choice, targetSeat === "You" ? "you" : targetSeat, (id) =>
+    faceUpName(state, id),
+  );
   const summary: DefendAttackSummaryView = {
     attackerName: faceUpName(state, attackerInstanceId),
     targetName: targetSeat === "You" ? "you" : targetCardName,
@@ -524,13 +554,15 @@ export function defendChoiceViewOf(
     targetInstanceId: targetCharacterInstanceId,
     targetCardName,
     targetCaption: targetCaptionOf(targetSeat, targetCardName),
-    cause: defendCauseFrom(
-      stackEntries(state),
-      attackerInstanceId,
-      cardOf(state, attackerInstanceId)?.type,
-      state.step.phase === "villain" && state.step.kind === "enemyActivations",
-      (id) => faceUpName(state, id),
-    ),
+    cause:
+      friendly ??
+      defendCauseFrom(
+        stackEntries(state),
+        attackerInstanceId,
+        cardOf(state, attackerInstanceId)?.type,
+        state.step.phase === "villain" && state.step.kind === "enemyActivations",
+        (id) => faceUpName(state, id),
+      ),
     baseAtk: first.baseAtk,
     facedownCount: first.boost.facedownCount,
     forcedNotes: [
@@ -555,6 +587,9 @@ export function defendChoiceViewOf(
     stack: stackRowsOf(state),
     waitingOn: waitingOnLine(choice, state, viewerId),
     defenseEventsNote: defenseEventsNoteOf(state, choice, deps),
-    rangeCaveat: "Ranges assume nobody plays a card in response — the boost cards are still facedown.",
+    // A friendly character's attack gets no boost card: there is nothing facedown to range over.
+    rangeCaveat: friendly
+      ? null
+      : "Ranges assume nobody plays a card in response — the boost cards are still facedown.",
   };
 }

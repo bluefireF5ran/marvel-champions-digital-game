@@ -1849,7 +1849,7 @@ export class ChoiceOverlay extends Phaser.Scene {
       ...view.summary.forcedNotes.map((text) => ({ text, role: "body" as const })),
       ...(view.summary.boostAbilityNote ? [{ text: view.summary.boostAbilityNote, role: "body" as const }] : []),
       { text: `Play a defense event: ${view.defenseEventsNote}`, role: "body" },
-      { text: view.rangeCaveat, role: "label" },
+      ...(view.rangeCaveat ? [{ text: view.rangeCaveat, role: "label" as const }] : []),
     ];
     let sy = notes.y;
     if (notes.width >= 120) {

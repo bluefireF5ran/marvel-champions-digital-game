@@ -442,3 +442,62 @@ describe("defendChoiceViewOf — the matchup", () => {
       expect(option.pictureInstanceId).toBe(option.defenderInstanceId);
   });
 });
+
+/**
+ * A friendly character's attack on its own player (Old Rivals, `nebu` 22031; engine `resolve/friendly-attack.ts`): the
+ * engine asks the defender from the attack's own event frame, which names the attacked player. Hand-built over a real
+ * game: the Core declare-defender choice re-pointed at a synthetic friendly `attack` frame, the identity standing in
+ * for Gamora (the sheet only reads the frame, the names and the preview).
+ */
+describe("a friendly character's attack (Old Rivals)", () => {
+  test("is worded as that character's attack, from the card that made it, with no boost line", async () => {
+    const { state, choice, viewer } = await playToDeclareDefender();
+    if (choice.prompt.kind !== "declareDefender") throw new Error("not a defend prompt");
+    const identity = choice.prompt.attack.targetCharacterInstanceId;
+    // The card that made the attack: the villain stands in for Old Rivals.
+    const source = Object.keys(state.instances).find((id) => state.instances[id as InstanceId]?.cardId === "01094") as
+      | InstanceId
+      | undefined;
+    const frameId = "friendly-attack-frame" as never;
+    const friendly: GameState = {
+      ...state,
+      stack: [
+        {
+          kind: "event",
+          frameId,
+          answer: null,
+          event: {
+            kind: "attack",
+            attackerInstanceId: identity,
+            targetInstanceId: identity,
+            playerId: viewer,
+            basic: false,
+            usedStat: "atk",
+            attackedPlayerId: viewer,
+            sourceInstanceId: source ?? identity,
+          },
+          stage: "apply",
+          cancelled: false,
+          vars: {},
+          slots: {},
+          reportTo: null,
+          endEffects: [],
+        } as unknown as GameState["stack"][number],
+        ...state.stack,
+      ],
+    };
+    const repointed: PendingChoice = {
+      ...choice,
+      frameId,
+      prompt: { ...choice.prompt, attack: { ...choice.prompt.attack, enemyInstanceId: identity } },
+    };
+    const view = defendChoiceViewOf({ ...friendly, pendingChoice: repointed }, repointed, POOL_DEPS, viewer, [])!;
+    expect(view).not.toBeNull();
+    expect(view.summary.cause.kind).toBe("friendlyAttack");
+    expect(source).toBeDefined();
+    expect(view.summary.cause.sourceInstanceId).toBe(source);
+    expect(view.summary.cause.eyebrow).toBe(`${view.summary.attackerName} attacks you — Rhino`);
+    expect(view.summary.cause.eyebrow).not.toMatch(/Enemy|Villain phase/);
+    expect(view.rangeCaveat).toBeNull();
+  });
+});
