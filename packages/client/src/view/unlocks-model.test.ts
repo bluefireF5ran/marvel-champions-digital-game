@@ -130,7 +130,7 @@ describe("taps", () => {
     it("words a confirm from the same parts", () => {
       useSpanish();
       const hero = confirmOf(rich(), { kind: "hero", identityCardId: thor });
-      expect(hero.title).toBe("¿Desbloquear Thor a mano?");
+      expect(hero.title).toBe("¿Desbloquear Thor con puntos?");
       expect(hero.confirmLabel).toBe("Gastar 150");
       expect(hero.body).toBe(
         "Cuesta 150 de tus 750 puntos de campeón; te quedarán 600. Si lo desactivas más tarde, no se te devolverán. " +
