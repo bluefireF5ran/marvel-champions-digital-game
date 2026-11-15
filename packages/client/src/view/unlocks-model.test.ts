@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { useEnglish, useSpanish } from "../i18n/test-language.js";
 import {
   DEFAULT_UNLOCK_PREFS,
   NO_PROGRESS,
@@ -6,6 +7,7 @@ import {
   UNLOCK_HEROES,
   UNLOCK_WAVES,
   Unlocks,
+  gateHintOf,
   unlockByHand,
   type UnlockPrefs,
 } from "../progression/unlocks.js";
@@ -44,7 +46,7 @@ describe("campaign row hints", () => {
       const wave = UNLOCK_WAVES.find((w) => w.cycleId === campaign.cycleId)!;
       const gate = wave.gate!;
       expect(row.detail.endsWith(wave.campaignId === campaign.campaignId ? wave.name : campaign.name)).toBe(true);
-      expect(row.detail.startsWith(gate.hint)).toBe(true);
+      expect(row.detail.startsWith(gateHintOf(gate))).toBe(true);
       expect(row.title).toBe(`Vol. ${campaign.volume} · ${campaign.name}`);
     }
     const mojo = rows.find((row) => row.id === "campaign:mojo");
@@ -120,6 +122,23 @@ describe("taps", () => {
     );
     const campaign = confirmOf(rich(), { kind: "campaign", campaignId: "gmw" });
     expect(campaign.body).toContain("Its cast (Groot and Rocket Raccoon) comes with it.");
+  });
+
+  describe("in Spanish", () => {
+    afterEach(useEnglish);
+
+    it("words a confirm from the same parts", () => {
+      useSpanish();
+      const hero = confirmOf(rich(), { kind: "hero", identityCardId: thor });
+      expect(hero.title).toBe("¿Desbloquear Thor a mano?");
+      expect(hero.confirmLabel).toBe("Gastar 150");
+      expect(hero.body).toBe(
+        "Cuesta 150 de tus 750 puntos de campeón; te quedarán 600. Si lo desactivas más tarde, no se te devolverán. " +
+          "O vence a Ultron para desbloquear a Thor gratis y ganar puntos por la victoria. " +
+          "Es para el precon de Thor: un mazo de Thor que importes o crees ya se puede jugar.",
+      );
+      expect(confirmOf(rich(), { kind: "everything" }).confirmLabel).toBe("Desbloquear todo");
+    });
   });
 
   it("won't let a player spend points they haven't earned", () => {

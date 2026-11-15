@@ -102,6 +102,8 @@ import { SCENES } from "./keys.js";
 import type { SeatsData } from "./seats.js";
 import { destroyChildren } from "../ui/destroy-children.js";
 import { fadeScreenIn, goToScreen } from "../ui/transitions.js";
+import { t, tPlural } from "../i18n/translate.js";
+import { onLanguageChange } from "../language-change.js";
 import { refreshUnlocks, unlocks } from "../progression/progression.js";
 import { unlockCostOf, unlockOrAsk } from "./unlock-confirm.js";
 
@@ -120,7 +122,7 @@ const roman = (n: number): string => ROMAN[n] ?? String(n);
 const FILTER_STOP = /^(scenario-search-toggle|scenario-search|filters-toggle|scenario-chip:.*)$/;
 const LIST_STOP = /^(drill-back|scenario-clear|scenario:.*)$/;
 
-const scenarioCountCaption = (count: number): string => `${count} ${count === 1 ? "SCENARIO" : "SCENARIOS"}`;
+const scenarioCountCaption = (count: number): string => tPlural("scenario.countCaption", count);
 
 export class ScenarioSelectScene extends Phaser.Scene {
   #draft!: SetupDraft;
@@ -197,6 +199,10 @@ export class ScenarioSelectScene extends Phaser.Scene {
     // and waiting several seconds with no interaction — the same "art hasn't arrived yet, draw the frame now,
     // redraw when it does" contract every other art-consuming scene already subscribes to this way).
     const artOff = cardArt(this).onArrived(() => this.#refreshArt());
+    // A language switch (#390): the screen reads again in the new language.
+    const languageOff = onLanguageChange(() => {
+      if (this.sys.isActive()) this.#rebuild();
+    });
     // Dev e2e hook (never referenced by product code): the tiles drawn so far (their printed title, whether the
     // scenario has villain art of its own, whether that face has been baked and drawn) and every control's rect.
     if (import.meta.env.DEV) {
@@ -221,6 +227,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       this.#hover = null;
       this.scale.off("resize", this.#rebuild, this);
       artOff();
+      languageOff();
       this.#search.destroy();
       this.#searchInput?.destroy();
       this.#searchInput = null;
@@ -454,7 +461,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind: "onInk",
-        label: "◂ Back",
+        label: t("scenario.back"),
         type: typeRole.backLabel,
         rect: layout.back,
         onClick: back,
@@ -463,14 +470,14 @@ export class ScenarioSelectScene extends Phaser.Scene {
     this.#stops.set("back", { rect: layout.back, activate: back });
     const titleX = layout.back.x + layout.back.width + 16;
     const title = this.add
-      .text(titleX, layout.headerBar.height / 2, "Choose a scenario", textStyle(typeRole.pageTitle, surface.paper.hex))
+      .text(titleX, layout.headerBar.height / 2, t("scenario.title"), textStyle(typeRole.pageTitle, surface.paper.hex))
       .setOrigin(0, 0.5);
     fitText(title, layout.step.x - titleX - 12, typeRole.pageTitle.size);
     this.add
       .text(
         layout.step.x + layout.step.width,
         layout.headerBar.height / 2,
-        "STEP 1 OF 4",
+        t("scenario.step"),
         textStyle(typeRole.label, surface.paper.hex, ink.label),
       )
       .setOrigin(1, 0.5);
@@ -485,7 +492,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       this.#buttons.push(
         new McButton(this, {
           kind: "quiet",
-          label: "◂ All packs",
+          label: t("scenario.allPacks"),
           type: typeRole.rowTitle,
           rect: { x: layout.shelves.x, y: layout.shelves.y, width: 130, height: 28 },
           onClick: drillBack,
@@ -590,14 +597,16 @@ export class ScenarioSelectScene extends Phaser.Scene {
     };
     const nextButton = new McButton(this, {
       kind: "primary",
-      label: lock ? `Unlock · ${unlockCostOf(unlockTarget)} pts` : "Choose heroes ▸",
+      label: lock ? t("scenario.unlockCost", { cost: unlockCostOf(unlockTarget) }) : t("scenario.chooseHeroes"),
       type: typeRole.barTitle,
       rect: layout.next,
       onClick: next,
       enabled: selection.canContinue,
       ...(selection.canContinue
         ? {}
-        : { reason: selection.selectedId === null ? "Pick a villain first." : "No scenario is showing." }),
+        : {
+            reason: selection.selectedId === null ? t("scenario.pickVillainFirst") : t("scenario.noneShowing"),
+          }),
     });
     this.#buttons.push(nextButton);
     // Start moves forward on this screen (the route's primary), so its glyph sits on the red button.
@@ -623,7 +632,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       this,
       layout.footer.x,
       layout.footer.y,
-      lock ?? "Step 1 of 4 · scenario",
+      lock ?? t("scenario.stepFooter"),
       typeRole.label,
       // On the dark detail panel (wide) the caption is paper; on a phone it sits on the page's own ground.
       layout.wide ? surface.paper.hex : surface.ink.hex,
@@ -754,7 +763,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
         searchRectForInspectHint(layout.search, inspectHint),
         "scenario-search",
         filter.text,
-        "search scenarios, villains, packs…",
+        t("scenario.search"),
         (value) => {
           this.#draft = setScenarioFilter(this.#draft, { ...this.#draft.scenarioFilter, text: value });
           this.#requestSearch(value);
@@ -884,12 +893,17 @@ export class ScenarioSelectScene extends Phaser.Scene {
       title: cardDetail.tileTitle,
       subtitle,
       blockedBy: lock,
-      warning: lock ? lockCaptionOf(lock, unlockCostOf({ kind: "scenario", scenarioId: s.id as string })) : null,
+      warning: lock
+        ? lockCaptionOf(
+            unlocks().scenarioLockShort(s) ?? lock,
+            unlockCostOf({ kind: "scenario", scenarioId: s.id as string }),
+          )
+        : null,
       subtitleLines: 2,
       // A pack's scenario says so in words, beside SELECTED when both apply.
       tag: lock
-        ? "LOCKED"
-        : [custom ? CUSTOM_BADGE : null, selected ? "SELECTED" : null].filter(Boolean).join(" · ") || null,
+        ? t("scenario.locked")
+        : [custom ? CUSTOM_BADGE : null, selected ? t("scenario.selected") : null].filter(Boolean).join(" · ") || null,
       selected,
     });
     if (import.meta.env.DEV) {
@@ -918,19 +932,22 @@ export class ScenarioSelectScene extends Phaser.Scene {
     g.lineStyle(3, surface.ink.hex, 1).strokeRect(rect.x + 1.5, rect.y + 1.5, rect.width - 3, rect.height - 3);
     const firstStage = detail.stages[0];
     const accelerating = detail.startingAcceleration.base > 0 || detail.startingAcceleration.perPlayer > 0;
-    const accel = accelerating ? ` · accel ${formatScaling(detail.startingAcceleration)}` : "";
+    const accel = accelerating ? t("scenario.accel", { accel: formatScaling(detail.startingAcceleration) }) : "";
     const cells: readonly { readonly label: string; readonly value: string }[] = [
-      { label: "Main scheme", value: detail.mainSchemeName },
-      { label: "Starting threat", value: `${formatScaling(detail.startingThreat)} start${accel}` },
+      { label: t("scenario.mainScheme"), value: detail.mainSchemeName },
       {
-        label: `${detail.foeWord} HP`,
+        label: t("scenario.startingThreat"),
+        value: `${t("scenario.threatStart", { threat: formatScaling(detail.startingThreat) })}${accel}`,
+      },
+      {
+        label: t("scenario.foeHp", { foe: detail.foeWord }),
         value: detail.villainIsRandom
-          ? "Varies"
+          ? t("scenario.varies")
           : detail.stages.map((stage) => formatScaling(stage.hp).split(" ")[0]).join(" · ") ||
             (firstStage ? formatScaling(firstStage.hp) : "—"),
       },
       {
-        label: "Encounter sets",
+        label: t("scenario.encounterSets"),
         value: encounterSetsCellText(detail),
       },
     ];
@@ -976,14 +993,14 @@ export class ScenarioSelectScene extends Phaser.Scene {
       const header = this.add.text(
         rect.x + 16,
         headerY,
-        "Scenario stages",
+        t("scenario.stages"),
         textStyle(typeRole.sectionHeader, surface.paper.hex),
       );
       if (!layout.wide) header.setOrigin(0, 0.5);
       const hint = this.add.text(
         layout.wide ? rect.x + 16 : rect.x + rect.width - 16,
         layout.wide ? headerY + 32 : headerY,
-        layout.wide ? "Pick a villain to see its stages." : "Pick a villain",
+        layout.wide ? t("scenario.pickVillainStages") : t("scenario.pickVillain"),
         textStyle(layout.wide ? typeRole.body : typeRole.label, surface.paper.hex, ink.label),
       );
       if (!layout.wide) hint.setOrigin(1, 0.5);
@@ -992,7 +1009,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
     }
     let y = rect.y + 16;
     if (layout.wide) {
-      this.add.text(rect.x + 16, y, "Scenario stages", textStyle(typeRole.sectionHeader, surface.paper.hex));
+      this.add.text(rect.x + 16, y, t("scenario.stages"), textStyle(typeRole.sectionHeader, surface.paper.hex));
       y += 28;
     } else {
       // On a phone the panel is a disclosure: its bar is the control, it starts shut, and open it is a sheet
@@ -1015,12 +1032,16 @@ export class ScenarioSelectScene extends Phaser.Scene {
         rule.lineStyle(1, surface.paper.hex, ink.disabled).lineBetween(bar.x, bar.y, bar.x + bar.width, bar.y);
       }
       const [from, to] = this.#currentStageRange(detail);
-      const summary = `${detail.displayName.toUpperCase()} · STAGE ${roman(from)}${to > from ? `–${roman(to)}` : ""}`;
+      const summary = t("scenario.stageSummary", {
+        name: detail.displayName.toUpperCase(),
+        from: roman(from),
+        to: to > from ? `–${roman(to)}` : "",
+      });
       this.add
         .text(
           bar.x + 16,
           bar.y + bar.height / 2,
-          "Scenario stages",
+          t("scenario.stages"),
           textStyle(typeRole.sectionHeader, surface.paper.hex),
         )
         .setOrigin(0, 0.5);
@@ -1061,7 +1082,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       const note = this.add.text(
         rect.x + 16,
         y,
-        `+ ${detail.otherVillainNames.length} more: ${detail.otherVillainNames.join(", ")}`,
+        t("scenario.more", { count: detail.otherVillainNames.length, names: detail.otherVillainNames.join(", ") }),
         textStyle(typeRole.label, surface.paper.hex, ink.label),
       );
       note.setWordWrapWidth(rect.width - 32);
@@ -1085,7 +1106,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
         .text(
           rect.x + 24,
           y + 6,
-          `${stageLabel} · ${(detail.villainChoices.length > 0 ? "your villain" : detail.villainName).toUpperCase()}`,
+          `${stageLabel} · ${(detail.villainChoices.length > 0 ? t("scenario.yourVillain") : detail.villainName).toUpperCase()}`,
           textStyle(typeRole.sectionHeader, surface.paper.hex, current ? 1 : ink.disabled),
         )
         .setFontSize(15);
@@ -1093,8 +1114,8 @@ export class ScenarioSelectScene extends Phaser.Scene {
         rect.x + 24,
         y + 26,
         detail.villainIsRandom
-          ? "Drawn at random"
-          : `SCH ${stage.sch} · HP ${formatScaling(stage.hp)} · ATK ${stage.atk}`,
+          ? t("scenario.drawnAtRandom")
+          : t("scenario.stageStats", { sch: stage.sch, hp: formatScaling(stage.hp), atk: stage.atk }),
         textStyle(typeRole.label, surface.paper.hex, current ? ink.label : ink.disabled),
       );
       y += boxHeight + 8;
@@ -1107,21 +1128,23 @@ export class ScenarioSelectScene extends Phaser.Scene {
     const record = this.#history.get(this.#draft.scenarioId) ?? null;
     const played = record !== null && record.combined.gamesPlayed > 0;
     const tally = played
-      ? `${record.combined.wins} win${record.combined.wins === 1 ? "" : "s"} · ${record.combined.losses} loss${record.combined.losses === 1 ? "" : "es"}`
-      : "Not played yet";
+      ? `${tPlural("scenario.wins", record.combined.wins)} · ${tPlural("scenario.losses", record.combined.losses)}`
+      : t("scenario.notPlayed");
     const beaten = played && record.combined.wins > 0;
     const subline = !played
       ? null
       : record.combined.bestClearRounds !== null
-        ? `Best clear: round ${record.combined.bestClearRounds}`
+        ? t("scenario.bestClear", { round: record.combined.bestClearRounds })
         : beaten
           ? null
-          : "Not beaten yet";
-    this.#recordText = played ? `Your record: ${tally}.${subline ? ` ${subline}.` : ""}` : "Not played yet.";
+          : t("scenario.notBeaten");
+    this.#recordText = played
+      ? t("scenario.recordLine", { tally, subline: subline ? ` ${subline}.` : "" })
+      : t("scenario.notPlayedDot");
     // The record is a filled band, not a dim body line (issue 141 follow-up), at menu-button size so it reads from the
     // couch: win-state green once beaten, a deep red (darker than the Hero Red CTA) when played but never won, the
     // advisory yellow before it has been played.
-    label(this, rect.x + 16, y, "Your record", typeRole.label, surface.paper.hex, ink.label);
+    label(this, rect.x + 16, y, t("scenario.record"), typeRole.label, surface.paper.hex, ink.label);
     y += 16;
     const band = this.add.graphics();
     const textColor = played ? surface.paper.hex : surface.inkOnHue.hex;
@@ -1145,10 +1168,13 @@ export class ScenarioSelectScene extends Phaser.Scene {
     // `scenarioDetailLines` line (a per-stage "Stage 1: 12 per player HP · ATK 0…" that duplicated the stage boxes
     // above verbatim).
     const blocks: readonly { readonly heading: string; readonly value: string }[] = [
-      { heading: "Encounter sets", value: detail.fixedEncounterSetNames.join(", ") || "None." },
+      { heading: t("scenario.encounterSets"), value: detail.fixedEncounterSetNames.join(", ") || t("scenario.none") },
       detail.modularSummary
-        ? { heading: "Modular sets", value: detail.modularSummary }
-        : { heading: "Recommended modular", value: detail.recommendedModularSetNames.join(", ") || "None." },
+        ? { heading: t("scenario.modularSets"), value: detail.modularSummary }
+        : {
+            heading: t("scenario.recommendedModular"),
+            value: detail.recommendedModularSetNames.join(", ") || t("scenario.none"),
+          },
     ];
     for (const block of blocks) {
       if (y + 40 > contentBottom) break;
@@ -1232,7 +1258,7 @@ export class ScenarioSelectScene extends Phaser.Scene {
       blockedBy: null,
       warning: null,
       subtitleLines: 2,
-      tag: "BUILDER",
+      tag: t("scenario.builder"),
       selected: false,
     });
   }
@@ -1256,8 +1282,8 @@ export class ScenarioSelectScene extends Phaser.Scene {
       choice: {
         optionId: s.id as string,
         label: s.multipleVillains
-          ? "Play this scenario"
-          : `Play this ${foeWord(s, { cardsById: currentCardsById(), lower: true })}`,
+          ? t("scenario.playThis")
+          : t("scenario.playFoe", { foe: foeWord(s, { cardsById: currentCardsById(), lower: true }) }),
       },
     });
   }

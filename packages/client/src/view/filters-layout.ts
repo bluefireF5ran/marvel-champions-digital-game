@@ -3,6 +3,7 @@
  * Filters button on a narrow one or while a controller is in use (the owner, 2026-10-24: 21 pack chips in four rows
  * took the top of the page on a Steam Deck, and a phone has less room still).
  */
+import { t } from "../i18n/translate.js";
 
 /**
  * Game width under which the chips go behind the Filters button, for every input. 1000 sits between the 768 phone
@@ -21,5 +22,5 @@ export function filtersBehindButton(gameWidth: number, padMode: boolean): boolea
 
 /** The button's text: "Filters", or "Filters (2)" with filters set, then ▸ shut or ▾ open. */
 export function filtersLabel(activeCount: number, open: boolean): string {
-  return `Filters${activeCount > 0 ? ` (${activeCount})` : ""} ${open ? "▾" : "▸"}`;
+  return t("filters.label", { active: activeCount > 0 ? ` (${activeCount})` : "", arrow: open ? "▾" : "▸" });
 }

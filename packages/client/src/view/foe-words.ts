@@ -5,6 +5,7 @@
  * here.
  */
 import type { AnyCard, Scenario } from "@mc/content";
+import { t } from "../i18n/translate.js";
 import { hasRandomVillain } from "./random-villain.js";
 
 export interface FoeWordOptions {
@@ -35,6 +36,11 @@ export function foeWord(subject: AnyCard | Scenario | undefined, options: FoeWor
   } else {
     leader = isLeaderCard(subject);
   }
-  const word = `${leader ? "Leader" : "Villain"}${plural ? "s" : ""}`;
-  return options.lower ? word.toLowerCase() : word;
+  // Each language has its own lower-case forms: Spanish game terms stay capitalized ("Jugar este Villano").
+  if (options.lower) {
+    return leader
+      ? t(plural ? "foe.leadersLower" : "foe.leaderLower")
+      : t(plural ? "foe.villainsLower" : "foe.villainLower");
+  }
+  return leader ? t(plural ? "foe.leaders" : "foe.leader") : t(plural ? "foe.villains" : "foe.villain");
 }

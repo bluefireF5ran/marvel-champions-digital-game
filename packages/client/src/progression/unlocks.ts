@@ -44,6 +44,7 @@
  * Pure: no storage, no Phaser. `progression.ts` owns the cache and the saved preferences.
  */
 import { isCustomCardCode, type Scenario } from "@mc/content";
+import { t } from "../i18n/translate.js";
 import { CARDS_BY_ID, POOL_HERO_SHELF_PACKS, POOL_SCENARIOS, POOL_STARTER_DECKS } from "../content/pool.js";
 import { SAGA_VOLUMES } from "../campaign/story.js";
 import { cardDisplayName } from "../view/hero-names.js";
@@ -65,8 +66,10 @@ export const POINTS = {
 } as const;
 
 export type UnlockGate =
-  | { readonly kind: "scenarioWin"; readonly scenarioIds: readonly string[]; readonly hint: string }
-  | { readonly kind: "campaignWin"; readonly campaignId: string; readonly hint: string };
+  /** Beat any of `scenarioIds`; the gate reads "Beat" plus the first one's villain. */
+  | { readonly kind: "scenarioWin"; readonly scenarioIds: readonly string[] }
+  /** Complete the campaign; `campaign` is its title as the hint prints it ("The Rise of Red Skull"). */
+  | { readonly kind: "campaignWin"; readonly campaignId: string; readonly campaign: string };
 
 /** Beat `scenarioId` and `identityCardId` joins the roster. */
 export interface HeroReward {
@@ -95,7 +98,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   {
     cycleId: "wave1",
     name: "Wave 1",
-    gate: { kind: "scenarioWin", scenarioIds: ["rhino"], hint: "Beat Rhino" },
+    gate: { kind: "scenarioWin", scenarioIds: ["rhino"] },
     starterHeroIds: [],
     heroRewards: [
       { scenarioId: "rhino", identityCardId: "03001a" }, // Captain America
@@ -109,7 +112,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   {
     cycleId: "cycle1",
     name: "The Rise of Red Skull",
-    gate: { kind: "scenarioWin", scenarioIds: ["rhino"], hint: "Beat Rhino" },
+    gate: { kind: "scenarioWin", scenarioIds: ["rhino"] },
     campaignId: "trors",
     starterHeroIds: ["04001a", "04031a"], // Hawkeye, Spider-Woman: MC10's own cast
     heroRewards: [
@@ -122,7 +125,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   {
     cycleId: "cycle3",
     name: "The Galaxy's Most Wanted",
-    gate: { kind: "campaignWin", campaignId: "trors", hint: "Complete The Rise of Red Skull campaign" },
+    gate: { kind: "campaignWin", campaignId: "trors", campaign: "The Rise of Red Skull" },
     campaignId: "gmw",
     starterHeroIds: ["16001a", "16029a"], // Groot, Rocket Raccoon: MC16's own cast
     heroRewards: [
@@ -135,7 +138,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   {
     cycleId: "cycle4",
     name: "The Mad Titan's Shadow",
-    gate: { kind: "campaignWin", campaignId: "gmw", hint: "Complete The Galaxy's Most Wanted campaign" },
+    gate: { kind: "campaignWin", campaignId: "gmw", campaign: "The Galaxy's Most Wanted" },
     campaignId: "mts",
     starterHeroIds: ["21001a", "21031a"], // Spectrum, Adam Warlock: MC21's own cast
     heroRewards: [
@@ -148,7 +151,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
   {
     cycleId: "cycle5",
     name: "Sinister Motives",
-    gate: { kind: "campaignWin", campaignId: "mts", hint: "Complete The Mad Titan's Shadow campaign" },
+    gate: { kind: "campaignWin", campaignId: "mts", campaign: "The Mad Titan's Shadow" },
     campaignId: "sm",
     starterHeroIds: ["27001a", "27030a"], // Ghost-Spider, Spider-Man (Miles Morales): MC27's own cast
     heroRewards: [
@@ -163,7 +166,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     // both Gambit and Rogue (the box has five scenarios for six hero-pack heroes).
     cycleId: "cycle6",
     name: "Mutant Genesis",
-    gate: { kind: "campaignWin", campaignId: "sm", hint: "Complete the Sinister Motives campaign" },
+    gate: { kind: "campaignWin", campaignId: "sm", campaign: "Sinister Motives" },
     campaignId: "mut_gen",
     alsoCampaignIds: ["mojo"],
     starterHeroIds: ["32001a", "32030a"], // Colossus, Shadowcat: MC32's own cast
@@ -181,7 +184,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     // Genesis'. Stryfe, the finale, pays no hero: the four hero packs take the four villains before him in release order.
     cycleId: "cycle7",
     name: "NeXt Evolution",
-    gate: { kind: "campaignWin", campaignId: "mut_gen", hint: "Complete the Mutant Genesis campaign" },
+    gate: { kind: "campaignWin", campaignId: "mut_gen", campaign: "Mutant Genesis" },
     campaignId: "next_evol",
     starterHeroIds: ["40001a", "40037a"], // Cable, Domino: MC40's own cast
     heroRewards: [
@@ -196,7 +199,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     // before him in release order (Iceman, Jubilee, Nightcrawler, Magneto). Owner to confirm this pairing.
     cycleId: "cycle8",
     name: "Age of Apocalypse",
-    gate: { kind: "campaignWin", campaignId: "next_evol", hint: "Complete the NeXt Evolution campaign" },
+    gate: { kind: "campaignWin", campaignId: "next_evol", campaign: "NeXt Evolution" },
     campaignId: "aoa",
     starterHeroIds: ["45001a", "45030a"], // Bishop, Magik: MC45's own cast
     heroRewards: [
@@ -211,7 +214,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     // before him in release order (Black Panther, Silk, Falcon, Winter Soldier). Confirmed by the owner, 2026-10-10.
     cycleId: "cycle9",
     name: "Agents of S.H.I.E.L.D.",
-    gate: { kind: "campaignWin", campaignId: "aoa", hint: "Complete the Age of Apocalypse campaign" },
+    gate: { kind: "campaignWin", campaignId: "aoa", campaign: "Age of Apocalypse" },
     campaignId: "aos",
     starterHeroIds: ["50001a", "50034a"], // Maria Hill, Nick Fury: MC50's own cast
     heroRewards: [
@@ -228,7 +231,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     // Marvel and Spider-Woman pay no hero.
     cycleId: "cycle10",
     name: "Civil War",
-    gate: { kind: "campaignWin", campaignId: "aos", hint: "Complete the Agents of S.H.I.E.L.D. campaign" },
+    gate: { kind: "campaignWin", campaignId: "aos", campaign: "Agents of S.H.I.E.L.D." },
     starterHeroIds: ["56001a", "56029a"], // Tigra, Hulkling: MC56's own cast
     heroRewards: [
       { scenarioId: "registration-iron-man", identityCardId: "58001a" }, // Wonder Man
@@ -242,7 +245,7 @@ export const UNLOCK_WAVES: readonly UnlockWave[] = [
     // Gate confirmed by the owner: A, the Agents of S.H.I.E.L.D. win, like Civil War.
     cycleId: "cycle11",
     name: "Fear No Evil",
-    gate: { kind: "campaignWin", campaignId: "aos", hint: "Complete the Agents of S.H.I.E.L.D. campaign" },
+    gate: { kind: "campaignWin", campaignId: "aos", campaign: "Agents of S.H.I.E.L.D." },
     campaignId: "fne",
     // Shadowland (MC65) is cycle 11 too and opens with it: no new hero reward, its three scenarios and its campaign
     // open under Fear No Evil's gate (docs/phase7-shadowland.md section 5 Q3, owner default).
@@ -404,6 +407,21 @@ export function villainLabelOf(scenarioId: string): string {
   return scenario.name.toLowerCase().includes(villain.toLowerCase()) ? villain : `${villain} (${scenario.name})`;
 }
 
+/** A gate in words: "Beat Rhino", "Complete the Sinister Motives campaign". */
+export function gateHintOf(gate: UnlockGate): string {
+  if (gate.kind === "scenarioWin") return t("unlock.beat", { villain: villainLabelOf(gate.scenarioIds[0]!) });
+  // English prints "Complete The Rise of Red Skull campaign", not "the The Rise".
+  return t(gate.campaign.startsWith("The ") ? "unlock.completeCampaignThe" : "unlock.completeCampaign", {
+    campaign: gate.campaign,
+  });
+}
+
+/** A gate in few words, for a locked tile: "Beat Rhino", "Finish Age of Apocalypse" (no leading "The"). */
+export function gateShortOf(gate: UnlockGate): string {
+  if (gate.kind === "scenarioWin") return gateHintOf(gate);
+  return t("unlock.finish", { campaign: gate.campaign.replace(/^The /, "") });
+}
+
 export interface UnlockHero {
   readonly identityCardId: string;
   readonly name: string;
@@ -462,7 +480,7 @@ export interface WaveStatus {
   /** The gate is met (or there is none): opened by play, not by a setting. */
   readonly earned: boolean;
   readonly unlocked: boolean;
-  /** "Beat Rhino to unlock Wave 1" while locked; null once open. */
+  /** "Beat Rhino to unlock Wave 1" while locked; null once open. Worded in the language current when it is read. */
   readonly lockReason: string | null;
 }
 
@@ -511,7 +529,15 @@ export class Unlocks {
         const unlocked = earned || this.everything;
         return [
           wave.cycleId,
-          { wave, earned, unlocked, lockReason: unlocked || !gate ? null : `${gate.hint} to unlock ${wave.name}` },
+          {
+            wave,
+            earned,
+            unlocked,
+            // Read on demand, so a language switch rewords it.
+            get lockReason() {
+              return unlocked || !gate ? null : t("unlock.toUnlock", { hint: gateHintOf(gate), name: wave.name });
+            },
+          },
         ];
       }),
     );
@@ -550,13 +576,20 @@ export class Unlocks {
     const lock = this.waveLock(wave.cycleId);
     if (!lock || !wave.gate) return lock;
     const name = wave.campaignId === campaignId ? wave.name : campaignNameOf(campaignId);
-    return `${wave.gate.hint} to unlock ${name}`;
+    return t("unlock.toUnlock", { hint: gateHintOf(wave.gate), name });
   }
 
   /** Null when the scenario may be played: its wave is open, or it was opened on its own. */
   scenarioLock(scenario: Pick<Scenario, "id" | "packCode">): string | null {
     if (this.prefs.scenarioIds.includes(scenario.id as string)) return null;
     return this.waveLock(scenarioCycleOf(scenario));
+  }
+
+  /** `scenarioLock` in few words, for a locked tile ("Beat Rhino", "Finish Age of Apocalypse"); null when playable. */
+  scenarioLockShort(scenario: Pick<Scenario, "id" | "packCode">): string | null {
+    if (this.scenarioLock(scenario) === null) return null;
+    const gate = this.#waves.get(scenarioCycleOf(scenario) ?? "")?.wave.gate;
+    return gate ? gateShortOf(gate) : null;
   }
 
   /** The scenario's wave was opened by play. */
@@ -580,7 +613,7 @@ export class Unlocks {
     const wave = this.#waveOfHero(identityCardId);
     if (!wave || wave.gate === null) return null;
     const reward = wave.heroRewards.find((r) => r.identityCardId === identityCardId);
-    return reward ? `Beat ${villainLabelOf(reward.scenarioId)}` : wave.gate.hint;
+    return reward ? t("unlock.beat", { villain: villainLabelOf(reward.scenarioId) }) : gateHintOf(wave.gate);
   }
 
   /** Opened by hand: one hero's switch, its campaign's switch, or everything. */
@@ -602,7 +635,10 @@ export class Unlocks {
     if (this.heroEarned(identityCardId) || this.heroManual(identityCardId)) return null;
     const waveLock = this.waveLock(heroCycleOf(identityCardId));
     if (waveLock) return waveLock;
-    return `${this.heroHint(identityCardId) ?? "Play on"} to unlock ${heroNameOf(identityCardId)}`;
+    return t("unlock.toUnlock", {
+      hint: this.heroHint(identityCardId) ?? t("unlock.playOn"),
+      name: heroNameOf(identityCardId),
+    });
   }
 
   /** `heroLock` for a deck: only a preconstructed deck is ever locked; an imported or built deck always seats. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARD_LANGUAGES } from "../art/card-language.js";
 import { en } from "./en.js";
-import { CATALOGS, fill, messageFrom, placeholdersOf, t, type MessageKey } from "./translate.js";
+import { CATALOGS, fill, messageFrom, placeholdersOf, t, tPlural, type MessageKey } from "./translate.js";
 
 describe("translated app text (#390)", () => {
   it("gives the picked language's message", () => {
@@ -22,6 +22,17 @@ describe("translated app text (#390)", () => {
   });
 });
 
+describe("plural messages", () => {
+  it("picks the singular for one and the plural otherwise, per language", () => {
+    expect(tPlural("scenario.wins", 1, undefined, "en")).toBe("1 win");
+    expect(tPlural("scenario.wins", 3, undefined, "en")).toBe("3 wins");
+    expect(tPlural("scenario.wins", 0, undefined, "en")).toBe("0 wins");
+    expect(tPlural("scenario.wins", 1, undefined, "es")).toBe("1 victoria");
+    expect(tPlural("scenario.wins", 0, undefined, "es")).toBe("0 victorias");
+    expect(tPlural("scenario.wins", 2, undefined, "es")).toBe("2 victorias");
+  });
+});
+
 describe("every catalog against English", () => {
   for (const lang of CARD_LANGUAGES) {
     const catalog = CATALOGS[lang] as Record<string, string | undefined>;
@@ -36,6 +47,12 @@ describe("every catalog against English", () => {
         .filter(([key, text]) => placeholdersOf(text!).join() !== placeholdersOf(en[key as MessageKey]).join())
         .map(([key]) => key);
       expect(mismatched).toEqual([]);
+    });
+
+    it(`${lang} gives each plural message its _one and _other together`, () => {
+      const keys = new Set(Object.keys(catalog));
+      const lonely = [...keys].filter((key) => key.endsWith("_one") && !keys.has(key.replace(/_one$/, "_other")));
+      expect(lonely).toEqual([]);
     });
 
     it(`${lang} has no empty message`, () => {
