@@ -8,7 +8,7 @@
  * client-side sum is exactly how a UI starts disagreeing with the rules.
  */
 
-import type { AbilityId, Aspect, AnyCard, ResourceIconType } from "@mc/content";
+import type { AbilityId, Aspect, AnyCard, ResourceIconType, StatStar } from "@mc/content";
 import {
   handSize,
   printedHandSize,
@@ -71,6 +71,10 @@ import { artFor, type ArtSource, type CardBack, type CardFace, type StandIn } fr
 import { gameEncounterSetName } from "../content/game-deps.js";
 import { gameDeps } from "../content/game-deps.js";
 import { breakPointOf } from "./break-point.js";
+import { statStarsOf } from "./stat-stars.js";
+import { encounterRunsOut, playerDeckRunsOut } from "./pile-run-out.js";
+import { removalCostOf, removalCostText, type RemovalCost } from "./attachment-removal-cost.js";
+import { perRoundLabel, perRoundThreatOf, type PerRoundThreat } from "./per-round-threat.js";
 import { giftReaderNote, giftSeatNote } from "./gift-count.js";
 import { counterGoalsOf } from "./counter-goal.js";
 import { scenarioAreaLimitsOf } from "./scenario-area-limit.js";
@@ -106,6 +110,8 @@ export interface StatTile {
    * and for a printed dash, which no modifier makes usable.
    */
   readonly bonus: number;
+  /** The card prints a star beside this stat on the face that is up: an ability tied to it (issue #766). */
+  readonly star?: boolean;
 }
 
 /** A stat profile, as `characterProfile`/`printedProfile` both return it. */
@@ -137,6 +143,8 @@ export function profileStatTiles(
   rows: readonly ("thw" | "atk" | "def" | "rec" | "sch")[],
   current: number | undefined,
   max: number | undefined,
+  /** The stats the face that is up prints a star beside (`statStarsOf`). */
+  stars: readonly StatStar[] = [],
 ): readonly StatTile[] {
   const tiles: StatTile[] = rows.map((stat) => {
     const dashed = (stat === "atk" || stat === "thw" || stat === "sch") && profile.missing.includes(stat);
@@ -144,10 +152,16 @@ export function profileStatTiles(
       label: stat.toUpperCase() as StatTile["label"],
       value: dashed ? "—" : String(profile[stat]),
       bonus: dashed || !printed ? 0 : profile[stat] - printed[stat],
+      ...(stars.includes(stat) ? { star: true } : {}),
     };
   });
   if (current !== undefined && max !== undefined)
-    tiles.push({ label: "HP", value: hpFraction(current, max), bonus: 0 });
+    tiles.push({
+      label: "HP",
+      value: hpFraction(current, max),
+      bonus: 0,
+      ...(stars.includes("hp") ? { star: true } : {}),
+    });
   return tiles;
 }
 
@@ -310,6 +324,11 @@ export interface AttachmentChip {
    * any more than the table's own picture of it does (`faceOf`'s own `back` branch).
    */
   readonly faceup: boolean;
+  /**
+   * What players spend to discard it (issue #767): "Hero Action: Exhaust your hero and spend [physical][physical]
+   * resources → discard this card". Null or absent for an attachment with no such ability.
+   */
+  readonly removalCost?: RemovalCost | null;
   /** "Labor (Hercules)" for a Labor card hanging here (an encounter card a player owns; short, the chip is narrow); null for every other card. */
   readonly ownedBy: string | null;
   /**
@@ -358,13 +377,23 @@ export function compactVillainNote(panel: CharacterPanel): string {
     const word = pip.status.charAt(0).toUpperCase() + pip.status.slice(1);
     return pip.count > 1 ? `${word} ×${pip.count}` : word;
   });
-  return [...statuses, ...panel.attachments.map(attachmentChipText), counterNote(panel.counters)]
+  return [...statuses, ...panel.attachments.map((chip) => attachmentChipText(chip)), counterNote(panel.counters)]
     .filter(Boolean)
     .join(" · ");
 }
 
-/** The chip's label without its damage: the part that may be clipped when the chip is narrow. */
-export function attachmentChipText(chip: AttachmentChip): string {
+/** " · remove: spend 2 physical…", or just " · remove" when `iconCost` and the cost's icons follow it as their own text. */
+function removalCostTail(cost: RemovalCost | null | undefined, iconCost: boolean): string {
+  if (!cost) return "";
+  return iconCost && cost.icons ? " · remove" : ` · ${removalCostText(cost)}`;
+}
+
+/**
+ * The chip's label without its damage: the part that may be clipped when the chip is narrow. `owed` (" · must use") goes
+ * ahead of the removal cost, which is the least of the chip's words: a narrow chip clips "remove: …", never "must use".
+ * With `iconCost`, a cost that has icons says only "remove" here and the caller draws `removalCost.icons` after it.
+ */
+export function attachmentChipText(chip: AttachmentChip, owed = "", iconCost = false): string {
   const goals = chip.counterGoals ?? {};
   const toward = Object.entries(goals).map(([name, goal]) => {
     const count = chip.counters.find((counter) => counter.name === name)?.count ?? 0;
@@ -379,7 +408,8 @@ export function attachmentChipText(chip: AttachmentChip): string {
     chip.exhausted ? "exhausted" : null,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" · ")
+    .concat(owed, removalCostTail(chip.removalCost, iconCost));
 }
 
 /**
@@ -420,6 +450,8 @@ export interface SchemePanel {
    * not overflow its own box.
    */
   readonly meterMax: number | null;
+  /** A player side scheme: its meter fills in the player's own color, never the villain side's red (issue #763). */
+  readonly playerScheme?: boolean;
   readonly isMain: boolean;
   /**
    * "vs Spider-Man": whose game area this scheme belongs to (Kang's per-player areas), null for a scheme every player
@@ -428,6 +460,8 @@ export interface SchemePanel {
   readonly areaLabel?: string | null;
   readonly crisis: boolean;
   readonly accelerationTokens: number;
+  /** A main scheme's step-one threat and its sources (issue #765); absent on a side scheme. */
+  readonly perRound?: PerRoundThreat | null;
   /**
    * Cards tucked facedown under this scheme (RRG "Tuck") — Open the Dark
    * Dimension holding the Invocation deck's top card (`09029`), Highway
@@ -827,6 +861,10 @@ export interface BoardModel {
   /** The top of your discard, which the pile box shows faceup. */
   readonly myDiscardTop: ArtSource | null;
   readonly encounterPiles: PileCounts;
+  /** The next round will empty the encounter deck (`view/pile-run-out.ts`): its tile and its discard's are tinted. */
+  readonly encounterRunsOut: boolean;
+  /** The next round's end-of-round draw will empty my deck. */
+  readonly myDeckRunsOut: boolean;
   /**
    * Encounter cards dealt facedown to you and not yet revealed (Expert setup deals one per player in the Age of
    * Apocalypse; the villain phase deals them; they flip in step four). Public as a count, never as a card: nobody looks
@@ -1244,6 +1282,8 @@ export function boardModel(
       deck: activeEncounterDeck(state).deck.length,
       discard: activeEncounterDeck(state).discard.length,
     },
+    encounterRunsOut: encounterRunsOut(state, deps),
+    myDeckRunsOut: playerDeckRunsOut(state, deps, perspectiveId),
     myDealt: [...me.dealtEncounter],
     myDiscard: me.discard,
     myDiscardTop: topOfDiscard(state, me.discard),
@@ -1772,7 +1812,7 @@ function statTiles(
       : profile.kind === "ally"
         ? ["thw", "atk"]
         : ["atk", "sch"];
-  return profileStatTiles(profile, printed, rows, current, max);
+  return profileStatTiles(profile, printed, rows, current, max, statStarsOf(state, id));
 }
 
 /**
@@ -1802,10 +1842,14 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
     // attach to a main scheme rather than a character — the subtitle line is the only room a scheme panel has for
     // this, the same "· X tucked" pattern already appends here.
     const attachedNote = attachments.length > 0 ? ` · ${attachments.map((a) => a.name).join(", ")}` : "";
+    // What step one of the next villain phase places here (issue #765): the subtitle says "+N per round" in place of
+    // the bare token count, and the hover lists the sources.
+    const perRound = perRoundThreatOf(state, deps, id);
+    const perRoundNote = perRound ? ` · ${perRoundLabel(perRound)}` : accel > 0 ? ` · Accel ×${accel}` : "";
     return {
       instanceId: id,
       name: stage.name ?? card?.name ?? "Main scheme",
-      subtitle: `Main scheme ${printedStageOf(stage)}${accel > 0 ? ` · Accel ×${accel}` : ""}${instance.tucked.length > 0 ? ` · ${instance.tucked.length} tucked` : ""}${attachedNote}`,
+      subtitle: `Main scheme ${printedStageOf(stage)}${perRoundNote}${instance.tucked.length > 0 ? ` · ${instance.tucked.length} tucked` : ""}${attachedNote}`,
       threat: instance.threat,
       // The engine's own target (`mainSchemeValue`): scaled per player, and for a printed "X" (Apocalypse's scheme)
       // the ability-defined value, not the 0 the card data prints.
@@ -1823,6 +1867,7 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
       // 0 while the scheme's text box is blanked.
       crisis: iconsOn(state, deps, id, "crisis") > 0,
       accelerationTokens: accel,
+      perRound,
       tuckedCount: instance.tucked.length,
       ...schemeTuckFields(
         state,
@@ -1854,7 +1899,12 @@ export function schemePanel(state: GameState, id: InstanceId, deps: EngineDeps, 
     threat: instance.threat,
     // A side scheme has no threshold: it is defeated when thwarted to 0.
     target: null,
-    meterMax: card?.type === "side_scheme" ? Math.max(scaleIn(state, card.startingThreat), instance.threat) : null,
+    // A player side scheme (Cable's, NeXt Evolution's) empties toward 0 the same way (issue #763: drawn blank before).
+    meterMax:
+      card?.type === "side_scheme" || card?.type === "player_side_scheme"
+        ? Math.max(scaleIn(state, card.startingThreat), instance.threat)
+        : null,
+    ...(card?.type === "player_side_scheme" ? { playerScheme: true } : {}),
     isMain: false,
     areaLabel: areaLabelOf(state, id),
     crisis,
@@ -1906,6 +1956,7 @@ function attachmentChipsOf(state: GameState, instance: CardInstance, deps: Engin
       damageThreshold: faceup ? breakPointOf(state, attachmentId, deps) : null,
       faceup,
       ownedBy: ownedEncounterLabel(state, attachmentId, true),
+      ...(faceup ? { removalCost: removalCostOf(state, deps, attachmentId) } : {}),
       ...tuckFacts(state, attachmentId, deps),
       ...(faceup && Object.keys(counterGoalsOf(state, attachmentId, deps)).length > 0
         ? { counterGoals: counterGoalsOf(state, attachmentId, deps) }
