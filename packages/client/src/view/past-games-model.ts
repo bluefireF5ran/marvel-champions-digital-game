@@ -16,6 +16,7 @@ import { hit } from "../tokens.js";
 import { isCurrentSchema, isLessonSave, writtenByNewerApp, type SaveMeta } from "../engine/game-storage.js";
 import type { SessionConfig } from "../engine/host.js";
 import { CLIENT_VERSION } from "../version.js";
+import { aspectName } from "./aspect-stamp.js";
 import { gameLabelOf } from "./continue-label.js";
 import type { GamesListNames } from "./games-list-model.js";
 import type { Rect } from "./layout.js";
@@ -44,8 +45,12 @@ export type PastGameFilter = (typeof PAST_GAME_FILTERS)[number];
 export interface PastGameNames extends GamesListNames {
   /** A precon's hero, as its identity card id. */
   readonly starterIdentity: (starterDeckId: string) => string | undefined;
+  /** A precon's aspects (raw ids), for a seat the save has no summary of; absent: none known. */
+  readonly starterAspects?: (starterDeckId: string) => readonly string[] | undefined;
   /** The card that pictures a scenario (its villain, `scenarioCardIdOf`), or undefined when the pool has no such scenario. */
   readonly scenarioCardId: (scenarioId: string) => string | undefined;
+  /** A card's display name, for the cards a seat played most; absent: the card id stands in. */
+  readonly cardName?: (cardId: string) => string | undefined;
   /**
    * The names for a game that carries its own packs (`SessionConfig.packs`: a custom hero, scenario or set, embedded at
    * save time): the base names plus those packs' cards and scenarios, whether or not the packs are installed now, so a
@@ -62,6 +67,12 @@ export interface PastGameSeat {
   /** Damage dealt and threat removed over the game; null when not recorded. */
   readonly damage: number | null;
   readonly thwart: number | null;
+  /** The seat's aspects as words ("Justice"), empty when the save does not say or the deck has none. */
+  readonly aspects: readonly string[];
+  /** The deck the seat played: a precon's name or the saved deck's name then; null when the save does not say. */
+  readonly deckName: string | null;
+  /** The cards the seat played most (at most three), most first; empty without card numbers (an older game, or none played). */
+  readonly topCards: readonly { readonly cardId: string; readonly name: string; readonly count: number }[];
 }
 
 export interface PastGameRow {
@@ -142,6 +153,40 @@ function namesOf(save: SaveMeta, names: PastGameNames): PastGameNames {
   return packs && packs.length > 0 && names.forPacks ? names.forPacks(packs) : names;
 }
 
+const TOP_CARDS = 3;
+
+/** An aspect's display word from the app's one name table (`aspectName`): "'Pool", never "Pool". */
+const aspectWordOf = (aspect: string): string => aspectName(aspect);
+
+const plainWord = (word: string): string => word.toLowerCase().replace(/^'/, "");
+
+/**
+ * A seat's aspect words that its deck's name does not already say ("Spider-Man (Justice)" says Justice), compared
+ * without case or the 'Pool apostrophe, against the same display words the row shows.
+ */
+export function aspectsNotInName(deckName: string | null, aspects: readonly string[]): string[] {
+  const name = deckName === null ? "" : plainWord(deckName);
+  return aspects.filter((aspect) => !name.includes(plainWord(aspect)));
+}
+
+/** The deck a seat played (#756): the summary's record of it, else the game's own config seat. */
+function deckNameOf(
+  seat: { readonly starterDeckId?: string; readonly deckName?: string } | null,
+  player: SessionConfig["players"][number] | undefined,
+  names: PastGameNames,
+): string | null {
+  const starter = seat?.starterDeckId ?? (player && "starterDeckId" in player ? player.starterDeckId : undefined);
+  if (starter) return names.starterDeckName(starter) ?? null;
+  return seat?.deckName ?? (player && !("starterDeckId" in player) ? (player.deckName ?? null) : null);
+}
+
+function topCardsOf(plays: Readonly<Record<string, number>>, names: PastGameNames): PastGameSeat["topCards"] {
+  return Object.entries(plays)
+    .map(([cardId, count]) => ({ cardId, name: names.cardName?.(cardId) ?? cardId, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, TOP_CARDS);
+}
+
 function seatsOf(save: SaveMeta, names: PastGameNames): readonly PastGameSeat[] {
   const named = (identityCardId: string): string => names.identityName(identityCardId) ?? identityCardId;
   // A game left or given up before its end: a hero still up then did not stand to the end of anything.
@@ -149,15 +194,22 @@ function seatsOf(save: SaveMeta, names: PastGameNames): readonly PastGameSeat[] 
   const unfinished = result === "unfinished" || result === "conceded";
   const summarized = save.summary?.seats;
   if (summarized && summarized.length > 0) {
-    return summarized
-      .filter((seat) => seat.satOut !== true)
-      .map((seat) => ({
-        identityCardId: seat.identityCardId,
-        name: named(seat.identityCardId),
-        fell: seat.defeated ? true : unfinished ? null : false,
-        damage: seat.damage,
-        thwart: seat.thwart,
-      }));
+    return summarized.flatMap((seat, index): PastGameSeat[] =>
+      seat.satOut === true
+        ? []
+        : [
+            {
+              identityCardId: seat.identityCardId,
+              name: named(seat.identityCardId),
+              fell: seat.defeated ? true : unfinished ? null : false,
+              damage: seat.damage,
+              thwart: seat.thwart,
+              aspects: (seat.aspects ?? []).map((aspect) => aspectWordOf(aspect)),
+              deckName: deckNameOf(seat, save.config.players[index], names),
+              topCards: topCardsOf(seat.plays ?? {}, names),
+            },
+          ],
+    );
   }
   // Every hero falls when every hero is defeated, even without a summary to say so.
   const wiped = reasonOf(save, resultOf(save) ?? "unfinished") === "heroesDefeated";
@@ -165,7 +217,21 @@ function seatsOf(save: SaveMeta, names: PastGameNames): readonly PastGameSeat[] 
     const identity =
       "identityCardId" in player ? (player.identityCardId as string) : names.starterIdentity(player.starterDeckId);
     if (!identity) return [];
-    return [{ identityCardId: identity, name: named(identity), fell: wiped ? true : null, damage: null, thwart: null }];
+    return [
+      {
+        identityCardId: identity,
+        name: named(identity),
+        fell: wiped ? true : null,
+        damage: null,
+        thwart: null,
+        aspects: ("identityCardId" in player
+          ? (player.aspects ?? [])
+          : (names.starterAspects?.(player.starterDeckId) ?? [])
+        ).map((aspect) => aspectWordOf(aspect)),
+        deckName: deckNameOf(null, player, names),
+        topCards: [],
+      },
+    ];
   });
 }
 
