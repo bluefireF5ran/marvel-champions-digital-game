@@ -72,6 +72,10 @@ import {
   settingsRowInfoOf,
   discordRowInfoOf,
   deckCopyLimitsRowInfoOf,
+  showPreconDecksRowInfoOf,
+  extraModularSetsRowInfoOf,
+  deckListOnOpenRowInfoOf,
+  nextSettingsAfterDeckListOnOpen,
   fadedCampaignArtRowInfoOf,
   customUnlockedRowInfoOf,
   customPlacementRowInfoOf,
@@ -906,6 +910,8 @@ export class SettingsOverlay extends Phaser.Scene {
       ...settingsRowInfoOf(settings, powerSavingOn()),
       ...(hasDesktopWindow() ? [discordRowInfoOf(settings)] : []),
       deckCopyLimitsRowInfoOf(settings),
+      showPreconDecksRowInfoOf(settings),
+      extraModularSetsRowInfoOf(settings),
       fadedCampaignArtRowInfoOf(settings),
       customUnlockedRowInfoOf(settings),
       ...earnedItemRowInfoOf(settings, earnedItems()),
@@ -970,6 +976,10 @@ export class SettingsOverlay extends Phaser.Scene {
     segmented("token-motion", tokenMotionRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => this.#setTokenMotion(v));
     segmented("deck-signature", deckSignatureRowInfoOf(settings), CARD_HOVER_CONTROL_WIDTH, (v) => {
       appSession().settings = nextSettingsAfterDeckSignature(appSession().settings, v);
+      this.#draw();
+    });
+    segmented("deck-list-on-open", deckListOnOpenRowInfoOf(settings), CARD_SIZE_CONTROL_WIDTH, (v) => {
+      appSession().settings = nextSettingsAfterDeckListOnOpen(appSession().settings, v);
       this.#draw();
     });
     const promoShown = heroPromoShown(earnedPromoSets(), settings.promoArtOn);

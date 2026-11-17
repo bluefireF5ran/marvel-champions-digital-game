@@ -680,6 +680,41 @@ describe("screen focus routes", () => {
     ]);
   });
 
+  test("Scenario select: folded shelves keep their header stop and drop their cards, Random sits before the list", () => {
+    const order = scenarioSelectFocusOrder({
+      scenarioIds: ["a", "b"],
+      randomStops: ["random-box", "random-scenario"],
+      shelfStopKeys: ["scenario-shelf:core", "scenario-shelf:mod", "scenario:b"],
+    });
+    expect(order.slice(order.indexOf("random-box"))).toEqual([
+      "random-box",
+      "random-scenario",
+      "scenario-shelf:core",
+      "scenario-shelf:mod",
+      "scenario:b",
+      "next",
+    ]);
+    // Every shelf folded: the headers are still the list, not "Clear".
+    expect(scenarioSelectFocusOrder({ scenarioIds: [], shelfStopKeys: ["scenario-shelf:core"] })).toContain(
+      "scenario-shelf:core",
+    );
+  });
+
+  test("Take your seats: shelf header stops replace the plain hero stops", () => {
+    const order = seatsFocusOrder({
+      seatCount: 4,
+      deckIds: ["a"],
+      shelfStopKeys: ["hero-shelf:core", "hero-shelf:wave1", "hero:a"],
+    });
+    expect(order.slice(order.indexOf("hero-shelf:core"))).toEqual([
+      "hero-shelf:core",
+      "hero-shelf:wave1",
+      "hero:a",
+      "deck-check",
+      "play",
+    ]);
+  });
+
   test("Scenario select: Customize sits just before next, only while it is drawn", () => {
     expect(scenarioSelectFocusOrder({ scenarioIds: ["civil-war-builder", "a"], customize: true })).toEqual([
       "back",
