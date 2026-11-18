@@ -10,6 +10,7 @@ import { openApp } from "./wave6-helpers-b.js";
  */
 
 const REPO = "https://github.com/quincarter/marvel-champions-digital-game";
+const DIGEST = `sha256:${"ab".repeat(32)}`;
 /** For the PR's screenshots: a folder, and a `WIDTHxHEIGHT` to take them at. */
 const SHOTS = process.env.STEAM_UPDATE_SHOTS;
 const SHOT_SIZE = process.env.STEAM_UPDATE_SIZE?.split("x").map(Number);
@@ -18,29 +19,52 @@ test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537
 
 interface Shell {
   install: { canUpdate: boolean } | null;
+  /** The game's own updater (`platform/self-update.ts`), for an install from the release's installers. */
+  selfUpdate: { kind: string } | null;
   status: { running: boolean; exitCode: number | null; log: string };
   calls: string[];
 }
 
-async function openAsSteamInstall(page: Page, install: Shell["install"], query = ""): Promise<void> {
+async function openAsSteamInstall(
+  page: Page,
+  install: Shell["install"],
+  query = "",
+  selfUpdate: Shell["selfUpdate"] = null,
+): Promise<void> {
   if (SHOT_SIZE) await page.setViewportSize({ width: SHOT_SIZE[0]!, height: SHOT_SIZE[1]! });
-  await page.addInitScript((record) => {
-    const shell: Shell = { install: record, status: { running: false, exitCode: null, log: "" }, calls: [] };
-    const page = window as unknown as Record<string, unknown>;
-    page.__steamShell = shell;
-    page.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
-    page.__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
-      transformCallback: () => 0,
-      invoke: async (command: string, args?: Record<string, unknown>) => {
-        if (command.startsWith("steam_")) shell.calls.push(`${command} ${JSON.stringify(args ?? {})}`);
-        if (command === "installer_kind") return "nsis";
-        if (command === "steam_install_info") return shell.install;
-        if (command === "steam_update_status") return shell.status;
-        return null;
-      },
-    };
-  }, install);
+  await page.addInitScript(
+    ([record, updater]) => {
+      const shell: Shell = {
+        install: record,
+        selfUpdate: updater,
+        // A test can leave an update waiting before the game starts (`__initialStatus`).
+        status: (window as unknown as { __initialStatus?: Shell["status"] }).__initialStatus ?? {
+          running: false,
+          exitCode: null,
+          log: "",
+        },
+        calls: [],
+      };
+      const page = window as unknown as Record<string, unknown>;
+      page.__steamShell = shell;
+      page.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+      page.__TAURI_INTERNALS__ = {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
+        transformCallback: () => 0,
+        invoke: async (command: string, args?: Record<string, unknown>) => {
+          if (command.startsWith("steam_") || command.startsWith("self_update_")) {
+            shell.calls.push(`${command} ${JSON.stringify(args ?? {})}`);
+          }
+          if (command === "installer_kind") return "nsis";
+          if (command === "steam_install_info") return shell.install;
+          if (command === "self_update_info") return shell.selfUpdate;
+          if (command === "steam_update_status") return shell.status;
+          return null;
+        },
+      };
+    },
+    [install, selfUpdate] as const,
+  );
   await page.route("https://api.github.com/**", (route) =>
     route.fulfill({
       json: {
@@ -52,6 +76,7 @@ async function openAsSteamInstall(page: Page, install: Shell["install"], query =
           {
             name: "MarvelChampions-999.0.0-EN-Windows-x64-Setup.exe",
             browser_download_url: `${REPO}/releases/download/v999.0.0/MarvelChampions-999.0.0-EN-Windows-x64-Setup.exe`,
+            digest: DIGEST,
           },
         ],
       },
@@ -236,4 +261,123 @@ test("Settings ▸ More opens the same panel, which asks the script what's lates
   await waitForPhase(page, "current");
   expect(await stopKeys(page, "SteamUpdateOverlay")).toEqual(["close"]);
   expect(errors).toEqual([]);
+});
+
+test.describe("an install from the release's installers (#843)", () => {
+  const SETUP = `${REPO}/releases/download/v999.0.0/MarvelChampions-999.0.0-EN-Windows-x64-Setup.exe`;
+
+  test("downloads in the game, says it has been updated, and restarts to apply it", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await openAsSteamInstall(page, null, "", { kind: "nsis" });
+    await waitForText(page, "Update available", { sceneKey: "Title" });
+    const titleStops = await waitFor(async () => {
+      const keys = await stopKeys(page, "Title");
+      return keys.includes("update-install") ? keys : null;
+    }, "the banner's Update button");
+    expect(titleStops).not.toContain("update-download");
+    expect(await findText(page, "Steam script", "Title")).toEqual([]);
+    await shoot(page, "installer-title");
+
+    await pressStop(page, "Title", "update-install");
+    await waitForPhase(page, "ask");
+    await waitForText(page, "Update the game", { sceneKey: "SteamUpdateOverlay" });
+    await shoot(page, "installer-ask");
+
+    await setStatus(page, { running: true, exitCode: null, log: "Downloading version 999.0.0...\n\r####  42.0%" });
+    await pressStop(page, "SteamUpdateOverlay", "start");
+    await waitForPhase(page, "working");
+    expect(await shellCalls(page)).toContain(
+      `self_update_start ${JSON.stringify({ url: SETUP, version: "999.0.0", digest: DIGEST })}`,
+    );
+    expect((await shellCalls(page)).some((call) => call.startsWith("steam_update_start"))).toBe(false);
+    await shoot(page, "installer-working");
+
+    await setStatus(page, { running: true, exitCode: null, log: "MC_UPDATE ready 999.0.0\n" });
+    await waitForPhase(page, "ready");
+    await waitForText(page, "The game has been updated", { sceneKey: "SteamUpdateOverlay" });
+    expect(await stopKeys(page, "SteamUpdateOverlay")).toEqual(["quit", "close"]);
+    await shoot(page, "installer-ready");
+
+    // Later: the Title says so, and its Restart quits for the updater to install and start the game again.
+    await pressStop(page, "SteamUpdateOverlay", "close");
+    await waitForPhase(page, null);
+    await waitForText(page, "THE GAME HAS BEEN UPDATED", { sceneKey: "Title" });
+    await waitForStop(page, "update-restart");
+    await shoot(page, "installer-banner");
+    await pressStop(page, "Title", "update-restart");
+    await waitFor(
+      async () => (await shellCalls(page)).some((call) => call.startsWith("steam_update_quit")),
+      "the game asked to quit",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test("a download that finishes after the panel is closed turns the banner to restart on the Title", async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page);
+    await openAsSteamInstall(page, null, "", { kind: "nsis" });
+    await pressStop(page, "Title", "update-install");
+    await waitForPhase(page, "ask");
+    await setStatus(page, { running: true, exitCode: null, log: "####  10.0%" });
+    await pressStop(page, "SteamUpdateOverlay", "start");
+    await waitForPhase(page, "working");
+    await pressStop(page, "SteamUpdateOverlay", "close");
+    await waitForPhase(page, null);
+    await setStatus(page, { running: true, exitCode: null, log: "####  100.0%\nMC_UPDATE ready 999.0.0\n" });
+    await waitForText(page, "THE GAME HAS BEEN UPDATED", { sceneKey: "Title" });
+    await waitForStop(page, "update-restart");
+    expect(errors).toEqual([]);
+  });
+
+  test("a download already waiting shows the restart banner on arrival", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.addInitScript(() => {
+      const ready = { running: true, exitCode: null, log: "MC_UPDATE ready 999.0.0\n" };
+      (window as unknown as { __initialStatus: unknown }).__initialStatus = ready;
+    });
+    await openAsSteamInstall(page, null, "", { kind: "nsis" });
+    await waitForText(page, "THE GAME HAS BEEN UPDATED", { sceneKey: "Title" });
+    await waitForText(page, "Restart to apply version 999.0.0", { sceneKey: "Title" });
+    await pressStop(page, "Title", "update-restart");
+    await waitFor(
+      async () => (await shellCalls(page)).some((call) => call.startsWith("steam_update_quit")),
+      "the game asked to quit",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test("closing the restart banner keeps it closed past the Title's recheck", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.addInitScript(() => {
+      const ready = { running: true, exitCode: null, log: "MC_UPDATE ready 999.0.0\n" };
+      (window as unknown as { __initialStatus: unknown }).__initialStatus = ready;
+    });
+    await openAsSteamInstall(page, null, "", { kind: "nsis" });
+    await waitForStop(page, "update-restart");
+    await pressStop(page, "Title", "update-dismiss");
+    await waitFor(async () => !(await stopKeys(page, "Title")).includes("update-restart"), "the banner closed");
+    // The Title asks the updater every 2 seconds; the closed banner stays closed.
+    await page.waitForTimeout(4500);
+    expect(await stopKeys(page, "Title")).not.toContain("update-restart");
+    expect(errors).toEqual([]);
+  });
+
+  test("an update that didn't install after the restart says so, and can be tried again", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.addInitScript(() => {
+      // The updater started the old game again after the installer stopped (scripts/update/update-game.*).
+      const failed = {
+        running: false,
+        exitCode: 1,
+        log: "MC_UPDATE ready 999.0.0\nError: the installer stopped.\nMC_UPDATE failed 999.0.0\n",
+      };
+      (window as unknown as { __initialStatus: unknown }).__initialStatus = failed;
+    });
+    await openAsSteamInstall(page, null, "", { kind: "nsis" });
+    await waitForText(page, "DIDN'T INSTALL", { sceneKey: "Title" });
+    await waitForStop(page, "update-install");
+    await shoot(page, "installer-failed");
+    expect(errors).toEqual([]);
+  });
 });
