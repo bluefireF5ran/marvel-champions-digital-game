@@ -16,7 +16,7 @@
 //! the package. The Android app's update stays a download: Android's own
 //! installer has to run it.
 
-use crate::steam_install::{running_game, spawn_update, state_dir};
+use crate::steam_install::{running_game, spawn_update, state_dir, SELF_UPDATE_JOB};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -195,7 +195,7 @@ fn can_replace(game: &Path, kind: &str) -> bool {
 /// Whether `dir`'s disk can swap two paths in one step, which the .app update needs so a crash can't leave the game
 /// missing (update-game.sh). APFS can; HFS+ and exFAT can't, and an app there keeps the download link.
 #[cfg(target_os = "macos")]
-fn can_swap_in(dir: &Path) -> bool {
+pub(crate) fn can_swap_in(dir: &Path) -> bool {
   use std::ffi::CString;
   use std::os::unix::ffi::OsStrExt;
   extern "C" {
@@ -226,7 +226,7 @@ fn can_swap_in(dir: &Path) -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn can_swap_in(_dir: &Path) -> bool {
+pub(crate) fn can_swap_in(_dir: &Path) -> bool {
   false
 }
 
@@ -326,7 +326,7 @@ pub fn self_update_start(app: AppHandle, url: String, version: String, digest: S
   std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
   let helper = dir.join(HELPER_FILE);
   std::fs::write(&helper, HELPER).map_err(|e| e.to_string())?;
-  spawn_update(&dir, || helper_command(&helper, &url, kind, &version, &sha256, &game))
+  spawn_update(&dir, SELF_UPDATE_JOB, || helper_command(&helper, &url, kind, &version, &sha256, &game))
 }
 
 #[cfg(test)]

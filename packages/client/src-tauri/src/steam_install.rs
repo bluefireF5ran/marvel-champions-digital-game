@@ -38,8 +38,8 @@ const LOG_TAIL_BYTES: u64 = 4096;
 #[cfg(any(windows, test))]
 const INSTALLING_MAX: Duration = Duration::from_secs(180);
 
-/// The running update, kept to ask whether it has finished.
-pub(crate) static UPDATE: Mutex<Option<Child>> = Mutex::new(None);
+/// The running update and which one it is (`spawn_update`'s `job`), kept to ask whether it has finished.
+pub(crate) static UPDATE: Mutex<Option<(Child, &'static str)>> = Mutex::new(None);
 
 #[derive(Deserialize)]
 struct Marker {
@@ -59,6 +59,8 @@ pub struct SteamInstall {
 #[serde(rename_all = "camelCase")]
 pub struct SteamUpdateStatus {
   running: bool,
+  /// Which job the running (or last) child is (`spawn_update`), so a panel opened for another can tell it isn't its own.
+  job: Option<&'static str>,
   exit_code: Option<i32>,
   log: String,
 }
@@ -211,17 +213,19 @@ pub fn steam_update_start(app: AppHandle, language: String) -> Result<(), String
   if !script.is_file() {
     return Err(format!("{} is missing", script.display()));
   }
-  spawn_update(&dir, || script_command(&script, &language))
+  spawn_update(&dir, STEAM_UPDATE_JOB, || script_command(&script, &language))
 }
 
-/// Runs an update in the background with its output in `update.log`, or does
-/// nothing while one is already running. Shared with the game's own updater
-/// (self_update.rs), which the same panel and status call follow.
-pub(crate) fn spawn_update(dir: &Path, command: impl FnOnce() -> Command) -> Result<(), String> {
+/// Runs `job` in the background with its output in `update.log`: the Steam
+/// script's update, the game's own update (self_update.rs) or Add to Steam
+/// (steam_add.rs), which the same panel and status call follow. The same job
+/// already running carries on (the player closed the panel and opened it
+/// again); a different one is refused, since its log is the one on screen.
+pub(crate) fn spawn_update(dir: &Path, job: &'static str, command: impl FnOnce() -> Command) -> Result<(), String> {
   let mut update = UPDATE.lock().map_err(|e| e.to_string())?;
-  if let Some(child) = update.as_mut() {
+  if let Some((child, running)) = update.as_mut() {
     if matches!(child.try_wait(), Ok(None)) {
-      return Ok(());
+      return if *running == job { Ok(()) } else { Err(busy_message(running)) };
     }
   }
   std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -239,9 +243,22 @@ pub(crate) fn spawn_update(dir: &Path, command: impl FnOnce() -> Command) -> Res
     .stderr(errors)
     .spawn()
     .map_err(|e| e.to_string())?;
-  *update = Some(child);
+  *update = Some((child, job));
   Ok(())
 }
+
+/// What the panel says when another job is running.
+fn busy_message(running: &str) -> String {
+  let what = match running {
+    STEAM_ADD_JOB => "Adding the game to Steam",
+    _ => "An update",
+  };
+  format!("{what} is still running. Wait for it to finish, then try again.")
+}
+
+pub(crate) const STEAM_UPDATE_JOB: &str = "steam-update";
+pub(crate) const SELF_UPDATE_JOB: &str = "self-update";
+pub(crate) const STEAM_ADD_JOB: &str = "steam-add";
 
 fn log_tail(path: &Path) -> String {
   let Ok(mut file) = File::open(path) else {
@@ -257,13 +274,14 @@ fn log_tail(path: &Path) -> String {
 #[tauri::command]
 pub fn steam_update_status(app: AppHandle) -> Result<SteamUpdateStatus, String> {
   let mut update = UPDATE.lock().map_err(|e| e.to_string())?;
-  let (running, exit_code) = match update.as_mut().map(Child::try_wait) {
+  let job = update.as_ref().map(|(_, job)| *job);
+  let (running, exit_code) = match update.as_mut().map(|(child, _)| child.try_wait()) {
     Some(Ok(None)) => (true, None),
     Some(Ok(Some(status))) => (false, status.code()),
     Some(Err(e)) => return Err(e.to_string()),
     None => (false, None),
   };
-  Ok(SteamUpdateStatus { running, exit_code, log: log_tail(&state_dir(&app)?.join(LOG_FILE)) })
+  Ok(SteamUpdateStatus { running, job, exit_code, log: log_tail(&state_dir(&app)?.join(LOG_FILE)) })
 }
 
 /// The panel's Quit and update: the script is waiting for this process to end.

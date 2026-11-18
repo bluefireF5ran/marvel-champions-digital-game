@@ -58,6 +58,12 @@ async function openAsSteamInstall(
           if (command === "installer_kind") return "nsis";
           if (command === "steam_install_info") return shell.install;
           if (command === "self_update_info") return shell.selfUpdate;
+          // Add to Steam (#844) is offered only where a test sets `__steamAdd`, after `__steamAddDelay` ms if it sets that.
+          if (command === "steam_add_info") {
+            const test = window as unknown as { __steamAdd?: unknown; __steamAddDelay?: number };
+            if (test.__steamAddDelay) await new Promise((done) => setTimeout(done, test.__steamAddDelay));
+            return test.__steamAdd ?? null;
+          }
           if (command === "steam_update_status") return shell.status;
           return null;
         },
@@ -380,4 +386,95 @@ test.describe("an install from the release's installers (#843)", () => {
     await shoot(page, "installer-failed");
     expect(errors).toEqual([]);
   });
+});
+
+test("Settings ▸ More's Add to Steam runs the Steam script on the game, then says it is in Steam (#844)", async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page);
+  await page.addInitScript(() => {
+    (window as unknown as { __steamAdd: unknown }).__steamAdd = { canAdd: true };
+  });
+  await openAsSteamInstall(page, null);
+  await waitForText(page, "Update available", { sceneKey: "Title" });
+  await pressStop(page, "Title", "settings");
+  await pressStop(page, "SettingsOverlay", "tab:more");
+  const row = await waitFor(
+    async () => (await routeStops(page, "SettingsOverlay"))?.stops.find((s) => s.key === "row:steam-add") ?? null,
+    "the Add to Steam row",
+  );
+  await shoot(page, "steam-add-row");
+  await page.mouse.click(row.rect.x + row.rect.width - 30, row.rect.y + row.rect.height / 2);
+  await waitForPhase(page, "ask");
+  await waitForText(page, "Steam closes while the game is added", { sceneKey: "SteamUpdateOverlay" });
+  await shoot(page, "steam-add-ask");
+  await setStatus(page, { running: true, exitCode: null, log: "Closing Steam...\n" });
+  await pressStop(page, "SteamUpdateOverlay", "start");
+  await waitForPhase(page, "working");
+  expect(await shellCalls(page)).toContain('steam_add_start {"language":"en"}');
+  await setStatus(page, { running: false, exitCode: 0, log: "Done.\nMC_UPDATE added 0.49.0\n" });
+  await waitForPhase(page, "done");
+  await waitForText(page, "Added to Steam", { sceneKey: "SteamUpdateOverlay" });
+  await shoot(page, "steam-add-done");
+  expect(await stopKeys(page, "SteamUpdateOverlay")).toEqual(["close"]);
+  // Closed: the row is gone from the More tab behind it, so the script can't be started again by mistake.
+  await pressStop(page, "SteamUpdateOverlay", "close");
+  await waitForPhase(page, null);
+  await waitFor(
+    async () => !((await routeStops(page, "SettingsOverlay"))?.stops ?? []).some((s) => s.key === "row:steam-add"),
+    "the Add to Steam row gone",
+  );
+  expect(errors).toEqual([]);
+});
+
+test("Add to Steam's row arrives in an open Settings when Steam's check finishes late", async ({ page }) => {
+  const errors = trackPageErrors(page);
+  await page.addInitScript(() => {
+    const test = window as unknown as { __steamAdd: unknown; __steamAddDelay: number };
+    test.__steamAdd = { canAdd: true };
+    test.__steamAddDelay = 6000;
+  });
+  await openAsSteamInstall(page, null);
+  await pressStop(page, "Title", "settings");
+  await pressStop(page, "SettingsOverlay", "tab:more");
+  await waitFor(
+    async () => (await routeStops(page, "SettingsOverlay"))?.stops.some((s) => s.key === "row:steam-add") ?? false,
+    "the Add to Steam row once the check answers",
+  );
+  expect(errors).toEqual([]);
+});
+
+test("Add to Steam says another update is running rather than showing it as its own", async ({ page }) => {
+  const errors = trackPageErrors(page);
+  await page.addInitScript(() => {
+    const test = window as unknown as { __steamAdd: unknown; __initialStatus: unknown };
+    test.__steamAdd = { canAdd: true };
+    // The game's own update, downloading in the background.
+    test.__initialStatus = { running: true, job: "self-update", exitCode: null, log: "####  40.0%" };
+  });
+  await openAsSteamInstall(page, null);
+  await pressStop(page, "Title", "settings");
+  await pressStop(page, "SettingsOverlay", "tab:more");
+  const row = await waitFor(
+    async () => (await routeStops(page, "SettingsOverlay"))?.stops.find((s) => s.key === "row:steam-add") ?? null,
+    "the Add to Steam row",
+  );
+  await page.mouse.click(row.rect.x + row.rect.width - 30, row.rect.y + row.rect.height / 2);
+  await waitForPhase(page, "failed");
+  await waitForText(page, "Another update is still running", { sceneKey: "SteamUpdateOverlay" });
+  expect((await shellCalls(page)).some((call) => call.startsWith("steam_add_start"))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test("a game that is in Steam already has no Add to Steam row", async ({ page }) => {
+  await openAsSteamInstall(page, null);
+  await waitForText(page, "Update available", { sceneKey: "Title" });
+  await pressStop(page, "Title", "settings");
+  await pressStop(page, "SettingsOverlay", "tab:more");
+  await waitFor(
+    async () => (await routeStops(page, "SettingsOverlay"))?.stops.some((s) => s.key === "row:rules") ?? false,
+    "the More tab",
+  );
+  const keys = ((await routeStops(page, "SettingsOverlay"))?.stops ?? []).map((s) => s.key);
+  expect(keys).not.toContain("row:steam-add");
 });

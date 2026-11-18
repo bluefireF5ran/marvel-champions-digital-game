@@ -12,6 +12,7 @@ import Phaser from "phaser";
 import { cardLanguage } from "../art/card-language.js";
 import { openExternal } from "../platform/platform.js";
 import { startSelfUpdate } from "../platform/self-update.js";
+import { startSteamAdd, steamAddDone } from "../platform/steam-add.js";
 import { quitForSteamUpdate, startSteamUpdate, steamUpdateStatus } from "../platform/steam-install.js";
 import { t } from "../i18n/translate.js";
 import { hit, signal, surface, typeRole } from "../tokens.js";
@@ -27,6 +28,7 @@ import {
   type SteamUpdateStatus,
   type SteamUpdateView,
   type UpdateMode,
+  jobOf,
   STEAM_UPDATE_CLOSED,
 } from "../view/steam-update.js";
 import { FocusRoute, type FocusStop } from "./focus-route.js";
@@ -103,10 +105,17 @@ export class SteamUpdateOverlay extends Phaser.Scene {
       for (const button of this.#buttons) button.destroy();
       this.#buttons = [];
     });
-    // An update left running in the background is picked back up instead of asking again.
+    // An update left running in the background is picked back up instead of asking again: only this panel's own job.
+    // Another one running (the game's own update while Add to Steam opens, say) is said to be busy, never shown as
+    // this one's progress.
     void steamUpdateStatus()
       .then((status) => {
         if (!this.sys.isActive() || !status.running) return;
+        if (status.job != null && status.job !== jobOf(this.#data.mode ?? "steam")) {
+          this.#startError = t("update.busy");
+          this.#draw();
+          return;
+        }
         this.#started = true;
         this.#status = status;
         this.#draw();
@@ -134,6 +143,7 @@ export class SteamUpdateOverlay extends Phaser.Scene {
       // The shell starts a new log before it answers, so no poll can read the last run's as this one's.
       const { mode = "steam", installerUrl, installerDigest, version } = this.#data;
       if (mode === "steam") await startSteamUpdate(cardLanguage());
+      else if (mode === "add-steam") await startSteamAdd(cardLanguage());
       else if (installerUrl !== undefined && installerDigest !== undefined && version !== null) {
         await startSelfUpdate(installerUrl, version, installerDigest);
       } else throw new Error("There's no installer to download for this update.");
@@ -253,7 +263,24 @@ export class SteamUpdateOverlay extends Phaser.Scene {
   ): readonly { readonly id: string; readonly label: string; readonly onClick: () => void }[] {
     const close = { id: "close", label: "Close", onClick: () => this.#close() };
     const quit = { id: "quit", label: "Quit and install", onClick: () => void quitForSteamUpdate() };
-    const installer = (this.#data.mode ?? "steam") !== "steam";
+    const mode = this.#data.mode ?? "steam";
+    const installer = mode !== "steam";
+    if (mode === "add-steam") {
+      if (phase === "ask") {
+        return [
+          { id: "start", label: t("steamAdd.ask.start"), onClick: () => void this.#start() },
+          { ...close, label: t("update.ask.notNow") },
+        ];
+      }
+      if (phase === "done") steamAddDone();
+      if (phase === "failed") {
+        return [
+          { id: "download", label: "Go to the download ↗", onClick: () => openExternal(this.#data.fallbackUrl) },
+          close,
+        ];
+      }
+      return [close];
+    }
     switch (phase) {
       case "ask":
         return [
