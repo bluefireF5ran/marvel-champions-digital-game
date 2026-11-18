@@ -128,6 +128,14 @@ import { musicSlotBeside } from "../view/music-player.js";
 import { languageSlotBeside } from "../view/language-button.js";
 import { themeSlotBeside } from "../view/theme-button.js";
 import { drawStoreIconButton } from "../ui/store-icon.js";
+import { drawCountBadge } from "../ui/count-badge.js";
+import {
+  badgeTextOf,
+  CHECK_INTERVAL_MS,
+  checkPackUpdates,
+  onPackUpdateCount,
+  packUpdateCount,
+} from "../packs/pack-updates.js";
 import { drawDiscordIconButton, type DiscordIconButton } from "../ui/discord-icon.js";
 import { fadeScreenIn, goToScreen, holdScreenFor } from "../ui/transitions.js";
 import { RELEASE_NOTICE_ON } from "../view/release-notice.js";
@@ -292,8 +300,20 @@ export class TitleScene extends Phaser.Scene {
       if (!this.sys.isActive()) return;
       void this.#refreshSaves();
     });
+    // Installed mod packs with a newer version in the store: the Mod Store button and icon wear the count.
+    const unsubscribePackUpdates = onPackUpdateCount(() => {
+      if (this.sys.isActive()) this.#rebuild();
+    });
+    // Checked again while the Title stays open (the checker fetches at most once an interval) and when the network
+    // comes back, so an update published meanwhile, or a check that failed offline, still reaches the badge.
+    void checkPackUpdates();
+    this.time.addEvent({ delay: CHECK_INTERVAL_MS, loop: true, callback: () => void checkPackUpdates() });
+    const recheckOnline = (): void => void checkPackUpdates();
+    globalThis.addEventListener?.("online", recheckOnline);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", this.#rebuild, this);
+      unsubscribePackUpdates();
+      globalThis.removeEventListener?.("online", recheckOnline);
       unsubscribePowerSaving();
       unsubscribeLanguage();
       unsubscribeSync();
@@ -833,6 +853,8 @@ export class TitleScene extends Phaser.Scene {
       }),
     );
     this.#stops.set("mod-store", { rect: layout.modStore, activate: openModStore });
+    const packUpdates = packUpdateCount();
+    if (packUpdates > 0) drawCountBadge(this, layout.modStore, badgeTextOf(packUpdates), { name: "mod-store" });
 
     // W4's Settings is an overlay: launched over this scene, it stops itself on Back (`scenes/settings.ts`).
     const openSettings = (): void => {
@@ -1010,6 +1032,8 @@ export class TitleScene extends Phaser.Scene {
     const storeIconRect = layout.split ? themeSlotBeside(themeSlotBeside(languageRect)) : null;
     if (storeIconRect) {
       drawStoreIconButton(this, storeIconRect, openModStore);
+      if (packUpdates > 0)
+        drawCountBadge(this, storeIconRect, badgeTextOf(packUpdates), { name: "store-icon", inset: 2 });
       this.#stops.set("chrome:mod-store", { rect: storeIconRect, activate: openModStore });
       this.#hints?.hang(storeIconRect, ["activate"], TOP_ROW_GLYPH_HEIGHT, {
         ground: onDark ? "ink" : "paper",
