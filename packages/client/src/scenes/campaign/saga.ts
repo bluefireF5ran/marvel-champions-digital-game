@@ -368,6 +368,7 @@ export class CampaignSagaScene extends Phaser.Scene {
       title: tileRow.volume.custom ? CUSTOM_BADGE : `Vol. ${tileRow.volume.number}`,
       subtitle: tileRow.volume.name,
       chip: this.#gridChip(tileRow),
+      ...(tileRow.status === "done" && tileRow.wonAdjustedOnly ? { flag: "Adjusted", compactChip: "✓" } : {}),
       status: tileRow.status,
       art: volumeArtOf(tileRow.volume),
       onArtReady: this.#onArt,
@@ -557,6 +558,23 @@ export class CampaignSagaScene extends Phaser.Scene {
         .strokeRect(chipRect.x + 0.75, chipRect.y + 0.75, chipRect.width - 1.5, chipRect.height - 1.5);
     chipLabel.setPosition(chipRect.x + 6, chipRect.y + chipRect.height / 2).setOrigin(0, 0.5);
     objects.push(chipBg, chipLabel);
+    // A volume won only by adjusted runs (issue #869): an amber "ADJUSTED" chip just before the "✓ COMPLETE" one.
+    if (row.status === "done" && row.wonAdjustedOnly) {
+      const flagLabel = this.add
+        .text(0, 0, "ADJUSTED", textStyle(typeRole.label, surface.inkOnHue.hex, 1))
+        .setLetterSpacing(0.6)
+        .setFontSize(9);
+      const flagRect: Rect = {
+        x: chipRect.x - 6 - flagLabel.width - 12,
+        y: chipRect.y,
+        width: flagLabel.width + 12,
+        height: chipRect.height,
+      };
+      const flagBg = this.add.graphics();
+      flagBg.fillStyle(signal.caution.hex, 1).fillRect(flagRect.x, flagRect.y, flagRect.width, flagRect.height);
+      flagLabel.setPosition(flagRect.x + 6, flagRect.y + flagRect.height / 2).setOrigin(0, 0.5);
+      objects.push(flagBg, flagLabel);
+    }
 
     if (row.status === "sealed") {
       const dim = this.add
@@ -579,7 +597,9 @@ export class CampaignSagaScene extends Phaser.Scene {
     border.lineStyle(6, 0xc8102e, 1).strokeRect(rect.x, rect.y, rect.width, rect.height);
     border.lineStyle(3, surface.ink.hex, 1).strokeRect(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 6);
     const copy = this.#featuredCopy(row);
-    const footerHeight = Math.min(rect.height * 0.5, phone ? 210 : 270);
+    // The adjusted-run note (issue #869) adds a line under the roster: the art gives up that much, not the buttons.
+    const noteHeight = row.status === "done" && row.adjustedWinKeepsNextSealed ? (phone ? 15 : 17) : 0;
+    const footerHeight = Math.min(rect.height * 0.5, phone ? 210 : 270) + noteHeight;
     const artRect: Rect = {
       x: rect.x + 3,
       y: rect.y + 3,
@@ -602,20 +622,45 @@ export class CampaignSagaScene extends Phaser.Scene {
     tab.setPosition(artRect.x + 10, artRect.y + 6);
     this.children.bringToTop(tab);
     if (row.status === "done") {
+      // Centered on the container and not rotated itself: the container tilts the text and its box together. (The
+      // text used to carry its own tilt on top of the container's, so it slid out of the box's corner.)
       const stamp = this.add
-        .text(0, 0, "COMPLETE", textStyle(bangers(phone ? 18 : 26, 1), signal.heal.hex))
-        .setRotation(0.14);
+        .text(0, 0, "COMPLETE", textStyle(bangers(phone ? 18 : 26, 1), surface.paper.hex))
+        .setOrigin(0.5, 0.5);
+      // Solid green with paper-white text, the grid tile's own "✓ Complete" chip colors (`chipColors.done`).
       const stampBg = this.add.graphics();
       stampBg
-        .fillStyle(surface.card.hex, 0.94)
+        .fillStyle(signal.heal.hex, 1)
         .fillRoundedRect(-stamp.width / 2 - 10, -stamp.height / 2 - 4, stamp.width + 20, stamp.height + 8, 4);
-      stampBg
-        .lineStyle(4, signal.heal.hex, 1)
-        .strokeRoundedRect(-stamp.width / 2 - 10, -stamp.height / 2 - 4, stamp.width + 20, stamp.height + 8, 4);
-      const stampContainer = this.add.container(artRect.x + artRect.width - 60, artRect.y + 34, [stampBg, stamp]);
+      // Inset by the box's own half-width (plus room for the tilt), so the stamp never runs off the card's edge.
+      const stampContainer = this.add.container(
+        artRect.x + artRect.width - stamp.width / 2 - 24,
+        artRect.y + stamp.height / 2 + 20,
+        [stampBg, stamp],
+      );
       stampContainer.setRotation(0.14);
-      stamp.setPosition(-stamp.width / 2, -stamp.height / 2);
-      stampBg.setPosition(0, 0);
+      // A volume complete only by adjusted runs (issue #869) gets a second stamp under the first, in caution amber.
+      if (row.wonAdjustedOnly) {
+        const adjusted = this.add
+          .text(0, 0, "ADJUSTED", textStyle(bangers(phone ? 15 : 21, 1), surface.inkOnHue.hex))
+          .setOrigin(0.5, 0.5);
+        const adjustedBg = this.add.graphics();
+        adjustedBg
+          .fillStyle(signal.caution.hex, 1)
+          .fillRoundedRect(
+            -adjusted.width / 2 - 8,
+            -adjusted.height / 2 - 3,
+            adjusted.width + 16,
+            adjusted.height + 6,
+            4,
+          );
+        this.add
+          .container(stampContainer.x + 6, stampContainer.y + stamp.height / 2 + adjusted.height / 2 + 16, [
+            adjustedBg,
+            adjusted,
+          ])
+          .setRotation(0.14);
+      }
     }
 
     const footerBg = this.add.graphics();
@@ -701,11 +746,14 @@ export class CampaignSagaScene extends Phaser.Scene {
       });
       y += altHeight + 6;
       if (copy.foot) {
-        this.add.text(footerRect.x + pad, y, copy.foot, {
+        const foot = this.add.text(footerRect.x + pad, y, copy.foot, {
           ...textStyle(typeRole.label, surface.paper.hex, ink.meta),
           fontSize: phone ? "9.5px" : "10.5px",
           wordWrap: { width: footerRect.width - pad * 2, useAdvancedWrap: true },
         });
+        // The footnote is the one optional line: where the card is too short for it (an iPhone SE, a two-line box name),
+        // it goes rather than running through the card's border.
+        if (foot.y + foot.height > footerRect.y + footerRect.height - 4) foot.destroy();
       }
     }
   }
@@ -749,7 +797,10 @@ export class CampaignSagaScene extends Phaser.Scene {
         return {
           status: "Complete",
           right: `Standard ${row.wonStandard ? "✓" : "○"} · Expert ${row.wonExpert ? "✓" : "○"}`,
-          sub: `${row.rosterNames.join(" · ")} · ${row.totalIssues} issues`,
+          // An adjusted win finishes the volume but opens nothing (issue #869): say why the next one is still sealed.
+          sub:
+            `${row.rosterNames.join(" · ")} · ${row.totalIssues} issues` +
+            (row.adjustedWinKeepsNextSealed ? `\nAdjusted run: it doesn't open Vol. ${n + 1}.` : ""),
           hasPips: true,
           hasAlt: true,
           alt: this.#altActionsFor(row),
@@ -788,9 +839,11 @@ export class CampaignSagaScene extends Phaser.Scene {
             ? row.unlocked
               ? `This build doesn't ship Vol. ${n} yet.`
               : `Win Vol. ${n - 1} on Standard to open it. Its villains stay hidden until then.`
-            : row.lockReason
-              ? `${row.lockReason}, or unlock it now with champion points.`
-              : `Win Vol. ${n - 1} on Standard to open it, or unlock it now with champion points.`,
+            : row.previousWonAdjustedOnly
+              ? `Your Vol. ${n - 1} win was adjusted, so it doesn't open this one. Win Vol. ${n - 1} again by the rules, or unlock it now with champion points.`
+              : row.lockReason
+                ? `${row.lockReason}, or unlock it now with champion points.`
+                : `Win Vol. ${n - 1} on Standard to open it, or unlock it now with champion points.`,
           hasPips: false,
           hasAlt: false,
           alt: [],
