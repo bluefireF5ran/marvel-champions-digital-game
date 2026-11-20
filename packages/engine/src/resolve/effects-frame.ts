@@ -7,34 +7,38 @@ import { positionsOf, rearrangeable, rearrangeCards } from "./rearrange.js";
 import { anyFacedown, hiddenHandOptions, offerOrder, offeredSlotOf, pickedInstances } from "./hidden-hand-pick.js";
 import {
   BORROWED_BOOST_ICONS_SLOT,
-  type EngineDeps,
   GRANTED_BY_SLOT,
+  inPlayPicksOf,
   labeledResolvedVar,
   resolvableAs,
+  type AbilityCost,
+  type EngineDeps,
 } from "../abilities.js";
 import {
+  announceResourcesSpent,
   cardsInPlayFromZone,
+  costAsDetermined,
+  defaultInPlayPicks,
+  eventActionsForEffectPlay,
   hostChoicesForEffectPlay,
   hostForEffectPlay,
+  inPlayCostCandidates,
+  isPriceFault as isFault,
   isSeparateDeckPlayFrom,
-  searchesOwnDeck,
   paymentOptions,
   paymentsFromOptionIds,
-  announceResourcesSpent,
   payPayment,
-  eventActionsForEffectPlay,
+  planCost,
   playFromEffectRequirement,
   playIgnoringCost,
   playIgnoringCostFault,
   playWithPayment,
   playWithPaymentFault,
   priceOrNull,
-  isPriceFault as isFault,
-  defaultInPlayPicks,
-  planCost,
-  useAbility,
+  searchesOwnDeck,
   type ActionTiming,
   type PlayFromZone,
+  useAbility,
 } from "../actions.js";
 import {
   canPayFormChangeCosts,
@@ -133,27 +137,28 @@ import {
 import { canPaySpend, fewestSpend, spendPays } from "../payable.js";
 import {
   activeAbilityRefs,
+  activePrintedAbilityRefs,
+  attackIgnoringOf,
+  canEnterPlayUnder,
   cardsInPlay,
   cardTypeOf,
   categoriesOf,
   chosenVar,
   contextArea,
   controllerOf,
-  type EffectContext,
   evaluate,
   isPlayerCard,
   MAIN_SCHEME_CHOICE,
   matchesQuery,
-  VILLAIN_CHOICE,
   PLAYED_VIA_SLOT,
   printedAbilityRefs,
+  reachOf,
   resolvePlayers,
   resolveRef,
   resolveValue,
   selectTargets,
-  attackIgnoringOf,
-  reachOf,
-  canEnterPlayUnder,
+  type EffectContext,
+  VILLAIN_CHOICE,
 } from "../select.js";
 import type { EffectSpec, PlayerRef, StatusName, TargetQuery, TargetRef, ValueSpec } from "../spec.js";
 import type { Bindings, ResolvedCountVar, StackFrame, TriggerCandidate } from "../stack.js";
@@ -239,6 +244,7 @@ import { hasPerPlayerMainSchemes } from "../per-player-main-schemes.js";
 import { executePairCards } from "./pair-cards.js";
 import { executeSequentialDamage } from "./sequential-damage.js";
 import { markPreThenUnresolved } from "./then.js";
+import type { Command, CostChoices, Payment } from "../commands.js";
 
 /** The `EffectContext` an effects frame resolves in. Exported so `why-not.ts` can rebuild it exactly. */
 export const contextOf = (frame: Frame<"effects">, deps: EngineDeps): EffectContext => ({
@@ -795,17 +801,43 @@ function playFromHandOptions(ctx: Ctx, effect: Extract<EffectSpec, { kind: "play
   return { playerId, reduction, reductionAt, paying, from, timing, placesFor, named, candidates };
 }
 
-/** One Action ability a `useActionAbility` effect could use now: its card, the ability, and its default cost picks. */
+/** One Action ability a `useActionAbility` effect could use now: its card and the ability. */
 interface UsableAction {
   readonly instanceId: InstanceId;
   readonly abilityId: AbilityId;
-  readonly costChoices: Readonly<Record<string, readonly InstanceId[]>>;
 }
 
 /**
- * The Action abilities `playerId` could use now through `EffectSpec useActionAbility`: on the cards in play they
- * control (matching `filter`), each triggered on a copy of the game, out of turn, with the cheapest payment and the
- * default cost picks. Nothing on the real game changes.
+ * The payments to try for an ability's cost on `id`, priced as an ability's payment (`paymentOptions` with no card being
+ * played and `id` paid for): a resource "for an upgrade ability" (`generatesForAbility`) and one for that card count.
+ * Everything at once (one use of each resource ability, the one picking the most cards), then hand cards only, then
+ * nothing: a probe, so a resource ability whose cost clashes with the Action's own picks still leaves the others.
+ */
+function abilityWallets(ctx: Ctx, playerId: PlayerId, id: InstanceId): readonly (readonly Payment[])[] {
+  const all = paymentsFromOptionIds(paymentOptions(ctx, playerId, null, id).map((o) => o.optionId));
+  const picked = (p: Payment): number =>
+    "ability" in p ? Object.values(p.ability.costChoices ?? {}).reduce((n, ids) => n + ids.length, 0) : 0;
+  const widest = new Map<string, Payment>();
+  for (const p of all) {
+    if (!("ability" in p)) continue;
+    const key = `${p.ability.instanceId}:${p.ability.abilityId}`;
+    const held = widest.get(key);
+    if (!held || picked(p) > picked(held)) widest.set(key, p);
+  }
+  const hand = all.filter((p) => "fromHand" in p);
+  return [[...widest.values(), ...hand], hand, []];
+}
+
+/** Whether `command` would be accepted now, out of turn: `useAbility` run on a copy of the game. */
+function wouldUse(ctx: Ctx, command: Command & { type: "useAbility" }): boolean {
+  return useAbility(createCtx(ctx.state, ctx.deps), command, false) === null;
+}
+
+/**
+ * The Action abilities `playerId` could use now through `EffectSpec useActionAbility`: the **printed** ones (#890 item
+ * 6: "resolve an 'Action' ability on a card you control"; a blanked or ignored one is not active) of the cards in play
+ * they control (matching `filter`), each triggered on a copy of the game, out of turn, with its default cost picks and
+ * one of `abilityWallets`. Nothing on the real game changes.
  */
 function usableActions(
   ctx: Ctx,
@@ -817,37 +849,30 @@ function usableActions(
   for (const id of cardsInPlay(ctx.state)) {
     if (controllerOf(ctx.state, id) !== playerId) continue;
     if (filter && !matchesQuery(ctx.state, id, filter, context)) continue;
-    for (const ref of activeAbilityRefs(ctx.state, id, ctx.deps)) {
+    for (const ref of activePrintedAbilityRefs(ctx.state, id, ctx.deps)) {
       const definition = ctx.deps.abilities[ref.id];
       if (definition?.trigger.kind !== "action" || definition.activeIn === "hand") continue;
       const costChoices = defaultInPlayPicks(ctx.state, ctx.deps, id, playerId, definition.cost);
-      const plan = planCost(ctx.state, ctx.deps, id, playerId, definition.cost, costChoices, new Set());
-      if (isFault(plan)) continue;
-      const cheapest = fewestSpend(ctx.state, ctx.deps, playerId, plan.requirement, 0, id);
-      if (cheapest === null) continue;
-      const probe = createCtx(ctx.state, ctx.deps);
-      const error = useAbility(
-        probe,
-        {
-          type: "useAbility",
-          playerId,
-          cardInstanceId: id,
-          abilityId: ref.id,
-          payment: paymentsFromOptionIds(cheapest),
-          costChoices,
-        },
-        false,
+      const usable = abilityWallets(ctx, playerId, id).some((payment) =>
+        wouldUse(ctx, { type: "useAbility", playerId, cardInstanceId: id, abilityId: ref.id, payment, costChoices }),
       );
-      if (error === null) found.push({ instanceId: id, abilityId: ref.id, costChoices });
+      if (usable) found.push({ instanceId: id, abilityId: ref.id });
     }
   }
   return found;
 }
 
 /**
- * `EffectSpec useActionAbility` (#890 item 6): pick the ability (step 0), pay its resources (step 1), then trigger it
- * as the `useAbility` command does with the Action timing not asked. A payment that does not cover the cost uses
- * nothing (RRG 1.8 "Initiating Abilities", p. 24, step 5).
+ * `EffectSpec useActionAbility` (#890 item 6): the player answers what using the ability on their turn would ask, in
+ * the same order, then it is triggered as the `useAbility` command does with the Action timing not asked:
+ * 1. which Action (step 0);
+ * 2. the branch of an either/or cost, when more than one can be paid (`_use.branch`);
+ * 3. each choice of cards in play its cost makes (`InPlayCostPick`: "discard an ally you control", "exhaust up to 2
+ *    …"), one slot after the other, a card picked for one slot not offered for the next; a forced pick (exactly `min`
+ *    candidates) and an "each" pick are not asked (`_use.slot`, the picks in bindings `_use.pick.<slot>`);
+ * 4. the resources, priced as an ability's payment (`paymentOptions` with no card being played and the ability's card
+ *    paid for, so a resource "for an upgrade ability" pays).
+ * A payment that does not cover the cost uses nothing (RRG 1.8 "Initiating Abilities", p. 24, step 5).
  */
 function executeUseActionAbility(
   ctx: Ctx,
@@ -860,11 +885,19 @@ function executeUseActionAbility(
   const vars = Object.fromEntries(Object.entries(frame.vars).filter(([key]) => !key.startsWith("_use.")));
   const bindings = Object.fromEntries(Object.entries(frame.bindings).filter(([key]) => !key.startsWith("_use.")));
   const done = (): void => setFrame(ctx, { ...frame, answer: null, vars, bindings, cursor: frame.cursor + 1 });
+  const next = (vars: Record<string, number>, extra: Record<string, readonly InstanceId[]> = {}): void =>
+    setFrame(ctx, {
+      ...frame,
+      answer: null,
+      vars: { ...frame.vars, ...vars },
+      bindings: { ...frame.bindings, ...extra },
+    });
   if (!playerId) return done();
-  const usable = usableActions(ctx, playerId, effect.filter, context);
-  const optionOf = (action: UsableAction): string => `${action.instanceId}|${action.abilityId}`;
+
   if (step === 0) {
+    const usable = usableActions(ctx, playerId, effect.filter, context);
     if (usable.length === 0) return done();
+    const optionOf = (action: UsableAction): string => `${action.instanceId}|${action.abilityId}`;
     if (frame.answer === null) {
       requestChoice(ctx, {
         playerId,
@@ -882,27 +915,126 @@ function executeUseActionAbility(
       });
       return;
     }
-    const picked = usable.findIndex((action) => optionOf(action) === frame.answer?.[0]);
-    if (picked < 0) return done();
-    setFrame(ctx, { ...frame, answer: null, vars: { ...frame.vars, "_use.step": 1, "_use.pick": picked } });
+    const picked = usable.find((action) => optionOf(action) === frame.answer?.[0]);
+    if (!picked) return done();
+    // The chosen card and ability ride as bindings and a var: the ability by its place among the card's printed refs.
+    const refs = activePrintedAbilityRefs(ctx.state, picked.instanceId, ctx.deps);
+    next(
+      { "_use.step": 1, "_use.ability": refs.findIndex((r) => r.id === picked.abilityId) },
+      {
+        "_use.card": [picked.instanceId],
+      },
+    );
     return;
   }
-  const chosen = usable[frame.vars["_use.pick"] ?? -1];
-  if (!chosen) return done();
-  const definition = ctx.deps.abilities[chosen.abilityId];
-  const plan = planCost(
-    ctx.state,
-    ctx.deps,
-    chosen.instanceId,
+
+  const [card] = frame.bindings["_use.card"] ?? [];
+  const ref = card ? activePrintedAbilityRefs(ctx.state, card, ctx.deps)[frame.vars["_use.ability"] ?? -1] : undefined;
+  const definition = ref ? ctx.deps.abilities[ref.id] : undefined;
+  if (!card || !ref || definition?.trigger.kind !== "action") return done();
+  const written = costAsDetermined(ctx.state, ctx.deps, card, playerId, definition.cost);
+  const command = (
+    payment: readonly Payment[],
+    costChoices: CostChoices,
+    branch: number | undefined,
+  ): Command & { type: "useAbility" } => ({
+    type: "useAbility",
     playerId,
-    definition?.cost,
-    chosen.costChoices,
-    new Set(),
-  );
+    cardInstanceId: card,
+    abilityId: ref.id,
+    payment,
+    costChoices,
+    ...(branch !== undefined ? { costSelection: { branch } } : {}),
+  });
+
+  // Step 1: the branch of an either/or cost, among those that could be paid now.
+  if (step === 1) {
+    const either = written?.either;
+    if (!either) return next({ "_use.step": 2 });
+    const { either: _branches, ...common } = written;
+    const payable = either.flatMap((branch, index) => {
+      const cost = { ...common, ...branch };
+      const choices = defaultInPlayPicks(ctx.state, ctx.deps, card, playerId, cost);
+      return abilityWallets(ctx, playerId, card).some((payment) => wouldUse(ctx, command(payment, choices, index)))
+        ? [index]
+        : [];
+    });
+    if (payable.length === 0) return done();
+    if (payable.length === 1) return next({ "_use.step": 2, "_use.branch": payable[0]! });
+    if (frame.answer === null) {
+      requestChoice(ctx, {
+        playerId,
+        prompt: { kind: "chooseOption" },
+        options: payable.map((index) => ({
+          optionId: String(index),
+          label: `Option ${index + 1}`,
+          ref: { kind: "ability", instanceId: card, abilityId: ref.id } as const,
+        })),
+        minSelections: 1,
+        maxSelections: 1,
+        frameId: frame.frameId,
+      });
+      return;
+    }
+    const branch = Number(frame.answer?.[0]);
+    if (!payable.includes(branch)) return done();
+    return next({ "_use.step": 2, "_use.branch": branch });
+  }
+
+  const branch = frame.vars["_use.branch"];
+  const cost: AbilityCost | undefined =
+    written?.either && branch !== undefined
+      ? (({ either, ...common }) => ({ ...common, ...either?.[branch] }))(written)
+      : written;
+  const picks = inPlayPicksOf(cost);
+  const chosenSoFar = (): CostChoices =>
+    Object.fromEntries(
+      Object.entries(frame.bindings)
+        .filter(([key]) => key.startsWith("_use.pick."))
+        .map(([key, ids]) => [key.slice("_use.pick.".length), ids]),
+    );
+
+  // Step 2: each choice of cards in play the cost makes, slot by slot.
+  if (step === 2) {
+    const index = frame.vars["_use.slot"] ?? 0;
+    const entry = picks[index];
+    if (!entry) return next({ "_use.step": 3 });
+    const { mode, pick } = entry;
+    const taken = new Set(Object.values(chosenSoFar()).flat());
+    const candidates = inPlayCostCandidates(ctx.state, ctx.deps, card, playerId, mode, pick).filter(
+      (id) => !taken.has(id),
+    );
+    const max = Math.min(pick.max ?? candidates.length, candidates.length);
+    // Not a question: an "each" pick, or a forced one (exactly `min` candidates).
+    if (pick.each || candidates.length <= pick.min) {
+      return next(
+        { "_use.slot": index + 1 },
+        pick.each ? {} : { [`_use.pick.${pick.slot}`]: candidates.slice(0, pick.min) },
+      );
+    }
+    if (frame.answer === null) {
+      requestChoice(ctx, {
+        playerId,
+        prompt: { kind: "chooseCards", slot: pick.slot },
+        options: cardOptions(ctx, candidates),
+        minSelections: pick.min,
+        maxSelections: max,
+        frameId: frame.frameId,
+      });
+      return;
+    }
+    const answer = (frame.answer ?? []).map((id) => asInstanceId(id)).filter((id) => candidates.includes(id));
+    if (answer.length < pick.min || answer.length > max) return done();
+    return next({ "_use.slot": index + 1 }, { [`_use.pick.${pick.slot}`]: answer });
+  }
+
+  // Step 3: the resources, as an ability's payment.
+  const costChoices = { ...defaultInPlayPicks(ctx.state, ctx.deps, card, playerId, cost), ...chosenSoFar() };
+  const plan = planCost(ctx.state, ctx.deps, card, playerId, cost, costChoices, new Set());
   if (isFault(plan)) return done();
   const needed = requirementTotal(plan.requirement);
   if (needed > 0 && frame.answer === null) {
-    const options = paymentOptions(ctx, playerId, chosen.instanceId);
+    const options = paymentOptions(ctx, playerId, null, card);
     requestChoice(ctx, {
       playerId,
       prompt: { kind: "spendResources", requirement: plan.requirement },
@@ -915,18 +1047,7 @@ function executeUseActionAbility(
   }
   const payment = needed > 0 ? paymentsFromOptionIds(frame.answer ?? []) : [];
   done();
-  useAbility(
-    ctx,
-    {
-      type: "useAbility",
-      playerId,
-      cardInstanceId: chosen.instanceId,
-      abilityId: chosen.abilityId,
-      payment,
-      costChoices: chosen.costChoices,
-    },
-    false,
-  );
+  useAbility(ctx, command(payment, costChoices, branch), false);
 }
 
 /** The cards a `playFromHand` effect would offer now (`playFromHandOptions`), for `Predicate canPlayFromHand`. */

@@ -2816,12 +2816,15 @@ export type EffectSpec =
    * #890 item 6): the player uses one Action ability of a card in play they control as they could on their own turn,
    * its cost paid (the author's answer, 2026-11-17: "Yes you pay the cost"), at this effect's moment, which need not be
    * their turn (the Action timing is not asked, as `playFromHand.ignoreActionTiming` does not ask it of an event).
-   * Everything else about using the ability applies: its form, condition, limit and targets (`useAbility`).
+   * Everything else about using the ability applies: its condition, limit and targets (`useAbility`), and its form: an
+   * "Action", a "Hero Action" or an "Alter-Ego Action" may be picked, each only in its own form (the designer, PR #903).
+   * Only printed abilities (`activePrintedAbilityRefs`): an Action another card grants is not "on a card you control".
    *
-   * The player picks among the abilities that could be used now (each checked by triggering it on a copy of the game
-   * with the cheapest payment), then pays its resources in a `spendResources` choice; its other cost picks are the
-   * engine's defaults (`defaultInPlayPicks`). `filter`: only cards matching it. `optional`: the player may pick none.
-   * With nothing usable, nothing happens.
+   * The player picks among the abilities that could be used now (each checked by triggering it on a copy of the game),
+   * then answers what using it on their turn would ask: the branch of an either/or cost, each choice of cards in play
+   * its cost makes, and its resources in a `spendResources` choice priced as an ability's payment (so a resource "for
+   * an upgrade ability" pays). `filter`: only cards matching it. `optional`: the player may pick none. With nothing
+   * usable, nothing happens.
    */
   | {
       readonly kind: "useActionAbility";

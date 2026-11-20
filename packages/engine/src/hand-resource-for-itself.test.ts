@@ -9,6 +9,8 @@
 import { trait, type AbilityId } from "@mc/content";
 import { describe, expect, it } from "vitest";
 import type { AbilityDefinition, EngineDeps } from "./abilities.js";
+import { paymentOptions } from "./actions.js";
+import { createCtx } from "./ctx.js";
 import { applyCommand } from "./engine.js";
 import type { InstanceId } from "./ids.js";
 import { legalActions } from "./legal.js";
@@ -54,7 +56,7 @@ function start(): { state: GameState; sense: InstanceId; other: InstanceId; rifl
   const base = gameAtFirstTurn({
     cards: [SENSE, RIFLE, OTHER],
     deps,
-    deck: [SENSE.id, RIFLE.id, RIFLE.id, RIFLE.id, OTHER.id],
+    deck: [SENSE.id, ...Array.from({ length: 6 }, () => RIFLE.id), OTHER.id],
   });
   let state: GameState = {
     ...base,
@@ -117,6 +119,36 @@ describe("a resource ability in hand that pays for its own card (#890 item 2)", 
     if (!result.ok) throw new Error(result.error.message);
     const identity = mustPlayer(result.state, P1).identity.instanceId;
     expect(mustInstance(result.state, identity).counters.sensed).toBe(3);
+  });
+
+  it("with six Weapon upgrades and no hand resources, every size of the pick is offered and the card is playable", () => {
+    const s = start();
+    let state = s.state;
+    for (let i = 0; i < 4; i += 1) state = playerCardIntoPlay(state, RIFLE.id, P1).state;
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.playerId === P1 ? { ...p, hand: [s.sense], deck: [...p.deck, ...p.hand.filter((id) => id !== s.sense)] } : p,
+      ),
+    };
+    const inPlay = Object.values(state.instances).filter(
+      (i) =>
+        (i.cardId as string) === RIFLE.id &&
+        (i.attachedTo !== null || mustPlayer(state, P1).playArea.includes(i.instanceId)),
+    );
+    expect(inPlay.length).toBe(6);
+    const sizes = new Set(
+      paymentOptions(createCtx(state, deps), P1, null, s.sense)
+        .filter((o) => o.optionId.includes(SENSE_RESOURCE.ref.id))
+        .map((o) => (o.optionId.split("exhausted=")[1] ?? "").split(/[;#]/)[0]!.split(",").filter(Boolean).length),
+    );
+    for (const size of [1, 2, 3, 4, 5, 6]) expect(sizes.has(size), `a ${size}-upgrade option`).toBe(true);
+    const legal = legalActions(state, P1, deps);
+    if (legal.kind !== "turn") throw new Error("expected a turn");
+    const entry = legal.legal.find((e) => e.action.kind === "playCard" && e.action.instanceId === s.sense);
+    if (!entry) throw new Error("expected the event to be playable with six upgrades");
+    const result = applyCommand(state, entry.example, deps);
+    if (!result.ok) throw new Error(result.error.message);
   });
 
   it("is offered as a payment option for its own card only", () => {

@@ -4456,7 +4456,11 @@ export function taggedAbilityCount(state: GameState, id: InstanceId, tag: string
 }
 
 /** `activeAbilityRefs` less the abilities the card gains from rules: its live printed abilities. */
-function activePrintedAbilityRefs(state: GameState, id: InstanceId, deps: EngineDeps): readonly AbilityReference[] {
+export function activePrintedAbilityRefs(
+  state: GameState,
+  id: InstanceId,
+  deps: EngineDeps,
+): readonly AbilityReference[] {
   const printed = unblankedAbilityRefs(state, id);
   if (printed.length === 0) return printed;
   if (textBoxBlankFor(state, id, deps)) return [];
