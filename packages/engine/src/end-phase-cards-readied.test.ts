@@ -29,18 +29,44 @@ const SLING = stubAbility("sling.response", {
     { kind: "addCounters", target: { kind: "self" }, counterType: "heard", amount: { kind: "const", value: 1 } },
   ],
 } satisfies AbilityDefinition);
+/**
+ * "… if at least two upgrades readied this way, place 1 'pair' counter here": a condition that only the real
+ * announcement can meet (PR #903 review: the listener check before the step reads the event's kind alone).
+ */
+const PAIR = stubAbility("pair.response", {
+  trigger: {
+    kind: "response",
+    forced: true,
+    on: { on: "endPhaseCardsReadied", playerIs: "controller" },
+    while: {
+      kind: "compare",
+      left: { kind: "count", query: { categories: ["upgrade"], inSlot: "readied.cards" } },
+      op: "atLeast",
+      right: { kind: "const", value: 2 },
+    },
+  },
+  effects: [
+    { kind: "addCounters", target: { kind: "self" }, counterType: "pair", amount: { kind: "const", value: 1 } },
+  ],
+} as unknown as AbilityDefinition);
 const SLING_CARD = stubSupport({ id: "sling", cost: 0, abilities: [SLING.ref] });
+/** Only the conditional response: nothing else listens for the announcement. */
+const PAIR_CARD = stubSupport({ id: "pair", cost: 0, abilities: [PAIR.ref] });
 const GEAR = stubUpgrade({ id: "gear", cost: 0 });
-const deps: EngineDeps = depsOf(SLING);
+const deps: EngineDeps = depsOf(SLING, PAIR);
 
-function start(exhaustedGear: number, readyGear: number): { state: GameState; sling: InstanceId } {
+function start(
+  exhaustedGear: number,
+  readyGear: number,
+  listener = SLING_CARD,
+): { state: GameState; sling: InstanceId } {
   const base = gameAtFirstTurn({
-    cards: [SLING_CARD, GEAR],
+    cards: [SLING_CARD, PAIR_CARD, GEAR],
     deps,
-    deck: [SLING_CARD.id, ...Array.from({ length: 6 }, () => GEAR.id)],
+    deck: [listener.id, ...Array.from({ length: 6 }, () => GEAR.id)],
   });
   let state = base;
-  const sling = playerCardIntoPlay(state, SLING_CARD.id, P1);
+  const sling = playerCardIntoPlay(state, listener.id, P1);
   state = sling.state;
   for (let i = 0; i < exhaustedGear + readyGear; i += 1) {
     const put = playerCardIntoPlay(state, GEAR.id, P1);
@@ -82,5 +108,12 @@ describe("endPhaseCardsReadied: after you ready your cards at the end of the pla
     const after = endPlayerPhase(state);
     expect(mustInstance(after, sling).counters.heard).toBe(1);
     expect(mustInstance(after, sling).counters.readied ?? 0).toBe(0);
+  });
+
+  it("a response whose condition needs two readied upgrades hears it with three, not with one", () => {
+    const three = start(3, 0, PAIR_CARD);
+    expect(mustInstance(endPlayerPhase(three.state), three.sling).counters.pair).toBe(1);
+    const one = start(1, 0, PAIR_CARD);
+    expect(mustInstance(endPlayerPhase(one.state), one.sling).counters.pair ?? 0).toBe(0);
   });
 });

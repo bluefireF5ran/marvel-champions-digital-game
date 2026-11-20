@@ -70,12 +70,12 @@ import { announceBoostCardsGiven } from "./resolve/enemy-activation.js";
 import { checkStateTriggers } from "./resolve/state-checks.js";
 import { settlePod } from "./resolve/pod.js";
 import { cannotChooseToDiscard, playerPhaseTurnOrder } from "./rules.js";
-import { cardsInPlay, controllerOf, handCountTowardHandSize } from "./select.js";
+import { activeAbilityRefs, cardsInPlay, controllerOf, handCountTowardHandSize } from "./select.js";
 import { describeFrame } from "./stack.js";
 import { putSeparatedCardIntoPlay } from "./separated-identity.js";
 import { offerStartingCard } from "./starting.js";
 import type { GameState, GameStep } from "./state.js";
-import type { TriggerEvent } from "./trigger-events.js";
+import { patternHearsKind, type TriggerEvent } from "./trigger-events.js";
 import {
   executeDealEncounterCards,
   executeEnemyActivations,
@@ -670,10 +670,22 @@ function executeEndPhaseReady(ctx: Ctx, step: Extract<GameState["step"], { kind:
   finishPlayerPhase(ctx);
 }
 
-/** Whether any ability could answer an `endPhaseCardsReadied` announcement, so the step snapshots what is exhausted. */
+/**
+ * Whether any card in play has an active ability that listens for `endPhaseCardsReadied`, so the step snapshots what
+ * is exhausted. Read by the event's kind alone, not `heard`: an ability's condition may need the cards the step readies
+ * ("if at least two upgrades readied this way") or the board after it, which do not exist yet (PR #903 review). The
+ * real announcement is then judged with `heard` and the readied cards (`announceCardsReadied`).
+ */
 const readiedHeard = (ctx: Ctx): boolean =>
-  playerOrder(ctx.state).some((player) =>
-    heard(ctx.state, ctx.deps, { kind: "endPhaseCardsReadied", playerId: player.playerId, readied: [] }),
+  cardsInPlay(ctx.state).some((id) =>
+    activeAbilityRefs(ctx.state, id, ctx.deps).some((ref) => {
+      const trigger = ctx.deps.abilities[ref.id]?.trigger;
+      return (
+        (trigger?.kind === "response" || trigger?.kind === "interrupt") &&
+        trigger.on !== undefined &&
+        patternHearsKind(trigger.on, "endPhaseCardsReadied")
+      );
+    }),
   );
 
 /**

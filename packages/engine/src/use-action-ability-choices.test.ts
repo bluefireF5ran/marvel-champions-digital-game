@@ -84,7 +84,29 @@ const GIFT_CONSTANT = stubAbility("gift.constant", {
 } satisfies AbilityDefinition);
 const GIFT = stubSupport({ id: "gift", cost: 0, abilities: [GIFT_CONSTANT.ref] });
 
-const CARDS = [ARMOR_CARD, FIREPOWER, GUN, RECRUIT, VOLLEY, ALLY, NAP, PUNCH, GIFT];
+/** A support with two "Resource: exhaust this support → generate 1" abilities: either pays, both cannot. */
+const TWIN_A = stubAbility("twin.resource-a", {
+  trigger: { kind: "resource" },
+  cost: { exhaustSelf: true },
+  generates: { wild: 1 },
+  effects: [],
+} satisfies AbilityDefinition);
+const TWIN_B = stubAbility("twin.resource-b", {
+  trigger: { kind: "resource" },
+  cost: { exhaustSelf: true },
+  generates: { wild: 1 },
+  effects: [],
+} satisfies AbilityDefinition);
+const TWIN = stubSupport({ id: "twin", cost: 0, abilities: [TWIN_A.ref, TWIN_B.ref] });
+/** Power Man's shape (21012): "Action: Remove up to 2 chi counters from this card → …". */
+const CHI_ACTION = stubAbility("chi.action", {
+  trigger: { kind: "action" },
+  cost: { spendCounters: { counterType: "chi", amount: 2, upTo: true, bind: "n" } },
+  effects: [counter("focus")],
+} satisfies AbilityDefinition);
+const CHI = stubSupport({ id: "chi", cost: 0, abilities: [CHI_ACTION.ref] });
+
+const CARDS = [ARMOR_CARD, FIREPOWER, GUN, RECRUIT, VOLLEY, ALLY, NAP, PUNCH, GIFT, TWIN, CHI];
 const deps: EngineDeps = depsOf(
   ARMOR,
   FIREPOWER_RESOURCE,
@@ -94,6 +116,9 @@ const deps: EngineDeps = depsOf(
   NAP_ACTION,
   PUNCH_ACTION,
   GIFT_CONSTANT,
+  TWIN_A,
+  TWIN_B,
+  CHI_ACTION,
 );
 
 /** P1 in hero form with Armor and `cards` in play, the hand and deck emptied when `noHand`. */
@@ -118,7 +143,10 @@ function start(cards: readonly string[], noHand = false): { state: GameState; id
 function endTurnUsing(
   state: GameState,
   ability: string,
-  answers: { cards?: (options: readonly string[]) => readonly string[] } = {},
+  answers: {
+    cards?: (options: readonly string[]) => readonly string[];
+    number?: (options: readonly string[]) => readonly string[];
+  } = {},
 ) {
   const offered: string[][] = [];
   const pick = (s: GameState): readonly string[] => {
@@ -130,6 +158,7 @@ function endTurnUsing(
       return wanted ? [wanted] : [];
     }
     if (choice.prompt.kind === "chooseCards" && answers.cards) return answers.cards(ids);
+    if (choice.prompt.kind === "chooseNumber" && answers.number) return answers.number(ids);
     if (choice.prompt.kind === "spendResources") return [ids[0]!];
     return defaultPick(s);
   };
@@ -183,5 +212,25 @@ describe("useActionAbility: the PR #903 review's cases (#890 item 6)", () => {
     };
     const after = endTurnUsing(alterEgo, NAP_ACTION.ref.id);
     expect(mustInstance(after.state, ids.nap![0]!).counters.nap).toBe(1);
+  });
+
+  it("two resources that cannot pay together still offer the Action, and one of them pays it", () => {
+    const { state, ids } = start(["twin", "gun"], true);
+    const after = endTurnUsing(state, GUN_ACTION.ref.id);
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${GUN_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, ids.gun![0]!).counters.shot).toBe(1);
+    expect(mustInstance(after.state, ids.twin![0]!).exhausted).toBe(true);
+  });
+
+  it("an 'up to 2' counter cost asks how many: choosing 1 keeps the second counter", () => {
+    const { state, ids } = start(["chi"]);
+    const chi = ids.chi![0]!;
+    const charged: GameState = {
+      ...state,
+      instances: { ...state.instances, [chi]: { ...mustInstance(state, chi), counters: { chi: 2 } } },
+    };
+    const after = endTurnUsing(charged, CHI_ACTION.ref.id, { number: (options) => options.filter((o) => o === "1") });
+    expect(mustInstance(after.state, chi).counters.focus).toBe(1);
+    expect(mustInstance(after.state, chi).counters.chi).toBe(1);
   });
 });

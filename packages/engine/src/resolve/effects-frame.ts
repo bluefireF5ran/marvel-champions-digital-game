@@ -810,8 +810,9 @@ interface UsableAction {
 /**
  * The payments to try for an ability's cost on `id`, priced as an ability's payment (`paymentOptions` with no card being
  * played and `id` paid for): a resource "for an upgrade ability" (`generatesForAbility`) and one for that card count.
- * Everything at once (one use of each resource ability, the one picking the most cards), then hand cards only, then
- * nothing: a probe, so a resource ability whose cost clashes with the Action's own picks still leaves the others.
+ * Everything at once (one use of each resource ability, the one picking the most cards), then each resource ability
+ * alone with and without the hand cards, then hand cards only, then nothing: a bounded search of the subsets that
+ * matter, so resources that cannot all pay together never hide an Action one of them could pay.
  */
 function abilityWallets(ctx: Ctx, playerId: PlayerId, id: InstanceId): readonly (readonly Payment[])[] {
   const all = paymentsFromOptionIds(paymentOptions(ctx, playerId, null, id).map((o) => o.optionId));
@@ -825,7 +826,10 @@ function abilityWallets(ctx: Ctx, playerId: PlayerId, id: InstanceId): readonly 
     if (!held || picked(p) > picked(held)) widest.set(key, p);
   }
   const hand = all.filter((p) => "fromHand" in p);
-  return [[...widest.values(), ...hand], hand, []];
+  // Each resource ability alone too, with and without the hand: two that cannot pay together (two abilities on one card
+  // that both exhaust it, or one whose cost clashes with the Action's own picks) still leave each other (PR #903 review).
+  const singles = [...widest.values()].flatMap((use) => [[use, ...hand], [use]]);
+  return [[...widest.values(), ...hand], ...singles, hand, []];
 }
 
 /** Whether `command` would be accepted now, out of turn: `useAbility` run on a copy of the game. */
@@ -937,6 +941,7 @@ function executeUseActionAbility(
     payment: readonly Payment[],
     costChoices: CostChoices,
     branch: number | undefined,
+    counters?: number,
   ): Command & { type: "useAbility" } => ({
     type: "useAbility",
     playerId,
@@ -944,7 +949,14 @@ function executeUseActionAbility(
     abilityId: ref.id,
     payment,
     costChoices,
-    ...(branch !== undefined ? { costSelection: { branch } } : {}),
+    ...(branch !== undefined || counters !== undefined
+      ? {
+          costSelection: {
+            ...(branch !== undefined ? { branch } : {}),
+            ...(counters !== undefined ? { counters } : {}),
+          },
+        }
+      : {}),
   });
 
   // Step 1: the branch of an either/or cost, among those that could be paid now.
@@ -1028,8 +1040,40 @@ function executeUseActionAbility(
     return next({ "_use.slot": index + 1 }, { [`_use.pick.${pick.slot}`]: answer });
   }
 
-  // Step 3: the resources, as an ability's payment.
   const costChoices = { ...defaultInPlayPicks(ctx.state, ctx.deps, card, playerId, cost), ...chosenSoFar() };
+
+  // Step 3: how many counters an "up to N" counter cost removes (`spendCounters.upTo`, Power Man's "remove up to 2 chi
+  // counters"), which the command would otherwise take at its most (`CostSelection.counters`; PR #903 review). Offered:
+  // each number the cost would accept now. The other amounts a cost leaves open are asked as it is paid (a chosen
+  // damage, threat or encounter discard: `CostSelection` absent) or set by the payment itself (a chosen-size resource
+  // cost), as on the player's own turn.
+  if (step === 3) {
+    const counters = cost?.spendCounters;
+    if (!counters?.upTo || typeof counters.amount !== "number") return next({ "_use.step": 4 });
+    const wallets = abilityWallets(ctx, playerId, card);
+    const accepted = Array.from({ length: counters.amount }, (_, index) => index + 1).filter((n) =>
+      wallets.some((payment) => wouldUse(ctx, command(payment, costChoices, branch, n))),
+    );
+    if (accepted.length === 0) return done();
+    if (accepted.length === 1) return next({ "_use.step": 4, "_use.counters": accepted[0]! });
+    if (frame.answer === null) {
+      requestChoice(ctx, {
+        playerId,
+        prompt: { kind: "chooseNumber", min: accepted[0]!, max: accepted[accepted.length - 1]! },
+        options: accepted.map((n) => ({ optionId: String(n), label: String(n), ref: { kind: "none" } as const })),
+        minSelections: 1,
+        maxSelections: 1,
+        frameId: frame.frameId,
+      });
+      return;
+    }
+    const n = Number(frame.answer?.[0]);
+    if (!accepted.includes(n)) return done();
+    return next({ "_use.step": 4, "_use.counters": n });
+  }
+  const counters = frame.vars["_use.counters"];
+
+  // Step 4: the resources, as an ability's payment.
   const plan = planCost(ctx.state, ctx.deps, card, playerId, cost, costChoices, new Set());
   if (isFault(plan)) return done();
   const needed = requirementTotal(plan.requirement);
@@ -1047,7 +1091,7 @@ function executeUseActionAbility(
   }
   const payment = needed > 0 ? paymentsFromOptionIds(frame.answer ?? []) : [];
   done();
-  useAbility(ctx, command(payment, costChoices, branch), false);
+  useAbility(ctx, command(payment, costChoices, branch, counters), false);
 }
 
 /** The cards a `playFromHand` effect would offer now (`playFromHandOptions`), for `Predicate canPlayFromHand`. */
