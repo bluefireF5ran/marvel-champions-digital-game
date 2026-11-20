@@ -164,6 +164,16 @@ export interface TargetQuery {
   /** Excludes cards that have this keyword now (printed or granted), read exactly as `withKeyword` reads it. */
   readonly withoutKeyword?: KeywordName;
   /**
+   * `withKeyword` / `withoutKeyword` leave out what the query's own card (`self`) grants by a constant ability:
+   * "Attached villain gains steady. If it already has steady or stalwart, it gets +4[per_hero] hit points instead"
+   * (Rose's Greenhouse, the `the-rose-bf` community pack; #890 item 9) asks whether the villain has steady apart from
+   * the attachment's own grant, which would otherwise always answer yes. Every other source still counts: printed
+   * keywords, other cards' constants and lasting grants. Asked from inside a keyword grant's own `while` (as that card
+   * asks it), the other cards' grants are read one level deep, not printed keywords only as other queries there are:
+   * with its own grant left out the scan cannot reach itself (`keywords.ts` `queryHasKeyword`).
+   */
+  readonly keywordNotFromSelf?: true;
+  /**
    * Matches at least one of these queries, each read in this query's own context: "choose an attachment, non-Elite
    * minion, or non-permanent side scheme" (Vivian, `ironheart` 29024) is `{ anyOf: [query("attachment"),
    * query("minion", { withoutTrait: ELITE }), query("sideScheme", { withoutKeyword: "permanent" })] }` — one choice

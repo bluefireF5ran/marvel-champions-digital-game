@@ -1531,11 +1531,16 @@ export function explainQuery(
     const traits = traitsOf(state, id, context.deps);
     if (!query.anyTrait.some((wanted) => traits.includes(wanted))) return "missingTrait";
   }
-  if (query.withKeyword !== undefined && !queryHasKeyword(state, id, query.withKeyword, context.deps ?? DEFAULT_DEPS))
+  // "If it already has steady" (`keywordNotFromSelf`): not counting what this card's own constants grant.
+  const notFrom = query.keywordNotFromSelf ? (context.selfInstanceId ?? null) : null;
+  if (
+    query.withKeyword !== undefined &&
+    !queryHasKeyword(state, id, query.withKeyword, context.deps ?? DEFAULT_DEPS, notFrom)
+  )
     return "missingKeyword";
   if (
     query.withoutKeyword !== undefined &&
-    queryHasKeyword(state, id, query.withoutKeyword, context.deps ?? DEFAULT_DEPS)
+    queryHasKeyword(state, id, query.withoutKeyword, context.deps ?? DEFAULT_DEPS, notFrom)
   )
     return "hasExcludedKeyword";
   if (query.anyOf !== undefined && !query.anyOf.some((alternative) => matchesQuery(state, id, alternative, context)))

@@ -343,6 +343,7 @@ describe("engine-only DSL primitives", () => {
       "engine-only.generates-for-aspect",
       "engine-only.has-tagged",
       "engine-only.ignore-boost-abilities",
+      "engine-only.keyword-not-from-self",
       "engine-only.last-played",
       "engine-only.lasting-flip-lock",
       "engine-only.lose-keyword",

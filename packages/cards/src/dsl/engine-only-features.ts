@@ -9,6 +9,8 @@ import {
   cannotBeAttachedUnlessInPlay,
   cannotHaveStatus,
   constant,
+  gainsKeyword,
+  gets,
   costModifier,
   heroAction,
   discardThis,
@@ -68,9 +70,12 @@ import {
   eachPlayer,
   eventPlayer,
   eventTarget,
+  exists,
   hasTaggedAbility,
   lastPlayedThisRound,
+  not,
   overdefeated,
+  perHero,
   query,
   self,
   statOf,
@@ -90,6 +95,15 @@ import {
  * Add an entry with each engine primitive that lands for custom content before any base card uses it; it can go once a
  * base card does.
  */
+/** "If it already has steady or stalwart", not counting what this card itself grants. */
+const ALREADY_STEADY_OR_STALWART = query("villain", {
+  hostOfSelf: true,
+  anyOf: [
+    { withKeyword: "steady", keywordNotFromSelf: true },
+    { withKeyword: "stalwart", keywordNotFromSelf: true },
+  ],
+});
+
 export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
   // Agile X: "reduce damage taken from undefended villain and villainous attacks by X" (`reduceDamageTaken`'s
   // `onlyUndefended` and `onlyAttacker`).
@@ -185,6 +199,14 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
   ),
   // "Yaka Arrow cannot be attached to cards unless it is in play" (`attachedOnlyWhileInPlay`; community pack `yondu-dh`).
   "engine-only.attached-only-in-play": constant(cannotBeAttachedUnlessInPlay),
+  // "Attached villain gains steady. If it already has steady or stalwart, it gets +4[per_hero] hit points instead"
+  // (Rose's Greenhouse, `the-rose-bf`): `TargetQuery.keywordNotFromSelf` leaves this card's own grant out of the check.
+  "engine-only.keyword-not-from-self": constant(
+    gainsKeyword({ name: "steady" }, query("villain", { hostOfSelf: true }), {
+      while: not(exists(ALREADY_STEADY_OR_STALWART)),
+    }),
+    gets("hp", perHero(4), query("villain", { hostOfSelf: true }), { while: exists(ALREADY_STEADY_OR_STALWART) }),
+  ),
   // "Hero Response: After you overdefeat a side scheme (remove more threat from it than it had), discard this card"
   // (Rose's Greenhouse, `the-rose-bf`): `ValueSpec defeatExcessThreat`, read by the DSL's `overdefeated`.
   "engine-only.overdefeated": response(

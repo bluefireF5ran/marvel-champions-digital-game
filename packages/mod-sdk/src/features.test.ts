@@ -183,6 +183,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("cost:damageSelfUnpreventable");
     // "After a side scheme is overdefeated" (The Rose's Hero Resistance and Rose's Greenhouse, #890 item 8).
     expect(SUPPORTED_DSL_FEATURES).toContain("expr:defeatExcessThreat");
+    // "If it already has steady or stalwart", not counting this card's own grant (Rose's Greenhouse, #890 item 9).
+    expect(SUPPORTED_DSL_FEATURES).toContain("query:keywordNotFromSelf");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {
