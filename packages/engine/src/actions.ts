@@ -2669,6 +2669,8 @@ export interface ResourceDamageCost {
   readonly instanceId: InstanceId;
   readonly spender: PlayerId;
   readonly amount: number;
+  /** The damage is unpreventable (`AbilityCost.damageSelfUnpreventable`). */
+  readonly unpreventable?: true;
 }
 
 /**
@@ -2700,9 +2702,15 @@ const threatCostStep = ({ instanceId, spender, fromId, amount }: ResourceThreatC
  * generated from it; damage an interrupt prevents as it is dealt is logged unpaid (`costDamageSettled`) and has no
  * frame to report that to. None for an amount of 0.
  */
-const damageCostStep = ({ instanceId, spender, amount }: ResourceDamageCost): ResourceCostStep[] =>
+const damageCostStep = ({ instanceId, spender, amount, unpreventable }: ResourceDamageCost): ResourceCostStep[] =>
   amount > 0
-    ? [{ effects: selfCostDamageEffects(amount, null), selfInstanceId: instanceId, controllerId: spender }]
+    ? [
+        {
+          effects: selfCostDamageEffects(amount, null, unpreventable === true),
+          selfInstanceId: instanceId,
+          controllerId: spender,
+        },
+      ]
     : [];
 
 /** Resources one player generated in a payment (docs/phase7-wave5.md §3.25). */
@@ -3823,7 +3831,17 @@ export function planCost(
   // just to remove She-Hulk's tough status card"), nor one that cannot take damage or a constant would reduce it. (Not
   // so for `damageCards`, a cost of *dealing* damage, paid whatever is prevented.) An interrupt that prevents it is found out as it is paid (`settleCostDamage`).
   const damageSelf = costDamageSelf(cost, vars);
-  if (damageSelf > 0 && !canTakeCostDamage(state, deps, damaged.identity.instanceId, sourceId, damageSelf)) {
+  if (
+    damageSelf > 0 &&
+    !canTakeCostDamage(
+      state,
+      deps,
+      damaged.identity.instanceId,
+      sourceId,
+      damageSelf,
+      cost.damageSelfUnpreventable === true,
+    )
+  ) {
     return {
       code: "insufficient_resources",
       message: `${whose(payers, "damageSelf")} identity cannot take all ${damageSelf} damage this cost needs`,
@@ -4028,6 +4046,20 @@ export function defaultInPlayPicks(
   playerId: PlayerId,
   cost: AbilityCost | undefined,
 ): CostChoices {
+  // An either/or cost (`AbilityCost.either`) picks on whichever branch is paid: each branch's own defaults, the first
+  // branch's kept where two name the same slot, so every payable branch has a pick to be judged with (Sentinel's
+  // "exhaust Arms (Intact) or destroy it" with two Arms in play, #890 item 11).
+  if (cost?.either) {
+    const { either, ...common } = cost;
+    const merged: Record<string, readonly InstanceId[]> = {};
+    for (const branch of either) {
+      for (const [slot, ids] of Object.entries(
+        defaultInPlayPicks(state, deps, sourceId, playerId, { ...common, ...branch }),
+      ))
+        if (ids && !(slot in merged)) merged[slot] = ids;
+    }
+    return merged;
+  }
   const picks: Record<string, readonly InstanceId[]> = {};
   const taken = new Set<InstanceId>();
   for (const { mode, pick } of inPlayPicksOf(cost)) {
@@ -4608,10 +4640,15 @@ export function payCost(
   // not all of it is taken, that frame's effects don't (RRG 1.8 "Cost", p. 14).
   const damageSelf = costDamageSelf(cost, plan.vars);
   if (damageSelf > 0 && collectDamageCosts) {
-    collectDamageCosts.push({ instanceId: sourceId, spender: playerId, amount: damageSelf });
+    collectDamageCosts.push({
+      instanceId: sourceId,
+      spender: playerId,
+      amount: damageSelf,
+      ...(cost.damageSelfUnpreventable ? { unpreventable: true as const } : {}),
+    });
   } else if (damageSelf > 0) {
     pushEffects(ctx, {
-      effects: selfCostDamageEffects(damageSelf, paidFor),
+      effects: selfCostDamageEffects(damageSelf, paidFor, cost.damageSelfUnpreventable === true),
       selfInstanceId: sourceId,
       controllerId: payerOf("damageSelf"),
     });

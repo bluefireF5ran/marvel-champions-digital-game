@@ -297,14 +297,16 @@ export function customScenarioProblems(scenario: Scenario, custom: CustomContent
 
 /**
  * The modular sets a pack scenario sets aside (`Scenario.setAsideModularSetCount`): the seat's picks when given, checked
- * as modular picks and kept apart from the shuffled-in ones; otherwise seeded random modular choices (a generic pack
- * scenario has no restricted pool to draw from, so any set the scenario could take as a modular set).
+ * as modular picks (`customModularPickProblem`, as a shuffled-in pick is: never another scenario's own set, a Standard or
+ * Expert set, or a set with no cards) and kept apart from the shuffled-in ones; otherwise seeded random choices among
+ * the sets that pass the same check (a generic pack scenario has no restricted pool to draw from).
  */
 function customSetAsideModularSetIds(
   scenario: Scenario,
   options: PlayableScenarioOptions,
   modular: readonly string[],
   sets: readonly EncounterSet[],
+  custom: CustomContent,
 ): readonly string[] {
   const count = setAsideModularSetCountFor(scenario, options.players.length);
   if (count === 0) return [];
@@ -313,7 +315,7 @@ function customSetAsideModularSetIds(
     if (picks.length !== count) throw new Error(`${scenario.name}: expected ${count} set-aside modular sets`);
     if (new Set(picks).size !== picks.length) throw new Error(`${scenario.name}: a set-aside set is chosen twice`);
     for (const id of picks) {
-      const problem = modularPickProblem(scenario, id, sets);
+      const problem = customModularPickProblem(scenario, id, custom);
       if (problem) throw new Error(`${scenario.name}: ${id} cannot be set aside (${problem})`);
       if (modular.includes(id)) throw new Error(`${scenario.name}: ${id} is both shuffled in and set aside`);
     }
@@ -321,7 +323,7 @@ function customSetAsideModularSetIds(
   }
   const candidates = sets
     .map((set) => set.id as string)
-    .filter((id) => !modular.includes(id) && modularPickProblem(scenario, id, sets) === null);
+    .filter((id) => !modular.includes(id) && customModularPickProblem(scenario, id, custom) === null);
   if (candidates.length < count) throw new Error(`${scenario.name}: not enough modular sets to set ${count} aside`);
   const [shuffled] = shuffle(candidates, createRng(options.seed + 1));
   return shuffled.slice(0, count);
@@ -381,7 +383,7 @@ function customScenario(scenario: Scenario, options: PlayableScenarioOptions, cu
     const problem = customModularPickProblem(scenario, id, custom);
     if (problem) throw new Error(`${scenario.name}: ${problem}`);
   }
-  const setAsideModular = customSetAsideModularSetIds(scenario, options, modular, sets);
+  const setAsideModular = customSetAsideModularSetIds(scenario, options, modular, sets, custom);
   const ownAndModular = [...scenario.encounterSetIds, ...modular];
   // Standard II / III and Expert II stand in for a pack scenario's plain Standard or Expert set under the base game's
   // rule (The Hood insert p. 2, "Alternative Sets"; Q10 = A for Standard III), checked the same way (#786).

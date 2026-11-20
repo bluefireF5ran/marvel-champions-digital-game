@@ -3317,6 +3317,15 @@ export interface AbilityCost {
    */
   readonly damageSelf?: number | ValueSpec | DamageSelfChoice;
   /**
+   * "...and take 2 unpreventable damage" as part of a cost (Sentinel's "destroy" a Component, the `sentinel-tw`
+   * community pack; #890 item 11): the `damageSelf` damage is dealt `unpreventable` (the MC62 insert's "cannot be
+   * reduced or prevented", `EffectSpec dealDamage.unpreventable`), so neither a tough status card, a "prevent all
+   * damage" constant nor a reduction stops the cost from being paid; the tough card stays. A "cannot take damage" rule
+   * or a cap on the damage taken still does (RRG 1.8 "Cannot", p. 13): the cost is paid only if all of it is taken
+   * (RRG 1.8 "Cost", p. 14). Only with a fixed or computed `damageSelf`, not a chosen one.
+   */
+  readonly damageSelfUnpreventable?: true;
+  /**
    * "Discard the top card of the encounter deck →", "choose a number from 1 to 5, discard that many cards from the top
    * of the encounter deck →" (`EncounterDeckDiscardCost`, docs/phase7-wave9.md §3.43 (a)).
    */

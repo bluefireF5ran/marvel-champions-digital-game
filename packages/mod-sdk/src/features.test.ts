@@ -179,6 +179,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("ability:generatesFor.aspect");
     // Flipping another card you control as a cost (Sentinel's "destroy a Component →", #890 item 11).
     expect(SUPPORTED_DSL_FEATURES).toContain("cost:flipCards");
+    // ...and its 2 damage, unpreventable ("take 2 unpreventable damage", #890 item 11 review).
+    expect(SUPPORTED_DSL_FEATURES).toContain("cost:damageSelfUnpreventable");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

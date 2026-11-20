@@ -447,6 +447,27 @@ describe("scenarioWithPacks: refusals and options", () => {
       /not offered at a pack scenario/,
     );
   });
+  it("sets aside only what a modular pick could be: never the scenario's own, Standard or an empty set", () => {
+    const record = pack.scenarios![0] as never as Record<string, unknown>;
+    const EMPTY = "sample-scenario-empty";
+    const changed = {
+      ...pack,
+      encounterSets: [...pack.encounterSets!, { id: EMPTY, name: "Empty", packCodes: ["sample-scenario"] }],
+      scenarios: [{ ...record, setAsideModularSetCount: 1 }],
+    } as unknown as PackInput;
+    const seat = { players: [{ starterDeckId: PRECON }], seed: 1 } as const;
+    const aside = (id: string) => () =>
+      scenarioWithPacks(SCENARIO, { ...seat, setAsideModularSetIds: [id] }, [changed]);
+    expect(aside(EMPTY)).toThrow(/cannot be set aside \(.*has no cards\)/);
+    expect(aside(SCENARIO)).toThrow(/cannot be set aside/);
+    expect(aside("standard")).toThrow(/cannot be set aside/);
+    // Seeded picks draw from the same sets: across many seeds, never one of those.
+    const forbidden = new Set([EMPTY, SCENARIO, "standard", "expert"]);
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const config = scenarioWithPacks(SCENARIO, { ...seat, seed }, [changed]);
+      for (const set of config.setAsideModularSets ?? []) expect(forbidden.has(String(set.encounterSetId))).toBe(false);
+    }
+  });
   it("sets aside a Standard set card only while the Standard set is in the game (#786)", () => {
     const record = pack.scenarios![0] as never as Record<string, unknown>;
     const content = { cards: pack.cards, encounterSets: pack.encounterSets!, scenarios: [] };

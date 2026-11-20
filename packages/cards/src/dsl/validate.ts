@@ -294,6 +294,13 @@ function checkCost(definition: AbilityDefinition, problems: string[]): void {
   // The engine asks for a cost's chosen card only as an action is initiated (`AbilityCost.chooseTarget`, H3.5).
   if (definition.trigger.kind !== "action" && looks.some((part) => part.chooseTarget))
     problems.push("cost chooseTarget: only on an action (a window cannot ask which card is chosen)");
+  // "Take 2 unpreventable damage →" (`AbilityCost.damageSelfUnpreventable`): a fixed or computed amount only.
+  for (const part of looks) {
+    if (!part.damageSelfUnpreventable) continue;
+    if (part.damageSelf === undefined) problems.push("cost damageSelfUnpreventable: needs damageSelf");
+    else if (typeof part.damageSelf === "object" && "choose" in part.damageSelf)
+      problems.push("cost damageSelfUnpreventable: not with a chosen damageSelf amount");
+  }
   // "Each player exhausts their identity and takes 1 damage →" (`AbilityCost.eachPlayer`, docs/phase7-wave9.md §3.58).
   for (const part of looks) {
     const each = part.eachPlayer;
