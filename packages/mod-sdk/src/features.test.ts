@@ -177,6 +177,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("expr:cannotFlip.target");
     // A resource only for a card of one aspect ("for a 'Pool card", `punisher-msp`'s Avengers' Cache, #890 item 7).
     expect(SUPPORTED_DSL_FEATURES).toContain("ability:generatesFor.aspect");
+    // Flipping another card you control as a cost (Sentinel's "destroy a Component →", #890 item 11).
+    expect(SUPPORTED_DSL_FEATURES).toContain("cost:flipCards");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

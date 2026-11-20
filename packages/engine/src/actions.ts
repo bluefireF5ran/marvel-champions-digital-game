@@ -4163,6 +4163,13 @@ function canPayInPlayPick(
   if (mode === "exhaust") return !instance.exhausted;
   if (mode === "ready") return canPayReadyCost(state, deps, id, sourceId);
   if (mode === "damage") return canBeDealtCostDamage(state, deps, id, sourceId);
+  if (mode === "flip") {
+    // "Flip [a card you control] →" (`flipCards`): a double-sided card no `cannotFlip` rule names, exhausted or not.
+    const card = cardOf(state, id);
+    return (
+      !!(card && "flipSide" in card && card.flipSide) && !cannotFlip(state, deps, id, instance.controllerId ?? null)
+    );
+  }
   const sourceCardId = getInstance(state, sourceId)?.cardId;
   // "Cannot be discarded" (docs/phase7-wave8.md §3.35) stops the discard cost only; a return to hand is not one.
   if (cannotLeavePlay(state, deps, id, sourceCardId, mode === "discard")) return false;
@@ -4190,7 +4197,9 @@ function planInPlayPick(
           ? "discard"
           : mode === "damage"
             ? "deal damage to"
-            : "return to hand";
+            : mode === "flip"
+              ? "flip"
+              : "return to hand";
   const eligible = eligibleForInPlayPick(state, deps, sourceId, playerId, pick, mode);
   const candidates = eligible.filter((id) => canPayInPlayPick(state, deps, sourceId, id, mode, pick));
   const tucked = tuckedPickOf(pick) !== null;
@@ -4208,7 +4217,9 @@ function planInPlayPick(
           ? { code: "no_valid_target", message: `${id} is already ready, or cannot ready` }
           : mode === "damage"
             ? { code: "no_valid_target", message: `${id} cannot take damage from this card` }
-            : { code: "no_valid_target", message: `${id} cannot leave play` };
+            : mode === "flip"
+              ? { code: "no_valid_target", message: `${id} has no other face, or cannot be flipped` }
+              : { code: "no_valid_target", message: `${id} cannot leave play` };
   if (pick.each) {
     // "Exhaust … each support you control →" (`InPlayCostPick.each`): every matching card, or the cost is not paid.
     const blocked = eligible.find((id) => !candidates.includes(id));
@@ -4756,6 +4767,14 @@ export function payCost(
           controllerId: playerId,
           bindings: { [pick.slot]: ids },
         });
+      }
+    } else if (mode === "flip") {
+      // "Flip [a card you control] →" (`flipCards`): as `flipSelf` pays for its own card.
+      for (const id of ids) {
+        if (!getInstance(ctx.state, id)) continue;
+        turnToFlipSide(ctx, id);
+        pushEvents(ctx, [cardFlippedEvent(id, playerId)]);
+        checkRestrictedAfterFlip(ctx, id);
       }
     } else if (tuckedPickOf(pick)) {
       // "Discard a card tucked here →" (`TuckedCostPick`): the move an effect's discard of a tucked card makes

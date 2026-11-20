@@ -3036,6 +3036,16 @@ export const exhaustCardsCost = (q: TargetQuery, opts: InPlayCostOptions = {}): 
   exhaustCards: inPlayPick(q, opts, "exhausted"),
 });
 /**
+ * "Flip [a card you control] →": the picked double-sided cards in play turn to their other face as the cost
+ * (`AbilityCost.flipCards`; #890 item 11). Sentinel's "destroy Arms (Intact)" is a flip plus 2 damage, so with
+ * `takeDamageCost(2)` beside it: `[flipCardsCost(query("upgrade", { name: "Arms (Intact)" })), takeDamageCost(2)]`, and
+ * "exhaust or destroy it" is `eitherCost(exhaustCardsCost(arms), [flipCardsCost(arms), takeDamageCost(2)])`. The picks
+ * are bound to `slot` (default "flipped").
+ */
+export const flipCardsCost = (q: TargetQuery, opts: InPlayCostOptions = {}): AbilityCost => ({
+  flipCards: inPlayPick(q, opts, "flipped"),
+});
+/**
  * "Exhaust an [Avenger] character and a [Guardian] character →" (As One!, Stand Together, Problem Solvers; Combine
  * Forces' X-Force and X-Men; docs/phase7-wave4.md §3.17): one card per slot, each slot its own query, and one card
  * cannot pay two slots. `exhaustEachCost({ avenger: query(["identity", "ally"], { trait: AVENGER }), guardian: … })` binds each card to its slot, so "the combined ATK of those characters" is `sum(statOf(chosen("avenger"),

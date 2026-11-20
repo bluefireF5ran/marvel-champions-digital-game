@@ -338,6 +338,7 @@ function checkCostShape(cost: AbilityCost, problems: string[]): void {
       discard: "discardCards",
       return: "returnToHand",
       damage: "damageCards",
+      flip: "flipCards",
     };
     const tucked = tuckedPickOf(pick);
     const name = tucked ? "discardTucked" : names[mode];
@@ -661,10 +662,12 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
     if (slot !== undefined && definition.cost?.searchEncounterIntoPlay?.slot !== slot)
       problems.push(`an additional cost to play attaches to a slot its cost puts into play (${slot})`);
     // A conditional part is the board's pick, made for the player playing the card (engine `playCostWith`). Resources
-    // and an either/or choice would need the play's payment and its command to carry them, in a branch as outside one.
+    // would need the play's payment to carry them, in a branch as outside one. An either/or part is the player's pick,
+    // made in the play command's `costSelection.branch` (absent: the first branch that can be paid), as for the played
+    // event's Action cost ("exhaust or destroy Arms (Intact)", `sentinel-tw`; #890 item 11).
     const parts = definition.cost ? costVariants(definition.cost) : [];
-    if (parts.some((part) => part.resources !== undefined || part.either))
-      problems.push("an additional cost to play has no resources or either/or part");
+    if (parts.some((part) => part.resources !== undefined || part.either?.some((branch) => branch.resources)))
+      problems.push("an additional cost to play has no resources");
   }
   // docs/phase7-wave10.md §3.12: a keyword grant names one keyword, or the cards whose printed keywords are gained.
   if (trigger.kind === "constant") {
