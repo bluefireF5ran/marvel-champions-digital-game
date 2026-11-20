@@ -1779,31 +1779,28 @@ function resourcePickChoices(
     const most = Math.min(pick.max ?? candidates.length, candidates.length);
     // "This card and up to N others" (`InPlayCostPick.includesSelf`): only the picks holding the card pay.
     const holdsSelf = (ids: readonly InstanceId[]): boolean => !pick.includesSelf || ids.includes(instanceId);
-    // One option of every size first, the largest included, so a cost of "any number" (Enhanced Combat Sense,
-    // `spider-punisher-tw`: "exhaust any number of Weapon or Tech upgrades") can always be paid in full and at every
-    // size between, however many candidates there are (#890 item 2, PR #903 review); then the other combinations,
-    // smallest first, up to the cap.
+    // Every combination, smallest first, up to the cap, as always; then one option of each size the cap left out, the
+    // largest included, so a cost of "any number" (Enhanced Combat Sense, `spider-punisher-tw`: "exhaust any number of
+    // Weapon or Tech upgrades") can be paid in full and at every size between, however many candidates there are (#890
+    // item 2, PR #903 review). Below the cap the list is what it was.
+    const options: (readonly InstanceId[])[] = [];
+    for (let size = pick.min; size <= most && options.length < MAX_PICK_OPTIONS; size++) {
+      for (const ids of combinations(candidates, size)) {
+        if (options.length >= MAX_PICK_OPTIONS) break;
+        if (holdsSelf(ids)) options.push(ids);
+      }
+    }
+    const sizes = new Set(options.map((ids) => ids.length));
     const ordered = pick.includesSelf ? [instanceId, ...candidates.filter((id) => id !== instanceId)] : candidates;
     const sized: (readonly InstanceId[])[] = [];
     for (let size = Math.max(pick.min, 1); size <= most; size++) {
       const first = ordered.slice(0, size);
-      if (holdsSelf(first)) sized.push(first);
+      if (!sizes.has(size) && holdsSelf(first)) sized.push(first);
     }
-    if (pick.min === 0) sized.unshift([]);
-    const key = (ids: readonly InstanceId[]): string => [...ids].sort().join(",");
-    const seen = new Set(sized.map(key));
-    const options: (readonly InstanceId[])[] = [...sized];
-    for (let size = pick.min; size <= most && options.length < MAX_PICK_OPTIONS; size++) {
-      for (const ids of combinations(candidates, size)) {
-        if (options.length >= MAX_PICK_OPTIONS) break;
-        if (!holdsSelf(ids) || seen.has(key(ids))) continue;
-        seen.add(key(ids));
-        options.push(ids);
-      }
-    }
+    options.push(...sized);
     sets = sets
       .flatMap((set) => options.map((ids) => ({ ...set, [pick.slot]: ids })))
-      .slice(0, Math.max(MAX_PICK_OPTIONS, sized.length));
+      .slice(0, Math.max(MAX_PICK_OPTIONS, options.length));
   }
   return choosing ? sets : [undefined];
 }
