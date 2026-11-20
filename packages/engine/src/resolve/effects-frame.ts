@@ -815,44 +815,86 @@ const MAX_WALLETS = 64;
  * The payments to try for an ability's cost on `id`, priced as an ability's payment (`paymentOptions` with no card being
  * played and `id` paid for): a resource "for an upgrade ability" (`generatesForAbility`) and one for that card count.
  * Each subset of the resource abilities (one use each, the option picking the most cards) up to `need` of them, the
- * largest first, with and without the hand cards, then hand cards only, then nothing; at most `MAX_WALLETS`. Two
- * abilities that cannot pay together (they exhaust the same card) never hide a payment the others make with one of them
- * (PR #903 review). Hand cards in `reserved` (a hand discard the cost picks) are left out.
+ * largest first, with and without the hand cards, then hand cards only, then nothing; at most `MAX_WALLETS`, produced
+ * one at a time so the bound caps the work as well (PR #903 review). Two abilities that cannot pay together (they
+ * exhaust the same card) never hide a payment the others make with one of them.
+ *
+ * A hand card is in a wallet once: `paymentOptions` lists it plain (`hand:<id>`) and once per "when you spend this card"
+ * ability (`hand:<id>:<ability>`), and a payment may not spend one card twice (`priceOf`: duplicate payment card). Each
+ * wallet with the hand is tried with the plain spends and, when a card has such an ability, again with it used (PR #903
+ * review). Hand cards in `reserved` (a hand discard the cost picks) are left out.
  */
-function abilityWallets(
+function* abilityWallets(
   ctx: Ctx,
   playerId: PlayerId,
   id: InstanceId,
   need: number,
   reserved: ReadonlySet<InstanceId> = new Set(),
-): readonly (readonly Payment[])[] {
+): Generator<readonly Payment[]> {
   const all = paymentsFromOptionIds(paymentOptions(ctx, playerId, null, id).map((o) => o.optionId));
   const picked = (p: Payment): number =>
     "ability" in p ? Object.values(p.ability.costChoices ?? {}).reduce((n, ids) => n + ids.length, 0) : 0;
   const widest = new Map<string, Payment>();
+  const plain = new Map<InstanceId, Payment>();
+  const spent = new Map<InstanceId, Payment>();
   for (const p of all) {
+    if ("fromHand" in p) {
+      if (reserved.has(p.fromHand)) continue;
+      if (p.whenSpent) {
+        if (!spent.has(p.fromHand)) spent.set(p.fromHand, p);
+      } else plain.set(p.fromHand, p);
+      continue;
+    }
     if (!("ability" in p)) continue;
     const key = `${p.ability.instanceId}:${p.ability.abilityId}`;
     const held = widest.get(key);
     if (!held || picked(p) > picked(held)) widest.set(key, p);
   }
-  const hand = all.filter((p) => "fromHand" in p && !reserved.has(p.fromHand));
+  const cards = [...new Set([...plain.keys(), ...spent.keys()])];
+  const plainHand = cards.flatMap((card) => {
+    const p = plain.get(card) ?? spent.get(card);
+    return p ? [p] : [];
+  });
+  const spentHand = cards.flatMap((card) => {
+    const p = spent.get(card) ?? plain.get(card);
+    return p ? [p] : [];
+  });
+  const hands = spent.size > 0 ? [plainHand, spentHand] : [plainHand];
   const abilities = [...widest.values()];
-  const wallets: (readonly Payment[])[] = [[...abilities, ...hand]];
+  let budget = MAX_WALLETS;
+  const take = function* (wallet: readonly Payment[]): Generator<readonly Payment[]> {
+    if (budget <= 0) return;
+    budget -= 1;
+    yield wallet;
+  };
+  for (const hand of hands) yield* take([...abilities, ...hand]);
   const most = Math.min(abilities.length, Math.max(need, 1));
-  for (let size = most; size >= 1 && wallets.length < MAX_WALLETS; size--) {
+  for (let size = most; size >= 1 && budget > 0; size--) {
     for (const subset of combinationsOf(abilities, size)) {
-      if (wallets.length >= MAX_WALLETS) break;
-      wallets.push([...subset, ...hand], subset);
+      if (budget <= 0) return;
+      for (const hand of hands) yield* take([...subset, ...hand]);
+      yield* take(subset);
     }
   }
-  return [...wallets, hand, []];
+  for (const hand of hands) yield hand;
+  yield [];
 }
 
-/** Every `size`-element subset of `items`, in order. */
-function combinationsOf<T>(items: readonly T[], size: number): readonly (readonly T[])[] {
-  if (size === 0) return [[]];
-  return items.flatMap((item, i) => combinationsOf(items.slice(i + 1), size - 1).map((rest) => [item, ...rest]));
+/** Each `size`-element subset of `items`, in order, one at a time (nothing is built ahead of the caller's need). */
+function* combinationsOf<T>(items: readonly T[], size: number, from = 0): Generator<readonly T[]> {
+  if (size === 0) {
+    yield [];
+    return;
+  }
+  for (let i = from; i <= items.length - size; i++) {
+    for (const rest of combinationsOf(items, size - 1, i + 1)) yield [items[i]!, ...rest];
+  }
+}
+
+/** Whether some wallet in `wallets` passes `ok`; stops at the first. */
+function someWallet(wallets: Iterable<readonly Payment[]>, ok: (payment: readonly Payment[]) => boolean): boolean {
+  for (const wallet of wallets) if (ok(wallet)) return true;
+  return false;
 }
 
 /** Whether `command` would be accepted now, out of turn: `useAbility` run on a copy of the game. */
@@ -872,6 +914,13 @@ function resourcesNeeded(
   return isFault(plan) ? 0 : requirementTotal(plan.requirement);
 }
 
+/** An either/or cost with `branch` chosen: its common part and that branch; the cost itself otherwise. */
+function branchOf(cost: AbilityCost | undefined, branch: number | undefined): AbilityCost | undefined {
+  if (!cost?.either || branch === undefined) return cost;
+  const { either, ...common } = cost;
+  return { ...common, ...either[branch] };
+}
+
 /**
  * Whether `playerId` could use `ability` of `card` now through the effect, with some legal set of its cost choices
  * (`abilityCostChoiceSets`: the hand discard, a chosen card, a host, a target, as `legalActions` tries them; its in-play
@@ -885,12 +934,15 @@ function usableWith(
   cost: AbilityCost | undefined,
   branch: number | undefined,
 ): boolean {
-  const sets = abilityCostChoiceSets(ctx.state, ctx.deps, playerId, card, cost).slice(0, 24);
+  // The branch's own cost, for its choices (an either/or's "discard 1 card from your hand" branch: PR #903 review); the
+  // command still names the branch.
+  const branchCost = branchOf(cost, branch);
+  const sets = abilityCostChoiceSets(ctx.state, ctx.deps, playerId, card, branchCost).slice(0, 24);
   return sets.some(({ costChoices: chosen }) => {
-    const costChoices = { ...defaultInPlayPicks(ctx.state, ctx.deps, card, playerId, cost), ...chosen };
+    const costChoices = { ...defaultInPlayPicks(ctx.state, ctx.deps, card, playerId, branchCost), ...chosen };
     const reserved = new Set(costChoices.discard ?? []);
-    const need = resourcesNeeded(ctx, card, playerId, cost, costChoices);
-    return abilityWallets(ctx, playerId, card, need, reserved).some((payment) =>
+    const need = resourcesNeeded(ctx, card, playerId, branchCost, costChoices);
+    return someWallet(abilityWallets(ctx, playerId, card, need, reserved), (payment) =>
       wouldUse(ctx, {
         type: "useAbility",
         playerId,
@@ -1058,10 +1110,7 @@ function executeUseActionAbility(
   }
 
   const branch = frame.vars["_use.branch"];
-  const cost: AbilityCost | undefined =
-    written?.either && branch !== undefined
-      ? (({ either, ...common }) => ({ ...common, ...either?.[branch] }))(written)
-      : written;
+  const cost = branchOf(written, branch);
   const chosenSoFar = (): CostChoices =>
     Object.fromEntries(
       Object.entries(frame.bindings)
@@ -1074,7 +1123,9 @@ function executeUseActionAbility(
   if (step === 2) {
     const discard = cost?.discardFromHand;
     const sub = frame.vars["_use.sub"] ?? 0;
-    if (sub === 0 && discard && (discard.min > 0 || discard.max !== undefined)) {
+    // Asked whenever the cost discards from hand, a combined-value discard aside (its fewest cards are the default):
+    // "discard X cards" (`min` 0, no `max`) and "discard 1 or more" (no `max`) take up to the whole hand (PR #903).
+    if (sub === 0 && discard && !discard.combined) {
       const filterContext: EffectContext = {
         selfInstanceId: card,
         controllerId: playerId,
@@ -1083,21 +1134,29 @@ function executeUseActionAbility(
         deps: ctx.deps,
       };
       const hand = mustPlayer(ctx.state, playerId).hand.filter(
-        (id) => id !== card && (!discard.filter || matchesQuery(ctx.state, id, discard.filter, filterContext)),
+        (id) =>
+          id !== card &&
+          (!discard.filter || matchesQuery(ctx.state, id, discard.filter, filterContext)) &&
+          !cannotChooseToDiscard(ctx.state, ctx.deps, id),
       );
-      const max = Math.min(discard.max ?? discard.min, hand.length);
+      const max = Math.min(discard.max ?? hand.length, hand.length);
+      const min = Math.min(discard.min, hand.length);
+      // Nothing to choose: exactly the cards there are.
+      if (max === min && (min === 0 || min === hand.length))
+        return next({ "_use.sub": 1 }, { "_use.pick.discard": hand.slice(0, min) });
       if (frame.answer === null) {
         requestChoice(ctx, {
           playerId,
           prompt: { kind: "chooseCards", slot: "discard", ownHand: true },
           options: cardOptions(ctx, hand),
-          minSelections: Math.min(discard.min, hand.length),
-          maxSelections: Math.max(max, Math.min(discard.min, hand.length)),
+          minSelections: min,
+          maxSelections: max,
           frameId: frame.frameId,
         });
         return;
       }
-      const answer = (frame.answer ?? []).map((id) => asInstanceId(id)).filter((id) => hand.includes(id));
+      const answer = [...new Set((frame.answer ?? []).map((id) => asInstanceId(id)).filter((id) => hand.includes(id)))];
+      if (answer.length < min || answer.length > max) return done();
       return next({ "_use.sub": 1 }, { "_use.pick.discard": answer });
     }
     const discarded = frame.bindings["_use.pick.discard"];
@@ -1107,7 +1166,7 @@ function executeUseActionAbility(
     const targets = [...new Set(sets.map((set) => set.target as InstanceId))];
     if (targets.length <= 1) {
       const only = sets[0]?.costChoices ?? {};
-      const kept = Object.fromEntries(Object.entries(only).filter(([slot]) => slot !== "discard"));
+      const kept = Object.fromEntries(Object.entries(only).filter(([slot]) => slot !== "discard" || !discarded));
       return next(
         { "_use.step": 3 },
         Object.fromEntries(Object.entries(kept).map(([slot, ids]) => [`_use.pick.${slot}`, ids])),
@@ -1127,7 +1186,9 @@ function executeUseActionAbility(
     const target = targets.find((id) => id === asInstanceId(frame.answer?.[0] ?? ""));
     const set = sets.find((one) => one.target === target);
     if (!set) return done();
-    const kept = Object.fromEntries(Object.entries(set.costChoices ?? {}).filter(([slot]) => slot !== "discard"));
+    const kept = Object.fromEntries(
+      Object.entries(set.costChoices ?? {}).filter(([slot]) => slot !== "discard" || !discarded),
+    );
     return next(
       { "_use.step": 3 },
       Object.fromEntries(Object.entries(kept).map(([slot, ids]) => [`_use.pick.${slot}`, ids])),
@@ -1188,9 +1249,10 @@ function executeUseActionAbility(
   if (step === 4) {
     const counters = cost?.spendCounters;
     if (!counters?.upTo || typeof counters.amount !== "number") return next({ "_use.step": 5 });
-    const wallets = abilityWallets(ctx, playerId, card, need, reserved);
     const accepted = Array.from({ length: counters.amount }, (_, index) => index + 1).filter((n) =>
-      wallets.some((payment) => wouldUse(ctx, command(payment, costChoices, branch, n))),
+      someWallet(abilityWallets(ctx, playerId, card, need, reserved), (payment) =>
+        wouldUse(ctx, command(payment, costChoices, branch, n)),
+      ),
     );
     if (accepted.length === 0) return done();
     if (accepted.length === 1) return next({ "_use.step": 5, "_use.counters": accepted[0]! });

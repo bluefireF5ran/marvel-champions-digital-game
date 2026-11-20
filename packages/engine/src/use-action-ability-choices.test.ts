@@ -18,8 +18,8 @@ import { mustInstance, mustPlayer } from "./query.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
 import { driveSession } from "./testing/drive.js";
-import { stubAlly, stubSupport, stubUpgrade } from "./testing/fixtures.js";
-import { defaultPick } from "./testing/scenario.js";
+import { stubAlly, stubResource, stubSupport, stubUpgrade } from "./testing/fixtures.js";
+import { defaultPick, giveCard } from "./testing/scenario.js";
 import { gameAtFirstTurn, P1, playerCardIntoPlay } from "./testing/wave3.js";
 
 const counter = (type: string) =>
@@ -144,6 +144,42 @@ const TRUNK_ACTION = stubAbility("trunk.action", {
 } satisfies AbilityDefinition);
 const TRUNK = stubSupport({ id: "trunk", cost: 0, abilities: [TRUNK_ACTION.ref] });
 
+/** A resource card with "Interrupt: When you spend this card → generate 1 more" (Organizational Support's form). */
+const BOOST_SPENT = stubAbility("boost.spent", {
+  trigger: { kind: "resource", whenSpent: true },
+  generates: { wild: 1 },
+  effects: [],
+} satisfies AbilityDefinition);
+const BOOST = stubResource({ id: "boost", icons: 1, abilities: [BOOST_SPENT.ref] });
+/** "Action: Spend 8 resources → place 1 counter here." */
+const VOLCANO_ACTION = stubAbility("volcano.action", {
+  trigger: { kind: "action" },
+  cost: { resources: 8 },
+  effects: [counter("erupt")],
+} satisfies AbilityDefinition);
+const VOLCANO = stubUpgrade({ id: "volcano", cost: 0, abilities: [VOLCANO_ACTION.ref] });
+/** "Action: Remove 1 charge counter from this card **or** discard 1 card from your hand → …". */
+const SWITCH_ACTION = stubAbility("switch.action", {
+  trigger: { kind: "action" },
+  cost: { either: [{ spendCounters: { counterType: "charge", amount: 1 } }, { discardFromHand: { min: 1, max: 1 } }] },
+  effects: [counter("switched")],
+} satisfies AbilityDefinition);
+const SWITCH = stubSupport({ id: "switch", cost: 0, abilities: [SWITCH_ACTION.ref] });
+/** "Action: Discard X cards from your hand → …" (`min` 0, no `max`). */
+const PURGE_ACTION = stubAbility("purge.action", {
+  trigger: { kind: "action" },
+  cost: { discardFromHand: { min: 0, bind: "x" } },
+  effects: [counter("purged")],
+} satisfies AbilityDefinition);
+const PURGE = stubSupport({ id: "purge", cost: 0, abilities: [PURGE_ACTION.ref] });
+/** "Action: Discard 1 or more cards from your hand → …" (`min` 1, no `max`). */
+const SHED_ACTION = stubAbility("shed.action", {
+  trigger: { kind: "action" },
+  cost: { discardFromHand: { min: 1, bind: "x" } },
+  effects: [counter("shed")],
+} satisfies AbilityDefinition);
+const SHED = stubSupport({ id: "shed", cost: 0, abilities: [SHED_ACTION.ref] });
+
 const CARDS = [
   ARMOR_CARD,
   FIREPOWER,
@@ -160,6 +196,11 @@ const CARDS = [
   CANNON,
   SHIELD,
   TRUNK,
+  BOOST,
+  VOLCANO,
+  SWITCH,
+  PURGE,
+  SHED,
 ];
 const deps: EngineDeps = depsOf(
   ARMOR,
@@ -177,11 +218,20 @@ const deps: EngineDeps = depsOf(
   CANNON_ACTION,
   SHIELD_ACTION,
   TRUNK_ACTION,
+  BOOST_SPENT,
+  VOLCANO_ACTION,
+  SWITCH_ACTION,
+  PURGE_ACTION,
+  SHED_ACTION,
 );
 
 /** P1 in hero form with Armor and `cards` in play, the hand and deck emptied when `noHand`. */
-function start(cards: readonly string[], noHand = false): { state: GameState; ids: Record<string, InstanceId[]> } {
-  const base = gameAtFirstTurn({ cards: CARDS, deps, deck: CARDS.flatMap((c) => [c.id, c.id, c.id]) });
+function start(
+  cards: readonly string[],
+  noHand = false,
+  deck: readonly string[] = CARDS.flatMap((c) => [c.id, c.id, c.id]),
+): { state: GameState; ids: Record<string, InstanceId[]> } {
+  const base = gameAtFirstTurn({ cards: CARDS, deps, deck: deck as never });
   let state: GameState = {
     ...base,
     players: base.players.map((p) => ({ ...p, identity: { ...p.identity, form: "hero" as const } })),
@@ -337,5 +387,75 @@ describe("useActionAbility: the PR #903 review's cases (#890 item 6)", () => {
     expect(mustInstance(after.state, trunk).counters.trunk).toBe(1);
     expect(mustInstance(after.state, trunk).exhausted).toBe(true);
     expect(mustInstance(after.state, solo).exhausted).toBe(true);
+  });
+
+  it("a hand card that may be spent with its 'when spent' ability is spent once: the Action is offered and paid", () => {
+    const begun = start(["gun"]);
+    const given = giveCard(begun.state, P1, BOOST.id);
+    const state: GameState = {
+      ...given.state,
+      players: given.state.players.map((p) => (p.playerId === P1 ? { ...p, hand: [given.id], deck: [] } : p)),
+    };
+    const after = endTurnUsing(state, GUN_ACTION.ref.id, {
+      pay: (options) => [options.find((o) => o === `hand:${given.id}`)!],
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${GUN_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, begun.ids.gun![0]!).counters.shot).toBe(1);
+    // Spent (its deck empty, the discard pile is shuffled back in as the round ends): not in hand any more.
+    expect(mustPlayer(after.state, P1).hand).not.toContain(given.id);
+  });
+
+  it("forty resource abilities and an Action costing 8: the probe stays bounded (not C(40,8) = 76,904,685 subsets), and the Action is used", () => {
+    const forty = Array.from({ length: 40 }, () => "solo");
+    const { state, ids } = start([...forty, "volcano"], true, [ARMOR_CARD.id, ...forty, VOLCANO.id]);
+    const began = performance.now();
+    const after = endTurnUsing(state, VOLCANO_ACTION.ref.id, {
+      pay: (options) => options.filter((o) => o.startsWith("ability:")).slice(0, 8),
+    });
+    expect(performance.now() - began).toBeLessThan(3000);
+    expect(mustInstance(after.state, ids.volcano![0]!).counters.erupt).toBe(1);
+    expect(ids.solo!.filter((id) => mustInstance(after.state, id).exhausted)).toHaveLength(8);
+  });
+
+  it("an either/or whose only payable branch discards from hand is offered, and the chosen card goes", () => {
+    const { state, ids } = start(["switch"]);
+    const chosen = mustPlayer(state, P1).hand[0]!;
+    const after = endTurnUsing(state, SWITCH_ACTION.ref.id, {
+      cards: (options) => options.filter((o) => o === chosen),
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${SWITCH_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, ids.switch![0]!).counters.switched).toBe(1);
+    expect(mustPlayer(after.state, P1).discard).toContain(chosen);
+  });
+
+  it("'discard X cards' (no maximum) lets the player discard 2", () => {
+    const { state, ids } = start(["purge"]);
+    let chosen: readonly string[] = [];
+    let offered = 0;
+    const after = endTurnUsing(state, PURGE_ACTION.ref.id, {
+      cards: (options) => {
+        offered = options.length;
+        chosen = options.slice(0, 2);
+        return chosen;
+      },
+    });
+    expect(chosen).toHaveLength(2);
+    expect(offered).toBeGreaterThan(2);
+    expect(mustInstance(after.state, ids.purge![0]!).counters.purged).toBe(1);
+    for (const id of chosen) expect(mustPlayer(after.state, P1).discard).toContain(id as InstanceId);
+  });
+
+  it("'discard 1 or more' (no maximum) lets the player discard more than 1", () => {
+    const { state, ids } = start(["shed"]);
+    let chosen: readonly string[] = [];
+    const after = endTurnUsing(state, SHED_ACTION.ref.id, {
+      cards: (options) => {
+        chosen = options.slice(0, 3);
+        return chosen;
+      },
+    });
+    expect(chosen).toHaveLength(3);
+    expect(mustInstance(after.state, ids.shed![0]!).counters.shed).toBe(1);
+    for (const id of chosen) expect(mustPlayer(after.state, P1).discard).toContain(id as InstanceId);
   });
 });
