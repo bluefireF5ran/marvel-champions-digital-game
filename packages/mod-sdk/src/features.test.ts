@@ -175,6 +175,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("query:categories");
     expect(SUPPORTED_DSL_FEATURES).toContain("expr:cannotFlip");
     expect(SUPPORTED_DSL_FEATURES).toContain("expr:cannotFlip.target");
+    // A resource only for a card of one aspect ("for a 'Pool card", `punisher-msp`'s Avengers' Cache, #890 item 7).
+    expect(SUPPORTED_DSL_FEATURES).toContain("ability:generatesFor.aspect");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

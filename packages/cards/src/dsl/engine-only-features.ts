@@ -17,9 +17,11 @@ import {
   forcedInterrupt,
   forcedResponse,
   heroInterrupt,
+  exhaustThis,
   ignoreBoostAbilities,
   minDamageTaken,
   on,
+  resource,
   resourcesGeneratedAsWild,
   setAsideDestination,
   tagged,
@@ -226,6 +228,12 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
     { label: ["attack"] },
     anAttackableEnemy("enemy"),
     attack(4, chosen("enemy"), { ignores: ["guard"] }),
+  ),
+  // "Resource: Exhaust Avengers' Cache → generate a [wild] resource for a 'Pool card." (`punisher-msp`): a resource
+  // usable only while paying for a card of one aspect (`generatesFor` with the query's `aspect`, read by `matchesQuery`).
+  "engine-only.generates-for-aspect": resource(
+    { wild: 1 },
+    { cost: exhaustThis, generatesFor: query([], { aspect: "pool" }) },
   ),
 };
 
