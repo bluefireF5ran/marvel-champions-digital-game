@@ -2811,6 +2811,24 @@ export type EffectSpec =
    */
   | { readonly kind: "countBoostIcons"; readonly cards: TargetRef; readonly bind: string }
   /** "Cancel that card's boost ability" (Target Acquired): only before that ability resolves. `bind`: `<bind>.made`. */
+  /**
+   * "… or resolve an 'Action' ability on a card you control" (War Machine Armor, the `punisher-msp` community pack;
+   * #890 item 6): the player uses one Action ability of a card in play they control as they could on their own turn,
+   * its cost paid (the author's answer, 2026-11-17: "Yes you pay the cost"), at this effect's moment, which need not be
+   * their turn (the Action timing is not asked, as `playFromHand.ignoreActionTiming` does not ask it of an event).
+   * Everything else about using the ability applies: its form, condition, limit and targets (`useAbility`).
+   *
+   * The player picks among the abilities that could be used now (each checked by triggering it on a copy of the game
+   * with the cheapest payment), then pays its resources in a `spendResources` choice; its other cost picks are the
+   * engine's defaults (`defaultInPlayPicks`). `filter`: only cards matching it. `optional`: the player may pick none.
+   * With nothing usable, nothing happens.
+   */
+  | {
+      readonly kind: "useActionAbility";
+      readonly player: PlayerRef;
+      readonly filter?: TargetQuery;
+      readonly optional?: boolean;
+    }
   | { readonly kind: "cancelBoostAbility"; readonly bind?: string }
   /**
    * "When a boost card on an enemy attacking you would be turned faceup, discard it instead." (Defiance, `vision`

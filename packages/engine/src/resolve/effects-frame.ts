@@ -30,7 +30,9 @@ import {
   playWithPaymentFault,
   priceOrNull,
   isPriceFault as isFault,
+  defaultInPlayPicks,
   planCost,
+  useAbility,
   type ActionTiming,
   type PlayFromZone,
 } from "../actions.js";
@@ -153,7 +155,7 @@ import {
   reachOf,
   canEnterPlayUnder,
 } from "../select.js";
-import type { EffectSpec, PlayerRef, StatusName, TargetRef, ValueSpec } from "../spec.js";
+import type { EffectSpec, PlayerRef, StatusName, TargetQuery, TargetRef, ValueSpec } from "../spec.js";
 import type { Bindings, ResolvedCountVar, StackFrame, TriggerCandidate } from "../stack.js";
 import { executeSettleBasicThwartCost } from "../thwart-cost.js";
 import { executePayAttackCost } from "../attack-cost.js";
@@ -415,6 +417,7 @@ export function executeEffectsFrame(ctx: Ctx, frame: Frame<"effects">): void {
   if (effect.kind === "joinGameArea") return executeJoinGameArea(ctx, frame, effect, context);
   if (effect.kind === "divide") return executeDivide(ctx, frame, effect, context);
   if (effect.kind === "playFromHand") return executePlayFromHand(ctx, frame, effect, context);
+  if (effect.kind === "useActionAbility") return executeUseActionAbility(ctx, frame, effect, context);
   // docs/phase7-wave8.md §3.64: a player makes a basic attack or thwart on a card's instruction.
   if (effect.kind === "basicPowerBy") return executeBasicPowerBy(ctx, frame, effect, context);
   // docs/phase7-wave5.md §4.1 Q27: a basic thwart's additional cost is settled, and the thwart carried out or not.
@@ -790,6 +793,140 @@ function playFromHandOptions(ctx: Ctx, effect: Extract<EffectSpec, { kind: "play
       )
     : [];
   return { playerId, reduction, reductionAt, paying, from, timing, placesFor, named, candidates };
+}
+
+/** One Action ability a `useActionAbility` effect could use now: its card, the ability, and its default cost picks. */
+interface UsableAction {
+  readonly instanceId: InstanceId;
+  readonly abilityId: AbilityId;
+  readonly costChoices: Readonly<Record<string, readonly InstanceId[]>>;
+}
+
+/**
+ * The Action abilities `playerId` could use now through `EffectSpec useActionAbility`: on the cards in play they
+ * control (matching `filter`), each triggered on a copy of the game, out of turn, with the cheapest payment and the
+ * default cost picks. Nothing on the real game changes.
+ */
+function usableActions(
+  ctx: Ctx,
+  playerId: PlayerId,
+  filter: TargetQuery | undefined,
+  context: EffectContext,
+): readonly UsableAction[] {
+  const found: UsableAction[] = [];
+  for (const id of cardsInPlay(ctx.state)) {
+    if (controllerOf(ctx.state, id) !== playerId) continue;
+    if (filter && !matchesQuery(ctx.state, id, filter, context)) continue;
+    for (const ref of activeAbilityRefs(ctx.state, id, ctx.deps)) {
+      const definition = ctx.deps.abilities[ref.id];
+      if (definition?.trigger.kind !== "action" || definition.activeIn === "hand") continue;
+      const costChoices = defaultInPlayPicks(ctx.state, ctx.deps, id, playerId, definition.cost);
+      const plan = planCost(ctx.state, ctx.deps, id, playerId, definition.cost, costChoices, new Set());
+      if (isFault(plan)) continue;
+      const cheapest = fewestSpend(ctx.state, ctx.deps, playerId, plan.requirement, 0, id);
+      if (cheapest === null) continue;
+      const probe = createCtx(ctx.state, ctx.deps);
+      const error = useAbility(
+        probe,
+        {
+          type: "useAbility",
+          playerId,
+          cardInstanceId: id,
+          abilityId: ref.id,
+          payment: paymentsFromOptionIds(cheapest),
+          costChoices,
+        },
+        false,
+      );
+      if (error === null) found.push({ instanceId: id, abilityId: ref.id, costChoices });
+    }
+  }
+  return found;
+}
+
+/**
+ * `EffectSpec useActionAbility` (#890 item 6): pick the ability (step 0), pay its resources (step 1), then trigger it
+ * as the `useAbility` command does with the Action timing not asked. A payment that does not cover the cost uses
+ * nothing (RRG 1.8 "Initiating Abilities", p. 24, step 5).
+ */
+function executeUseActionAbility(
+  ctx: Ctx,
+  frame: Frame<"effects">,
+  effect: Extract<EffectSpec, { kind: "useActionAbility" }>,
+  context: EffectContext,
+): void {
+  const [playerId] = resolvePlayers(ctx.state, effect.player, context);
+  const step = frame.vars["_use.step"] ?? 0;
+  const vars = Object.fromEntries(Object.entries(frame.vars).filter(([key]) => !key.startsWith("_use.")));
+  const bindings = Object.fromEntries(Object.entries(frame.bindings).filter(([key]) => !key.startsWith("_use.")));
+  const done = (): void => setFrame(ctx, { ...frame, answer: null, vars, bindings, cursor: frame.cursor + 1 });
+  if (!playerId) return done();
+  const usable = usableActions(ctx, playerId, effect.filter, context);
+  const optionOf = (action: UsableAction): string => `${action.instanceId}|${action.abilityId}`;
+  if (step === 0) {
+    if (usable.length === 0) return done();
+    if (frame.answer === null) {
+      requestChoice(ctx, {
+        playerId,
+        prompt: { kind: "chooseOption" },
+        options: usable.map((action) => ({
+          optionId: optionOf(action),
+          label:
+            printedAbilityRefs(mustCardOf(ctx.state, action.instanceId)).find((r) => r.id === action.abilityId)
+              ?.label ?? displayNameOf(ctx.state, action.instanceId),
+          ref: { kind: "ability", instanceId: action.instanceId, abilityId: action.abilityId } as const,
+        })),
+        minSelections: effect.optional ? 0 : 1,
+        maxSelections: 1,
+        frameId: frame.frameId,
+      });
+      return;
+    }
+    const picked = usable.findIndex((action) => optionOf(action) === frame.answer?.[0]);
+    if (picked < 0) return done();
+    setFrame(ctx, { ...frame, answer: null, vars: { ...frame.vars, "_use.step": 1, "_use.pick": picked } });
+    return;
+  }
+  const chosen = usable[frame.vars["_use.pick"] ?? -1];
+  if (!chosen) return done();
+  const definition = ctx.deps.abilities[chosen.abilityId];
+  const plan = planCost(
+    ctx.state,
+    ctx.deps,
+    chosen.instanceId,
+    playerId,
+    definition?.cost,
+    chosen.costChoices,
+    new Set(),
+  );
+  if (isFault(plan)) return done();
+  const needed = requirementTotal(plan.requirement);
+  if (needed > 0 && frame.answer === null) {
+    const options = paymentOptions(ctx, playerId, chosen.instanceId);
+    requestChoice(ctx, {
+      playerId,
+      prompt: { kind: "spendResources", requirement: plan.requirement },
+      options,
+      minSelections: 0,
+      maxSelections: options.length,
+      frameId: frame.frameId,
+    });
+    return;
+  }
+  const payment = needed > 0 ? paymentsFromOptionIds(frame.answer ?? []) : [];
+  done();
+  useAbility(
+    ctx,
+    {
+      type: "useAbility",
+      playerId,
+      cardInstanceId: chosen.instanceId,
+      abilityId: chosen.abilityId,
+      payment,
+      costChoices: chosen.costChoices,
+    },
+    false,
+  );
 }
 
 /** The cards a `playFromHand` effect would offer now (`playFromHandOptions`), for `Predicate canPlayFromHand`. */

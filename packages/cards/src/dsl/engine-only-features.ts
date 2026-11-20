@@ -3,34 +3,36 @@ import { trait } from "@mc/content";
 import {
   action,
   activatesBeforeVillain,
+  after,
   agile,
   boost,
   boostIconsCount,
   cannotBeAttachedUnlessInPlay,
   cannotHaveStatus,
   constant,
-  gainsKeyword,
-  gets,
   costModifier,
-  heroAction,
   discardThis,
-  response,
   doubleStat,
-  forcedInterrupt,
-  forcedResponse,
-  heroInterrupt,
   eitherCost,
   exhaustCardsCost,
   exhaustThis,
   flipCardsCost,
+  forcedInterrupt,
+  forcedResponse,
+  gainsKeyword,
+  gets,
+  heroAction,
+  heroInterrupt,
+  heroResponse,
   ignoreBoostAbilities,
-  takeDamageCost,
   minDamageTaken,
   on,
   resource,
   resourcesGeneratedAsWild,
+  response,
   setAsideDestination,
   tagged,
+  takeDamageCost,
   upgradesCannotBeRemoved,
 } from "./abilities.js";
 import {
@@ -66,6 +68,7 @@ import {
   scenarioArea,
   selectCards,
   topOfDeck,
+  useActionAbility,
 } from "./effects.js";
 import { validateDefinition } from "./validate.js";
 import {
@@ -231,6 +234,13 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
         ),
       ),
     ),
+  ),
+  // "Hero Response: After you defend against an attack, exhaust this card → … or resolve an 'Action' ability on a card
+  // you control" (War Machine Armor, `punisher-msp`): `EffectSpec useActionAbility`, its cost paid, out of turn.
+  "engine-only.use-action-ability": heroResponse(
+    after.defends(YOUR_IDENTITY),
+    { cost: exhaustThis },
+    useActionAbility(),
   ),
   // "Hero Response: After you overdefeat a side scheme (remove more threat from it than it had), discard this card"
   // (Rose's Greenhouse, `the-rose-bf`): `ValueSpec defeatExcessThreat`, read by the DSL's `overdefeated`.

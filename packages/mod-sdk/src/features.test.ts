@@ -189,6 +189,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("event:endPhaseCardsReadied");
     // "Generate a [wild] resource for an upgrade ability" (With Great Firepower, #890 item 3).
     expect(SUPPORTED_DSL_FEATURES).toContain("ability:generatesForAbility");
+    // "Resolve an 'Action' ability on a card you control", out of turn and paying its cost (War Machine Armor, item 6).
+    expect(SUPPORTED_DSL_FEATURES).toContain("effect:useActionAbility");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

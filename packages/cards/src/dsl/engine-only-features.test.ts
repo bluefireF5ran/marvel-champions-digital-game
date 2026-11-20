@@ -362,6 +362,7 @@ describe("engine-only DSL primitives", () => {
       "engine-only.set-aside-destination",
       "engine-only.tagged",
       "engine-only.tagged-count",
+      "engine-only.use-action-ability",
     ]);
   });
 });
