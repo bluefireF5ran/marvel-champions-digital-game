@@ -1138,6 +1138,15 @@ export type ValueSpec =
    */
   | { readonly kind: "defeatExcessDamage"; readonly consequential?: boolean }
   /**
+   * The excess threat the triggering `schemeDefeated` event recorded (`schemeDefeated.excessThreat`): how much more
+   * threat the defeating removal attempted than the scheme had, after every modifier (#890 item 8). 0 when the removal
+   * took exactly the last threat, for a defeat no removal made, or any other event. "After a side scheme is
+   * overdefeated (more threat was removed from it than it had)" (The Rose, the `the-rose-bf` community pack: Hero
+   * Resistance, Rose's Greenhouse) is this at least 1, from any removal, a thwart's or not; the threat counterpart of
+   * `defeatExcessDamage`.
+   */
+  | { readonly kind: "defeatExcessThreat" }
+  /**
    * Arithmetic on another value: "2 damage for each counter (max 10)" → `{ value, times: 2, max: 10 }`; "X is 1 more
    * than" → `plus: 1`; "half of the cards in your hand, rounded down" (Man Out of Time, `cap` pack) → `{ value:
    * handCount(you), divide: { by: 2, round: "down" } }`. `divide` applies first, then `times`, `plus`, `max`.

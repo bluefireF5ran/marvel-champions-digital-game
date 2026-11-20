@@ -70,6 +70,7 @@ import {
   eventTarget,
   hasTaggedAbility,
   lastPlayedThisRound,
+  overdefeated,
   query,
   self,
   statOf,
@@ -184,6 +185,13 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
   ),
   // "Yaka Arrow cannot be attached to cards unless it is in play" (`attachedOnlyWhileInPlay`; community pack `yondu-dh`).
   "engine-only.attached-only-in-play": constant(cannotBeAttachedUnlessInPlay),
+  // "Hero Response: After you overdefeat a side scheme (remove more threat from it than it had), discard this card"
+  // (Rose's Greenhouse, `the-rose-bf`): `ValueSpec defeatExcessThreat`, read by the DSL's `overdefeated`.
+  "engine-only.overdefeated": response(
+    on.schemeDefeated(query("sideScheme"), { byYou: true }),
+    { while: overdefeated },
+    discard(self),
+  ),
   // "After the Yaka Arrow upgrade is removed from an enemy, deal 1 damage to that enemy" (`TriggerEvent cardUnattached`).
   "engine-only.card-unattached": response(
     on.cardUnattached(query("upgrade", { name: "Yaka Arrow" }), { from: query("enemy") }),

@@ -3186,6 +3186,8 @@ export function resolveValue(
       }
       return results[value.key] ?? 0;
     }
+    case "defeatExcessThreat":
+      return context.event?.kind === "schemeDefeated" ? (context.event.excessThreat ?? 0) : 0;
     case "defeatExcessDamage": {
       const defeat = context.event?.kind === "characterDefeated" ? context.event : undefined;
       if (!defeat) return 0;

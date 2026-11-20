@@ -348,6 +348,7 @@ describe("engine-only DSL primitives", () => {
       "engine-only.lose-keyword",
       "engine-only.lose-trait",
       "engine-only.min-damage-taken",
+      "engine-only.overdefeated",
       "engine-only.per-player-blank",
       "engine-only.put-into-area",
       "engine-only.random-from-area",
