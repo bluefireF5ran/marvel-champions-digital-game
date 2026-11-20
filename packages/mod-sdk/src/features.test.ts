@@ -193,6 +193,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("effect:useActionAbility");
     // A resource ability in hand that pays for its own card (Enhanced Combat Sense, #890 item 2).
     expect(SUPPORTED_DSL_FEATURES).toContain("ability:activeIn");
+    // Exposed as counters: attacks deal 1 additional damage per counter on the attacked character (item 10).
+    expect(SUPPORTED_DSL_FEATURES).toContain("rule:attacksDealExtraDamage.perCounterOnTarget");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

@@ -5,6 +5,7 @@ import {
   activatesBeforeVillain,
   after,
   agile,
+  attacksDealAdditionalDamage,
   boost,
   boostIconsCount,
   cannotBeAttachedUnlessInPlay,
@@ -242,6 +243,11 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
     after.defends(YOUR_IDENTITY),
     { cost: exhaustThis },
     useActionAbility(),
+  ),
+  // "When a character with one or more Exposed status cards is attacked, … that attack deals 1 additional damage for
+  // each" (Sentinel's Expose insert, `sentinel-tw`): Exposed as `exposed` counters (`perCounterOnTarget`).
+  "engine-only.extra-damage-per-counter": constant(
+    attacksDealAdditionalDamage(1, { target: query("enemy"), perCounterOnTarget: "exposed" }),
   ),
   // "Hero Response: After you overdefeat a side scheme (remove more threat from it than it had), discard this card"
   // (Rose's Greenhouse, `the-rose-bf`): `ValueSpec defeatExcessThreat`, read by the DSL's `overdefeated`.

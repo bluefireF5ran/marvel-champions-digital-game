@@ -2446,12 +2446,22 @@ export const attacksLoseKeywords = (
  */
 export const attacksDealAdditionalDamage = (
   amount: number,
-  opts: { readonly target: TargetQuery; readonly attacker?: TargetQuery; readonly while?: Predicate },
+  opts: {
+    readonly target: TargetQuery;
+    readonly attacker?: TargetQuery;
+    readonly while?: Predicate;
+    /**
+     * `amount` for each counter of this type on the attacked character (Sentinel's Exposed, `sentinel-tw`; #890 item
+     * 10): `attacksDealAdditionalDamage(1, { target: query("enemy"), perCounterOnTarget: "exposed" })`.
+     */
+    readonly perCounterOnTarget?: string;
+  },
 ): ConstantPart => ({
   rules: [
     {
       kind: "attacksDealExtraDamage",
       amount,
+      ...(opts.perCounterOnTarget ? { perCounterOnTarget: opts.perCounterOnTarget } : {}),
       target: opts.target,
       ...(opts.attacker ? { attacker: opts.attacker } : {}),
       ...(opts.while ? { while: opts.while } : {}),

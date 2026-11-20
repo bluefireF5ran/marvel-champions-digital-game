@@ -1663,6 +1663,13 @@ export type RuleSpec =
   | {
       readonly kind: "attacksDealExtraDamage";
       readonly amount: number;
+      /**
+       * `amount` for each counter of this type on the attacked character: "When a character with one or more Exposed
+       * status cards is attacked, … that attack deals 1 additional damage for each" (Sentinel's Expose insert, the
+       * `sentinel-tw` community pack; #890 item 10) is `{ amount: 1, perCounterOnTarget: "exposed" }`, the counters
+       * then removed by the pack's own response to the attack. 0 counters: no additional damage.
+       */
+      readonly perCounterOnTarget?: string;
       readonly target: TargetQuery;
       readonly attacker?: TargetQuery;
       readonly while?: Predicate;

@@ -336,6 +336,7 @@ describe("engine-only DSL primitives", () => {
       "engine-only.double-next-card-spent",
       "engine-only.double-stat",
       "engine-only.enemy-attacks-enemy-bind",
+      "engine-only.extra-damage-per-counter",
       "engine-only.extra-player-phase",
       "engine-only.facedown-from-discard",
       "engine-only.facedown-into-area",
