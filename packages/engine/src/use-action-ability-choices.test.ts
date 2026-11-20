@@ -208,6 +208,70 @@ const EVENT_1 = stubEvent({ id: "event-1", cost: 1 });
 const EVENT_2 = stubEvent({ id: "event-2", cost: 2 });
 const EVENT_3 = stubEvent({ id: "event-3", cost: 3 });
 
+/** "Resource: Take 1 to 3 damage → generate 1 [energy] for each damage taken" (an in-play support). */
+const DYNAMO_RESOURCE = stubAbility("dynamo.resource", {
+  trigger: { kind: "resource" },
+  cost: { damageSelf: { choose: { min: { kind: "const", value: 1 }, max: { kind: "const", value: 3 } } } },
+  generates: { kind: "amount", resource: "energy", amount: { kind: "var", name: "cost.damageSelf" } },
+  effects: [],
+} satisfies AbilityDefinition);
+const DYNAMO = stubSupport({ id: "dynamo", cost: 0, abilities: [DYNAMO_RESOURCE.ref] });
+/** "Action: Spend 3 [energy] → place 1 counter here." */
+const SPARK_ACTION = stubAbility("spark.action", {
+  trigger: { kind: "action" },
+  cost: { resources: { energy: 3 } },
+  effects: [counter("sparked")],
+} satisfies AbilityDefinition);
+const SPARK = stubUpgrade({ id: "spark", cost: 0, abilities: [SPARK_ACTION.ref] });
+/** "Action: Spend 9 resources → place 1 counter here." */
+const NOVA_ACTION = stubAbility("nova.action", {
+  trigger: { kind: "action" },
+  cost: { resources: 9 },
+  effects: [counter("nova")],
+} satisfies AbilityDefinition);
+const NOVA = stubUpgrade({ id: "nova", cost: 0, abilities: [NOVA_ACTION.ref] });
+/** A support with seven "Resource: exhaust this → [physical]" abilities, each excluding the others. */
+const SEVEN = Array.from({ length: 7 }, (_, i) =>
+  stubAbility(`seven.resource-${i}`, {
+    trigger: { kind: "resource" },
+    cost: { exhaustSelf: true },
+    generates: { physical: 1 },
+    effects: [],
+  } satisfies AbilityDefinition),
+);
+const SEVENFOLD = stubSupport({ id: "sevenfold", cost: 0, abilities: SEVEN.map((a) => a.ref) });
+/** "Resource: exhaust this → [energy]". */
+const CELL_RESOURCE = stubAbility("cell.resource", {
+  trigger: { kind: "resource" },
+  cost: { exhaustSelf: true },
+  generates: { energy: 1 },
+  effects: [],
+} satisfies AbilityDefinition);
+const CELL = stubSupport({ id: "cell", cost: 0, abilities: [CELL_RESOURCE.ref] });
+/** "Action: Spend 2 [energy] → place 1 counter here." */
+const ARC_ACTION = stubAbility("arc.action", {
+  trigger: { kind: "action" },
+  cost: { resources: { energy: 2 } },
+  effects: [counter("arc")],
+} satisfies AbilityDefinition);
+const ARC = stubUpgrade({ id: "arc", cost: 0, abilities: [ARC_ACTION.ref] });
+/** "Action: Discard 1 card from your hand and spend 1 resource → place 1 counter here." */
+const TRADE_ACTION = stubAbility("trade.action", {
+  trigger: { kind: "action" },
+  cost: { discardFromHand: { min: 1, max: 1 }, resources: 1 },
+  effects: [counter("traded")],
+} satisfies AbilityDefinition);
+const TRADE = stubSupport({ id: "trade", cost: 0, abilities: [TRADE_ACTION.ref] });
+/** "Resource: Exhaust 8 or more upgrades you control → generate 1" (the pick list `resourcePickChoices` builds). */
+const RACK_RESOURCE = stubAbility("rack.resource", {
+  trigger: { kind: "resource" },
+  cost: { exhaustCards: { slot: "racked", query: { categories: ["upgrade"], controller: "you" }, min: 8, max: 40 } },
+  generates: { wild: 1 },
+  effects: [],
+} satisfies AbilityDefinition);
+const RACK = stubSupport({ id: "rack", cost: 0, abilities: [RACK_RESOURCE.ref] });
+const PLATE = stubUpgrade({ id: "plate", cost: 0 });
+
 const CARDS = [
   ARMOR_CARD,
   FIREPOWER,
@@ -235,6 +299,15 @@ const CARDS = [
   EVENT_1,
   EVENT_2,
   EVENT_3,
+  DYNAMO,
+  SPARK,
+  NOVA,
+  SEVENFOLD,
+  CELL,
+  ARC,
+  TRADE,
+  RACK,
+  PLATE,
 ];
 const deps: EngineDeps = depsOf(
   ARMOR,
@@ -260,6 +333,14 @@ const deps: EngineDeps = depsOf(
   SIPHON_SPENT,
   LANCE_ACTION,
   GLIDER_ACTION,
+  DYNAMO_RESOURCE,
+  SPARK_ACTION,
+  NOVA_ACTION,
+  ...SEVEN,
+  CELL_RESOURCE,
+  ARC_ACTION,
+  TRADE_ACTION,
+  RACK_RESOURCE,
 );
 
 /** P1 in hero form with Armor and `cards` in play, the hand and deck emptied when `noHand`. */
@@ -530,5 +611,81 @@ describe("useActionAbility: the PR #903 review's cases (#890 item 6)", () => {
     expect(mustInstance(after.state, begun.ids.glider![0]!).counters.glided).toBe(1);
     expect(mustPlayer(after.state, P1).discard).toEqual(expect.arrayContaining([one, two]));
     expect(mustPlayer(after.state, P1).discard).not.toContain(three);
+  });
+  it("an in-play resource taking 3 damage pays a 3 [energy] Action: every amount it may take is judged", () => {
+    const { state, ids } = start(["dynamo", "spark"], true);
+    const after = endTurnUsing(state, SPARK_ACTION.ref.id, {
+      pay: (options) => [
+        options.find((o) => o.startsWith(`ability:${ids.dynamo![0]!}:`) && o.endsWith("#damageSelf=3"))!,
+      ],
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${SPARK_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, ids.spark![0]!).counters.sparked).toBe(1);
+  });
+
+  it("three Energy Siphons pay 9: two taking 3 damage and one spent plainly", () => {
+    const begun = start(["nova"]);
+    let state = begun.state;
+    const siphons: InstanceId[] = [];
+    for (let i = 0; i < 3; i++) {
+      const given = giveCard(state, P1, SIPHON.id, siphons);
+      state = given.state;
+      siphons.push(given.id);
+    }
+    state = {
+      ...state,
+      players: state.players.map((p) => (p.playerId === P1 ? { ...p, hand: siphons, deck: [] } : p)),
+    };
+    const after = endTurnUsing(state, NOVA_ACTION.ref.id, {
+      pay: (options) => [
+        options.find((o) => o.startsWith(`hand:${siphons[0]!}:`) && o.endsWith("#damageSelf=3"))!,
+        options.find((o) => o.startsWith(`hand:${siphons[1]!}:`) && o.endsWith("#damageSelf=3"))!,
+        `hand:${siphons[2]!}`,
+      ],
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${NOVA_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, begun.ids.nova![0]!).counters.nova).toBe(1);
+  });
+
+  it("seven excluding [physical] abilities on one card and two [energy] supports: the late pair pays 2 [energy]", () => {
+    const { state, ids } = start(["sevenfold", "cell", "cell", "arc"], true);
+    const cells = ids.cell!;
+    const after = endTurnUsing(state, ARC_ACTION.ref.id, {
+      pay: (options) => cells.map((cell) => options.find((o) => o.startsWith(`ability:${cell}:`))!),
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${ARC_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, ids.arc![0]!).counters.arc).toBe(1);
+    for (const cell of cells) expect(mustInstance(after.state, cell).exhausted).toBe(true);
+  });
+
+  it("a hand card the cost discards is not offered to pay, in any of its ways", () => {
+    const begun = start(["trade", "solo"]);
+    let state = begun.state;
+    const boost = giveCard(state, P1, BOOST.id);
+    state = boost.state;
+    const other = mustPlayer(state, P1).hand.find((id) => id !== boost.id)!;
+    state = {
+      ...state,
+      players: state.players.map((p) => (p.playerId === P1 ? { ...p, hand: [boost.id, other] } : p)),
+    };
+    let payWith: readonly string[] = [];
+    const after = endTurnUsing(state, TRADE_ACTION.ref.id, {
+      cards: (options) => options.filter((o) => o === boost.id),
+      pay: (options) => {
+        payWith = options;
+        return [options.find((o) => o.startsWith(`ability:${begun.ids.solo![0]!}:`))!];
+      },
+    });
+    expect(payWith.some((o) => o.startsWith(`hand:${boost.id}`))).toBe(false);
+    expect(mustInstance(after.state, begun.ids.trade![0]!).counters.traded).toBe(1);
+  });
+
+  it("a resource picking 8 of 40 upgrades lists its choices without building every subset", () => {
+    const forty = Array.from({ length: 40 }, () => "plate");
+    const { state, ids } = start(["rack", ...forty, "gun"], true, [ARMOR_CARD.id, RACK.id, ...forty, GUN.id]);
+    const after = endTurnUsing(state, GUN_ACTION.ref.id, {
+      pay: (options) => [options.find((o) => o.startsWith(`ability:${ids.rack![0]!}:`))!],
+    });
+    expect(mustInstance(after.state, ids.gun![0]!).counters.shot).toBe(1);
   });
 });

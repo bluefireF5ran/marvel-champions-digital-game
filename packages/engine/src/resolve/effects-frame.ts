@@ -1,6 +1,6 @@
 /** Stepping through an effects frame, including the effects that stop for a player choice. */
 
-import { abilityCostChoiceSets } from "../legal.js";
+import { abilityCostChoiceSets, abilityUsableAsTheirMoment, type LegalAction } from "../legal.js";
 import { displayNameOf } from "../visibility.js";
 import type { AbilityId } from "@mc/content";
 import { announceDeckTops } from "../deck-top.js";
@@ -809,108 +809,12 @@ interface UsableAction {
   readonly abilityId: AbilityId;
 }
 
-/** The most resource-ability subsets the probe tries for one set of cost choices: a bound, not a rule. */
-const MAX_WALLETS = 64;
-/** The most ways of spending the hand cards one wallet is tried with ("when spent" abilities and their amounts). */
-const MAX_HANDS = 8;
-
-/**
- * The payments to try for an ability's cost on `id`, priced as an ability's payment (`paymentOptions` with no card being
- * played and `id` paid for): a resource "for an upgrade ability" (`generatesForAbility`) and one for that card count.
- * Each subset of the resource abilities (one use each, the option picking the most cards) up to `need` of them, the
- * largest first, with and without the hand cards, then hand cards only, then nothing; at most `MAX_WALLETS`, produced
- * one at a time so the bound caps the work as well (PR #903 review). Two abilities that cannot pay together (they
- * exhaust the same card) never hide a payment the others make with one of them.
- *
- * A hand card is in a wallet once: `paymentOptions` lists it plain (`hand:<id>`) and once per "when you spend this card"
- * ability (`hand:<id>:<ability>`, once per amount or set of choices it may take), and a payment may not spend one card
- * twice (`priceOf`: duplicate payment card). Each wallet with the hand is tried with the plain spends, then with each
- * card's each way of using its ability (the others plain), then with every card's last way (PR #903 reviews). Hand cards in `reserved` (a hand discard the cost picks) are left out.
- */
-function* abilityWallets(
-  ctx: Ctx,
-  playerId: PlayerId,
-  id: InstanceId,
-  need: number,
-  reserved: ReadonlySet<InstanceId> = new Set(),
-): Generator<readonly Payment[]> {
-  const all = paymentsFromOptionIds(paymentOptions(ctx, playerId, null, id).map((o) => o.optionId));
-  const picked = (p: Payment): number =>
-    "ability" in p ? Object.values(p.ability.costChoices ?? {}).reduce((n, ids) => n + ids.length, 0) : 0;
-  const widest = new Map<string, Payment>();
-  const plain = new Map<InstanceId, Payment>();
-  const spent = new Map<InstanceId, Payment[]>();
-  for (const p of all) {
-    if ("fromHand" in p) {
-      if (reserved.has(p.fromHand)) continue;
-      if (p.whenSpent) spent.set(p.fromHand, [...(spent.get(p.fromHand) ?? []), p]);
-      else plain.set(p.fromHand, p);
-      continue;
-    }
-    if (!("ability" in p)) continue;
-    const key = `${p.ability.instanceId}:${p.ability.abilityId}`;
-    const held = widest.get(key);
-    if (!held || picked(p) > picked(held)) widest.set(key, p);
-  }
-  const cards = [...new Set([...plain.keys(), ...spent.keys()])];
-  const plainHand = cards.flatMap((card) => {
-    const p = plain.get(card) ?? spent.get(card)?.[0];
-    return p ? [p] : [];
-  });
-  // Each way to spend one card with its ability (each amount of damage Energy Siphon may take, each set of choices),
-  // the other cards spent plainly; then every card with its last listed way (the most it can give): `MAX_HANDS` at most.
-  const swapped = [...spent].flatMap(([card, ways]) =>
-    ways.map((way) => plainHand.map((p) => ("fromHand" in p && p.fromHand === card ? way : p))),
-  );
-  const richest = cards.flatMap((card) => {
-    const ways = spent.get(card);
-    const p = ways?.[ways.length - 1] ?? plain.get(card);
-    return p ? [p] : [];
-  });
-  const hands = (spent.size > 0 ? [plainHand, ...swapped, richest] : [plainHand]).slice(0, MAX_HANDS);
-  const abilities = [...widest.values()];
-  let budget = MAX_WALLETS;
-  const take = function* (wallet: readonly Payment[]): Generator<readonly Payment[]> {
-    if (budget <= 0) return;
-    budget -= 1;
-    yield wallet;
-  };
-  for (const hand of hands) yield* take([...abilities, ...hand]);
-  const most = Math.min(abilities.length, Math.max(need, 1));
-  for (let size = most; size >= 1 && budget > 0; size--) {
-    for (const subset of combinationsOf(abilities, size)) {
-      if (budget <= 0) return;
-      for (const hand of hands) yield* take([...subset, ...hand]);
-      yield* take(subset);
-    }
-  }
-  for (const hand of hands) yield hand;
-  yield [];
-}
-
-/** Each `size`-element subset of `items`, in order, one at a time (nothing is built ahead of the caller's need). */
-function* combinationsOf<T>(items: readonly T[], size: number, from = 0): Generator<readonly T[]> {
-  if (size === 0) {
-    yield [];
-    return;
-  }
-  for (let i = from; i <= items.length - size; i++) {
-    for (const rest of combinationsOf(items, size - 1, i + 1)) yield [items[i]!, ...rest];
-  }
-}
-
-/** Whether some wallet in `wallets` passes `ok`; stops at the first. */
-function someWallet(wallets: Iterable<readonly Payment[]>, ok: (payment: readonly Payment[]) => boolean): boolean {
-  for (const wallet of wallets) if (ok(wallet)) return true;
-  return false;
-}
-
 /** Whether `command` would be accepted now, out of turn: `useAbility` run on a copy of the game. */
 function wouldUse(ctx: Ctx, command: Command & { type: "useAbility" }): boolean {
   return useAbility(createCtx(ctx.state, ctx.deps), command, false) === null;
 }
 
-/** The resources a cost asks for with these choices, for `abilityWallets`' bound; 0 when it cannot be planned. */
+/** The resources a cost asks for with these choices; 0 when it cannot be planned. */
 function resourcesNeeded(
   ctx: Ctx,
   card: InstanceId,
@@ -930,45 +834,19 @@ function branchOf(cost: AbilityCost | undefined, branch: number | undefined): Ab
 }
 
 /**
- * Whether `playerId` could use `ability` of `card` now through the effect, with some legal set of its cost choices
- * (`abilityCostChoiceSets`: the hand discard, a chosen card, a host, a target, as `legalActions` tries them; its in-play
- * picks defaulted) and some payment (`abilityWallets`). `branch`: the either/or branch, when the cost has one.
+ * How `legalActions` judges `ability` of `card` were it `playerId`'s moment to act (`abilityUsableAsTheirMoment`): the
+ * same cost choices, branches, counter range and payment search as a regular use, so an Action is offered through the
+ * effect exactly when it could be used on the player's own turn (PR #903 reviews). Null when it could not.
  */
-function usableWith(
-  ctx: Ctx,
-  playerId: PlayerId,
-  card: InstanceId,
-  abilityId: AbilityId,
-  cost: AbilityCost | undefined,
-  branch: number | undefined,
-): boolean {
-  // The branch's own cost, for its choices (an either/or's "discard 1 card from your hand" branch: PR #903 review); the
-  // command still names the branch.
-  const branchCost = branchOf(cost, branch);
-  const sets = abilityCostChoiceSets(ctx.state, ctx.deps, playerId, card, branchCost).slice(0, 24);
-  return sets.some(({ costChoices: chosen }) => {
-    const costChoices = { ...defaultInPlayPicks(ctx.state, ctx.deps, card, playerId, branchCost), ...chosen };
-    const reserved = new Set(costChoices.discard ?? []);
-    const need = resourcesNeeded(ctx, card, playerId, branchCost, costChoices);
-    return someWallet(abilityWallets(ctx, playerId, card, need, reserved), (payment) =>
-      wouldUse(ctx, {
-        type: "useAbility",
-        playerId,
-        cardInstanceId: card,
-        abilityId,
-        payment,
-        costChoices,
-        ...(branch !== undefined ? { costSelection: { branch } } : {}),
-      }),
-    );
-  });
+function asTheirMoment(ctx: Ctx, playerId: PlayerId, card: InstanceId, abilityId: AbilityId): LegalAction | null {
+  return abilityUsableAsTheirMoment(ctx.state, ctx.deps, playerId, card, abilityId);
 }
 
 /**
  * The Action abilities `playerId` could use now through `EffectSpec useActionAbility`: the **printed** ones (#890 item
  * 6: "resolve an 'Action' ability on a card you control"; a blanked or ignored one is not active) of the cards in play
- * they control (matching `filter`), each judged on a copy of the game, out of turn (`usableWith`). Nothing on the real
- * game changes.
+ * they control (matching `filter`), each judged as a regular use would be at the player's moment to act (`asTheirMoment`).
+ * Nothing on the real game changes.
  */
 function usableActions(
   ctx: Ctx,
@@ -983,10 +861,7 @@ function usableActions(
     for (const ref of activePrintedAbilityRefs(ctx.state, id, ctx.deps)) {
       const definition = ctx.deps.abilities[ref.id];
       if (definition?.trigger.kind !== "action" || definition.activeIn === "hand") continue;
-      const cost = costAsDetermined(ctx.state, ctx.deps, id, playerId, definition.cost);
-      const branches = cost?.either ? cost.either.map((_, index) => index) : [undefined];
-      if (branches.some((branch) => usableWith(ctx, playerId, id, ref.id, cost, branch)))
-        found.push({ instanceId: id, abilityId: ref.id });
+      if (asTheirMoment(ctx, playerId, id, ref.id)) found.push({ instanceId: id, abilityId: ref.id });
     }
   }
   return found;
@@ -1088,13 +963,13 @@ function executeUseActionAbility(
       : {}),
   });
 
-  // Step 1: the branch of an either/or cost, among those that could be paid now.
+  // Step 1: the branch of an either/or cost, among those a regular use could pay now (`LegalAction.costBranches`).
   if (step === 1) {
     const either = written?.either;
     if (!either) return next({ "_use.step": 2 });
-    const payable = either.flatMap((_, index) =>
-      usableWith(ctx, playerId, card, ref.id, written, index) ? [index] : [],
-    );
+    const legal = asTheirMoment(ctx, playerId, card, ref.id);
+    if (!legal) return done();
+    const payable = legal.costBranches ?? either.map((_, index) => index);
     if (payable.length === 0) return done();
     if (payable.length === 1) return next({ "_use.step": 2, "_use.branch": payable[0]! });
     if (frame.answer === null) {
@@ -1263,17 +1138,15 @@ function executeUseActionAbility(
 
   // Step 4: how many counters an "up to N" counter cost removes (`spendCounters.upTo`, Power Man's "remove up to 2 chi
   // counters"), which the command would otherwise take at its most (`CostSelection.counters`; PR #903 review). Offered:
-  // each number the cost would accept now. The other amounts a cost leaves open are asked as it is paid (a chosen
+  // the range a regular use offers (`LegalAction.costCounters`). The other amounts a cost leaves open are asked as it is paid (a chosen
   // damage, threat or encounter discard: `CostSelection` absent) or set by the payment itself (a chosen-size resource
   // cost), as on the player's own turn.
   if (step === 4) {
     const counters = cost?.spendCounters;
     if (!counters?.upTo || typeof counters.amount !== "number") return next({ "_use.step": 5 });
-    const accepted = Array.from({ length: counters.amount }, (_, index) => index + 1).filter((n) =>
-      someWallet(abilityWallets(ctx, playerId, card, need, reserved), (payment) =>
-        wouldUse(ctx, command(payment, costChoices, branch, n)),
-      ),
-    );
+    const range = asTheirMoment(ctx, playerId, card, ref.id)?.costCounters;
+    if (!range) return next({ "_use.step": 5 });
+    const accepted = Array.from({ length: range.max - range.min + 1 }, (_, index) => range.min + index);
     if (accepted.length === 0) return done();
     if (accepted.length === 1) return next({ "_use.step": 5, "_use.counters": accepted[0]! });
     if (frame.answer === null) {
@@ -1295,8 +1168,9 @@ function executeUseActionAbility(
 
   // Step 5: the resources, as an ability's payment; asked again (twice at most) should the engine refuse the whole.
   if (need > 0 && frame.answer === null) {
-    const options = paymentOptions(ctx, playerId, null, card).filter(
-      (option) => !option.optionId.startsWith("hand:") || !reserved.has(option.optionId.slice(5) as InstanceId),
+    // A hand card the cost discards is not spent too, in any of its ways (`hand:<id>`, `hand:<id>:<ability>…`).
+    const options = paymentOptions(ctx, playerId, null, card).filter((option) =>
+      paymentsFromOptionIds([option.optionId]).every((p) => !("fromHand" in p) || !reserved.has(p.fromHand)),
     );
     requestChoice(ctx, {
       playerId,

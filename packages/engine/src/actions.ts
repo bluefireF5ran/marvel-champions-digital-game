@@ -1748,9 +1748,16 @@ function repeatsWithNewPicks(deps: EngineDeps, abilityId: string): boolean {
 const MAX_PICK_OPTIONS = 20;
 
 /** Every way to choose `size` of `ids`, in order. */
-function combinations<T>(ids: readonly T[], size: number): readonly (readonly T[])[] {
-  if (size === 0) return [[]];
-  return ids.flatMap((id, i) => combinations(ids.slice(i + 1), size - 1).map((rest) => [id, ...rest]));
+function* combinations<T>(ids: readonly T[], size: number, from = 0): Generator<readonly T[]> {
+  // One at a time, so a caller that stops at its cap builds no more than it keeps (PR #903 review: 40 candidates and a
+  // pick of 8 would otherwise build all 76,904,685 subsets first).
+  if (size === 0) {
+    yield [];
+    return;
+  }
+  for (let i = from; i <= ids.length - size; i++) {
+    for (const rest of combinations(ids, size - 1, i + 1)) yield [ids[i]!, ...rest];
+  }
 }
 
 /**
