@@ -1450,6 +1450,16 @@ function resourceAbilityFault(
   if (!activeAbilityRefs(state, instanceId, deps).some((ref) => ref.id === abilityId)) {
     return { code: "no_valid_target", message: `${abilityId} is not active on ${instanceId}` };
   }
+  // "You can exhaust any number of Weapon or Tech upgrades you control to generate that many [wild] resources while
+  // paying for this card" (Enhanced Combat Sense, `spider-punisher-tw`; #890 item 2): a resource ability that works
+  // in hand (`activeIn: "hand"`) is its owner's while the card is in their hand, and pays for that card alone.
+  const ownCardInHand = definition.activeIn === "hand";
+  if (ownCardInHand) {
+    if (!getPlayer(state, playerId)?.hand.includes(instanceId)) {
+      return { code: "no_valid_target", message: `${abilityId} works only while its card is in your hand` };
+    }
+    if (payingFor !== instanceId) return { code: "no_valid_target", message: notForMessage(abilityId) };
+  }
   // The player who resolves a resource ability is its card's controller, also when it generates "for any player" and
   // another player spends it (RRG 1.8 "Ownership and Control", p. 31); the payer on a card no player controls.
   if (
@@ -1459,7 +1469,12 @@ function resourceAbilityFault(
   }
   // "…generate a [wild] resource for any player" (the Milano; docs/phase7-wave3.md §3.13); any player's, for an
   // alliance card (§3.17).
-  if (controllerOf(state, instanceId) !== playerId && definition.trigger.forAnyPlayer !== true && !group) {
+  if (
+    !ownCardInHand &&
+    controllerOf(state, instanceId) !== playerId &&
+    definition.trigger.forAnyPlayer !== true &&
+    !group
+  ) {
     return { code: "no_valid_target", message: "resource abilities must be on cards you control" };
   }
   const spender = resourceSpender(state, deps, instanceId, abilityId, playerId);
@@ -2502,11 +2517,16 @@ export function paymentOptions(
       });
     }
   }
-  for (const id of cardsInPlay(ctx.state)) {
-    const controlled = controllerOf(ctx.state, id) === playerId;
+  // The card paid for, when it is in the player's hand: its own resource abilities that work in hand (`activeIn:
+  // "hand"`, Enhanced Combat Sense; #890 item 2) pay for it, and for nothing else.
+  const ownInHand = payingFor !== null && mustPlayer(ctx.state, playerId).hand.includes(payingFor) ? [payingFor] : [];
+  for (const id of [...cardsInPlay(ctx.state), ...ownInHand]) {
+    const inHand = ownInHand.includes(id);
+    const controlled = inHand || controllerOf(ctx.state, id) === playerId;
     for (const ref of activeAbilityRefs(ctx.state, id, ctx.deps)) {
       const trigger = ctx.deps.abilities[ref.id]?.trigger;
       if (trigger?.kind !== "resource") continue;
+      if ((ctx.deps.abilities[ref.id]?.activeIn === "hand") !== inHand) continue;
       if (!controlled && trigger.forAnyPlayer !== true && !group) continue;
       // A resource "to overpay for a card" is offered only while a card is being played (`isPlayPayment`).
       if (overpaysOnly(ctx.deps, ref.id) && !isPlayPayment(excludeInstanceId, payingFor)) continue;

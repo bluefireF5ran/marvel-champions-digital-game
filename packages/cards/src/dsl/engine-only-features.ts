@@ -20,6 +20,7 @@ import {
   forcedInterrupt,
   forcedResponse,
   gainsKeyword,
+  generatesAmount,
   gets,
   heroAction,
   heroInterrupt,
@@ -317,6 +318,19 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
   "engine-only.generates-for-ability": resource(
     { wild: 1 },
     { cost: exhaustThis, generatesFor: query("upgrade"), forAbility: true },
+  ),
+  // "You can exhaust any number of Weapon or Tech upgrades you control to generate that many [wild] resources while
+  // paying for this card" (Enhanced Combat Sense, `spider-punisher-tw`): a resource ability in hand (`activeIn: "hand"`)
+  // that pays for its own card alone; "for each upgrade you exhausted" reads `paid.ability.<its id>`.
+  "engine-only.hand-resource-for-itself": resource(
+    generatesAmount("wild", countOf(query("upgrade", { inSlot: "exhausted" }))),
+    {
+      inHand: true,
+      cost: exhaustCardsCost(query("upgrade", { controller: "you", anyTrait: [trait("Weapon"), trait("Tech")] }), {
+        min: 1,
+        slot: "exhausted",
+      }),
+    },
   ),
   "engine-only.generates-for-aspect": resource(
     { wild: 1 },

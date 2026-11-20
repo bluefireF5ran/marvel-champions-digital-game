@@ -343,6 +343,7 @@ describe("engine-only DSL primitives", () => {
       "engine-only.flip-cards-cost",
       "engine-only.generates-for-ability",
       "engine-only.generates-for-aspect",
+      "engine-only.hand-resource-for-itself",
       "engine-only.has-tagged",
       "engine-only.ignore-boost-abilities",
       "engine-only.keyword-not-from-self",

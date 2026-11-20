@@ -452,7 +452,23 @@ function spendOrder(
     paymentOptions(createCtx(state, deps), playerId, null, payingFor).map((o) => o.optionId),
   );
   // One use of a resource ability pays one amount: the option for the most it generates (`isAlternativeAmount`).
-  const abilities = payments.filter((p) => "ability" in p && !isAlternativeAmount(p));
+  // A cost that picks cards in play is one option per pick (Enhanced Combat Sense's "any number of upgrades", #890
+  // item 2): only the option picking the most cards is tried, so the other picks do not claim the same cards twice.
+  const picks = (p: Payment): number =>
+    "ability" in p ? Object.values(p.ability.costChoices ?? {}).reduce((n, ids) => n + ids.length, 0) : 0;
+  const widest = new Map<string, Payment>();
+  for (const p of payments) {
+    if (!("ability" in p) || isAlternativeAmount(p) || !p.ability.costChoices) continue;
+    const key = `${p.ability.instanceId}:${p.ability.abilityId}`;
+    const held = widest.get(key);
+    if (!held || picks(p) > picks(held)) widest.set(key, p);
+  }
+  const abilities = payments.filter(
+    (p) =>
+      "ability" in p &&
+      !isAlternativeAmount(p) &&
+      (!p.ability.costChoices || widest.get(`${p.ability.instanceId}:${p.ability.abilityId}`) === p),
+  );
   // One card is spent once: its plain spending here, its "When you spend this card" uses in `walletsWithWhenSpent`.
   const hand = payments.flatMap((p) =>
     "fromHand" in p && !isWhenSpentUse(p) && !reserved.has(p.fromHand) ? [p.fromHand] : [],

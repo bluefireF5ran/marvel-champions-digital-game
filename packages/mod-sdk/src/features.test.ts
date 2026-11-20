@@ -191,6 +191,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("ability:generatesForAbility");
     // "Resolve an 'Action' ability on a card you control", out of turn and paying its cost (War Machine Armor, item 6).
     expect(SUPPORTED_DSL_FEATURES).toContain("effect:useActionAbility");
+    // A resource ability in hand that pays for its own card (Enhanced Combat Sense, #890 item 2).
+    expect(SUPPORTED_DSL_FEATURES).toContain("ability:activeIn");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

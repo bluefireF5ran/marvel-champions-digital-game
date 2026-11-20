@@ -297,10 +297,17 @@ export const resource = (
      * on a card matching `generatesFor`, never to play a card: `{ generatesFor: query("upgrade"), forAbility: true }`.
      */
     readonly forAbility?: boolean;
+    /**
+     * "… while paying for this card" on a card in hand (Enhanced Combat Sense, `spider-punisher-tw`; #890 item 2): the
+     * ability works from its owner's hand and pays for its own card alone (`activeIn: "hand"`). What it generated is
+     * `paid.ability.<its id>` for the card's text ("for each upgrade you exhausted to pay for this card").
+     */
+    readonly inHand?: boolean;
   } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => {
-  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, overpayOnly, forAbility, ...rest } = options;
+  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, overpayOnly, forAbility, inHand, ...rest } =
+    options;
   const definition = build(
     {
       kind: "resource",
@@ -319,6 +326,7 @@ export const resource = (
     ...(generatesFor ? { generatesFor } : {}),
     ...(overpayOnly ? { overpayOnly: true } : {}),
     ...(forAbility ? { generatesForAbility: true as const } : {}),
+    ...(inHand ? { activeIn: "hand" as const } : {}),
   };
 };
 /**
