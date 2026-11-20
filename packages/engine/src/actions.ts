@@ -6032,6 +6032,7 @@ export type PlayFromZone =
   | "hand"
   | "setAside"
   | "deck"
+  | "discard"
   | DeckAsIfInHandPlayFrom
   | { readonly tuckedUnder: readonly InstanceId[] }
   | SeparateDeckPlayFrom;
@@ -6074,6 +6075,8 @@ export function playOriginOf(asIfInHand: AsIfInHandPermission | null, from: Play
   if (from === "hand") return { from: "hand" };
   if (from === "deck") return { from: "deck" };
   if (from === "setAside") return { from: "setAside", countsAsFrom: "hand" };
+  // A play from the discard pile (Warzone, `punisher-msp`) is not printed "as if it were in your hand".
+  if (from === "discard") return { from: "discard" };
   if (isDeckAsIfInHandPlayFrom(from)) return { from: "deck", countsAsFrom: "hand" };
   if (isSeparateDeckPlayFrom(from))
     return { from: "separateDeck", ...(from.asIfInHand ? { countsAsFrom: "hand" as const } : {}) };
@@ -6143,6 +6146,7 @@ function playFromZoneFault(
   if (isSeparateDeckPlayFrom(from)) return from.position === "top" ? "not the top of that deck" : "not in that deck";
   if (isDeckAsIfInHandPlayFrom(from)) return "not in deck";
   if (typeof from === "object") return "not tucked there";
+  if (from === "discard") return "not in discard pile";
   return from === "hand" ? "not in hand" : from === "deck" ? "not in deck" : "not set aside";
 }
 
