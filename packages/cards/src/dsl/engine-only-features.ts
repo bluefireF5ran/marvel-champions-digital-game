@@ -41,11 +41,13 @@ import {
   cancelBoostedActivation,
   cancelIt,
   cards,
+  chooseOne,
+  chooseTarget,
   dealDamage,
   discard,
   doubleNextCardSpent,
-  enemyActivates,
   draw,
+  enemyActivates,
   enemyAttacksEnemy,
   findCard,
   giveBasicPowerBoostCard,
@@ -54,7 +56,10 @@ import {
   loseTraitUntil,
   modifyAttack,
   moveCards,
+  option,
   putIntoPlayFacedown,
+  removeThreat,
+  repeatTimes,
   replaceNextVillainPhaseWithPlayerPhase,
   resolveOneTagged,
   resolveTagged,
@@ -66,6 +71,7 @@ import { validateDefinition } from "./validate.js";
 import {
   attackInProgress,
   chosen,
+  countOf,
   each,
   eachPlayer,
   eventPlayer,
@@ -73,10 +79,12 @@ import {
   exists,
   hasTaggedAbility,
   lastPlayedThisRound,
+  min,
   not,
   overdefeated,
   perHero,
   query,
+  scaled,
   self,
   statOf,
   taggedAbilitiesOn,
@@ -206,6 +214,23 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
       while: not(exists(ALREADY_STEADY_OR_STALWART)),
     }),
     gets("hp", perHero(4), query("villain", { hostOfSelf: true }), { while: exists(ALREADY_STEADY_OR_STALWART) }),
+  ),
+  // "Response: After you ready your cards at the end of the player phase, for each 2 upgrades you readied this way,
+  // deal 1 damage to an enemy or remove 1 threat from a scheme (to a maximum of 3)" (Web-Sling, `spider-punisher-tw`):
+  // `TriggerEvent endPhaseCardsReadied`, its cards in slot `readied.cards`.
+  "engine-only.cards-readied-at-phase-end": response(
+    on.yourCardsReadiedAtPhaseEnd(),
+    repeatTimes(
+      min(scaled(countOf(query("upgrade", { inSlot: "readied.cards" })), { divide: { by: 2, round: "down" } }), 3),
+      chooseOne(
+        option("Deal 1 damage to an enemy", chooseTarget("enemy", query("enemy")), dealDamage(1, chosen("enemy"))),
+        option(
+          "Remove 1 threat from a scheme",
+          chooseTarget("scheme", query("scheme")),
+          removeThreat(1, chosen("scheme")),
+        ),
+      ),
+    ),
   ),
   // "Hero Response: After you overdefeat a side scheme (remove more threat from it than it had), discard this card"
   // (Rose's Greenhouse, `the-rose-bf`): `ValueSpec defeatExcessThreat`, read by the DSL's `overdefeated`.

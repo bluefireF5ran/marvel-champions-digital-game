@@ -7,6 +7,7 @@ import {
   hearsEncounterDeckDiscard,
   MOMENT_PREFIX,
   PAID_FOR_SLOT,
+  READIED_CARDS_SLOT,
   TOGETHER_TARGETS_SLOT,
   UNRESOLVED_VAR,
   type AbilityCost,
@@ -1981,6 +1982,9 @@ function checkBindings(definition: AbilityDefinition, problems: string[]): void 
   // So are the slots of the ability whose resolution it answers (`abilityResolved.carried`, wave 9 §3.43 (c)).
   if (trigger.kind === "response" && trigger.on && kindsOfPattern(trigger.on).includes("abilityResolved"))
     scope.prefixes.add(MOMENT_PREFIX);
+  // "After you ready your cards at the end of the player phase": the cards the step readied (#890 item 1).
+  if (trigger.kind === "response" && trigger.on && kindsOfPattern(trigger.on).includes("endPhaseCardsReadied"))
+    scope.slots.add(READIED_CARDS_SLOT);
   // An ability that answers an occurrence once (`EventPattern.together`) reads every condition's target from a slot
   // the engine binds as it is initiated.
   if ((trigger.kind === "response" || trigger.kind === "interrupt") && trigger.on?.together === true)

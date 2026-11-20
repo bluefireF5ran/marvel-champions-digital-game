@@ -4421,6 +4421,12 @@ export const on = {
   /** "After your turn begins" (Quinjet, `cap` pack). */
   yourTurnBegins: (): EventPattern => pattern("turnStarted", { playerIs: "controller" }),
   /**
+   * "After you ready your cards at the end of the player phase" (Web-Sling, `spider-punisher-tw`; #890 item 1): the
+   * cards the step readied are slot `readied.cards`, so "for each 2 upgrades you readied this way" counts
+   * `countOf(query("upgrade", { inSlot: "readied.cards" }))`.
+   */
+  yourCardsReadiedAtPhaseEnd: (): EventPattern => pattern("endPhaseCardsReadied", { playerIs: "controller" }),
+  /**
    * "After you use a basic power" (Quicksilver's Super Speed, Captain Marvel ally 04032, Rapid Growth; docs/phase7-
    * wave2.md §3.11). The engine's `EventPattern` has no field to narrow by *which* power (attack/thwart/defense/
    * recover) — every wave 2 card needing this reacts to any basic power, so no filter is needed today; a future
