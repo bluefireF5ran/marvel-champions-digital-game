@@ -341,6 +341,7 @@ describe("engine-only DSL primitives", () => {
       "engine-only.facedown-into-area",
       "engine-only.find-anywhere",
       "engine-only.flip-cards-cost",
+      "engine-only.generates-for-ability",
       "engine-only.generates-for-aspect",
       "engine-only.has-tagged",
       "engine-only.ignore-boost-abilities",

@@ -2179,6 +2179,17 @@ const MAX_REPEAT_OPTIONS = 20;
 const isPlayPayment = (excludeInstanceId: InstanceId | null, payingFor: InstanceId | null): boolean =>
   excludeInstanceId !== null && payingFor !== null;
 
+/**
+ * Whether a payment is for an ability's cost on a card (`AbilityDefinition.generatesForAbility`): a card is paid for and
+ * none is being played.
+ */
+const isAbilityPayment = (excludeInstanceId: InstanceId | null, payingFor: InstanceId | null): boolean =>
+  excludeInstanceId === null && payingFor !== null;
+
+/** A resource ability usable only for an ability's cost (`AbilityDefinition.generatesForAbility`). */
+const forAbilitiesOnly = (deps: EngineDeps, abilityId: string): boolean =>
+  deps.abilities[abilityId]?.generatesForAbility === true;
+
 /** A resource ability whose resources may only be overpaid (`AbilityDefinition.overpayOnly`). */
 const overpaysOnly = (deps: EngineDeps, abilityId: string): boolean => {
   const definition = deps.abilities[abilityId];
@@ -2337,6 +2348,8 @@ export function priceOf(
     const fault = resourceAbilityFault(ctx.state, ctx.deps, instanceId, abilityId, playerId, payingFor, group, choices);
     if (fault) return fault;
     if (overpaysOnly(ctx.deps, abilityId) && !isPlayPayment(excludeInstanceId, payingFor)) return OVERPAY_ONLY_FAULT;
+    if (forAbilitiesOnly(ctx.deps, abilityId) && !isAbilityPayment(excludeInstanceId, payingFor))
+      return { code: "no_valid_target", message: notForMessage(abilityId) };
     const plan = resourceCostPlan(ctx.state, ctx.deps, entry.ability, spender);
     if (isFault(plan)) return plan;
     for (const id of cardsSpentByResourceCost(ctx.deps, entry.ability, plan)) {
@@ -2497,6 +2510,8 @@ export function paymentOptions(
       if (!controlled && trigger.forAnyPlayer !== true && !group) continue;
       // A resource "to overpay for a card" is offered only while a card is being played (`isPlayPayment`).
       if (overpaysOnly(ctx.deps, ref.id) && !isPlayPayment(excludeInstanceId, payingFor)) continue;
+      // A resource "for an upgrade ability" is offered only while an ability's cost is paid (`generatesForAbility`).
+      if (forAbilitiesOnly(ctx.deps, ref.id) && !isAbilityPayment(excludeInstanceId, payingFor)) continue;
       const spender = resourceSpender(ctx.state, ctx.deps, id, ref.id, playerId);
       // A cost that picks cards in play: one option per legal pick, so each shows what it generates (Sync Ratio).
       const pickChoices = resourcePickChoices(ctx.state, ctx.deps, id, ref.id, spender);

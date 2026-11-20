@@ -292,10 +292,15 @@ export const resource = (
     readonly spentAsIfResource?: boolean;
     /** "… to overpay for a card": never toward the cost, always overpaid (hero-packs H3.14). */
     readonly overpayOnly?: boolean;
+    /**
+     * "… for an upgrade ability" (With Great Firepower, `spider-punisher-tw`; #890 item 3): only for an ability's cost
+     * on a card matching `generatesFor`, never to play a card: `{ generatesFor: query("upgrade"), forAbility: true }`.
+     */
+    readonly forAbility?: boolean;
   } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => {
-  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, overpayOnly, ...rest } = options;
+  const { form, generatesFor, forAnyPlayer, repeatable, spentAsIfResource, overpayOnly, forAbility, ...rest } = options;
   const definition = build(
     {
       kind: "resource",
@@ -309,7 +314,12 @@ export const resource = (
     effects,
     generates,
   );
-  return { ...definition, ...(generatesFor ? { generatesFor } : {}), ...(overpayOnly ? { overpayOnly: true } : {}) };
+  return {
+    ...definition,
+    ...(generatesFor ? { generatesFor } : {}),
+    ...(overpayOnly ? { overpayOnly: true } : {}),
+    ...(forAbility ? { generatesForAbility: true as const } : {}),
+  };
 };
 /**
  * "Interrupt: When you spend this card, [cost] → generate …" on a card spent from hand (Organizational Support, `aos`
@@ -350,7 +360,11 @@ export const countersAsResource = (counterType: string, generates: ResourceGener
 /** "Hero Resource:" */
 export const heroResource = (
   generates: ResourceGeneration,
-  options: AbilityOptions & { readonly generatesFor?: TargetQuery; readonly overpayOnly?: boolean } = {},
+  options: AbilityOptions & {
+    readonly generatesFor?: TargetQuery;
+    readonly overpayOnly?: boolean;
+    readonly forAbility?: boolean;
+  } = {},
   ...effects: readonly EffectArg[]
 ): AbilityDefinition => resource(generates, { ...options, form: "hero" }, ...effects);
 

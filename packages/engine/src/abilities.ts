@@ -4129,6 +4129,14 @@ export interface AbilityDefinition {
   /** Resource abilities only: "generate a [wild] resource for an event" — usable only while paying for a matching card. */
   readonly generatesFor?: TargetQuery;
   /**
+   * Resource abilities only: "generate a [wild] resource **for an upgrade ability**" (With Great Firepower, the
+   * `spider-punisher-tw` community pack; #890 item 3): usable only while paying an ability's cost, the ability's card
+   * matching `generatesFor` (an ability's payment is for its own card, docs/phase7-wave6.md §3.30), never to play a
+   * card. A play payment (`isPlayPayment`: a card being played, and the card paid for) is refused, and so is a payment
+   * for no card.
+   */
+  readonly generatesForAbility?: true;
+  /**
    * Resource abilities only: "Resource: Generate a [energy] resource **to overpay for a card**. (Limit once per card.)"
    * (Mr. Hollywood, `wonder_man` 58009; docs/phase7-wave10-hero-packs.md H3.14). What the ability generates may join a
    * payment only as overpayment. RRG 1.8 "Cost" (p. 13): "Resources generated beyond the specified cost are considered

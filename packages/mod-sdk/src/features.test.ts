@@ -187,6 +187,8 @@ describe("dslFeatures", () => {
     expect(SUPPORTED_DSL_FEATURES).toContain("query:keywordNotFromSelf");
     // "After you ready your cards at the end of the player phase" (Web-Sling, #890 item 1).
     expect(SUPPORTED_DSL_FEATURES).toContain("event:endPhaseCardsReadied");
+    // "Generate a [wild] resource for an upgrade ability" (With Great Firepower, #890 item 3).
+    expect(SUPPORTED_DSL_FEATURES).toContain("ability:generatesForAbility");
   });
 
   it("TARGET_QUERY_FIELDS is every field of the engine's TargetQuery interface", () => {

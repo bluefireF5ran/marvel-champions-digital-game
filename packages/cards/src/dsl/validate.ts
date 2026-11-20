@@ -734,6 +734,12 @@ function checkTrigger(definition: AbilityDefinition, problems: string[]): void {
   // docs/phase7-wave10-hero-packs.md H3.14: "generate a resource to overpay for a card" is read in a payment, from a
   // resource ability on a card in play that generates (a card spent from hand, or a counter spent "as if it were a
   // resource", goes toward the cost by its own rule).
+  if (definition.generatesForAbility) {
+    if (trigger.kind !== "resource" || trigger.whenSpent)
+      problems.push("generatesForAbility is a resource ability's (not a when-spent one)");
+    if (!definition.generatesFor) problems.push("generatesForAbility needs generatesFor (the ability's card)");
+    if (definition.overpayOnly) problems.push("generatesForAbility and overpayOnly never meet (an ability vs a play)");
+  }
   if (definition.overpayOnly) {
     if (trigger.kind !== "resource") problems.push("overpayOnly is a resource ability's");
     else if (trigger.whenSpent) problems.push("a when-spent ability generates with its card: it cannot be overpayOnly");

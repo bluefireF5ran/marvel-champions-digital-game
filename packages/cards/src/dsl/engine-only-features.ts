@@ -302,6 +302,12 @@ export const ENGINE_ONLY_DSL_EXAMPLES: AbilityRegistry = {
     },
     draw(1),
   ),
+  // "Resource: … generate a [wild] resource for an upgrade ability" (With Great Firepower, `spider-punisher-tw`):
+  // `AbilityDefinition.generatesForAbility`, only for an ability's cost on an upgrade, never to play one.
+  "engine-only.generates-for-ability": resource(
+    { wild: 1 },
+    { cost: exhaustThis, generatesFor: query("upgrade"), forAbility: true },
+  ),
   "engine-only.generates-for-aspect": resource(
     { wild: 1 },
     { cost: exhaustThis, generatesFor: query([], { aspect: "pool" }) },
