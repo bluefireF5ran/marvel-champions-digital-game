@@ -357,6 +357,15 @@ const identitySetMembers = (identity: HeroIdentityCard, cards: ReadonlyMap<strin
   );
 
 /**
+ * Whether a line is one of the identity set's required cards, whose exact set quantity governs it instead of the copy
+ * rules (see "Copies by title" in `validateDeck`). A house rule's optional card for the identity
+ * (`PlayerCard.optionalForIdentity`, #890 item 13) is not: like any other card, it is held to three copies by title and
+ * its own deck limit.
+ */
+const exemptFromCopyLimit = (line: Line): boolean =>
+  line.classification.kind === "identity" && line.card.optionalForIdentity !== true;
+
+/**
  * The identity-set cards every deck for `identity` must hold, each at its exact set quantity
  * (Appendix I, p. 50: "The exact quantity of each card included in that identity set must be
  * included in the deck").
@@ -478,10 +487,10 @@ export function copiesUpToLimit(
   for (const entry of cards) {
     const other = index.get(entry.cardId);
     if (!other || !isPlayerDeckCard(other)) continue;
-    const classification = classify(other);
-    // `validateDeck` counts copies outside the identity set only; mirror it.
-    if (classification.kind === "identity") continue;
-    listed.push({ card: other, quantity: entry.quantity, classification });
+    const line: Line = { card: other, quantity: entry.quantity, classification: classify(other) };
+    // `validateDeck` counts copies outside the identity set's required cards only; mirror it.
+    if (exemptFromCopyLimit(line)) continue;
+    listed.push(line);
   }
   if (isUnique(card)) {
     return listed.some((line) => isUnique(line.card) && cardsMatch(line.card, card)) ? 0 : 1;
@@ -1208,7 +1217,8 @@ export function validateDeck(deck: DeckContents, pool: CardPool, context?: DeckC
   // allows. The RRG does not reconcile the two bullets. The specific rule (identity set,
   // checked above as `identity_set_mismatch`) governs its own cards, and the general
   // three-copy rule governs the rest. Flagged for FFG.
-  for (const [title, group] of byTitle(lines.filter((line) => line.classification.kind !== "identity"))) {
+  // An optional identity card (house rule) is not in the set, so the general rule governs it.
+  for (const [title, group] of byTitle(lines.filter((line) => !exemptFromCopyLimit(line)))) {
     if (group.some((line) => isUnique(line.card))) continue; // The unique rule governs these (below).
     // `CAMPAIGN_GRANTS_COUNT_TOWARD_COPY_LIMIT` is the design's Q8 decision point; see its doc comment.
     const granted = CAMPAIGN_GRANTS_COUNT_TOWARD_COPY_LIMIT

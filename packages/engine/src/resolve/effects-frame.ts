@@ -1,6 +1,6 @@
 /** Stepping through an effects frame, including the effects that stop for a player choice. */
 
-import { abilityCostChoiceSets, abilityUsableAsTheirMoment, type LegalAction } from "../legal.js";
+import { abilityCostChoiceSets, abilityUsableAsTheirMoment, costHelpFor, type LegalAction } from "../legal.js";
 import { displayNameOf } from "../visibility.js";
 import type { AbilityId } from "@mc/content";
 import { announceDeckTops } from "../deck-top.js";
@@ -128,7 +128,14 @@ import {
   printedCostOf,
   undefeatedVillains,
 } from "../query.js";
-import { cannotBeHealed, cannotChooseOption, cannotChooseToDiscard, cannotTakeDamage, cannotThwart } from "../rules.js";
+import {
+  cannotBeHealed,
+  cannotChooseOption,
+  cannotChooseToDiscard,
+  cannotTakeDamage,
+  cannotThwart,
+  costsPayableByAnyPlayer,
+} from "../rules.js";
 import { heard } from "./triggers.js";
 import {
   combineRequirements,
@@ -246,7 +253,14 @@ import { hasPerPlayerMainSchemes } from "../per-player-main-schemes.js";
 import { executePairCards } from "./pair-cards.js";
 import { executeSequentialDamage } from "./sequential-damage.js";
 import { markPreThenUnresolved } from "./then.js";
-import type { Command, CostChoices, Payment } from "../commands.js";
+import {
+  DELEGABLE_COST_PARTS,
+  type Command,
+  type CostChoices,
+  type CostPartPayers,
+  type DelegableCostPart,
+  type Payment,
+} from "../commands.js";
 
 /** The `EffectContext` an effects frame resolves in. Exported so `why-not.ts` can rebuild it exactly. */
 export const contextOf = (frame: Frame<"effects">, deps: EngineDeps): EffectContext => ({
@@ -879,7 +893,8 @@ function usableActions(
  *    pick that must hold the ability's own card (`includesSelf`: The Elephant's Trunk) holds it, the player choosing
  *    only the others;
  * 4. how many counters an "up to N" counter cost removes;
- * 5. the resources, priced as an ability's payment.
+ * 5. who pays each part of a cost any player may help pay (`CostSelection.paidBy`), when more than one player can;
+ * 6. the resources, priced as an ability's payment.
  * Should the engine still refuse what was chosen, the resources are asked again (a payment that does not cover the cost
  * uses nothing: RRG 1.8 "Initiating Abilities", p. 24, step 5), twice at most, so the Action is never lost unseen.
  */
@@ -946,6 +961,7 @@ function executeUseActionAbility(
     costChoices: CostChoices,
     branch: number | undefined,
     counters?: number,
+    paidBy?: CostPartPayers,
   ): Command & { type: "useAbility" } => ({
     type: "useAbility",
     playerId,
@@ -953,11 +969,12 @@ function executeUseActionAbility(
     abilityId: ref.id,
     payment,
     costChoices,
-    ...(branch !== undefined || counters !== undefined
+    ...(branch !== undefined || counters !== undefined || paidBy !== undefined
       ? {
           costSelection: {
             ...(branch !== undefined ? { branch } : {}),
             ...(counters !== undefined ? { counters } : {}),
+            ...(paidBy !== undefined ? { paidBy } : {}),
           },
         }
       : {}),
@@ -1018,12 +1035,22 @@ function executeUseActionAbility(
         bindings: {},
         deps: ctx.deps,
       };
-      const hand = mustPlayer(ctx.state, playerId).hand.filter(
-        (id) =>
-          id !== card &&
-          (!discard.filter || matchesQuery(ctx.state, id, discard.filter, filterContext)) &&
-          !cannotChooseToDiscard(ctx.state, ctx.deps, id),
+      // A cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`, hero-packs H3.19) takes the other
+      // players' hand cards too, the user's first, as `discardPicks` and `planCost` do on the player's own turn (PR
+      // #903 review 7). Not a discard folded in from an additional cost to change form: that is the user's own hand.
+      const hands =
+        costsPayableByAnyPlayer(ctx.state, ctx.deps, card) && !written?.changeFormFolded?.includes("discardFromHand")
+          ? [playerId, ...playerOrder(ctx.state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))]
+          : [playerId];
+      const hand = hands.flatMap((owner) =>
+        mustPlayer(ctx.state, owner).hand.filter(
+          (id) =>
+            id !== card &&
+            (!discard.filter || matchesQuery(ctx.state, id, discard.filter, filterContext)) &&
+            !cannotChooseToDiscard(ctx.state, ctx.deps, id),
+        ),
       );
+      const ownHand = mustPlayer(ctx.state, playerId).hand;
       const max = Math.min(discard.max ?? hand.length, hand.length);
       const min = Math.min(discard.min, hand.length);
       // Nothing to choose: exactly the cards there are.
@@ -1032,7 +1059,11 @@ function executeUseActionAbility(
       if (frame.answer === null) {
         requestChoice(ctx, {
           playerId,
-          prompt: { kind: "chooseCards", slot: "discard", ownHand: true },
+          prompt: {
+            kind: "chooseCards",
+            slot: "discard",
+            ...(hand.every((id) => ownHand.includes(id)) ? { ownHand: true } : {}),
+          },
           options: cardOptions(ctx, hand),
           minSelections: min,
           maxSelections: max,
@@ -1166,7 +1197,56 @@ function executeUseActionAbility(
   }
   const counters = frame.vars["_use.counters"];
 
-  // Step 5: the resources, as an ability's payment; asked again (twice at most) should the engine refuse the whole.
+  // Step 5: who pays each part of a cost any player may help pay (`RuleSpec costsPayableByAnyPlayer`; the
+  // `DelegableCostPart`s: "take N damage", "discard the top N cards of your deck", …), as the client asks from
+  // `LegalAction.costHelp` on the player's own turn (PR #903 review 7). Offered: the players who could pay that part
+  // now (`costHelpFor`), the user first; one is no question. Carried as `CostSelection.paidBy`.
+  const parts = DELEGABLE_COST_PARTS.filter((part) => cost?.[part] !== undefined);
+  // The players, the user first; `_use.payer.<part>` is the payer's place here.
+  const everyone = [playerId, ...playerOrder(ctx.state).flatMap((p) => (p.playerId === playerId ? [] : [p.playerId]))];
+  const action = { kind: "useAbility", instanceId: card, abilityId: ref.id } as const;
+  const payersOf = (part: DelegableCostPart): readonly PlayerId[] =>
+    everyone.filter((helper) =>
+      costHelpFor(
+        ctx.state,
+        playerId,
+        action,
+        helper,
+        branch === undefined ? {} : { costSelection: { branch } },
+        ctx.deps,
+      ).some((answer) => answer.part === part && answer.ok),
+    );
+  if (step === 5) {
+    const index = frame.vars["_use.part"] ?? 0;
+    const part = parts[index];
+    if (!part) return next({ "_use.step": 6 });
+    const payers = payersOf(part);
+    if (payers.length === 0) return done();
+    const chosen = (payer: PlayerId): void =>
+      next({ "_use.part": index + 1, [`_use.payer.${part}`]: everyone.indexOf(payer) });
+    if (payers.length === 1) return chosen(payers[0]!);
+    if (frame.answer === null) {
+      requestChoice(ctx, {
+        playerId,
+        prompt: { kind: "choosePlayer", slot: `costPart.${part}`, cardInstanceId: card },
+        options: payers.map((id) => ({ optionId: id, label: id, ref: { kind: "player", playerId: id } as const })),
+        minSelections: 1,
+        maxSelections: 1,
+        frameId: frame.frameId,
+      });
+      return;
+    }
+    const payer = payers.find((id) => id === frame.answer?.[0]);
+    if (!payer) return done();
+    return chosen(payer);
+  }
+  const helped = parts.flatMap((part) => {
+    const payer = everyone[frame.vars[`_use.payer.${part}`] ?? 0];
+    return payer !== undefined && payer !== playerId ? [[part, payer] as const] : [];
+  });
+  const paidBy = helped.length > 0 ? (Object.fromEntries(helped) as CostPartPayers) : undefined;
+
+  // Step 6: the resources, as an ability's payment; asked again (twice at most) should the engine refuse the whole.
   if (need > 0 && frame.answer === null) {
     // A hand card the cost discards is not spent too, in any of its ways (`hand:<id>`, `hand:<id>:<ability>…`).
     const options = paymentOptions(ctx, playerId, null, card).filter((option) =>
@@ -1183,7 +1263,7 @@ function executeUseActionAbility(
     return;
   }
   const payment = need > 0 ? paymentsFromOptionIds(frame.answer ?? []) : [];
-  const final = command(payment, costChoices, branch, counters);
+  const final = command(payment, costChoices, branch, counters, paidBy);
   const retries = frame.vars["_use.retries"] ?? 0;
   if (!wouldUse(ctx, final) && need > 0 && retries < 2) {
     setFrame(ctx, { ...frame, answer: null, vars: { ...frame.vars, "_use.retries": retries + 1 } });

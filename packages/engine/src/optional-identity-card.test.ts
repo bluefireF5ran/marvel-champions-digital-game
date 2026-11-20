@@ -13,7 +13,7 @@ import {
   type PlayerCard,
 } from "@mc/content";
 import { describe, expect, it } from "vitest";
-import { requiredIdentitySet, validateDeck } from "./deck.js";
+import { copiesUpToLimit, requiredIdentitySet, validateDeck } from "./deck.js";
 
 const QUICKSILVER = "14001a";
 const SCARLET_WITCH = "15001a";
@@ -41,7 +41,9 @@ const HOUSE: PlayerCard = {
   quantityInSet: 1,
   optionalForIdentity: true,
 } as PlayerCard;
-const POOL: readonly AnyCard[] = [...WAVE2_CARDS, HOUSE];
+/** A second house-rule card that shares its title with the basic upgrade `base` (RRG 1.8 "Copy", p. 13). */
+const HOUSE_SAME_TITLE: PlayerCard = { ...HOUSE, id: "x.house.02" as CardId, name: base.name };
+const POOL: readonly AnyCard[] = [...WAVE2_CARDS, HOUSE, HOUSE_SAME_TITLE];
 
 const codes = (deck: DeckContents) => {
   const verdict = validateDeck(deck, POOL);
@@ -67,5 +69,24 @@ describe("optionalForIdentity: a house rule's identity-specific card (#890 item 
     const deck = starterOf(SCARLET_WITCH);
     const withHouse: DeckContents = { ...deck, cards: [...deck.cards, { cardId: HOUSE.id, quantity: 1 }] };
     expect(codes(withHouse).length).toBeGreaterThan(0);
+  });
+
+  it("is held to its deck limit: two copies of a `deckLimit: 1` card are refused", () => {
+    const deck = starterOf(QUICKSILVER);
+    const twice: DeckContents = { ...deck, cards: [...deck.cards, { cardId: HOUSE.id, quantity: 2 }] };
+    expect(codes(twice)).toContain("copy_limit");
+  });
+
+  it("counts copies by title with the other cards that share it", () => {
+    const deck = starterOf(QUICKSILVER);
+    const shared: DeckContents = {
+      ...deck,
+      cards: [...deck.cards, { cardId: HOUSE_SAME_TITLE.id, quantity: 1 }, { cardId: base.id, quantity: 1 }],
+    };
+    // One title, two copies, and the house card's deck limit of 1 lowers the title's limit to 1.
+    expect(codes(shared)).toContain("copy_limit");
+    // The campaign helper agrees: with the house card listed, the shared title has no copy left for the basic card.
+    const withHouse = [...deck.cards, { cardId: HOUSE_SAME_TITLE.id, quantity: 1 }];
+    expect(copiesUpToLimit(withHouse, base.id, identity, POOL)).toBe(0);
   });
 });
