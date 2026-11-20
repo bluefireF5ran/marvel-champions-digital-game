@@ -864,6 +864,22 @@ function discardPicks(
 type CostChoiceSet = { readonly costChoices: CostChoices | undefined; readonly target: InstanceId | null };
 
 /**
+ * The cost-choice sets a regular `useAbility` of `source`'s ability is tried with (`costChoiceSets`, its hand discard
+ * defaulted as `legalActions` defaults it): one per legal pick of a chosen card, a card whose printed cost is paid, an
+ * attach host, a character a cost damages or heals, a target or a Special to resolve. For an effect that initiates
+ * an Action itself (`EffectSpec useActionAbility`, PR #903 review), so it judges and asks the same choices.
+ */
+export function abilityCostChoiceSets(
+  state: GameState,
+  deps: EngineDeps,
+  playerId: PlayerId,
+  source: InstanceId,
+  cost: AbilityCost | undefined,
+): readonly CostChoiceSet[] {
+  return costChoiceSets(state, deps, playerId, source, cost, discardPicks(state, deps, playerId, source, cost));
+}
+
+/**
  * The `costChoices` to try: one per candidate for a "pay the printed cost of …" or "choose a card …" pick, each then
  * once per host an attach cost may pick ("attach it to a character other than Rogue →", `AbilityCost.attach`,
  * docs/phase7-wave6.md §3.49). With no card to attach or no host, the variants are left as they are and the engine's

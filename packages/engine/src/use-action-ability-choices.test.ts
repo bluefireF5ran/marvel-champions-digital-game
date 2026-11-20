@@ -106,7 +106,61 @@ const CHI_ACTION = stubAbility("chi.action", {
 } satisfies AbilityDefinition);
 const CHI = stubSupport({ id: "chi", cost: 0, abilities: [CHI_ACTION.ref] });
 
-const CARDS = [ARMOR_CARD, FIREPOWER, GUN, RECRUIT, VOLLEY, ALLY, NAP, PUNCH, GIFT, TWIN, CHI];
+/** A support with one "Resource: exhaust this support → generate 1". */
+const SOLO_RESOURCE = stubAbility("solo.resource", {
+  trigger: { kind: "resource" },
+  cost: { exhaustSelf: true },
+  generates: { wild: 1 },
+  effects: [],
+} satisfies AbilityDefinition);
+const SOLO = stubSupport({ id: "solo", cost: 0, abilities: [SOLO_RESOURCE.ref] });
+/** "Action: Spend 2 resources → place 1 counter here." */
+const CANNON_ACTION = stubAbility("cannon.action", {
+  trigger: { kind: "action" },
+  cost: { resources: 2 },
+  effects: [counter("blast")],
+} satisfies AbilityDefinition);
+const CANNON = stubUpgrade({ id: "cannon", cost: 0, abilities: [CANNON_ACTION.ref] });
+/** Captain America's shape (03001a): "Action: Discard 1 card from your hand → …". */
+const SHIELD_ACTION = stubAbility("shield.action", {
+  trigger: { kind: "action" },
+  cost: { discardFromHand: { min: 1 } },
+  effects: [counter("ready")],
+} satisfies AbilityDefinition);
+const SHIELD = stubSupport({ id: "shield", cost: 0, abilities: [SHIELD_ACTION.ref] });
+/** The Elephant's Trunk's shape (51007): "Exhaust this and up to 2 other supports you control → …". */
+const TRUNK_ACTION = stubAbility("trunk.action", {
+  trigger: { kind: "action" },
+  cost: {
+    exhaustCards: {
+      slot: "exhausted",
+      query: { categories: ["support"], controller: "you" },
+      min: 1,
+      max: 3,
+      includesSelf: true,
+    },
+  },
+  effects: [counter("trunk")],
+} satisfies AbilityDefinition);
+const TRUNK = stubSupport({ id: "trunk", cost: 0, abilities: [TRUNK_ACTION.ref] });
+
+const CARDS = [
+  ARMOR_CARD,
+  FIREPOWER,
+  GUN,
+  RECRUIT,
+  VOLLEY,
+  ALLY,
+  NAP,
+  PUNCH,
+  GIFT,
+  TWIN,
+  CHI,
+  SOLO,
+  CANNON,
+  SHIELD,
+  TRUNK,
+];
 const deps: EngineDeps = depsOf(
   ARMOR,
   FIREPOWER_RESOURCE,
@@ -119,6 +173,10 @@ const deps: EngineDeps = depsOf(
   TWIN_A,
   TWIN_B,
   CHI_ACTION,
+  SOLO_RESOURCE,
+  CANNON_ACTION,
+  SHIELD_ACTION,
+  TRUNK_ACTION,
 );
 
 /** P1 in hero form with Armor and `cards` in play, the hand and deck emptied when `noHand`. */
@@ -146,6 +204,7 @@ function endTurnUsing(
   answers: {
     cards?: (options: readonly string[]) => readonly string[];
     number?: (options: readonly string[]) => readonly string[];
+    pay?: (options: readonly string[]) => readonly string[];
   } = {},
 ) {
   const offered: string[][] = [];
@@ -159,7 +218,7 @@ function endTurnUsing(
     }
     if (choice.prompt.kind === "chooseCards" && answers.cards) return answers.cards(ids);
     if (choice.prompt.kind === "chooseNumber" && answers.number) return answers.number(ids);
-    if (choice.prompt.kind === "spendResources") return [ids[0]!];
+    if (choice.prompt.kind === "spendResources") return answers.pay ? answers.pay(ids) : [ids[0]!];
     return defaultPick(s);
   };
   const driven = driveSession(startSession(state), deps, [{ type: "endTurn", playerId: P1 }], pick);
@@ -232,5 +291,51 @@ describe("useActionAbility: the PR #903 review's cases (#890 item 6)", () => {
     const after = endTurnUsing(charged, CHI_ACTION.ref.id, { number: (options) => options.filter((o) => o === "1") });
     expect(mustInstance(after.state, chi).counters.focus).toBe(1);
     expect(mustInstance(after.state, chi).counters.chi).toBe(1);
+  });
+
+  it("two resource abilities on one card and a third elsewhere: one of the two with the third pays 2", () => {
+    const { state, ids } = start(["twin", "solo", "cannon"], true);
+    const twin = ids.twin![0]!;
+    const solo = ids.solo![0]!;
+    const after = endTurnUsing(state, CANNON_ACTION.ref.id, {
+      pay: (options) => [
+        options.find((o) => o.startsWith(`ability:${twin}:${TWIN_A.ref.id}`))!,
+        options.find((o) => o.startsWith(`ability:${solo}:`))!,
+      ],
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${CANNON_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, ids.cannon![0]!).counters.blast).toBe(1);
+    expect(mustInstance(after.state, twin).exhausted).toBe(true);
+    expect(mustInstance(after.state, solo).exhausted).toBe(true);
+  });
+
+  it("a hand discard in the cost (Captain America's Action) is offered and the chosen card is discarded", () => {
+    const { state, ids } = start(["shield"]);
+    const hand = mustPlayer(state, P1).hand;
+    expect(hand.length).toBeGreaterThan(1);
+    const chosen = hand[hand.length - 1]!;
+    const after = endTurnUsing(state, SHIELD_ACTION.ref.id, {
+      cards: (options) => options.filter((o) => o === chosen),
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${SHIELD_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, ids.shield![0]!).counters.ready).toBe(1);
+    expect(mustPlayer(after.state, P1).discard).toContain(chosen);
+  });
+
+  it("'this and up to 2 others' (The Elephant's Trunk): the card is kept in the pick, the player chooses the others", () => {
+    const { state, ids } = start(["trunk", "solo"]);
+    const trunk = ids.trunk![0]!;
+    const solo = ids.solo![0]!;
+    let asked: readonly string[] = [];
+    const after = endTurnUsing(state, TRUNK_ACTION.ref.id, {
+      cards: (options) => {
+        asked = options;
+        return [solo];
+      },
+    });
+    expect(asked).not.toContain(trunk);
+    expect(mustInstance(after.state, trunk).counters.trunk).toBe(1);
+    expect(mustInstance(after.state, trunk).exhausted).toBe(true);
+    expect(mustInstance(after.state, solo).exhausted).toBe(true);
   });
 });
