@@ -4105,6 +4105,11 @@ export interface AbilityDefinition {
    * that leaves another way strands it under the RRG. Card text over the Rules Reference (RRG 1.8 "The Golden Rules",
    * p. 4). Not inferred from the trigger: another card that only answers its host leaving ("draw 1 card") is still
    * removed from the game (owner, 2026-10-18).
+   *
+   * Also on a player card that is not permanent and attaches itself by its own effect (Juston Seyfert, a support the
+   * `sentinel-tw` community pack moves onto a side scheme: "After attached side scheme is defeated, put Juston Seyfert
+   * in play under your control"; #890 item 12): it comes back unattached to its controller's play area instead of being
+   * discarded with its host (`discardWithLeavingHost`).
    */
   readonly staysWhenHostLeaves?: "leaves" | "defeated";
   /**
