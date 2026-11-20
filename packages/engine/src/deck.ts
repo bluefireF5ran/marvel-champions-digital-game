@@ -347,7 +347,13 @@ const isLinked = (card: PlayerCard): boolean => card.keywords.some((k) => k.name
  */
 const identitySetMembers = (identity: HeroIdentityCard, cards: ReadonlyMap<string, AnyCard>): readonly PlayerCard[] =>
   [...cards.values()].filter(
-    (card): card is PlayerCard => isPlayerDeckCard(card) && card.aspect === `hero:${identity.id}` && !isLinked(card),
+    (card): card is PlayerCard =>
+      isPlayerDeckCard(card) &&
+      card.aspect === `hero:${identity.id}` &&
+      !isLinked(card) &&
+      // A house-rule card for the identity (`PlayerCard.optionalForIdentity`, #890 item 13) may be in its deck, but is
+      // not one of the set's required cards.
+      card.optionalForIdentity !== true,
   );
 
 /**
