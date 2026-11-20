@@ -18,7 +18,7 @@ import { mustInstance, mustPlayer } from "./query.js";
 import type { GameState } from "./state.js";
 import { depsOf, stubAbility } from "./testing/abilities.js";
 import { driveSession } from "./testing/drive.js";
-import { stubAlly, stubResource, stubSupport, stubUpgrade } from "./testing/fixtures.js";
+import { stubAlly, stubEvent, stubResource, stubSupport, stubUpgrade } from "./testing/fixtures.js";
 import { defaultPick, giveCard } from "./testing/scenario.js";
 import { gameAtFirstTurn, P1, playerCardIntoPlay } from "./testing/wave3.js";
 
@@ -180,6 +180,34 @@ const SHED_ACTION = stubAbility("shed.action", {
 } satisfies AbilityDefinition);
 const SHED = stubSupport({ id: "shed", cost: 0, abilities: [SHED_ACTION.ref] });
 
+/** Energy Siphon's shape (58006): "When you spend this card, take up to 3 damage → 1 additional [energy] for each". */
+const SIPHON_SPENT = stubAbility("siphon.spent", {
+  trigger: { kind: "resource", whenSpent: true },
+  cost: { damageSelf: { choose: { min: { kind: "const", value: 1 }, max: { kind: "const", value: 3 } } } },
+  generates: { kind: "amount", resource: "energy", amount: { kind: "var", name: "cost.damageSelf" } },
+  effects: [],
+} satisfies AbilityDefinition);
+const SIPHON = stubResource({ id: "siphon", icons: 1, produces: { energy: 1 }, abilities: [SIPHON_SPENT.ref] });
+/** "Action: Spend 3 resources → place 1 counter here." */
+const LANCE_ACTION = stubAbility("lance.action", {
+  trigger: { kind: "action" },
+  cost: { resources: 3 },
+  effects: [counter("lanced")],
+} satisfies AbilityDefinition);
+const LANCE = stubUpgrade({ id: "lance", cost: 0, abilities: [LANCE_ACTION.ref] });
+/** Advanced Glider's shape (27136): "Discard any number of events from your hand with a combined cost of 3 or more →". */
+const GLIDER_ACTION = stubAbility("glider.action", {
+  trigger: { kind: "action" },
+  cost: {
+    discardFromHand: { min: 1, filter: { categories: ["event"] }, combined: { measure: "printedCost", atLeast: 3 } },
+  },
+  effects: [counter("glided")],
+} satisfies AbilityDefinition);
+const GLIDER = stubSupport({ id: "glider", cost: 0, abilities: [GLIDER_ACTION.ref] });
+const EVENT_1 = stubEvent({ id: "event-1", cost: 1 });
+const EVENT_2 = stubEvent({ id: "event-2", cost: 2 });
+const EVENT_3 = stubEvent({ id: "event-3", cost: 3 });
+
 const CARDS = [
   ARMOR_CARD,
   FIREPOWER,
@@ -201,6 +229,12 @@ const CARDS = [
   SWITCH,
   PURGE,
   SHED,
+  SIPHON,
+  LANCE,
+  GLIDER,
+  EVENT_1,
+  EVENT_2,
+  EVENT_3,
 ];
 const deps: EngineDeps = depsOf(
   ARMOR,
@@ -223,6 +257,9 @@ const deps: EngineDeps = depsOf(
   SWITCH_ACTION,
   PURGE_ACTION,
   SHED_ACTION,
+  SIPHON_SPENT,
+  LANCE_ACTION,
+  GLIDER_ACTION,
 );
 
 /** P1 in hero form with Armor and `cards` in play, the hand and deck emptied when `noHand`. */
@@ -419,13 +456,16 @@ describe("useActionAbility: the PR #903 review's cases (#890 item 6)", () => {
 
   it("an either/or whose only payable branch discards from hand is offered, and the chosen card goes", () => {
     const { state, ids } = start(["switch"]);
-    const chosen = mustPlayer(state, P1).hand[0]!;
+    let chosen = "";
     const after = endTurnUsing(state, SWITCH_ACTION.ref.id, {
-      cards: (options) => options.filter((o) => o === chosen),
+      cards: (options) => {
+        chosen = options[options.length - 1]!;
+        return [chosen];
+      },
     });
     expect(after.offered[0]?.some((id) => id.endsWith(`|${SWITCH_ACTION.ref.id}`))).toBe(true);
     expect(mustInstance(after.state, ids.switch![0]!).counters.switched).toBe(1);
-    expect(mustPlayer(after.state, P1).discard).toContain(chosen);
+    expect(mustPlayer(after.state, P1).discard).toContain(chosen as InstanceId);
   });
 
   it("'discard X cards' (no maximum) lets the player discard 2", () => {
@@ -457,5 +497,38 @@ describe("useActionAbility: the PR #903 review's cases (#890 item 6)", () => {
     expect(chosen).toHaveLength(3);
     expect(mustInstance(after.state, ids.shed![0]!).counters.shed).toBe(1);
     for (const id of chosen) expect(mustPlayer(after.state, P1).discard).toContain(id as InstanceId);
+  });
+
+  it("Energy Siphon taking 2 damage pays a 3-resource Action: the probe tries each amount it may take", () => {
+    const begun = start(["lance"]);
+    const given = giveCard(begun.state, P1, SIPHON.id);
+    const state: GameState = {
+      ...given.state,
+      players: given.state.players.map((p) => (p.playerId === P1 ? { ...p, hand: [given.id], deck: [] } : p)),
+    };
+    const after = endTurnUsing(state, LANCE_ACTION.ref.id, {
+      pay: (options) => [options.find((o) => o.startsWith(`hand:${given.id}:`) && o.endsWith("#damageSelf=2"))!],
+    });
+    expect(after.offered[0]?.some((id) => id.endsWith(`|${LANCE_ACTION.ref.id}`))).toBe(true);
+    expect(mustInstance(after.state, begun.ids.lance![0]!).counters.lanced).toBe(1);
+  });
+
+  it("a combined-cost discard (Advanced Glider) asks which cards: the chosen 1 + 2 go, the 3 stays", () => {
+    const begun = start(["glider"]);
+    let state = begun.state;
+    const events: InstanceId[] = [];
+    for (const card of [EVENT_1, EVENT_2, EVENT_3]) {
+      const given = giveCard(state, P1, card.id);
+      state = given.state;
+      events.push(given.id);
+    }
+    state = { ...state, players: state.players.map((p) => (p.playerId === P1 ? { ...p, hand: events } : p)) };
+    const [one, two, three] = events;
+    const after = endTurnUsing(state, GLIDER_ACTION.ref.id, {
+      cards: (options) => options.filter((o) => o === one || o === two),
+    });
+    expect(mustInstance(after.state, begun.ids.glider![0]!).counters.glided).toBe(1);
+    expect(mustPlayer(after.state, P1).discard).toEqual(expect.arrayContaining([one, two]));
+    expect(mustPlayer(after.state, P1).discard).not.toContain(three);
   });
 });

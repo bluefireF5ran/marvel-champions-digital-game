@@ -20,6 +20,7 @@ import {
   cardsInPlayFromZone,
   costAsDetermined,
   defaultInPlayPicks,
+  discardCombinedValue,
   eventActionsForEffectPlay,
   hostChoicesForEffectPlay,
   hostForEffectPlay,
@@ -810,6 +811,8 @@ interface UsableAction {
 
 /** The most resource-ability subsets the probe tries for one set of cost choices: a bound, not a rule. */
 const MAX_WALLETS = 64;
+/** The most ways of spending the hand cards one wallet is tried with ("when spent" abilities and their amounts). */
+const MAX_HANDS = 8;
 
 /**
  * The payments to try for an ability's cost on `id`, priced as an ability's payment (`paymentOptions` with no card being
@@ -820,9 +823,9 @@ const MAX_WALLETS = 64;
  * exhaust the same card) never hide a payment the others make with one of them.
  *
  * A hand card is in a wallet once: `paymentOptions` lists it plain (`hand:<id>`) and once per "when you spend this card"
- * ability (`hand:<id>:<ability>`), and a payment may not spend one card twice (`priceOf`: duplicate payment card). Each
- * wallet with the hand is tried with the plain spends and, when a card has such an ability, again with it used (PR #903
- * review). Hand cards in `reserved` (a hand discard the cost picks) are left out.
+ * ability (`hand:<id>:<ability>`, once per amount or set of choices it may take), and a payment may not spend one card
+ * twice (`priceOf`: duplicate payment card). Each wallet with the hand is tried with the plain spends, then with each
+ * card's each way of using its ability (the others plain), then with every card's last way (PR #903 reviews). Hand cards in `reserved` (a hand discard the cost picks) are left out.
  */
 function* abilityWallets(
   ctx: Ctx,
@@ -836,13 +839,12 @@ function* abilityWallets(
     "ability" in p ? Object.values(p.ability.costChoices ?? {}).reduce((n, ids) => n + ids.length, 0) : 0;
   const widest = new Map<string, Payment>();
   const plain = new Map<InstanceId, Payment>();
-  const spent = new Map<InstanceId, Payment>();
+  const spent = new Map<InstanceId, Payment[]>();
   for (const p of all) {
     if ("fromHand" in p) {
       if (reserved.has(p.fromHand)) continue;
-      if (p.whenSpent) {
-        if (!spent.has(p.fromHand)) spent.set(p.fromHand, p);
-      } else plain.set(p.fromHand, p);
+      if (p.whenSpent) spent.set(p.fromHand, [...(spent.get(p.fromHand) ?? []), p]);
+      else plain.set(p.fromHand, p);
       continue;
     }
     if (!("ability" in p)) continue;
@@ -852,14 +854,20 @@ function* abilityWallets(
   }
   const cards = [...new Set([...plain.keys(), ...spent.keys()])];
   const plainHand = cards.flatMap((card) => {
-    const p = plain.get(card) ?? spent.get(card);
+    const p = plain.get(card) ?? spent.get(card)?.[0];
     return p ? [p] : [];
   });
-  const spentHand = cards.flatMap((card) => {
-    const p = spent.get(card) ?? plain.get(card);
+  // Each way to spend one card with its ability (each amount of damage Energy Siphon may take, each set of choices),
+  // the other cards spent plainly; then every card with its last listed way (the most it can give): `MAX_HANDS` at most.
+  const swapped = [...spent].flatMap(([card, ways]) =>
+    ways.map((way) => plainHand.map((p) => ("fromHand" in p && p.fromHand === card ? way : p))),
+  );
+  const richest = cards.flatMap((card) => {
+    const ways = spent.get(card);
+    const p = ways?.[ways.length - 1] ?? plain.get(card);
     return p ? [p] : [];
   });
-  const hands = spent.size > 0 ? [plainHand, spentHand] : [plainHand];
+  const hands = (spent.size > 0 ? [plainHand, ...swapped, richest] : [plainHand]).slice(0, MAX_HANDS);
   const abilities = [...widest.values()];
   let budget = MAX_WALLETS;
   const take = function* (wallet: readonly Payment[]): Generator<readonly Payment[]> {
@@ -1123,9 +1131,11 @@ function executeUseActionAbility(
   if (step === 2) {
     const discard = cost?.discardFromHand;
     const sub = frame.vars["_use.sub"] ?? 0;
-    // Asked whenever the cost discards from hand, a combined-value discard aside (its fewest cards are the default):
-    // "discard X cards" (`min` 0, no `max`) and "discard 1 or more" (no `max`) take up to the whole hand (PR #903).
-    if (sub === 0 && discard && !discard.combined) {
+    // Asked whenever the cost discards from hand: "discard X cards" (`min` 0, no `max`) and "discard 1 or more" (no
+    // `max`) take up to the whole hand, and a combined-value discard (Advanced Glider, 27136: "any number of ATTACK
+    // cards … with a combined resource cost of 3 or more") takes the cards the player picks once they reach it,
+    // asked again (twice at most) when they do not (PR #903 reviews).
+    if (sub === 0 && discard) {
       const filterContext: EffectContext = {
         selfInstanceId: card,
         controllerId: playerId,
@@ -1142,7 +1152,7 @@ function executeUseActionAbility(
       const max = Math.min(discard.max ?? hand.length, hand.length);
       const min = Math.min(discard.min, hand.length);
       // Nothing to choose: exactly the cards there are.
-      if (max === min && (min === 0 || min === hand.length))
+      if (!discard.combined && max === min && (min === 0 || min === hand.length))
         return next({ "_use.sub": 1 }, { "_use.pick.discard": hand.slice(0, min) });
       if (frame.answer === null) {
         requestChoice(ctx, {
@@ -1157,7 +1167,17 @@ function executeUseActionAbility(
       }
       const answer = [...new Set((frame.answer ?? []).map((id) => asInstanceId(id)).filter((id) => hand.includes(id)))];
       if (answer.length < min || answer.length > max) return done();
-      return next({ "_use.sub": 1 }, { "_use.pick.discard": answer });
+      const combined = discard.combined;
+      if (
+        combined &&
+        answer.reduce((n, id) => n + discardCombinedValue(ctx.state, id, combined), 0) < combined.atLeast
+      ) {
+        const retries = frame.vars["_use.retries"] ?? 0;
+        if (retries >= 2) return done();
+        setFrame(ctx, { ...frame, answer: null, vars: { ...frame.vars, "_use.retries": retries + 1 } });
+        return;
+      }
+      return next({ "_use.sub": 1, "_use.retries": 0 }, { "_use.pick.discard": answer });
     }
     const discarded = frame.bindings["_use.pick.discard"];
     const sets = abilityCostChoiceSets(ctx.state, ctx.deps, playerId, card, cost).filter(
