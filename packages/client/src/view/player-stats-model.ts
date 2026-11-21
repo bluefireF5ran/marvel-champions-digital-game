@@ -18,7 +18,7 @@ import type { SaveMeta } from "../engine/game-storage.js";
 import { isPastGame } from "./past-games-model.js";
 import type { GameSummary, SeatSummary } from "../engine/game-summary.js";
 import { deckKeyOfPlayer, villainNameOf } from "./deck-insights.js";
-import { matchupsOf, winTierOf, type MatchupAxes, type Matchups, type WinTier } from "./matchup-grid.js";
+import { byDesigner, matchupsOf, winTierOf, type MatchupAxes, type Matchups, type WinTier } from "./matchup-grid.js";
 
 export interface StatsNames {
   readonly cardName: (cardId: string) => string | undefined;
@@ -40,6 +40,11 @@ export interface StatsNames {
   readonly isVillain?: (name: string) => boolean;
   /** The whole pool, for the Matchups grids' axes. Absent: only what the games hold. */
   readonly matchupAxes?: () => MatchupAxes;
+  /**
+   * Who made a custom pack's hero, scenario or encounter set ("PermaKarma"), or undefined for official content and for
+   * a pack that names no author. The Matchups grids tag custom rows and columns with it (issue #937).
+   */
+  readonly designerOf?: (id: string) => string | undefined;
   /**
    * The names as one saved game knew them (its own embedded packs), for the facts read per game: a seat's hero and
    * aspects from a precon id. Absent: the same names for every game.
@@ -381,7 +386,9 @@ function factsOf(meta: SaveMeta, names: StatsNames): GameFacts | null {
     expert: meta.config.difficulty !== "standard",
     difficulty: meta.config.difficulty,
     tier: winTierOf(meta.config),
-    modulars: meta.config.modularSetIds ?? names.scenarioModulars?.(meta.config.scenarioId) ?? [],
+    // The game's own version of a custom scenario's pack names its default modulars, never a later one's.
+    modulars:
+      meta.config.modularSetIds ?? (names.forSave?.(meta) ?? names).scenarioModulars?.(meta.config.scenarioId) ?? [],
     summary,
     lossReason: lossReason === "conceded" ? "other" : lossReason,
     lossCause: lossCauseOfMeta(meta),
@@ -1948,9 +1955,9 @@ export function playerStatsOf(saves: readonly SaveMeta[], names: StatsNames, fil
       })),
       names.matchupAxes?.() ?? { scenarios: [], heroes: [], modulars: [] },
       {
-        scenario: (id) => names.scenarioName(id) ?? id,
-        hero: (id) => names.cardName(id) ?? id,
-        modular: (id) => names.setName?.(id) ?? id,
+        scenario: (id) => byDesigner(names.scenarioName(id) ?? id, names.designerOf?.(id)),
+        hero: (id) => byDesigner(names.cardName(id) ?? id, names.designerOf?.(id)),
+        modular: (id) => byDesigner(names.setName?.(id) ?? id, names.designerOf?.(id)),
       },
     ),
     filter,

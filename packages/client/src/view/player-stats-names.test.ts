@@ -92,6 +92,81 @@ describe("statsNamesForSaves", () => {
   });
 });
 
+describe("custom scenarios on the Matchups grids (issue #937)", () => {
+  const SCENARIO = "the-rose-bf-the-rose";
+  const SET = "the-rose-bf-goons";
+  const roseSave = (authors?: readonly string[]): SaveMeta => {
+    const base = save() as unknown as SaveMeta & { config: Record<string, unknown> };
+    const pack = {
+      ...PACK,
+      ...(authors ? { authors } : {}),
+      scenarios: [{ id: SCENARIO, name: "The Rose", recommendedModularSetIds: [SET] }],
+      encounterSets: [{ id: SET, name: "Rose Goons" }],
+    };
+    return {
+      ...base,
+      config: { ...base.config, scenarioId: SCENARIO, modularSetIds: [SET], packs: [pack] },
+    } as never;
+  };
+  const rowsOf = (stats: ReturnType<typeof playerStatsOf>) => stats.matchups!.heroes.rows.map((row) => row.name);
+
+  test("names a pack's scenario and encounter set from the save, never by its id", () => {
+    setLoadedPacks([]);
+    const names = statsNamesForSaves([roseSave()]);
+    expect(names.scenarioName(SCENARIO)).toBe("The Rose");
+    expect(names.setName?.(SET)).toBe("Rose Goons");
+    expect(names.scenarioModulars?.(SCENARIO)).toEqual([SET]);
+    expect(rowsOf(playerStatsOf([roseSave()], names))).toContain("The Rose");
+    expect(rowsOf(playerStatsOf([roseSave()], names))).not.toContain(SCENARIO);
+  });
+
+  test("tags custom rows and columns with the pack's designer", () => {
+    setLoadedPacks([]);
+    const saves = [roseSave(["PermaKarma"])];
+    const stats = playerStatsOf(saves, statsNamesForSaves(saves));
+    expect(rowsOf(stats)).toContain("The Rose (by PermaKarma)");
+    expect(stats.matchups!.heroes.columns.map((column) => column.name)).toContain("Sample (by PermaKarma)");
+    expect(stats.matchups!.modulars.columns.map((column) => column.name)).toContain("Rose Goons (by PermaKarma)");
+    // An official scenario keeps its plain name.
+    expect(rowsOf(stats)).toContain("Rhino");
+  });
+
+  test("a newer save of a pack stored without authors keeps the designer an older save named", () => {
+    setLoadedPacks([]);
+    const older = { ...roseSave(["Creator"]), id: "old", updatedAt: 1, createdAt: 1 } as SaveMeta;
+    const newer = { ...roseSave(), id: "new", updatedAt: 9, createdAt: 9 } as SaveMeta;
+    for (const saves of [
+      [older, newer],
+      [newer, older],
+    ]) {
+      expect(rowsOf(playerStatsOf(saves, statsNamesForSaves(saves)))).toContain("The Rose (by Creator)");
+    }
+  });
+
+  test("a game with no modulars named takes its scenario's defaults from its own version of the pack", () => {
+    setLoadedPacks([]);
+    const versioned = (id: string, at: number, set: string): SaveMeta => {
+      const base = roseSave() as unknown as { config: { packs: Record<string, unknown>[] } & Record<string, unknown> };
+      const pack = {
+        ...base.config.packs[0]!,
+        scenarios: [{ id: SCENARIO, name: "The Rose", recommendedModularSetIds: [set] }],
+      };
+      const { modularSetIds: _none, ...config } = base.config;
+      return { ...base, id, updatedAt: at, createdAt: at, config: { ...config, packs: [pack] } } as never;
+    };
+    const saves = [versioned("old", 1, "old-goons"), versioned("new", 9, "new-goons")];
+    const columns = playerStatsOf(saves, statsNamesForSaves(saves)).matchups!.modulars.columns.map((c) => c.id);
+    expect(columns).toEqual(expect.arrayContaining(["old-goons", "new-goons"]));
+  });
+
+  test("a pack saved before its authors were kept takes them from the installed pack", () => {
+    setLoadedPacks([]);
+    const saves = [roseSave()];
+    const stats = playerStatsOf(saves, statsNamesForSaves(saves, undefined, { sample: ["PermaKarma", "Bob"] }));
+    expect(rowsOf(stats)).toContain("The Rose (by PermaKarma & Bob)");
+  });
+});
+
 describe("two versions of one pack", () => {
   const versioned = (id: string, at: number, aspect: string, name: string): SaveMeta => {
     const base = save() as unknown as SaveMeta & { config: { packs: unknown[] } };

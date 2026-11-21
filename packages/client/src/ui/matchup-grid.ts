@@ -46,10 +46,10 @@ import {
   type MatchupCell,
   type MatchupGrid,
 } from "../view/matchup-grid.js";
-import { TIER_COLORS, drawLegend, onTierColor } from "./matchup-rows.js";
+import { TIER_COLORS, drawLegend, fitCredited, onTierColor } from "./matchup-rows.js";
 import { renderArtThumb } from "../scenes/roster-panel.js";
 import { cssOf, textStyle } from "./theme.js";
-import { fitText, fitWrapped } from "./widgets.js";
+import { fitText } from "./widgets.js";
 
 /** The grid's place, kept by the scene across rebuilds. */
 export interface MatchupGridState {
@@ -532,8 +532,8 @@ export class McMatchupGrid {
       const textWidth = metrics.rowHeader - 14 - (picture && !phone ? picture.width + 8 : 0);
       if (fresh) {
         text.setText(this.#grid.rows[row]!.name);
-        if (stamps) fitWrapped(text, textWidth, 2, STAMP_LABEL_SIZE);
-        else fitText(text, textWidth, LABEL_SIZE);
+        if (stamps) fitCredited(text, textWidth, STAMP_LABEL_SIZE, 2, true);
+        else fitCredited(text, textWidth, LABEL_SIZE, 2, false);
       }
       if (picture) {
         pictures.add(row);
@@ -560,8 +560,8 @@ export class McMatchupGrid {
       const { text, fresh } = this.#columnLabels.take(key);
       if (fresh) {
         text.setText(this.#grid.columns[column]!.name);
-        if (stamps) fitWrapped(text, metrics.cell - 4, 2, STAMP_LABEL_SIZE);
-        else fitText(text, metrics.columnHeader - 12, LABEL_SIZE);
+        if (stamps) fitCredited(text, metrics.cell - 4, STAMP_LABEL_SIZE, 2, true);
+        else fitCredited(text, metrics.columnHeader - 12, LABEL_SIZE, 2, false);
       }
       if (stamps) {
         pictures.add(column);
