@@ -26,6 +26,9 @@ export type PartialCatalog = Readonly<Partial<Record<MessageKey, string>>>;
 
 export const CATALOGS: Readonly<Record<CardLanguage, PartialCatalog>> = { en, es };
 
+/** Every language the app text has a catalog for, English first. */
+export const APP_LANGUAGES = Object.keys(CATALOGS) as readonly CardLanguage[];
+
 /** `key`'s message in `catalog`, else the English one. */
 export function messageFrom(catalog: PartialCatalog, key: MessageKey): string {
   return catalog[key] ?? en[key];

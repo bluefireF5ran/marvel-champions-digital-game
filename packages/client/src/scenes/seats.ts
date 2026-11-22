@@ -86,7 +86,7 @@ import { clipHoverRect, hoverSlotOf, type HoverCardIdRect } from "../view/card-h
 import { DeckSearchClient } from "../view/deck-search-client.js";
 import { rankShelvesByScore, type SearchDocument } from "../view/deck-search.js";
 import type { HeroDecksSheetData } from "./hero-decks-sheet.js";
-import { blockedTagOf } from "../view/deck-status.js";
+import { reasonLabelOf, blockedTagOf } from "../view/deck-status.js";
 import { seatableDeckOptionsOf, testedCatalog } from "../view/seatable-decks.js";
 import {
   testedDeckLockOf,
@@ -193,6 +193,7 @@ import { refreshUnlocks, unlocks } from "../progression/progression.js";
 import { unlockCostOf, unlockOrAsk } from "./unlock-confirm.js";
 import { drawAspectTipPanel } from "../ui/aspect-tip.js";
 import { aspectTipContentOf } from "../view/aspect-tip-model.js";
+import { seatSearchWordsOf } from "../view/seat-search.js";
 
 export interface SeatsData {
   readonly draft: SetupDraft;
@@ -257,6 +258,10 @@ function sourceWordsOf(options: readonly DeckOption[]): string {
 const REC_LIMIT = 6;
 /** The Recommended shelf's id among the roster's shelves: always the first, and only while there is someone to recommend. */
 const REC_SHELF_ID = "recommended";
+
+/** A blocked reason worded for this screen, or null. */
+const reasonOrNull = (reason: string | null): string | null =>
+  reason === null ? null : reasonLabelOf(reason, artLanguageNow());
 
 /** "a, b and c". */
 const listOf = (words: readonly string[]): string => listAnd(words);
@@ -1448,12 +1453,6 @@ export class SeatsScene extends Phaser.Scene {
     const identity = currentCardsById().get(deck.identityCardId as string);
     const hero = identity?.type === "hero_identity" ? identity : undefined;
     const entry = testedEntryOf(deck, testedCatalog());
-    const sourceWords =
-      deck.source.kind === "precon"
-        ? ["precon", "preconstructed"]
-        : deck.source.kind === "imported"
-          ? ["imported"]
-          : ["built", "mine"];
     const packs = heroPack
       ? [packNameOf(heroPack), currentHeroShelfPacks().find((p) => p.code === heroPack)?.cycleName]
       : [];
@@ -1463,8 +1462,7 @@ export class SeatsScene extends Phaser.Scene {
         (t): t is string => typeof t === "string",
       ),
       secondary: [
-        ...deck.aspects.map((a) => aspectLabelOf([a], artLanguageNow())),
-        ...sourceWords,
+        ...seatSearchWordsOf(deck.aspects, deck.source.kind, entry !== undefined),
         ...packs.filter((t): t is string => typeof t === "string"),
         ...testedSearchFieldsOf(deck, testedCatalog()),
         ...(entry?.tags ?? []),
@@ -1565,9 +1563,9 @@ export class SeatsScene extends Phaser.Scene {
           sourceKind: deck.source.kind,
           testedCredit: testedSubtitleOf(deck, testedCatalog()),
           cardCount: deck.cards.reduce((sum, card) => sum + card.quantity, 0),
-          blockedBy: entry?.blockedBy ?? option.blockedReason,
+          blockedBy: reasonOrNull(entry?.blockedBy ?? option.blockedReason),
           lock: deckLockOf(deck),
-          warning: shortWarningOf(entry?.warning ?? option.warning),
+          warning: shortWarningOf(entry?.warning ?? option.warning, artLanguageNow()),
           activeSeat: entry?.isActiveSeat ?? false,
           otherSeat:
             entry?.seatIndex !== null && entry?.seatIndex !== undefined && !entry.isActiveSeat
@@ -1991,13 +1989,16 @@ export class SeatsScene extends Phaser.Scene {
             ? t("seats.decksSummary", { count: decks.length, sources: sourceWordsOf(decks) })
             : `${sourceText} · ${option.identityName ?? t("seats.unknownIdentity")}`,
       stamps: aspectStampsOf(several ? aspects : option.deck.aspects, artLanguageNow()),
-      blockedBy,
+      blockedBy: reasonOrNull(blockedBy),
       // Locked: the free way (the villain to beat) and the paid one (tap it to spend points), side by side.
       warning: seatedElsewhere
         ? null
         : lock
-          ? `${lock} · or ${unlockCostOf({ kind: "hero", identityCardId: option.deck.identityCardId as string })} pts`
-          : shortWarningOf(entry?.warning ?? null),
+          ? t("seats.lockOrPoints", {
+              lock,
+              cost: unlockCostOf({ kind: "hero", identityCardId: option.deck.identityCardId as string }),
+            })
+          : shortWarningOf(entry?.warning ?? null, artLanguageNow()),
       tag,
       selected: entry?.isActiveSeat ?? false,
       // Every hero tile here keeps a second caption line, so the art window is the same height on every shelf and a
@@ -2474,7 +2475,7 @@ export class SeatsScene extends Phaser.Scene {
     this.scene.launch(SCENES.inspect, {
       card: { cardId: option.deck.identityCardId as CardId, face: { kind: "hero" } },
       ...(entry?.blockedBy
-        ? { note: entry.blockedBy }
+        ? { note: reasonLabelOf(entry.blockedBy, artLanguageNow()) }
         : {
             choice: {
               optionId: option.deck.id as string,

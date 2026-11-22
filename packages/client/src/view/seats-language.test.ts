@@ -9,6 +9,8 @@ import { aspectName, aspectStampOf } from "./aspect-stamp.js";
 import { deckCountText, deckListSortLabel } from "./deck-stats.js";
 import { deckCountTagOf, heroDeckRowOf, type HeroDeckRowFacts } from "./hero-deck-groups.js";
 import { conflictNoticeOf } from "./name-conflicts.js";
+import { NOT_READY_REASON, shortWarningOf } from "./deck-list-model.js";
+import { reasonLabelOf } from "./deck-status.js";
 
 const base: HeroDeckRowFacts = {
   deckId: "d",
@@ -92,5 +94,24 @@ describe("shared words stay in English on screens not translated yet", () => {
     expect(aspectStampOf("pool").label).toBe("'Pool");
     expect(deckCountText({ countedCards: 40, permanentCards: 0 })).toBe("40 cards");
     expect(deckListSortLabel("cost")).toBe("Sort: Cost");
+  });
+});
+
+describe("short status words on Take your seats (#963 review)", () => {
+  test("a partly scripted deck and a not-ready hero read in Spanish, while the reasons code compares stay English", () => {
+    useSpanish();
+    const warning = shortWarningOf("Playable, but Spider-Tracer does nothing yet.", "es");
+    expect(warning).toBe("Jugable en parte");
+    expect(heroDeckRowOf({ ...base, warning })).toMatchObject({ status: "Jugable en parte", statusKind: "warning" });
+    const notReady = reasonLabelOf(NOT_READY_REASON, "es");
+    expect(notReady).toBe("Aún no disponible");
+    expect(heroDeckRowOf({ ...base, blockedBy: notReady })).toMatchObject({
+      status: "Aún no disponible",
+      enabled: false,
+    });
+    expect(NOT_READY_REASON).toBe("Not ready yet");
+    // English by default, and an engine's own message passes through.
+    expect(shortWarningOf("Playable, but Spider-Tracer does nothing yet.")).toBe("Partly playable");
+    expect(reasonLabelOf("Too many copies of Swinging Web Kick.", "es")).toBe("Too many copies of Swinging Web Kick.");
   });
 });
