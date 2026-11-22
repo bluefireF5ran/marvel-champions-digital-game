@@ -904,7 +904,8 @@ export class DeckCheckScene extends Phaser.Scene {
     }
     // What the identity brings besides the deck (#960): its separate decks, obligation and nemesis set, under the
     // deck's own cards and never counted in it. A type filter narrows to the deck's cards alone, as it does the faces.
-    const outside = this.#typeFilter === null ? outsideDeckGroupsOf(this.#deck.identityCardId, currentPool()) : [];
+    const outside =
+      this.#typeFilter === null ? outsideDeckGroupsOf(this.#deck.identityCardId, currentPool(), artLanguageNow()) : [];
     for (const group of [...groups, ...outside]) {
       slots.push({ kind: "header", group });
       const rows = Math.max(1, Math.ceil(group.entries.length / geometry.columns));

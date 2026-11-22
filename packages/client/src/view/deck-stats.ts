@@ -411,7 +411,12 @@ export const SETUP_GROUP_KEY = "setup";
  * 5). Display only: none of them is a deck entry, so none counts toward deck size (`deckStatsOf` reads `deck.cards`
  * alone). A card missing from `pool` is skipped, and a group left with no cards is dropped.
  */
-export function outsideDeckGroupsOf(identityCardId: CardId | string, pool: CardPool): readonly DeckListGroup[] {
+export function outsideDeckGroupsOf(
+  identityCardId: CardId | string,
+  pool: CardPool,
+  /** The group titles' language: English unless a translated screen asks (#390). */
+  lang: CardLanguage = "en",
+): readonly DeckListGroup[] {
   const all: readonly AnyCard[] = cardsOf(pool);
   const byId = new Map(all.map((card) => [card.id as string, card]));
   const identity = byId.get(identityCardId as string);
@@ -429,12 +434,16 @@ export function outsideDeckGroupsOf(identityCardId: CardId | string, pool: CardP
       return card ? [entryOf(card, quantity)] : [];
     });
   const groups: DeckListGroup[] = (identity.separateDecks ?? []).map((deck) =>
-    groupOf(`separate:${deck.name}`, `${deck.name} deck`, listed(deck.cards)),
+    groupOf(`separate:${deck.name}`, t("deckList.separateDeck", { name: deck.name }, lang), listed(deck.cards)),
   );
   // Every copy the set prints goes into the encounter deck (Scarlet Witch's Slipping Sanity: two), as setup does.
   const obligation = byId.get(identity.obligationCardId as string);
   if (obligation)
-    groups.push(groupOf("obligation", "Obligation", [entryOf(obligation, Math.max(1, obligation.quantityInSet))]));
+    groups.push(
+      groupOf("obligation", t("seats.obligation", undefined, lang), [
+        entryOf(obligation, Math.max(1, obligation.quantityInSet)),
+      ]),
+    );
   const nemesisSetId = identity.nemesisEncounterSetId as string;
   const nemesis = all.filter(
     (card) =>
@@ -445,7 +454,7 @@ export function outsideDeckGroupsOf(identityCardId: CardId | string, pool: CardP
   groups.push(
     groupOf(
       "nemesis",
-      "Nemesis set",
+      t("seats.nemesisSet", undefined, lang),
       nemesis.map((card) => entryOf(card, card.quantityInSet)),
     ),
   );
