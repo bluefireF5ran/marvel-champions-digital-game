@@ -66,7 +66,7 @@ export interface SeatedPair {
   readonly label: string;
 }
 
-const aspectWord = (aspect: CoreAspect): string => aspectName(aspect);
+const aspectWord = (aspect: CoreAspect): string => aspectName(aspect, artLanguageNow());
 
 const listOf = (words: readonly string[]): string => listAnd(words);
 

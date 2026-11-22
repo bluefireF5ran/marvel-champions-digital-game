@@ -53,11 +53,11 @@ describe("Take your seats in Spanish", () => {
 
   test("aspects use the Spanish card names ('Pool is Masacrismo, basic is Básico)", () => {
     useSpanish();
-    expect(aspectName("aggression")).toBe("Agresividad");
-    expect(aspectName("leadership")).toBe("Liderazgo");
-    expect(aspectName("pool")).toBe("Masacrismo");
-    expect(aspectName("basic")).toBe("Básico");
-    expect(aspectStampOf("justice").label).toBe("Justicia");
+    expect(aspectName("aggression", "es")).toBe("Agresividad");
+    expect(aspectName("leadership", "es")).toBe("Liderazgo");
+    expect(aspectName("pool", "es")).toBe("Masacrismo");
+    expect(aspectName("basic", "es")).toBe("Básico");
+    expect(aspectStampOf("justice", "es").label).toBe("Justicia");
   });
 
   test("lists join with y, and e before an i sound", () => {
@@ -70,9 +70,9 @@ describe("Take your seats in Spanish", () => {
 describe("Deck check in Spanish", () => {
   test("the card count and sort read in Spanish", () => {
     useSpanish();
-    expect(deckCountText({ countedCards: 40, permanentCards: 0 })).toBe("40 cartas");
-    expect(deckCountText({ countedCards: 40, permanentCards: 2 })).toBe("40 cartas + 2 permanentes");
-    expect(deckListSortLabel("cost")).toBe("Orden: Coste");
+    expect(deckCountText({ countedCards: 40, permanentCards: 0 }, "es")).toBe("40 cartas");
+    expect(deckCountText({ countedCards: 40, permanentCards: 2 }, "es")).toBe("40 cartas + 2 permanentes");
+    expect(deckListSortLabel("cost", "es")).toBe("Orden: Coste");
   });
 });
 
@@ -82,5 +82,15 @@ describe("English is unchanged", () => {
     expect(deckCountText({ countedCards: 40, permanentCards: 1 })).toBe("40 cards + 1 permanent");
     expect(listAnd(["a", "b", "c"])).toBe("a, b and c");
     expect(conflictNoticeOf(1)).toBe("1 card can't be played with these heroes");
+  });
+});
+
+describe("shared words stay in English on screens not translated yet", () => {
+  test("aspect names, deck counts and sort labels default to English even with Spanish chosen", () => {
+    useSpanish();
+    expect(aspectName("justice")).toBe("Justice");
+    expect(aspectStampOf("pool").label).toBe("'Pool");
+    expect(deckCountText({ countedCards: 40, permanentCards: 0 })).toBe("40 cards");
+    expect(deckListSortLabel("cost")).toBe("Sort: Cost");
   });
 });

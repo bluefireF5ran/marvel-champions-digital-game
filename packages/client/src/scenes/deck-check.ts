@@ -71,7 +71,7 @@ import { isDesktopType } from "../ui/desktop-type.js";
 import Phaser from "phaser";
 import type { CoreAspect, Deck } from "@mc/content";
 import { POOL_VERSION, currentCardsById, currentDeps, currentPool } from "../content/pool.js";
-import { artFor } from "../art/art-source.js";
+import { artFor, artLanguageNow } from "../art/art-source.js";
 import { cardArt, drawArt } from "../art/card-art.js";
 import { SELECTABLE_ASPECTS } from "../view/deck-builder-model.js";
 import {
@@ -364,9 +364,9 @@ export class DeckCheckScene extends Phaser.Scene {
     const option = deckOptionOf(this.#deck, currentPool(), POOL_VERSION, currentDeps());
     const stats = deckStatsOf(this.#deck, currentPool());
     // The Curve and Aspect tabs read the deck by aspect whatever the card list's sort.
-    const groups = deckListGroupsOf(this.#deck, currentPool(), undefined, false);
-    const sorted = deckListGroupsOf(this.#deck, currentPool(), this.#deckSort);
-    const status = this.#verdict?.status ?? deckStatusOf(option);
+    const groups = deckListGroupsOf(this.#deck, currentPool(), undefined, false, artLanguageNow());
+    const sorted = deckListGroupsOf(this.#deck, currentPool(), this.#deckSort, true, artLanguageNow());
+    const status = this.#verdict?.status ?? deckStatusOf(option, artLanguageNow());
     const inFlow = this.#returnTo.scene === SCENES.seats;
 
     // Ground: paper body under the same full-width ink header bar every setup-flow screen shares.
@@ -512,7 +512,7 @@ export class DeckCheckScene extends Phaser.Scene {
     stats: ReturnType<typeof deckStatsOf>,
     status: ReturnType<typeof deckStatusOf>,
   ): void {
-    const count = this.#verdict?.count ?? deckCountText(stats);
+    const count = this.#verdict?.count ?? deckCountText(stats, artLanguageNow());
     const badgeText = `${count.toUpperCase()} · ${status.text.toUpperCase()}`;
     const badgeTextStyle = { ...textStyle(typeRole.barTitle, surface.paper.hex), fontSize: "18px" };
     // The background graphics object is created (and so z-ordered) *before* the text it sits behind — these two
@@ -532,7 +532,7 @@ export class DeckCheckScene extends Phaser.Scene {
     badgeBg.fillStyle(TONE_COLOR[status.tone], 1).fillRect(badgeRect.x, badgeRect.y, badgeRect.width, badgeRect.height);
     measure.setPosition(badgeRect.x + badgeRect.width / 2, badgeRect.y + badgeRect.height / 2).setOrigin(0.5);
 
-    const title = `${option.identityName ?? t("deckCheck.unknown")} — ${aspectLabelOf(deck.aspects).toUpperCase()}`;
+    const title = `${option.identityName ?? t("deckCheck.unknown")} — ${aspectLabelOf(deck.aspects, artLanguageNow()).toUpperCase()}`;
     const titleText = this.add
       .text(titleX, layout.headerBar.height / 2, title, textStyle(typeRole.pageTitle, surface.paper.hex))
       .setOrigin(0, 0.5);
@@ -556,7 +556,7 @@ export class DeckCheckScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
     fitText(title, layout.meta.x - titleX - 12, typeRole.pageTitle.size);
 
-    const count = this.#verdict?.count ?? deckCountText(stats);
+    const count = this.#verdict?.count ?? deckCountText(stats, artLanguageNow());
     const metaWords = inFlow ? "3/4" : `${count.toUpperCase()} · ${status.text.toUpperCase()}`;
     const metaText = this.add
       .text(
@@ -601,7 +601,7 @@ export class DeckCheckScene extends Phaser.Scene {
         tileRect.height,
       );
       const text = this.add
-        .text(tileRect.x + 11, tileRect.y + tileRect.height / 2, aspectName(aspect).toUpperCase(), {
+        .text(tileRect.x + 11, tileRect.y + tileRect.height / 2, aspectName(aspect, artLanguageNow()).toUpperCase(), {
           ...textStyle(typeRole.barTitle, chosen ? surface.paper.hex : surface.ink.hex),
           fontSize: "16px",
         })
@@ -703,7 +703,7 @@ export class DeckCheckScene extends Phaser.Scene {
     this.#buttons.push(
       new McButton(this, {
         kind,
-        label: deckListSortLabel(this.#deckSort),
+        label: deckListSortLabel(this.#deckSort, artLanguageNow()),
         type: typeRole.label,
         rect,
         onClick: sort,
@@ -738,6 +738,7 @@ export class DeckCheckScene extends Phaser.Scene {
       undefined,
       undefined,
       (entry, lineRect) => noteHoverCardId(this, entry.cardId as string, lineRect, true),
+      artLanguageNow(),
     );
 
     const openEdit = (): void => this.#edit();

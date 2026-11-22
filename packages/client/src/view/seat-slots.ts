@@ -13,6 +13,8 @@ import type { SeatOption } from "./seats.js";
 import { qualifiedHeroName } from "./hero-names.js";
 import { aspectName } from "./aspect-stamp.js";
 import { t } from "../i18n/translate.js";
+import type { CardLanguage } from "../art/card-language.js";
+import { artLanguageNow } from "../art/art-source.js";
 
 export interface SeatSlot {
   readonly index: number;
@@ -31,8 +33,8 @@ export interface SeatSlot {
 }
 
 /** "Justice", or "Aggression + Justice" for a deck with more than one chosen aspect (`IdentityDeckbuilding.aspectCount`). */
-export function aspectLabelOf(aspects: readonly CoreAspect[]): string {
-  return aspects.map(aspectName).join(" + ");
+export function aspectLabelOf(aspects: readonly CoreAspect[], lang: CardLanguage = "en"): string {
+  return aspects.map((aspect) => aspectName(aspect, lang)).join(" + ");
 }
 
 function identityStatsOf(
@@ -85,7 +87,7 @@ export function seatSlotsOf(
       index,
       deckId,
       deckName: option.deck.name.split(" — ")[0]!,
-      aspectLabel: aspectLabelOf(option.deck.aspects),
+      aspectLabel: aspectLabelOf(option.deck.aspects, artLanguageNow()),
       ...identityStatsOf(option.deck, cardsById),
       active: index === active,
     };
@@ -118,7 +120,7 @@ export function heroCandidateDetailOf(
   const nemesisSet = nemesisSetId ? encounterSets.find((set) => (set.id as string) === nemesisSetId) : undefined;
   return {
     identityName: stats.identityName ?? option.identityName ?? t("seats.unknownIdentity"),
-    aspectLabel: aspectLabelOf(option.deck.aspects),
+    aspectLabel: aspectLabelOf(option.deck.aspects, artLanguageNow()),
     hp: stats.hp,
     handSize: stats.handSize,
     thw: stats.thw,

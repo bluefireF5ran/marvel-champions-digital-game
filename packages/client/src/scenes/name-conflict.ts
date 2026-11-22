@@ -15,7 +15,7 @@ import Phaser from "phaser";
 import type { AnyCard, CoreAspect, Deck, HeroIdentityCard } from "@mc/content";
 import { unscriptedCards, type TableRules } from "@mc/engine";
 import { CARDS_BY_ID, POOL_CARDS, POOL_DEPS } from "../content/pool.js";
-import { artFor } from "../art/art-source.js";
+import { artFor, artLanguageNow } from "../art/art-source.js";
 import { cardFaces } from "../art/card-face-baker.js";
 import { unlocks } from "../progression/progression.js";
 import { hit, ink, signal, surface, typeRole } from "../tokens.js";
@@ -709,7 +709,7 @@ export class NameConflictOverlay extends Phaser.Scene {
     objects.push(costText);
     const aspect = "aspect" in card ? String((card as { aspect: string }).aspect) : "";
     const stamp = ["aggression", "justice", "protection", "leadership", "pool", "basic"].includes(aspect)
-      ? aspectStampOf(aspect as CoreAspect)
+      ? aspectStampOf(aspect as CoreAspect, artLanguageNow())
       : null;
     const badge: Rect = {
       x: row.x + row.width - 8 - rightWidth + 6,

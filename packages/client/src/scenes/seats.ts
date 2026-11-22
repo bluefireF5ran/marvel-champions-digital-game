@@ -1463,7 +1463,7 @@ export class SeatsScene extends Phaser.Scene {
         (t): t is string => typeof t === "string",
       ),
       secondary: [
-        ...deck.aspects.map((a) => aspectLabelOf([a])),
+        ...deck.aspects.map((a) => aspectLabelOf([a], artLanguageNow())),
         ...sourceWords,
         ...packs.filter((t): t is string => typeof t === "string"),
         ...testedSearchFieldsOf(deck, testedCatalog()),
@@ -1574,7 +1574,7 @@ export class SeatsScene extends Phaser.Scene {
               ? entry.seatIndex + 1
               : null,
         }),
-        stamps: aspectStampsOf(deck.aspects),
+        stamps: aspectStampsOf(deck.aspects, artLanguageNow()),
       };
     });
     this.scene.launch(SCENES.heroDecks, {
@@ -1990,7 +1990,7 @@ export class SeatsScene extends Phaser.Scene {
           : several
             ? t("seats.decksSummary", { count: decks.length, sources: sourceWordsOf(decks) })
             : `${sourceText} · ${option.identityName ?? t("seats.unknownIdentity")}`,
-      stamps: aspectStampsOf(several ? aspects : option.deck.aspects),
+      stamps: aspectStampsOf(several ? aspects : option.deck.aspects, artLanguageNow()),
       blockedBy,
       // Locked: the free way (the villain to beat) and the paid one (tap it to spend points), side by side.
       warning: seatedElsewhere
@@ -2366,7 +2366,7 @@ export class SeatsScene extends Phaser.Scene {
     const aspectChips: HeroChipDef[] = heroAspectsOf(deckOptions.map((option) => option.deck)).map((aspect) => ({
       ...withInfo(this.#aspectInfoOf(aspect as CoreAspect)),
       id: `aspect:${aspect}`,
-      text: aspectLabelOf([aspect]),
+      text: aspectLabelOf([aspect], artLanguageNow()),
       selected: this.#draft.heroFilter.aspect === aspect,
       tint: { fill: aspectStampOf(aspect).fill, ink: aspectStampOf(aspect).ink },
       onClick: () => {

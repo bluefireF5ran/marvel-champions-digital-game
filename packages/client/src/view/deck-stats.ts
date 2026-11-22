@@ -38,6 +38,7 @@ import { artLanguageNow } from "../art/art-source.js";
 import { localizedLabelOf } from "./card-text.js";
 import { t, tPlural, type MessageKey } from "../i18n/translate.js";
 import { aspectName } from "./aspect-stamp.js";
+import type { CardLanguage } from "../art/card-language.js";
 
 /** The card types that can appear in a player deck (`Deck.cards`) — never `hero_identity` or any encounter/villain type. */
 export type PlayerCardType = "ally" | "event" | "support" | "upgrade" | "resource" | "player_side_scheme";
@@ -158,9 +159,12 @@ export function deckStatsOf(deck: Pick<Deck, "cards">, pool: CardPool): DeckStat
 }
 
 /** "40 cards", or "40 cards + 2 permanent" where the deck lists permanent cards the count leaves out. */
-export function deckCountText(stats: Pick<DeckStats, "countedCards" | "permanentCards">): string {
-  const base = tPlural("deck.cards", stats.countedCards);
-  return stats.permanentCards > 0 ? tPlural("deck.permanent", stats.permanentCards, { base }) : base;
+export function deckCountText(
+  stats: Pick<DeckStats, "countedCards" | "permanentCards">,
+  lang: CardLanguage = "en",
+): string {
+  const base = tPlural("deck.cards", stats.countedCards, undefined, lang);
+  return stats.permanentCards > 0 ? tPlural("deck.permanent", stats.permanentCards, { base }, lang) : base;
 }
 
 /** One bar of a cost-curve chart (W1's "Resource curve"): a printed cost, or `capAt` collapsed into an open-ended "N+" bucket. */
@@ -198,7 +202,7 @@ const TYPE_TILE_KEYS: Readonly<Record<PlayerCardType, MessageKey>> = {
   support: "deckTypes.support",
   player_side_scheme: "deckTypes.scheme",
 };
-const typeTileLabel = (type: PlayerCardType): string => t(TYPE_TILE_KEYS[type]);
+const typeTileLabel = (type: PlayerCardType, lang: CardLanguage): string => t(TYPE_TILE_KEYS[type], undefined, lang);
 
 /** One composition-by-type tile ("Events 21", D14's own wording). */
 export interface CompositionTile {
@@ -208,10 +212,10 @@ export interface CompositionTile {
 }
 
 /** `stats.countsByType`, worded and ordered for a composition tile row — every non-empty type, in `TYPE_TILE_KEYS`' own order. */
-export function compositionTilesOf(stats: DeckStats): readonly CompositionTile[] {
+export function compositionTilesOf(stats: DeckStats, lang: CardLanguage = "en"): readonly CompositionTile[] {
   return (Object.keys(TYPE_TILE_KEYS) as PlayerCardType[])
     .filter((type) => (stats.countsByType[type] ?? 0) > 0)
-    .map((type) => ({ id: type, label: typeTileLabel(type), count: stats.countsByType[type]! }));
+    .map((type) => ({ id: type, label: typeTileLabel(type, lang), count: stats.countsByType[type]! }));
 }
 
 /** One line of a grouped deck list: a card's display name, type and printed cost (null for a resource), plus how many copies are in the deck. */
@@ -236,14 +240,14 @@ export interface DeckListGroup {
 }
 
 /** Display order and label for each group — hero first (a player's own signature cards read as "theirs" before the aspect they chose), then the aspects in the picker's own order, `basic` and `pool` last. Empty groups are omitted by `deckListGroupsOf`, so this is a superset of what any one deck shows. */
-const GROUP_ORDER: readonly { readonly key: "hero" | CoreAspect; readonly label: () => string }[] = [
-  { key: "hero", label: () => t("aspect.hero") },
-  { key: "aggression", label: () => aspectName("aggression") },
-  { key: "justice", label: () => aspectName("justice") },
-  { key: "leadership", label: () => aspectName("leadership") },
-  { key: "protection", label: () => aspectName("protection") },
-  { key: "basic", label: () => t("deckList.basicCards") },
-  { key: "pool", label: () => aspectName("pool") },
+const GROUP_ORDER: readonly { readonly key: "hero" | CoreAspect; readonly label: (lang: CardLanguage) => string }[] = [
+  { key: "hero", label: (lang) => t("aspect.hero", undefined, lang) },
+  { key: "aggression", label: (lang) => aspectName("aggression", lang) },
+  { key: "justice", label: (lang) => aspectName("justice", lang) },
+  { key: "leadership", label: (lang) => aspectName("leadership", lang) },
+  { key: "protection", label: (lang) => aspectName("protection", lang) },
+  { key: "basic", label: (lang) => t("deckList.basicCards", undefined, lang) },
+  { key: "pool", label: (lang) => aspectName("pool", lang) },
 ];
 
 /** How a deck's own card list is sorted (issue #594), remembered with the deck builder's view. */
@@ -261,22 +265,24 @@ const DECK_LIST_SORT_LABELS: Readonly<Record<DeckListSort, MessageKey>> = {
 };
 
 /** The sort control's words. */
-export const deckListSortLabel = (sort: DeckListSort): string =>
-  t("deckSort.label", { by: t(DECK_LIST_SORT_LABELS[sort]) });
+export const deckListSortLabel = (sort: DeckListSort, lang: CardLanguage = "en"): string =>
+  t("deckSort.label", { by: t(DECK_LIST_SORT_LABELS[sort], undefined, lang) }, lang);
 
 /** The sort a press of the control moves to. */
 export const nextDeckListSort = (sort: DeckListSort): DeckListSort =>
   DECK_LIST_SORTS[(DECK_LIST_SORTS.indexOf(sort) + 1) % DECK_LIST_SORTS.length]!;
 
-const TYPE_GROUPS: readonly { readonly key: PlayerCardType; readonly label: () => string }[] = (
+const TYPE_GROUPS: readonly { readonly key: PlayerCardType; readonly label: (lang: CardLanguage) => string }[] = (
   ["ally", "event", "support", "upgrade", "resource", "player_side_scheme"] as const
-).map((key) => ({ key, label: () => typeTileLabel(key) }));
+).map((key) => ({ key, label: (lang) => typeTileLabel(key, lang) }));
 
 /** A cost group's number, for its order: X after every printed cost, then the cards with no number to read (a resource, a printed dash or star). */
 const COST_X = Number.MAX_SAFE_INTEGER - 1;
 const NO_COST = Number.MAX_SAFE_INTEGER;
-const costGroupLabel = (rank: number): string =>
-  rank === NO_COST ? t("deckList.noCost") : t("deckList.cost", { cost: rank === COST_X ? "X" : rank });
+const costGroupLabel = (rank: number, lang: CardLanguage): string =>
+  rank === NO_COST
+    ? t("deckList.noCost", undefined, lang)
+    : t("deckList.cost", { cost: rank === COST_X ? "X" : rank }, lang);
 
 /** The lines of an identity's two faces that start the game: "Setup: ..." clauses (both faces, printed text as errata'd). */
 function identitySetupLines(identity: AnyCard | undefined): readonly string[] {
@@ -332,6 +338,8 @@ export function deckListGroupsOf(
   sort: DeckListSort = DEFAULT_DECK_LIST_SORT,
   /** False keeps setup cards in their aspect, for a read by aspect (Deck check's Aspect and Curve tabs). */
   groupSetupCards = true,
+  /** The language of the group titles: English unless a translated screen asks (#390). */
+  lang: CardLanguage = "en",
 ): readonly DeckListGroup[] {
   const byId = new Map(cardsOf(pool).map((card) => [card.id as string, card]));
   const buckets = new Map<string, DeckListEntry[]>();
@@ -373,7 +381,7 @@ export function deckListGroupsOf(
     buckets.set(key, list);
   }
 
-  const setupGroup = setup.length > 0 ? [groupOf(SETUP_GROUP_KEY, t("deckList.setup"), setup)] : [];
+  const setupGroup = setup.length > 0 ? [groupOf(SETUP_GROUP_KEY, t("deckList.setup", undefined, lang), setup)] : [];
   if (sort === "name")
     return [...setupGroup, ...(buckets.size > 0 ? [groupOf("all", "All cards", buckets.get("all")!)] : [])];
   if (sort === "cost")
@@ -381,12 +389,14 @@ export function deckListGroupsOf(
       ...setupGroup,
       ...[...buckets.keys()]
         .sort((a, b) => costRanks.get(a)! - costRanks.get(b)!)
-        .map((key) => groupOf(key, costGroupLabel(costRanks.get(key)!), buckets.get(key)!)),
+        .map((key) => groupOf(key, costGroupLabel(costRanks.get(key)!, lang), buckets.get(key)!)),
     ];
   const order = sort === "type" ? TYPE_GROUPS : GROUP_ORDER;
   return [
     ...setupGroup,
-    ...order.filter(({ key }) => buckets.has(key)).map(({ key, label }) => groupOf(key, label(), buckets.get(key)!)),
+    ...order
+      .filter(({ key }) => buckets.has(key))
+      .map(({ key, label }) => groupOf(key, label(lang), buckets.get(key)!)),
   ];
 }
 
