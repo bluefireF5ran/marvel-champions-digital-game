@@ -29,7 +29,7 @@ describe("Take your seats in Spanish", () => {
   test("a deck row reads in Spanish", () => {
     useSpanish();
     expect(heroDeckRowOf(base)).toMatchObject({
-      source: "Precon.",
+      source: "Precon",
       cards: "40 cartas",
       status: "Válido",
       action: "Asignar",
@@ -51,11 +51,12 @@ describe("Take your seats in Spanish", () => {
     expect(conflictNoticeOf(3)).toBe("3 cartas no se pueden jugar con estos Héroes");
   });
 
-  test("aspects use the Spanish card names, 'Pool stays as printed", () => {
+  test("aspects use the Spanish card names ('Pool is Masacrismo, basic is Básico)", () => {
     useSpanish();
     expect(aspectName("aggression")).toBe("Agresividad");
     expect(aspectName("leadership")).toBe("Liderazgo");
-    expect(aspectName("pool")).toBe("'Pool");
+    expect(aspectName("pool")).toBe("Masacrismo");
+    expect(aspectName("basic")).toBe("Básico");
     expect(aspectStampOf("justice").label).toBe("Justicia");
   });
 

@@ -242,7 +242,7 @@ const GROUP_ORDER: readonly { readonly key: "hero" | CoreAspect; readonly label:
   { key: "justice", label: () => aspectName("justice") },
   { key: "leadership", label: () => aspectName("leadership") },
   { key: "protection", label: () => aspectName("protection") },
-  { key: "basic", label: () => aspectName("basic") },
+  { key: "basic", label: () => t("deckList.basicCards") },
   { key: "pool", label: () => aspectName("pool") },
 ];
 

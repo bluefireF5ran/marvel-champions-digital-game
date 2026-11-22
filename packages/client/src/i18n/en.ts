@@ -486,6 +486,7 @@ export const en = {
   "deckList.noCost": "No cost",
   "deckList.cost": "Cost {cost}",
   "deckList.more": "+ {count} more",
+  "deckList.basicCards": "Basic",
   "deckList.setup": "Setup",
   "deckFaces.alterEgo": "Alter-Ego",
   "deckFaces.heroForm": "Hero form",
