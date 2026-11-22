@@ -90,3 +90,14 @@ export function pluralFrom(
 export function placeholdersOf(text: string): string[] {
   return [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!))].sort();
 }
+
+/**
+ * "a, b and c" in the current language. English keeps the app's own form (no serial comma); other languages use
+ * `Intl.ListFormat` (Spanish "a, b y c", with "e" before an "i" sound).
+ */
+export function listAnd(words: readonly string[], lang: CardLanguage = artLanguageNow()): string {
+  if (lang === "en") {
+    return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+  }
+  return new Intl.ListFormat(lang, { style: "long", type: "conjunction" }).format(words);
+}

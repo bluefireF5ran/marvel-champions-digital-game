@@ -36,6 +36,8 @@ import type { AnyCard, CardId, CoreAspect, Deck, DeckCardEntry } from "@mc/conte
 import { isPermanentCard, type CardPool } from "@mc/engine";
 import { artLanguageNow } from "../art/art-source.js";
 import { localizedLabelOf } from "./card-text.js";
+import { t, tPlural, type MessageKey } from "../i18n/translate.js";
+import { aspectName } from "./aspect-stamp.js";
 
 /** The card types that can appear in a player deck (`Deck.cards`) — never `hero_identity` or any encounter/villain type. */
 export type PlayerCardType = "ally" | "event" | "support" | "upgrade" | "resource" | "player_side_scheme";
@@ -157,8 +159,8 @@ export function deckStatsOf(deck: Pick<Deck, "cards">, pool: CardPool): DeckStat
 
 /** "40 cards", or "40 cards + 2 permanent" where the deck lists permanent cards the count leaves out. */
 export function deckCountText(stats: Pick<DeckStats, "countedCards" | "permanentCards">): string {
-  const base = `${stats.countedCards} cards`;
-  return stats.permanentCards > 0 ? `${base} + ${stats.permanentCards} permanent` : base;
+  const base = tPlural("deck.cards", stats.countedCards);
+  return stats.permanentCards > 0 ? tPlural("deck.permanent", stats.permanentCards, { base }) : base;
 }
 
 /** One bar of a cost-curve chart (W1's "Resource curve"): a printed cost, or `capAt` collapsed into an open-ended "N+" bucket. */
@@ -188,14 +190,15 @@ export function costCurveBars(stats: DeckStats, capAt = 4): readonly CostCurveBa
 }
 
 /** A player-facing label for each `PlayerCardType`'s composition tile ("Events", "Allies" …) — shared by every screen that shows composition-by-type (W1's Deck check and builder panel, W9's Decks & Collection stats pane), so the wording can't drift between them. */
-const TYPE_TILE_LABELS: Readonly<Record<PlayerCardType, string>> = {
-  resource: "Resources",
-  ally: "Allies",
-  event: "Events",
-  upgrade: "Upgrades",
-  support: "Supports",
-  player_side_scheme: "Schemes",
+const TYPE_TILE_KEYS: Readonly<Record<PlayerCardType, MessageKey>> = {
+  resource: "deckTypes.resource",
+  ally: "deckTypes.ally",
+  event: "deckTypes.event",
+  upgrade: "deckTypes.upgrade",
+  support: "deckTypes.support",
+  player_side_scheme: "deckTypes.scheme",
 };
+const typeTileLabel = (type: PlayerCardType): string => t(TYPE_TILE_KEYS[type]);
 
 /** One composition-by-type tile ("Events 21", D14's own wording). */
 export interface CompositionTile {
@@ -204,11 +207,11 @@ export interface CompositionTile {
   readonly count: number;
 }
 
-/** `stats.countsByType`, worded and ordered for a composition tile row — every non-empty type, in `TYPE_TILE_LABELS`' own order. */
+/** `stats.countsByType`, worded and ordered for a composition tile row — every non-empty type, in `TYPE_TILE_KEYS`' own order. */
 export function compositionTilesOf(stats: DeckStats): readonly CompositionTile[] {
-  return (Object.keys(TYPE_TILE_LABELS) as PlayerCardType[])
+  return (Object.keys(TYPE_TILE_KEYS) as PlayerCardType[])
     .filter((type) => (stats.countsByType[type] ?? 0) > 0)
-    .map((type) => ({ id: type, label: TYPE_TILE_LABELS[type], count: stats.countsByType[type]! }));
+    .map((type) => ({ id: type, label: typeTileLabel(type), count: stats.countsByType[type]! }));
 }
 
 /** One line of a grouped deck list: a card's display name, type and printed cost (null for a resource), plus how many copies are in the deck. */
@@ -233,14 +236,14 @@ export interface DeckListGroup {
 }
 
 /** Display order and label for each group — hero first (a player's own signature cards read as "theirs" before the aspect they chose), then the aspects in the picker's own order, `basic` and `pool` last. Empty groups are omitted by `deckListGroupsOf`, so this is a superset of what any one deck shows. */
-const GROUP_ORDER: readonly { readonly key: "hero" | CoreAspect; readonly label: string }[] = [
-  { key: "hero", label: "Hero" },
-  { key: "aggression", label: "Aggression" },
-  { key: "justice", label: "Justice" },
-  { key: "leadership", label: "Leadership" },
-  { key: "protection", label: "Protection" },
-  { key: "basic", label: "Basic" },
-  { key: "pool", label: "'Pool" },
+const GROUP_ORDER: readonly { readonly key: "hero" | CoreAspect; readonly label: () => string }[] = [
+  { key: "hero", label: () => t("aspect.hero") },
+  { key: "aggression", label: () => aspectName("aggression") },
+  { key: "justice", label: () => aspectName("justice") },
+  { key: "leadership", label: () => aspectName("leadership") },
+  { key: "protection", label: () => aspectName("protection") },
+  { key: "basic", label: () => aspectName("basic") },
+  { key: "pool", label: () => aspectName("pool") },
 ];
 
 /** How a deck's own card list is sorted (issue #594), remembered with the deck builder's view. */
@@ -250,29 +253,30 @@ export const DECK_LIST_SORTS: readonly DeckListSort[] = ["aspect", "type", "cost
 
 export const DEFAULT_DECK_LIST_SORT: DeckListSort = "aspect";
 
-const DECK_LIST_SORT_LABELS: Readonly<Record<DeckListSort, string>> = {
-  aspect: "Aspect",
-  type: "Type",
-  cost: "Cost",
-  name: "Name",
+const DECK_LIST_SORT_LABELS: Readonly<Record<DeckListSort, MessageKey>> = {
+  aspect: "deckSort.aspect",
+  type: "deckSort.type",
+  cost: "deckSort.cost",
+  name: "deckSort.name",
 };
 
 /** The sort control's words. */
-export const deckListSortLabel = (sort: DeckListSort): string => `Sort: ${DECK_LIST_SORT_LABELS[sort]}`;
+export const deckListSortLabel = (sort: DeckListSort): string =>
+  t("deckSort.label", { by: t(DECK_LIST_SORT_LABELS[sort]) });
 
 /** The sort a press of the control moves to. */
 export const nextDeckListSort = (sort: DeckListSort): DeckListSort =>
   DECK_LIST_SORTS[(DECK_LIST_SORTS.indexOf(sort) + 1) % DECK_LIST_SORTS.length]!;
 
-const TYPE_GROUPS: readonly { readonly key: PlayerCardType; readonly label: string }[] = (
+const TYPE_GROUPS: readonly { readonly key: PlayerCardType; readonly label: () => string }[] = (
   ["ally", "event", "support", "upgrade", "resource", "player_side_scheme"] as const
-).map((key) => ({ key, label: TYPE_TILE_LABELS[key] }));
+).map((key) => ({ key, label: () => typeTileLabel(key) }));
 
 /** A cost group's number, for its order: X after every printed cost, then the cards with no number to read (a resource, a printed dash or star). */
 const COST_X = Number.MAX_SAFE_INTEGER - 1;
 const NO_COST = Number.MAX_SAFE_INTEGER;
 const costGroupLabel = (rank: number): string =>
-  rank === NO_COST ? "No cost" : rank === COST_X ? "Cost X" : `Cost ${rank}`;
+  rank === NO_COST ? t("deckList.noCost") : t("deckList.cost", { cost: rank === COST_X ? "X" : rank });
 
 /** The lines of an identity's two faces that start the game: "Setup: ..." clauses (both faces, printed text as errata'd). */
 function identitySetupLines(identity: AnyCard | undefined): readonly string[] {
@@ -369,7 +373,7 @@ export function deckListGroupsOf(
     buckets.set(key, list);
   }
 
-  const setupGroup = setup.length > 0 ? [groupOf(SETUP_GROUP_KEY, "Setup", setup)] : [];
+  const setupGroup = setup.length > 0 ? [groupOf(SETUP_GROUP_KEY, t("deckList.setup"), setup)] : [];
   if (sort === "name")
     return [...setupGroup, ...(buckets.size > 0 ? [groupOf("all", "All cards", buckets.get("all")!)] : [])];
   if (sort === "cost")
@@ -382,7 +386,7 @@ export function deckListGroupsOf(
   const order = sort === "type" ? TYPE_GROUPS : GROUP_ORDER;
   return [
     ...setupGroup,
-    ...order.filter(({ key }) => buckets.has(key)).map(({ key, label }) => groupOf(key, label, buckets.get(key)!)),
+    ...order.filter(({ key }) => buckets.has(key)).map(({ key, label }) => groupOf(key, label(), buckets.get(key)!)),
   ];
 }
 

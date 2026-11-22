@@ -12,6 +12,7 @@ import type { DeckOption } from "./deck-list-model.js";
 import type { SeatOption } from "./seats.js";
 import { qualifiedHeroName } from "./hero-names.js";
 import { aspectName } from "./aspect-stamp.js";
+import { t } from "../i18n/translate.js";
 
 export interface SeatSlot {
   readonly index: number;
@@ -116,7 +117,7 @@ export function heroCandidateDetailOf(
   const nemesisSetId = identity?.type === "hero_identity" ? (identity.nemesisEncounterSetId as string) : undefined;
   const nemesisSet = nemesisSetId ? encounterSets.find((set) => (set.id as string) === nemesisSetId) : undefined;
   return {
-    identityName: stats.identityName ?? option.identityName ?? "unknown identity",
+    identityName: stats.identityName ?? option.identityName ?? t("seats.unknownIdentity"),
     aspectLabel: aspectLabelOf(option.deck.aspects),
     hp: stats.hp,
     handSize: stats.handSize,
@@ -166,7 +167,7 @@ export function activeSeatRosterOf(
         deckId: option.deckId,
         seatIndex,
         isActiveSeat,
-        blockedBy: `Already seated · Seat ${seatIndex + 1}`,
+        blockedBy: t("seats.alreadySeated", { seat: seatIndex + 1 }),
         warning: option.warning,
       };
     }

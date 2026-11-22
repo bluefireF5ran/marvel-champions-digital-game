@@ -29,6 +29,7 @@ import { accent, border, hit, ink, signal, surface, typeRole } from "../tokens.j
 import { bindHoldTarget } from "./hold-target.js";
 import { fitText, label, paintPanel } from "./widgets.js";
 import { textStyle } from "./theme.js";
+import { t } from "../i18n/translate.js";
 
 /**
  * The colored cost badge a card pool/list row draws (the board's own hand and
@@ -370,7 +371,7 @@ export function drawGroupedCardList(
     y += 4;
   }
   if (overflow > 0) {
-    scene.add.text(left, y, `+ ${overflow} more`, textStyle(typeRole.body, bodyColor, ink.meta));
+    scene.add.text(left, y, t("deckList.more", { count: overflow }), textStyle(typeRole.body, bodyColor, ink.meta));
     y += 18;
   }
   return y + 8;
